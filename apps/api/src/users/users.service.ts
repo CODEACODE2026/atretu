@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { RoleCode, UserStatus, type User } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service.js";
 
@@ -12,7 +12,7 @@ export type AuthUser = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async findByEmailWithPassword(email: string): Promise<
     | (User & {

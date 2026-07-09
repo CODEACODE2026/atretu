@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   HttpCode,
+  Inject,
   Post,
   Req,
   Res,
@@ -29,9 +30,13 @@ import { RolesGuard } from "./roles.guard.js";
 @Controller("auth")
 export class AuthController {
   constructor(
+    @Inject(AuthService)
     private readonly authService: AuthService,
+    @Inject(SecurityAuditService)
     private readonly audit: SecurityAuditService,
+    @Inject(AppConfigService)
     private readonly config: AppConfigService,
+    @Inject(RateLimitService)
     private readonly rateLimit: RateLimitService,
   ) {}
 

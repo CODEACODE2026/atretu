@@ -23,17 +23,20 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.1.28",
     "@nestjs/throttler": "^6.5.0",
+    "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
+    "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
+    "@types/pg": "^8.20.0",
     "prisma": "^7.8.0",
     "tsx": "^4.19.2"
   }

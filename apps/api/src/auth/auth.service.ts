@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -18,8 +19,11 @@ export type JwtPayload = {
 @Injectable()
 export class AuthService {
   constructor(
+    @Inject(AppConfigService)
     private readonly config: AppConfigService,
+    @Inject(JwtService)
     private readonly jwtService: JwtService,
+    @Inject(UsersService)
     private readonly usersService: UsersService,
   ) {}
 

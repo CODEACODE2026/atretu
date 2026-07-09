@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from "@nestjs/common";
+import { HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
 import { AppConfigService } from "../config/app-config.service.js";
 
 type AttemptBucket = {
@@ -10,7 +10,7 @@ type AttemptBucket = {
 export class RateLimitService {
   private readonly buckets = new Map<string, AttemptBucket>();
 
-  constructor(private readonly config: AppConfigService) {}
+  constructor(@Inject(AppConfigService) private readonly config: AppConfigService) {}
 
   assertAllowed(key: string): void {
     const now = Date.now();

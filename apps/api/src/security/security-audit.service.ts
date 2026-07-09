@@ -1,10 +1,10 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { AuditEventType } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service.js";
 
 @Injectable()
 export class SecurityAuditService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async record(input: {
     eventType: AuditEventType;

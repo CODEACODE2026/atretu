@@ -2,11 +2,12 @@ import "reflect-metadata";
 import cookieParser from "cookie-parser";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { ExpressAdapter } from "@nestjs/platform-express";
 import { AppModule } from "./app.module.js";
 import { AppConfigService } from "./config/app-config.service.js";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, new ExpressAdapter());
   const config = app.get(AppConfigService).values;
 
   app.use(cookieParser());
