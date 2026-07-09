@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleCode {
+  SUPER_ADMIN
+  SECRETARIA
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AuditEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  LOGOUT
+  ACCESS_DENIED
+  ADMIN_BOOTSTRAP
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String     @db.VarChar(120)
+  email        String     @unique @db.VarChar(180)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  roles        UserRole[]
+  auditLogs    SecurityAuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(uuid()) @db.Uuid
+  code        RoleCode   @unique
+  description String     @db.VarChar(180)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model SecurityAuditLog {
+  id        String         @id @default(uuid()) @db.Uuid
+  eventType AuditEventType @map("event_type")
+  userId    String?        @map("user_id") @db.Uuid
+  email     String?        @db.VarChar(180)
+  ip        String?        @db.VarChar(80)
+  userAgent String?        @map("user_agent") @db.VarChar(255)
+  metadata  Json?
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
+  @@map("security_audit_logs")
+}
