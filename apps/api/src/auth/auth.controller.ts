@@ -21,6 +21,7 @@ import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./current-user.decorator.js";
 import { BootstrapAdminDto } from "./dto/bootstrap-admin.dto.js";
+import { CreateAdminUserDto } from "./dto/create-admin-user.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
 import { Roles } from "./roles.decorator.js";
 import { RolesGuard } from "./roles.guard.js";
@@ -140,6 +141,20 @@ export class AuthController {
   @Roles(RoleCode.SUPER_ADMIN)
   adminCheck() {
     return { ok: true };
+  }
+
+  @Post("users")
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(RoleCode.SUPER_ADMIN)
+  async createAdminUser(@Body() body: CreateAdminUserDto) {
+    const user = await this.authService.createAdministrativeUser({
+      name: body.name,
+      email: body.email,
+      password: body.password,
+      role: body.role,
+    });
+
+    return { user };
   }
 
   @Get("operational-check")

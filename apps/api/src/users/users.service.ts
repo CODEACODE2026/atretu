@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import { RoleCode, UserStatus, type User } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service.js";
 
@@ -59,6 +59,15 @@ export class UsersService {
     passwordHash: string;
     role: RoleCode;
   }): Promise<AuthUser> {
+    const existing = await this.prisma.user.findUnique({
+      where: { email: input.email.toLowerCase() },
+      select: { id: true },
+    });
+
+    if (existing) {
+      throw new ConflictException("Usuario ja cadastrado");
+    }
+
     const user = await this.prisma.$transaction(async (tx) => {
       const role = await tx.role.upsert({
         where: { code: input.role },

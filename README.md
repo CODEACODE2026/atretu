@@ -3,7 +3,7 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 0: setup tecnico inicial.
+Sprint 1: base de seguranca, autenticacao e permissoes em andamento.
 
 Este repositorio ainda nao implementa regras de negocio. A Sprint 0 prepara apenas a base tecnica do projeto.
 
@@ -30,10 +30,41 @@ packages/
 npm install
 npm run typecheck
 npm run build
+npm run test
 npm run validate
 ```
 
-## Limites da Sprint 0
+## Autenticacao administrativa
+
+A Sprint 1 usa cookie `HttpOnly` para transportar o token administrativo entre
+frontend e API. O frontend deve chamar a API com `credentials: include` e nao
+armazenar o token em `localStorage`.
+
+Rotas iniciais:
+
+- `POST /auth/bootstrap/super-admin`
+- `POST /auth/login`
+- `GET /auth/me`
+- `POST /auth/logout`
+- `GET /auth/admin-check`
+- `GET /auth/operational-check`
+- `POST /auth/users` restrita ao Super Admin
+
+O bootstrap do primeiro Super Admin exige o header:
+
+```text
+x-admin-setup-token: valor_do_ADMIN_SETUP_TOKEN
+```
+
+Smoke de autenticacao, com API e banco ja disponiveis:
+
+```bash
+npm --prefix apps/api run prisma:migrate
+npm --prefix apps/api run start
+ADMIN_SETUP_TOKEN=... npm --prefix apps/api run smoke:auth
+```
+
+## Limites atuais
 - Nao ha regras de negocio.
 - Nao ha modulos funcionais.
 - Nao ha migrations de dominio.
@@ -48,4 +79,3 @@ Os documentos de planejamento estao no AI Office:
 ```text
 /opt/codeacode/ai-office/projects/atretu
 ```
-

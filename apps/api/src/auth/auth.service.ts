@@ -72,6 +72,24 @@ export class AuthService {
     });
   }
 
+  async createAdministrativeUser(input: {
+    name: string;
+    email: string;
+    password: string;
+    role: RoleCode;
+  }): Promise<AuthUser> {
+    if (input.role !== RoleCode.SUPER_ADMIN && input.role !== RoleCode.SECRETARIA) {
+      throw new ConflictException("Perfil administrativo invalido");
+    }
+
+    return this.usersService.createUserWithRole({
+      name: input.name,
+      email: input.email,
+      passwordHash: await this.hashPassword(input.password),
+      role: input.role,
+    });
+  }
+
   async signToken(user: AuthUser): Promise<string> {
     const payload: JwtPayload = {
       sub: user.id,
