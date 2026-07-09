@@ -10,8 +10,8 @@ function resetEnv(overrides: NodeJS.ProcessEnv): void {
     API_PORT: "3333",
     CORS_ORIGINS: "http://localhost:3000",
     DATABASE_URL: "postgresql://atretu:atretu@localhost:5432/atretu_test",
-    JWT_SECRET: "test-secret-with-enough-length",
-    ADMIN_SETUP_TOKEN: "test-admin-token-with-enough-length",
+    JWT_SECRET: "test-secret-with-more-than-thirty-two-characters",
+    ADMIN_SETUP_TOKEN: "test-admin-token-with-more-than-thirty-two-characters",
     ...overrides,
   };
 }
