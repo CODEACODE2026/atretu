@@ -24,6 +24,18 @@ enum AuditEventType {
   ADMIN_BOOTSTRAP
 }
 
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AdministrativeAuditEventType {
+  BASE_RECORD_CREATED
+  BASE_RECORD_UPDATED
+  BASE_RECORD_INACTIVATED
+  BASE_RECORD_REACTIVATED
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   name         String     @db.VarChar(120)
@@ -35,6 +47,7 @@ model User {
   lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
   roles        UserRole[]
   auditLogs    SecurityAuditLog[]
+  administrativeAuditLogs AdministrativeAuditLog[]
 
   @@map("users")
 }
@@ -74,4 +87,60 @@ model SecurityAuditLog {
   @@index([eventType, createdAt])
   @@index([userId, createdAt])
   @@map("security_audit_logs")
+}
+
+model Institution {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String       @db.VarChar(140)
+  normalizedName String       @unique @map("normalized_name") @db.VarChar(140)
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, name])
+  @@index([createdAt])
+  @@map("institutions")
+}
+
+model Shift {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String       @db.VarChar(80)
+  normalizedName String       @unique @map("normalized_name") @db.VarChar(80)
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, name])
+  @@index([createdAt])
+  @@map("shifts")
+}
+
+model Bus {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String       @db.VarChar(100)
+  normalizedName String       @unique @map("normalized_name") @db.VarChar(100)
+  capacity       Int
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, name])
+  @@index([createdAt])
+  @@map("buses")
+}
+
+model AdministrativeAuditLog {
+  id        String                       @id @default(uuid()) @db.Uuid
+  eventType AdministrativeAuditEventType @map("event_type")
+  userId    String?                      @map("user_id") @db.Uuid
+  domain    String                       @db.VarChar(40)
+  recordId  String                       @map("record_id") @db.Uuid
+  metadata  Json?
+  createdAt DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User?                        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([domain, recordId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
+  @@map("administrative_audit_logs")
 }
