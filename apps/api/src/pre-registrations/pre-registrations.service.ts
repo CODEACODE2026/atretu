@@ -1,11 +1,15 @@
 import {
   BadRequestException,
   ConflictException,
+  GoneException,
   Inject,
   Injectable,
+  NotFoundException,
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  PreRegistrationDocumentStatus,
+  PreRegistrationStatus,
   Prisma,
   RecordStatus,
   StudentDocumentType,
@@ -17,9 +21,15 @@ import {
   validateDocumentFile,
   type UploadedDocumentFile,
 } from "../documents/document-file.js";
+import { FileDisposition } from "../documents/dto/documents.dto.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import { RateLimitService } from "../security/rate-limit.service.js";
-import { isValidCpf, normalizeCpf } from "../students/cpf.js";
+import { isValidCpf, maskCpf, normalizeCpf } from "../students/cpf.js";
+import {
+  ListPreRegistrationsDto,
+  PreRegistrationSort,
+  PreRegistrationSortOrder,
+} from "./dto/pre-registration-admin.dto.js";
 import { CreatePublicPreRegistrationDto } from "./dto/pre-registration-public.dto.js";
 
 type PublicDocumentFiles = Partial<Record<PublicDocumentField, Express.Multer.File>>;
@@ -190,6 +200,274 @@ export class PreRegistrationsService {
     }
   }
 
+  async listPreRegistrations(query: ListPreRegistrationsDto) {
+    const where = this.buildListWhere(query);
+    const orderBy = this.buildListOrderBy(query);
+    const skip = (query.page - 1) * query.limit;
+    const [data, total] = await Promise.all([
+      this.prisma.publicPreRegistration.findMany({
+        where,
+        orderBy,
+        skip,
+        take: query.limit,
+        include: this.summaryInclude(),
+      }),
+      this.prisma.publicPreRegistration.count({ where }),
+    ]);
+
+    return {
+      data: data.map((item) => this.toSummary(item)),
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
+  }
+
+  async getPreRegistration(id: string) {
+    const record = await this.prisma.publicPreRegistration.findUnique({
+      where: { id },
+      include: this.detailInclude(),
+    });
+    if (!record) {
+      throw new NotFoundException("Pre-cadastro nao encontrado");
+    }
+    return this.toDetail(record);
+  }
+
+  async getPreRegistrationDocumentFile(input: {
+    preRegistrationId: string;
+    documentId: string;
+    userId: string;
+    disposition: FileDisposition;
+  }) {
+    const document = await this.prisma.preRegistrationDocument.findFirst({
+      where: { id: input.documentId, preRegistrationId: input.preRegistrationId },
+    });
+    if (!document) {
+      throw new NotFoundException("Documento nao encontrado");
+    }
+    if (document.status === PreRegistrationDocumentStatus.REMOVED) {
+      throw new GoneException("Documento removido");
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await this.storage.read(document.storageKey);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new GoneException("Arquivo nao encontrado no storage");
+      }
+      throw error;
+    }
+
+    await this.prisma.administrativeAuditLog.create({
+      data: {
+        eventType: AdministrativeAuditEventType.PRE_REGISTRATION_DOCUMENT_VIEWED,
+        userId: input.userId,
+        domain: "pre_registration_documents",
+        recordId: input.documentId,
+        metadata: {
+          preRegistrationId: input.preRegistrationId,
+          documentId: input.documentId,
+          documentType: document.documentType,
+          action: input.disposition,
+        },
+      },
+    });
+
+    return {
+      buffer,
+      fileName: this.downloadFileName(document.documentType, document.extension),
+      mimeType: document.mimeType,
+      sizeBytes: document.sizeBytes,
+      disposition: input.disposition,
+    };
+  }
+
+  async approvePreRegistration(id: string, userId: string) {
+    try {
+      const approvedId = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "public_pre_registrations" WHERE "id" = ${id}::uuid FOR UPDATE`;
+        const record = await tx.publicPreRegistration.findUnique({
+          where: { id },
+          include: { documents: true },
+        });
+        if (!record) {
+          throw new NotFoundException("Pre-cadastro nao encontrado");
+        }
+        if (record.status !== PreRegistrationStatus.PENDING) {
+          throw new BadRequestException("Pre-cadastro ja analisado");
+        }
+
+        await this.ensureApprovalReferences(record, tx);
+        const existingPerson = await tx.person.findUnique({
+          where: { cpf: record.cpf },
+        });
+        if (existingPerson) {
+          throw new ConflictException("CPF ja cadastrado");
+        }
+
+        const person = await tx.person.create({
+          data: {
+            fullName: record.fullName,
+            normalizedName: record.normalizedName,
+            cpf: record.cpf,
+            rg: record.rg,
+            birthDate: record.birthDate,
+            phone: record.phone,
+            email: record.email,
+            addressStreet: record.addressStreet,
+            addressNumber: record.addressNumber,
+            addressNeighborhood: record.addressNeighborhood,
+            addressCity: record.addressCity,
+          },
+        });
+
+        const student = await tx.student.create({
+          data: {
+            personId: person.id,
+            guardian: record.guardianFullName
+              ? {
+                  create: {
+                    fullName: record.guardianFullName,
+                    cpf: record.guardianCpf,
+                    rg: record.guardianRg,
+                  },
+                }
+              : undefined,
+            enrollments: {
+              create: {
+                academicYearId: record.academicYearId,
+                institutionId: record.institutionId,
+                shiftId: record.shiftId,
+                course: record.course,
+                grade: record.grade,
+              },
+            },
+          },
+          include: { enrollments: { take: 1 } },
+        });
+
+        for (const document of record.documents.filter(
+          (item) => item.status === PreRegistrationDocumentStatus.UPLOADED,
+        )) {
+          const studentDocument = await tx.studentDocument.create({
+            data: {
+              studentId: student.id,
+              documentType: document.documentType,
+              storageKey: document.storageKey,
+              originalFileName: document.originalFileName,
+              storedFileName: document.storedFileName,
+              mimeType: document.mimeType,
+              extension: document.extension,
+              sizeBytes: document.sizeBytes,
+              checksumSha256: document.checksumSha256,
+              uploadedByUserId: userId,
+            },
+          });
+          await tx.preRegistrationDocument.update({
+            where: { id: document.id },
+            data: {
+              status: PreRegistrationDocumentStatus.PROMOTED,
+              promotedToStudentDocumentId: studentDocument.id,
+            },
+          });
+          await tx.administrativeAuditLog.create({
+            data: {
+              eventType:
+                AdministrativeAuditEventType.PRE_REGISTRATION_DOCUMENT_PROMOTED,
+              userId,
+              domain: "pre_registration_documents",
+              recordId: document.id,
+              metadata: {
+                preRegistrationId: record.id,
+                documentId: document.id,
+                studentDocumentId: studentDocument.id,
+                studentId: student.id,
+                documentType: document.documentType,
+                action: "promoted",
+              },
+            },
+          });
+        }
+
+        await tx.publicPreRegistration.update({
+          where: { id: record.id },
+          data: {
+            status: PreRegistrationStatus.APPROVED,
+            reviewedByUserId: userId,
+            reviewedAt: new Date(),
+            approvedStudentId: student.id,
+          },
+        });
+
+        await tx.administrativeAuditLog.create({
+          data: {
+            eventType: AdministrativeAuditEventType.PRE_REGISTRATION_APPROVED,
+            userId,
+            domain: "pre_registrations",
+            recordId: record.id,
+            metadata: {
+              preRegistrationId: record.id,
+              studentId: student.id,
+              enrollmentId: student.enrollments[0]?.id ?? "",
+              action: "approved",
+            },
+          },
+        });
+
+        return record.id;
+      });
+
+      return this.getPreRegistration(approvedId);
+    } catch (error) {
+      this.handleCreateError(error);
+    }
+  }
+
+  async rejectPreRegistration(id: string, reason: string, userId: string) {
+    const rejectedId = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "public_pre_registrations" WHERE "id" = ${id}::uuid FOR UPDATE`;
+      const record = await tx.publicPreRegistration.findUnique({ where: { id } });
+      if (!record) {
+        throw new NotFoundException("Pre-cadastro nao encontrado");
+      }
+      if (record.status !== PreRegistrationStatus.PENDING) {
+        throw new BadRequestException("Pre-cadastro ja analisado");
+      }
+
+      const rejected = await tx.publicPreRegistration.update({
+        where: { id },
+        data: {
+          status: PreRegistrationStatus.REJECTED,
+          reviewedByUserId: userId,
+          reviewedAt: new Date(),
+          rejectionReason: reason,
+        },
+      });
+
+      await tx.administrativeAuditLog.create({
+        data: {
+          eventType: AdministrativeAuditEventType.PRE_REGISTRATION_REJECTED,
+          userId,
+          domain: "pre_registrations",
+          recordId: rejected.id,
+          metadata: {
+            preRegistrationId: rejected.id,
+            action: "rejected",
+          },
+        },
+      });
+
+      return rejected.id;
+    });
+
+    return this.getPreRegistration(rejectedId);
+  }
+
   private async preparePreRegistration(
     body: CreatePublicPreRegistrationDto,
     cpf: string,
@@ -300,6 +578,160 @@ export class PreRegistrationsService {
     }
   }
 
+  private async ensureApprovalReferences(
+    record: ApprovalRecord,
+    tx: Prisma.TransactionClient,
+  ) {
+    const [academicYear, institution, shift] = await Promise.all([
+      tx.academicYear.findUnique({ where: { id: record.academicYearId } }),
+      tx.institution.findUnique({ where: { id: record.institutionId } }),
+      tx.shift.findUnique({ where: { id: record.shiftId } }),
+    ]);
+    if (!academicYear) {
+      throw new BadRequestException("Ano Letivo invalido");
+    }
+    if (!institution || institution.status !== RecordStatus.ACTIVE) {
+      throw new BadRequestException("Instituicao ativa obrigatoria");
+    }
+    if (!shift || shift.status !== RecordStatus.ACTIVE) {
+      throw new BadRequestException("Turno ativo obrigatorio");
+    }
+  }
+
+  private buildListWhere(query: ListPreRegistrationsDto) {
+    const where: Prisma.PublicPreRegistrationWhereInput = {
+      status: query.status,
+    };
+    if (query.search) {
+      const cpf = normalizeCpf(query.search);
+      const normalizedName = this.normalizeName(query.search);
+      where.OR = [
+        { publicCode: { contains: query.search, mode: "insensitive" } },
+        { normalizedName: { contains: normalizedName } },
+        ...(cpf ? [{ cpf: { contains: cpf } }] : []),
+      ];
+    }
+    return where;
+  }
+
+  private buildListOrderBy(
+    query: ListPreRegistrationsDto,
+  ): Prisma.PublicPreRegistrationOrderByWithRelationInput[] {
+    const direction: Prisma.SortOrder =
+      query.order === PreRegistrationSortOrder.ASC ? "asc" : "desc";
+    if (query.sort === PreRegistrationSort.NAME) {
+      return [{ normalizedName: direction }, { createdAt: "desc" }];
+    }
+    if (query.sort === PreRegistrationSort.STATUS) {
+      return [{ status: direction }, { createdAt: "desc" }];
+    }
+    return [{ createdAt: direction }, { normalizedName: "asc" }];
+  }
+
+  private summaryInclude() {
+    return {
+      academicYear: true,
+      institution: true,
+      shift: true,
+    } satisfies Prisma.PublicPreRegistrationInclude;
+  }
+
+  private detailInclude() {
+    return {
+      academicYear: true,
+      institution: true,
+      shift: true,
+      documents: { orderBy: [{ documentType: "asc" }, { createdAt: "desc" }] },
+      reviewedBy: { select: { id: true, name: true, email: true } },
+      approvedStudent: {
+        select: {
+          id: true,
+          person: { select: { fullName: true, cpf: true } },
+        },
+      },
+    } satisfies Prisma.PublicPreRegistrationInclude;
+  }
+
+  private toSummary(record: PreRegistrationSummaryRecord) {
+    return {
+      id: record.id,
+      publicCode: record.publicCode,
+      status: record.status,
+      fullName: record.fullName,
+      cpfMasked: maskCpf(record.cpf),
+      academicYear: record.academicYear,
+      institution: record.institution,
+      shift: record.shift,
+      course: record.course,
+      grade: record.grade,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      reviewedAt: record.reviewedAt,
+    };
+  }
+
+  private toDetail(record: PreRegistrationDetailRecord) {
+    return {
+      id: record.id,
+      publicCode: record.publicCode,
+      status: record.status,
+      fullName: record.fullName,
+      cpf: record.cpf,
+      rg: record.rg,
+      birthDate: record.birthDate,
+      phone: record.phone,
+      email: record.email,
+      addressStreet: record.addressStreet,
+      addressNumber: record.addressNumber,
+      addressNeighborhood: record.addressNeighborhood,
+      addressCity: record.addressCity,
+      guardian: record.guardianFullName
+        ? {
+            fullName: record.guardianFullName,
+            cpf: record.guardianCpf,
+            rg: record.guardianRg,
+          }
+        : null,
+      academicYear: record.academicYear,
+      institution: record.institution,
+      shift: record.shift,
+      course: record.course,
+      grade: record.grade,
+      documents: record.documents.map((document) => ({
+        id: document.id,
+        documentType: document.documentType,
+        mimeType: document.mimeType,
+        extension: document.extension,
+        sizeBytes: document.sizeBytes,
+        checksumSha256: document.checksumSha256,
+        status: document.status,
+        promotedToStudentDocumentId: document.promotedToStudentDocumentId,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+      })),
+      reviewedBy: record.reviewedBy,
+      reviewedAt: record.reviewedAt,
+      rejectionReason: record.rejectionReason,
+      approvedStudent: record.approvedStudent
+        ? {
+            id: record.approvedStudent.id,
+            fullName: record.approvedStudent.person.fullName,
+            cpfMasked: maskCpf(record.approvedStudent.person.cpf),
+          }
+        : null,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  private downloadFileName(
+    documentType: StudentDocumentType,
+    extension: string,
+  ): string {
+    const date = new Date().toISOString().slice(0, 10);
+    return `atretu-pre-cadastro-${documentType.toLowerCase()}-${date}.${extension}`;
+  }
+
   private buildPreRegistrationStorageKey(input: {
     preRegistrationId: string;
     documentType: StudentDocumentType;
@@ -360,3 +792,15 @@ export class PreRegistrationsService {
     throw error;
   }
 }
+
+type ApprovalRecord = Prisma.PublicPreRegistrationGetPayload<{
+  include: { documents: true };
+}>;
+
+type PreRegistrationSummaryRecord = Prisma.PublicPreRegistrationGetPayload<{
+  include: { academicYear: true; institution: true; shift: true };
+}>;
+
+type PreRegistrationDetailRecord = Prisma.PublicPreRegistrationGetPayload<{
+  include: ReturnType<PreRegistrationsService["detailInclude"]>;
+}>;
