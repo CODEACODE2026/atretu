@@ -18,5 +18,6 @@ import { DocumentsService } from "./documents.service.js";
   ],
   controllers: [DocumentsController],
   providers: [DocumentStorageService, DocumentsService],
+  exports: [DocumentStorageService],
 })
 export class DocumentsModule {}

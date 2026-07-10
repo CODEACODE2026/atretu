@@ -8,6 +8,7 @@ import { AppConfigModule } from "./config/app-config.module.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
 import { HealthController } from "./health.controller.js";
+import { PreRegistrationsModule } from "./pre-registrations/pre-registrations.module.js";
 import { StudentsModule } from "./students/students.module.js";
 
 @Module({
@@ -18,6 +19,7 @@ import { StudentsModule } from "./students/students.module.js";
     BaseRecordsModule,
     BusAssignmentsModule,
     DocumentsModule,
+    PreRegistrationsModule,
     StudentsModule,
   ],
   controllers: [HealthController],
