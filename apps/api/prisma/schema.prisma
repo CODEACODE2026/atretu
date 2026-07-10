@@ -34,6 +34,22 @@ enum AdministrativeAuditEventType {
   BASE_RECORD_UPDATED
   BASE_RECORD_INACTIVATED
   BASE_RECORD_REACTIVATED
+  STUDENT_CREATED
+  PERSON_UPDATED
+  GUARDIAN_UPDATED
+  ENROLLMENT_CREATED
+  ENROLLMENT_UPDATED
+  ACADEMIC_YEAR_CREATED
+  ACADEMIC_YEAR_UPDATED
+  ACADEMIC_YEAR_CURRENT_CHANGED
+}
+
+enum StudentStatus {
+  ACTIVE
+}
+
+enum EnrollmentStatus {
+  ACTIVE
 }
 
 model User {
@@ -96,6 +112,7 @@ model Institution {
   status         RecordStatus @default(ACTIVE)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollments    Enrollment[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -109,6 +126,7 @@ model Shift {
   status         RecordStatus @default(ACTIVE)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollments    Enrollment[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -143,4 +161,97 @@ model AdministrativeAuditLog {
   @@index([eventType, createdAt])
   @@index([userId, createdAt])
   @@map("administrative_audit_logs")
+}
+
+model Person {
+  id                  String    @id @default(uuid()) @db.Uuid
+  fullName            String    @map("full_name") @db.VarChar(160)
+  normalizedName      String    @map("normalized_name") @db.VarChar(160)
+  cpf                 String    @db.VarChar(11)
+  rg                  String?   @db.VarChar(30)
+  birthDate           DateTime  @map("birth_date") @db.Date
+  phone               String?   @db.VarChar(30)
+  email               String?   @db.VarChar(180)
+  addressStreet       String    @map("address_street") @db.VarChar(180)
+  addressNumber       String    @map("address_number") @db.VarChar(30)
+  addressNeighborhood String    @map("address_neighborhood") @db.VarChar(120)
+  addressCity         String    @map("address_city") @db.VarChar(120)
+  addressZipCode      String?   @map("address_zip_code") @db.VarChar(20)
+  addressState        String?   @map("address_state") @db.VarChar(2)
+  addressComplement   String?   @map("address_complement") @db.VarChar(120)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student             Student?
+
+  @@unique([cpf])
+  @@index([normalizedName])
+  @@index([createdAt])
+  @@map("people")
+}
+
+model Student {
+  id          String           @id @default(uuid()) @db.Uuid
+  personId    String           @unique @map("person_id") @db.Uuid
+  status      StudentStatus    @default(ACTIVE)
+  joinedAt    DateTime         @default(now()) @map("joined_at") @db.Date
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  person      Person           @relation(fields: [personId], references: [id], onDelete: Restrict)
+  guardian    StudentGuardian?
+  enrollments Enrollment[]
+
+  @@index([status, createdAt])
+  @@index([joinedAt])
+  @@map("students")
+}
+
+model StudentGuardian {
+  id        String   @id @default(uuid()) @db.Uuid
+  studentId String   @unique @map("student_id") @db.Uuid
+  fullName  String   @map("full_name") @db.VarChar(160)
+  cpf       String?  @db.VarChar(11)
+  rg        String?  @db.VarChar(30)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([cpf])
+  @@map("student_guardians")
+}
+
+model AcademicYear {
+  id          String       @id @default(uuid()) @db.Uuid
+  year        Int          @unique
+  isCurrent   Boolean      @default(false) @map("is_current")
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollments Enrollment[]
+
+  @@index([isCurrent])
+  @@index([createdAt])
+  @@map("academic_years")
+}
+
+model Enrollment {
+  id             String           @id @default(uuid()) @db.Uuid
+  studentId      String           @map("student_id") @db.Uuid
+  academicYearId String           @map("academic_year_id") @db.Uuid
+  institutionId  String           @map("institution_id") @db.Uuid
+  shiftId        String           @map("shift_id") @db.Uuid
+  course         String           @db.VarChar(140)
+  grade          String           @db.VarChar(40)
+  status         EnrollmentStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student        Student          @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  institution    Institution      @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  shift          Shift            @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, academicYearId])
+  @@index([academicYearId, status])
+  @@index([institutionId])
+  @@index([shiftId])
+  @@index([createdAt])
+  @@map("enrollments")
 }
