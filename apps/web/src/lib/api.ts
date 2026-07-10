@@ -45,6 +45,112 @@ export type ListRecordsParams = {
   order?: "asc" | "desc";
 };
 
+export type AcademicYear = {
+  id: string;
+  year: number;
+  isCurrent: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StudentSummary = {
+  id: string;
+  status: "ACTIVE";
+  joinedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  person: {
+    id: string;
+    fullName: string;
+    cpfMasked: string;
+  };
+  currentEnrollment: EnrollmentRecord | null;
+};
+
+export type StudentDetail = Omit<StudentSummary, "person" | "currentEnrollment"> & {
+  person: PersonRecord;
+  guardian: GuardianRecord | null;
+  enrollments: EnrollmentRecord[];
+};
+
+export type PersonRecord = {
+  id: string;
+  fullName: string;
+  cpf: string;
+  rg?: string | null;
+  birthDate: string;
+  phone?: string | null;
+  email?: string | null;
+  addressStreet: string;
+  addressNumber: string;
+  addressNeighborhood: string;
+  addressCity: string;
+  addressZipCode?: string | null;
+  addressState?: string | null;
+  addressComplement?: string | null;
+};
+
+export type GuardianRecord = {
+  id: string;
+  fullName: string;
+  cpf?: string | null;
+  rg?: string | null;
+};
+
+export type EnrollmentRecord = {
+  id: string;
+  status: "ACTIVE";
+  course: string;
+  grade: string;
+  academicYear: AcademicYear;
+  institution: BaseRecord;
+  shift: BaseRecord;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StudentPayload = {
+  person: {
+    fullName: string;
+    cpf: string;
+    rg?: string;
+    birthDate: string;
+    phone?: string;
+    email?: string;
+    addressStreet: string;
+    addressNumber: string;
+    addressNeighborhood: string;
+    addressCity: string;
+    addressZipCode?: string;
+    addressState?: string;
+    addressComplement?: string;
+  };
+  guardian?: {
+    fullName: string;
+    cpf?: string;
+    rg?: string;
+  };
+  joinedAt?: string;
+  enrollment: {
+    academicYearId: string;
+    institutionId: string;
+    shiftId: string;
+    course: string;
+    grade: string;
+  };
+};
+
+export type ListStudentsParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  academicYearId?: string;
+  institutionId?: string;
+  shiftId?: string;
+  sort?: "name" | "joinedAt" | "createdAt";
+  order?: "asc" | "desc";
+};
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -68,7 +174,7 @@ async function request<T>(
   return response.json() as Promise<T>;
 }
 
-function withParams(path: string, params: ListRecordsParams = {}) {
+function withParams(path: string, params: Record<string, unknown> = {}) {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== "") {
@@ -185,6 +291,80 @@ export const api = {
   reactivateBus(id: string) {
     return request<BusRecord>(`/buses/${id}/reactivate`, {
       method: "PATCH",
+    });
+  },
+
+  listAcademicYears() {
+    return request<{ data: AcademicYear[] }>("/academic-years");
+  },
+
+  createAcademicYear(body: { year: number; isCurrent?: boolean }) {
+    return request<AcademicYear>("/academic-years", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateAcademicYear(id: string, body: { year: number }) {
+    return request<AcademicYear>(`/academic-years/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  setCurrentAcademicYear(id: string) {
+    return request<AcademicYear>(`/academic-years/${id}/set-current`, {
+      method: "PATCH",
+    });
+  },
+
+  listStudents(params?: ListStudentsParams) {
+    return request<ListResponse<StudentSummary>>(withParams("/students", params));
+  },
+
+  createStudent(body: StudentPayload) {
+    return request<StudentDetail>("/students", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  getStudent(id: string) {
+    return request<StudentDetail>(`/students/${id}`);
+  },
+
+  updateStudentPerson(id: string, body: StudentPayload["person"]) {
+    return request<StudentDetail>(`/students/${id}/person`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateStudentGuardian(
+    id: string,
+    body: { clear?: boolean; guardian?: StudentPayload["guardian"] },
+  ) {
+    return request<StudentDetail>(`/students/${id}/guardian`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  createEnrollment(id: string, body: StudentPayload["enrollment"]) {
+    return request<EnrollmentRecord>(`/students/${id}/enrollments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateEnrollment(
+    id: string,
+    enrollmentId: string,
+    body: Partial<StudentPayload["enrollment"]>,
+  ) {
+    return request<EnrollmentRecord>(`/students/${id}/enrollments/${enrollmentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
     });
   },
 };

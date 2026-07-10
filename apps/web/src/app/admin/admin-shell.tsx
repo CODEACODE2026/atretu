@@ -10,6 +10,8 @@ import {
   type ListRecordsParams,
 } from "../../lib/api";
 import { canAccessRestrictedAdmin, getPrimaryRoleLabel } from "../../lib/auth";
+import { AcademicYearsPanel } from "./academic-years-panel";
+import { StudentsPanel } from "./students-panel";
 
 type DomainKey = "institutions" | "shifts" | "buses";
 type StatusFilter = "active" | "inactive" | "all";
@@ -133,9 +135,43 @@ export function AdminShell() {
           </div>
         ) : null}
 
-        <BaseRecordsPanel />
+        <AdminWorkspace user={user} />
       </section>
     </main>
+  );
+}
+
+function AdminWorkspace({ user }: { user: ApiUser }) {
+  const [area, setArea] = useState<"students" | "years" | "base">("students");
+  const tabs = [
+    { key: "students", label: "Academicos" },
+    { key: "years", label: "Anos Letivos" },
+    { key: "base", label: "Cadastros Base" },
+  ] as const;
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap gap-2">
+        {tabs.map((tab) => (
+          <button
+            className={
+              area === tab.key
+                ? "rounded border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+                : "rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+            }
+            key={tab.key}
+            onClick={() => setArea(tab.key)}
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {area === "students" ? <StudentsPanel /> : null}
+      {area === "years" ? <AcademicYearsPanel user={user} /> : null}
+      {area === "base" ? <BaseRecordsPanel /> : null}
+    </div>
   );
 }
 
