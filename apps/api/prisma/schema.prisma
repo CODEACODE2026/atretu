@@ -51,6 +51,12 @@ enum AdministrativeAuditEventType {
   STUDENT_DOCUMENT_DOWNLOADED
   STUDENT_DOCUMENT_VIEWED
   STUDENT_DOCUMENT_REMOVED
+  PRE_REGISTRATION_RECEIVED
+  PRE_REGISTRATION_DOCUMENT_UPLOADED
+  PRE_REGISTRATION_DOCUMENT_VIEWED
+  PRE_REGISTRATION_APPROVED
+  PRE_REGISTRATION_REJECTED
+  PRE_REGISTRATION_DOCUMENT_PROMOTED
 }
 
 enum StudentStatus {
@@ -90,6 +96,18 @@ enum StudentDocumentStatus {
   REMOVED
 }
 
+enum PreRegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PreRegistrationDocumentStatus {
+  UPLOADED
+  PROMOTED
+  REMOVED
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   name         String     @db.VarChar(120)
@@ -104,6 +122,7 @@ model User {
   administrativeAuditLogs AdministrativeAuditLog[]
   uploadedStudentDocuments StudentDocument[] @relation("StudentDocumentUploadedBy")
   removedStudentDocuments  StudentDocument[] @relation("StudentDocumentRemovedBy")
+  reviewedPreRegistrations PublicPreRegistration[] @relation("PreRegistrationReviewedBy")
 
   @@map("users")
 }
@@ -153,6 +172,7 @@ model Institution {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   enrollments    Enrollment[]
+  preRegistrations PublicPreRegistration[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -167,6 +187,7 @@ model Shift {
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   enrollments    Enrollment[]
+  preRegistrations PublicPreRegistration[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -243,6 +264,7 @@ model Student {
   guardian    StudentGuardian?
   enrollments Enrollment[]
   documents   StudentDocument[]
+  approvedPreRegistrations PublicPreRegistration[]
 
   @@index([status, createdAt])
   @@index([joinedAt])
@@ -270,6 +292,7 @@ model AcademicYear {
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   enrollments Enrollment[]
+  preRegistrations PublicPreRegistration[]
 
   @@index([isCurrent])
   @@index([createdAt])
@@ -370,9 +393,79 @@ model StudentDocument {
   removedBy        User?                 @relation("StudentDocumentRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
   replacedBy       StudentDocument?      @relation("StudentDocumentReplacement", fields: [replacedById], references: [id], onDelete: SetNull)
   replaces         StudentDocument[]     @relation("StudentDocumentReplacement")
+  promotedFromPreRegistrationDocument PreRegistrationDocument? @relation("PreRegistrationDocumentPromotion")
 
   @@index([studentId, status, documentType])
   @@index([checksumSha256])
   @@index([uploadedByUserId, createdAt])
   @@map("student_documents")
+}
+
+model PublicPreRegistration {
+  id                     String                @id @default(uuid()) @db.Uuid
+  publicCode             String                @unique @map("public_code") @db.VarChar(32)
+  status                 PreRegistrationStatus @default(PENDING)
+  fullName               String                @map("full_name") @db.VarChar(160)
+  normalizedName         String                @map("normalized_name") @db.VarChar(160)
+  cpf                    String                @db.VarChar(11)
+  rg                     String?               @db.VarChar(30)
+  birthDate              DateTime              @map("birth_date") @db.Date
+  phone                  String?               @db.VarChar(30)
+  email                  String?               @db.VarChar(180)
+  addressStreet          String                @map("address_street") @db.VarChar(180)
+  addressNumber          String                @map("address_number") @db.VarChar(30)
+  addressNeighborhood    String                @map("address_neighborhood") @db.VarChar(120)
+  addressCity            String                @map("address_city") @db.VarChar(120)
+  guardianFullName       String?               @map("guardian_full_name") @db.VarChar(160)
+  guardianCpf            String?               @map("guardian_cpf") @db.VarChar(11)
+  guardianRg             String?               @map("guardian_rg") @db.VarChar(30)
+  academicYearId         String                @map("academic_year_id") @db.Uuid
+  institutionId          String                @map("institution_id") @db.Uuid
+  shiftId                String                @map("shift_id") @db.Uuid
+  course                 String                @db.VarChar(140)
+  grade                  String                @db.VarChar(40)
+  requestFingerprintHash String?               @map("request_fingerprint_hash") @db.VarChar(64)
+  reviewedByUserId       String?               @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt             DateTime?             @map("reviewed_at") @db.Timestamptz(6)
+  rejectionReason        String?               @map("rejection_reason") @db.VarChar(500)
+  approvedStudentId      String?               @unique @map("approved_student_id") @db.Uuid
+  createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  academicYear           AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  institution            Institution           @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  shift                  Shift                 @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  reviewedBy             User?                 @relation("PreRegistrationReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  approvedStudent        Student?              @relation(fields: [approvedStudentId], references: [id], onDelete: SetNull)
+  documents              PreRegistrationDocument[]
+
+  @@index([status, createdAt])
+  @@index([cpf, status])
+  @@index([normalizedName])
+  @@index([academicYearId])
+  @@index([institutionId])
+  @@index([shiftId])
+  @@map("public_pre_registrations")
+}
+
+model PreRegistrationDocument {
+  id                          String                        @id @default(uuid()) @db.Uuid
+  preRegistrationId           String                        @map("pre_registration_id") @db.Uuid
+  documentType                StudentDocumentType           @map("document_type")
+  storageKey                  String                        @unique @map("storage_key") @db.VarChar(500)
+  originalFileName            String                        @map("original_file_name") @db.VarChar(255)
+  storedFileName              String                        @map("stored_file_name") @db.VarChar(120)
+  mimeType                    String                        @map("mime_type") @db.VarChar(80)
+  extension                   String                        @db.VarChar(10)
+  sizeBytes                   Int                           @map("size_bytes")
+  checksumSha256              String                        @map("checksum_sha256") @db.VarChar(64)
+  status                      PreRegistrationDocumentStatus @default(UPLOADED)
+  promotedToStudentDocumentId String?                       @unique @map("promoted_to_student_document_id") @db.Uuid
+  createdAt                   DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  preRegistration             PublicPreRegistration         @relation(fields: [preRegistrationId], references: [id], onDelete: Cascade)
+  promotedToStudentDocument   StudentDocument?              @relation("PreRegistrationDocumentPromotion", fields: [promotedToStudentDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([preRegistrationId, status, documentType])
+  @@index([checksumSha256])
+  @@map("pre_registration_documents")
 }
