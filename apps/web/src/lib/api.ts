@@ -24,10 +24,14 @@ export type BaseRecord = {
 
 export type BusRecord = BaseRecord & {
   capacity: number;
+  occupiedSeats?: number;
+  availableSeats?: number;
+  isFull?: boolean;
 };
 
 export type ListResponse<T> = {
   data: T[];
+  academicYearId?: string | null;
   pagination: {
     page: number;
     limit: number;
@@ -43,6 +47,7 @@ export type ListRecordsParams = {
   status?: "active" | "inactive" | "all";
   sort?: "name" | "status" | "createdAt" | "updatedAt";
   order?: "asc" | "desc";
+  academicYearId?: string;
 };
 
 export type AcademicYear = {
@@ -107,6 +112,41 @@ export type EnrollmentRecord = {
   shift: BaseRecord;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BusAssignmentRecord = {
+  id: string;
+  status: "ACTIVE" | "ENDED";
+  startedAt: string;
+  endedAt?: string | null;
+  endReason?: "RELEASED" | "SWITCHED" | null;
+  note?: string | null;
+  bus: BusRecord;
+  enrollment: EnrollmentRecord;
+  student: {
+    id: string;
+    fullName: string;
+    cpfMasked: string;
+  };
+};
+
+export type BusAssignmentsResponse = ListResponse<BusAssignmentRecord> & {
+  occupancy: {
+    busId: string;
+    capacity: number;
+    occupiedSeats: number;
+    availableSeats: number;
+    isFull: boolean;
+  };
+};
+
+export type BusAssignmentEvent = {
+  id: string;
+  eventType: "LINKED" | "RELEASED" | "SWITCHED";
+  note?: string | null;
+  occurredAt: string;
+  fromBus?: BusRecord | null;
+  toBus?: BusRecord | null;
 };
 
 export type StudentPayload = {
@@ -366,5 +406,62 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     });
+  },
+
+  listBusAssignments(
+    busId: string,
+    params?: {
+      page?: number;
+      limit?: number;
+      academicYearId?: string;
+      status?: "active" | "all";
+      search?: string;
+    },
+  ) {
+    return request<BusAssignmentsResponse>(
+      withParams(`/buses/${busId}/assignments`, params),
+    );
+  },
+
+  getCurrentBusAssignment(enrollmentId: string) {
+    return request<BusAssignmentRecord | null>(
+      `/enrollments/${enrollmentId}/bus-assignment`,
+    );
+  },
+
+  assignBus(enrollmentId: string, body: { busId: string; note?: string }) {
+    return request<BusAssignmentRecord>(
+      `/enrollments/${enrollmentId}/bus-assignment`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  releaseBus(enrollmentId: string, body: { note?: string }) {
+    return request<BusAssignmentRecord>(
+      `/enrollments/${enrollmentId}/bus-assignment/release`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  switchBus(enrollmentId: string, body: { newBusId: string; note?: string }) {
+    return request<BusAssignmentRecord>(
+      `/enrollments/${enrollmentId}/bus-assignment/switch`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  listBusAssignmentEvents(enrollmentId: string) {
+    return request<{ data: BusAssignmentEvent[] }>(
+      `/enrollments/${enrollmentId}/bus-assignment-events`,
+    );
   },
 };

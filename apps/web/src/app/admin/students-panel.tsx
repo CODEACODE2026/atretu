@@ -5,6 +5,8 @@ import {
   api,
   type AcademicYear,
   type BaseRecord,
+  type BusAssignmentRecord,
+  type BusRecord,
   type EnrollmentRecord,
   type StudentDetail,
   type StudentPayload,
@@ -474,7 +476,16 @@ export function StudentsPanel() {
             </button>
           )}
 
-          {selected ? <StudentEnrollments enrollments={selected.enrollments} /> : null}
+          {selected ? (
+            <StudentEnrollments
+              enrollments={selected.enrollments}
+              onChanged={async () => {
+                const detail = await api.getStudent(selected.id);
+                setSelected(detail);
+                await loadStudents();
+              }}
+            />
+          ) : null}
         </form>
       </div>
     </div>
@@ -610,7 +621,13 @@ function EnrollmentFields({
   );
 }
 
-function StudentEnrollments({ enrollments }: { enrollments: EnrollmentRecord[] }) {
+function StudentEnrollments({
+  enrollments,
+  onChanged,
+}: {
+  enrollments: EnrollmentRecord[];
+  onChanged: () => Promise<void>;
+}) {
   return (
     <div className="mt-5 border-t border-slate-200 pt-4">
       <h3 className="text-sm font-semibold text-slate-950">Matriculas</h3>
@@ -623,9 +640,170 @@ function StudentEnrollments({ enrollments }: { enrollments: EnrollmentRecord[] }
             <p className="mt-1 text-slate-600">
               {item.course} / Serie {item.grade} / {item.shift.name}
             </p>
+            <BusAssignmentControls enrollment={item} onChanged={onChanged} />
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function BusAssignmentControls({
+  enrollment,
+  onChanged,
+}: {
+  enrollment: EnrollmentRecord;
+  onChanged: () => Promise<void>;
+}) {
+  const [assignment, setAssignment] = useState<BusAssignmentRecord | null>(null);
+  const [buses, setBuses] = useState<BusRecord[]>([]);
+  const [busId, setBusId] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void loadBusState();
+  }, [enrollment.id]);
+
+  async function loadBusState() {
+    setError("");
+    try {
+      const [current, busResponse] = await Promise.all([
+        api.getCurrentBusAssignment(enrollment.id),
+        api.listBuses({
+          status: "active",
+          limit: 100,
+          sort: "name",
+          academicYearId: enrollment.academicYear.id,
+        }),
+      ]);
+      setAssignment(current);
+      setBuses(busResponse.data);
+      setBusId(current?.bus.id ?? "");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao carregar onibus");
+    }
+  }
+
+  async function handleAssignOrSwitch() {
+    if (!busId) {
+      setError("Selecione um onibus");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      if (assignment) {
+        if (assignment.bus.id === busId) {
+          throw new Error("Selecione um onibus diferente para troca");
+        }
+        const confirmed = window.confirm(
+          "Esta troca vai liberar a vaga no onibus anterior e ocupar uma vaga no novo onibus.",
+        );
+        if (!confirmed) {
+          return;
+        }
+        await api.switchBus(enrollment.id, {
+          newBusId: busId,
+          note: emptyToUndefined(note),
+        });
+        setMessage("Onibus trocado");
+      } else {
+        await api.assignBus(enrollment.id, {
+          busId,
+          note: emptyToUndefined(note),
+        });
+        setMessage("Onibus vinculado");
+      }
+      setNote("");
+      await loadBusState();
+      await onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao salvar onibus");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRelease() {
+    if (!assignment) {
+      return;
+    }
+    const confirmed = window.confirm("Liberar a vaga deste onibus?");
+    if (!confirmed) {
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.releaseBus(enrollment.id, { note: emptyToUndefined(note) });
+      setMessage("Vaga liberada");
+      setNote("");
+      await loadBusState();
+      await onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao liberar vaga");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-slate-950">
+          Onibus atual: {assignment?.bus.name ?? "sem vinculo"}
+        </p>
+        {assignment ? (
+          <button
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+            disabled={saving}
+            onClick={() => void handleRelease()}
+            type="button"
+          >
+            Liberar vaga
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr]">
+        <select
+          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          onChange={(event) => setBusId(event.target.value)}
+          value={busId}
+        >
+          <option value="">Selecionar onibus</option>
+          {buses.map((bus) => (
+            <option
+              disabled={Boolean(bus.isFull) && bus.id !== assignment?.bus.id}
+              key={bus.id}
+              value={bus.id}
+            >
+              {bus.name} - {bus.availableSeats ?? bus.capacity} vagas
+            </option>
+          ))}
+        </select>
+        <input
+          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          maxLength={240}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Observacao opcional"
+          value={note}
+        />
+      </div>
+      <button
+        className="mt-2 rounded bg-slate-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
+        disabled={saving}
+        onClick={() => void handleAssignOrSwitch()}
+        type="button"
+      >
+        {assignment ? "Trocar onibus" : "Vincular onibus"}
+      </button>
+      {message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}
+      {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
     </div>
   );
 }

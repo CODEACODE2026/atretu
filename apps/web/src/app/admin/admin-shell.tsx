@@ -4,8 +4,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   api,
+  type AcademicYear,
   type ApiUser,
   type BaseRecord,
+  type BusAssignmentRecord,
   type BusRecord,
   type ListRecordsParams,
 } from "../../lib/api";
@@ -178,6 +180,10 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
 function BaseRecordsPanel() {
   const [domain, setDomain] = useState<DomainKey>("institutions");
   const [records, setRecords] = useState<RecordRow[]>([]);
+  const [years, setYears] = useState<AcademicYear[]>([]);
+  const [academicYearId, setAcademicYearId] = useState("");
+  const [selectedBus, setSelectedBus] = useState<BusRecord | null>(null);
+  const [busAssignments, setBusAssignments] = useState<BusAssignmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -199,9 +205,15 @@ function BaseRecordsPanel() {
   );
 
   useEffect(() => {
+    void loadYears();
+  }, []);
+
+  useEffect(() => {
     setEditing(null);
     setName("");
     setCapacity("");
+    setSelectedBus(null);
+    setBusAssignments([]);
     setPage(1);
     setMessage("");
     setError("");
@@ -209,7 +221,20 @@ function BaseRecordsPanel() {
 
   useEffect(() => {
     void loadRecords();
-  }, [domain, status, sort, order, page]);
+  }, [domain, status, sort, order, page, academicYearId]);
+
+  async function loadYears() {
+    try {
+      const response = await api.listAcademicYears();
+      setYears(response.data);
+      const current = response.data.find((year) => year.isCurrent);
+      if (current) {
+        setAcademicYearId(current.id);
+      }
+    } catch {
+      setYears([]);
+    }
+  }
 
   async function loadRecords(nextSearch = search) {
     setLoading(true);
@@ -222,6 +247,7 @@ function BaseRecordsPanel() {
       status,
       sort,
       order,
+      academicYearId: domain === "buses" ? academicYearId : undefined,
     };
 
     try {
@@ -234,12 +260,38 @@ function BaseRecordsPanel() {
 
       setRecords(response.data);
       setTotalPages(Math.max(response.pagination.totalPages, 1));
+      if (selectedBus && domain === "buses") {
+        const refreshed = response.data.find((record) => record.id === selectedBus.id);
+        setSelectedBus(isBusRecord(refreshed) ? refreshed : null);
+      }
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar registros",
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function openBus(record: RecordRow) {
+    if (!("capacity" in record)) {
+      return;
+    }
+    setSelectedBus(record);
+    setError("");
+    try {
+      const response = await api.listBusAssignments(record.id, {
+        academicYearId,
+        status: "active",
+        limit: 100,
+      });
+      setBusAssignments(response.data);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Erro ao carregar vinculados",
+      );
     }
   }
 
@@ -455,6 +507,25 @@ function BaseRecordsPanel() {
                 <option value="inactive">Inativos</option>
                 <option value="all">Todos</option>
               </select>
+              {currentDomain.hasCapacity ? (
+                <select
+                  className="rounded border border-slate-300 px-3 py-2 text-sm"
+                  onChange={(event) => {
+                    setAcademicYearId(event.target.value);
+                    setSelectedBus(null);
+                    setBusAssignments([]);
+                    setPage(1);
+                  }}
+                  value={academicYearId}
+                >
+                  <option value="">Ano Letivo</option>
+                  {years.map((year) => (
+                    <option key={year.id} value={year.id}>
+                      {year.isCurrent ? `${year.year} atual` : year.year}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <select
                 className="rounded border border-slate-300 px-3 py-2 text-sm"
                 onChange={(event) => setSort(event.target.value as SortField)}
@@ -520,6 +591,12 @@ function BaseRecordsPanel() {
                   {currentDomain.hasCapacity ? (
                     <th className="px-4 py-3 font-semibold">Capacidade</th>
                   ) : null}
+                  {currentDomain.hasCapacity ? (
+                    <>
+                      <th className="px-4 py-3 font-semibold">Ocupados</th>
+                      <th className="px-4 py-3 font-semibold">Disponiveis</th>
+                    </>
+                  ) : null}
                   <th className="px-4 py-3 font-semibold">Status</th>
                   <th className="px-4 py-3 font-semibold">Atualizado</th>
                   <th className="px-4 py-3 font-semibold">Acoes</th>
@@ -549,6 +626,26 @@ function BaseRecordsPanel() {
                           {"capacity" in record ? record.capacity : ""}
                         </td>
                       ) : null}
+                      {currentDomain.hasCapacity ? (
+                        <>
+                          <td className="px-4 py-3 text-slate-700">
+                            {"occupiedSeats" in record ? record.occupiedSeats ?? 0 : ""}
+                          </td>
+                          <td className="px-4 py-3">
+                            {"availableSeats" in record ? (
+                              <span
+                                className={
+                                  record.isFull
+                                    ? "rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-700"
+                                    : "rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800"
+                                }
+                              >
+                                {record.availableSeats ?? record.capacity}
+                              </span>
+                            ) : null}
+                          </td>
+                        </>
+                      ) : null}
                       <td className="px-4 py-3">
                         <span
                           className={
@@ -572,6 +669,15 @@ function BaseRecordsPanel() {
                           >
                             Editar
                           </button>
+                          {currentDomain.hasCapacity ? (
+                            <button
+                              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                              onClick={() => void openBus(record)}
+                              type="button"
+                            >
+                              Vinculados
+                            </button>
+                          ) : null}
                           <button
                             className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
                             onClick={() =>
@@ -599,6 +705,79 @@ function BaseRecordsPanel() {
           </div>
         </div>
       </div>
+
+      {selectedBus ? (
+        <div className="rounded border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">
+                {selectedBus.name}
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Capacidade {selectedBus.capacity} / Ocupados{" "}
+                {selectedBus.occupiedSeats ?? 0} / Disponiveis{" "}
+                {selectedBus.availableSeats ?? selectedBus.capacity}
+              </p>
+            </div>
+            <button
+              className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+              onClick={() => {
+                setSelectedBus(null);
+                setBusAssignments([]);
+              }}
+              type="button"
+            >
+              Fechar
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Academico</th>
+                  <th className="px-4 py-3">CPF</th>
+                  <th className="px-4 py-3">Instituicao</th>
+                  <th className="px-4 py-3">Curso</th>
+                  <th className="px-4 py-3">Serie</th>
+                  <th className="px-4 py-3">Entrada</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {busAssignments.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-6 text-slate-500" colSpan={6}>
+                      Nenhum academico vinculado neste Ano Letivo
+                    </td>
+                  </tr>
+                ) : (
+                  busAssignments.map((assignment) => (
+                    <tr key={assignment.id}>
+                      <td className="px-4 py-3 font-medium text-slate-950">
+                        {assignment.student.fullName}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {assignment.student.cpfMasked}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {assignment.enrollment.institution.name}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {assignment.enrollment.course}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {assignment.enrollment.grade}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {new Date(assignment.startedAt).toLocaleDateString("pt-BR")}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       {pendingAction ? (
         <div className="fixed inset-0 z-20 grid place-items-center bg-slate-950/40 p-4">
@@ -634,4 +813,8 @@ function BaseRecordsPanel() {
       ) : null}
     </div>
   );
+}
+
+function isBusRecord(record: RecordRow | undefined): record is BusRecord {
+  return Boolean(record && "capacity" in record && typeof record.capacity === "number");
 }
