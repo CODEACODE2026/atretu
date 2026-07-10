@@ -13,6 +13,7 @@ import {
 } from "../../lib/api";
 import { canAccessRestrictedAdmin, getPrimaryRoleLabel } from "../../lib/auth";
 import { AcademicYearsPanel } from "./academic-years-panel";
+import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { StudentsPanel } from "./students-panel";
 
 type DomainKey = "institutions" | "shifts" | "buses";
@@ -144,9 +145,10 @@ export function AdminShell() {
 }
 
 function AdminWorkspace({ user }: { user: ApiUser }) {
-  const [area, setArea] = useState<"students" | "years" | "base">("students");
+  const [area, setArea] = useState<"students" | "pre-registrations" | "years" | "base">("students");
   const tabs = [
     { key: "students", label: "Academicos" },
+    { key: "pre-registrations", label: "Pre-cadastros" },
     { key: "years", label: "Anos Letivos" },
     { key: "base", label: "Cadastros Base" },
   ] as const;
@@ -171,6 +173,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
       </div>
 
       {area === "students" ? <StudentsPanel /> : null}
+      {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
       {area === "years" ? <AcademicYearsPanel user={user} /> : null}
       {area === "base" ? <BaseRecordsPanel /> : null}
     </div>

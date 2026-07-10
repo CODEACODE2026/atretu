@@ -180,6 +180,116 @@ export type StudentDocumentsResponse = {
   missingTypes: StudentDocumentType[];
 };
 
+export type PreRegistrationStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type PreRegistrationDocumentStatus = "UPLOADED" | "PROMOTED" | "REMOVED";
+
+export type PreRegistrationOptions = {
+  academicYears: Pick<AcademicYear, "id" | "year" | "isCurrent">[];
+  institutions: Pick<BaseRecord, "id" | "name">[];
+  shifts: Pick<BaseRecord, "id" | "name">[];
+};
+
+export type PublicPreRegistrationPayload = {
+  fullName: string;
+  cpf: string;
+  rg?: string;
+  birthDate: string;
+  phone?: string;
+  email?: string;
+  addressStreet: string;
+  addressNumber: string;
+  addressNeighborhood: string;
+  addressCity: string;
+  guardianFullName?: string;
+  guardianCpf?: string;
+  guardianRg?: string;
+  academicYearId: string;
+  institutionId: string;
+  shiftId: string;
+  course: string;
+  grade: string;
+  website?: string;
+};
+
+export type PublicPreRegistrationFiles = Partial<
+  Record<
+    | "cpfDocument"
+    | "rgDocument"
+    | "proofOfAddressDocument"
+    | "proofOfEnrollmentDocument",
+    File
+  >
+>;
+
+export type PublicPreRegistrationResponse = {
+  received: true;
+  publicCode?: string;
+  message: string;
+};
+
+export type PreRegistrationSummary = {
+  id: string;
+  publicCode: string;
+  status: PreRegistrationStatus;
+  fullName: string;
+  cpfMasked: string;
+  academicYear: Pick<AcademicYear, "id" | "year" | "isCurrent">;
+  institution: Pick<BaseRecord, "id" | "name">;
+  shift: Pick<BaseRecord, "id" | "name">;
+  course: string;
+  grade: string;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string | null;
+};
+
+export type PreRegistrationDocumentRecord = {
+  id: string;
+  documentType: StudentDocumentType;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  checksumSha256: string;
+  status: PreRegistrationDocumentStatus;
+  promotedToStudentDocumentId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PreRegistrationDetail = PreRegistrationSummary & {
+  cpf: string;
+  rg?: string | null;
+  birthDate: string;
+  phone?: string | null;
+  email?: string | null;
+  addressStreet: string;
+  addressNumber: string;
+  addressNeighborhood: string;
+  addressCity: string;
+  guardian: {
+    fullName: string;
+    cpf?: string | null;
+    rg?: string | null;
+  } | null;
+  documents: PreRegistrationDocumentRecord[];
+  reviewedBy?: Pick<ApiUser, "id" | "name" | "email"> | null;
+  rejectionReason?: string | null;
+  approvedStudent?: {
+    id: string;
+    fullName: string;
+    cpfMasked: string;
+  } | null;
+};
+
+export type ListPreRegistrationsParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: PreRegistrationStatus;
+  sort?: "createdAt" | "name" | "status";
+  order?: "asc" | "desc";
+};
+
 export type StudentPayload = {
   person: {
     fullName: string;
@@ -556,6 +666,82 @@ export const api = {
     const response = await fetch(
       `${API_URL}${withParams(
         `/students/${studentId}/documents/${documentId}/file`,
+        { disposition },
+      )}`,
+      { credentials: "include" },
+    );
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+      throw new Error(body?.message ?? "Nao foi possivel baixar o documento");
+    }
+
+    return {
+      blob: await response.blob(),
+      fileName: fileNameFromDisposition(
+        response.headers.get("content-disposition"),
+      ),
+    };
+  },
+
+  getPreRegistrationOptions() {
+    return request<PreRegistrationOptions>("/public/pre-registration/options");
+  },
+
+  createPublicPreRegistration(
+    body: PublicPreRegistrationPayload,
+    files: PublicPreRegistrationFiles = {},
+  ) {
+    const form = new FormData();
+    Object.entries(body).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") {
+        form.set(key, String(value));
+      }
+    });
+    Object.entries(files).forEach(([key, file]) => {
+      if (file) {
+        form.set(key, file);
+      }
+    });
+    return request<PublicPreRegistrationResponse>("/public/pre-registrations", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  listPreRegistrations(params?: ListPreRegistrationsParams) {
+    return request<ListResponse<PreRegistrationSummary>>(
+      withParams("/pre-registrations", params),
+    );
+  },
+
+  getPreRegistration(id: string) {
+    return request<PreRegistrationDetail>(`/pre-registrations/${id}`);
+  },
+
+  approvePreRegistration(id: string) {
+    return request<PreRegistrationDetail>(`/pre-registrations/${id}/approve`, {
+      method: "POST",
+    });
+  },
+
+  rejectPreRegistration(id: string, reason: string) {
+    return request<PreRegistrationDetail>(`/pre-registrations/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async downloadPreRegistrationDocument(
+    preRegistrationId: string,
+    documentId: string,
+    disposition: "attachment" | "inline" = "attachment",
+  ) {
+    const response = await fetch(
+      `${API_URL}${withParams(
+        `/pre-registrations/${preRegistrationId}/documents/${documentId}/file`,
         { disposition },
       )}`,
       { credentials: "include" },
