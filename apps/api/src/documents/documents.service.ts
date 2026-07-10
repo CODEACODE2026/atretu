@@ -36,12 +36,15 @@ export class DocumentsService {
     private readonly audit: AdministrativeAuditService,
   ) {}
 
-  async listStudentDocuments(studentId: string, status?: StudentDocumentStatus) {
+  async listStudentDocuments(
+    studentId: string,
+    status?: StudentDocumentStatus | "all",
+  ) {
     await this.ensureStudent(studentId);
     const documents = await this.prisma.studentDocument.findMany({
       where: {
         studentId,
-        ...(status ? { status } : {}),
+        ...(status && status !== "all" ? { status } : {}),
       },
       orderBy: [{ documentType: "asc" }, { createdAt: "desc" }],
     });

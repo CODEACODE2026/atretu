@@ -14,6 +14,7 @@
     "smoke:base-records": "node scripts/smoke-base-records.mjs",
     "smoke:students": "node scripts/smoke-students.mjs",
     "smoke:bus-assignments": "node scripts/smoke-bus-assignments.mjs",
+    "smoke:documents": "node scripts/smoke-documents.mjs",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate deploy"

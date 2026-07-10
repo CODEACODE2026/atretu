@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsEnum, IsOptional } from "class-validator";
+import { IsEnum, IsIn, IsOptional } from "class-validator";
 import { StudentDocumentStatus, StudentDocumentType } from "@prisma/client";
 
 export class UploadStudentDocumentDto {
@@ -9,8 +9,8 @@ export class UploadStudentDocumentDto {
 
 export class ListStudentDocumentsDto {
   @IsOptional()
-  @IsEnum(StudentDocumentStatus)
-  status?: StudentDocumentStatus;
+  @IsIn([...Object.values(StudentDocumentStatus), "all"])
+  status?: StudentDocumentStatus | "all";
 }
 
 export enum FileDisposition {

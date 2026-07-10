@@ -3,8 +3,8 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 4: cadastros base, nucleo academico e vinculos de Onibus por Matricula
-Anual implementados com ocupacao derivada e controle de vagas.
+Sprint 5: cadastros base, nucleo academico, vinculos de Onibus por Matricula
+Anual e documentos privados dos academicos implementados.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -150,6 +150,53 @@ Regras principais:
 - Historico permanece legivel mesmo se o onibus for inativado depois.
 - Auditoria administrativa registra eventos sem dados pessoais completos.
 
+## Documentos privados
+
+A Sprint 5 implementa documentos privados dos academicos. Arquivos ficam em
+storage privado fora de `public` e fora do repositorio. O banco armazena apenas
+metadados. A API nunca retorna `storageKey`, nome armazenado ou caminho fisico.
+
+Variaveis:
+
+- `DOCUMENT_STORAGE_DIR`: diretorio privado de storage. Padrao local:
+  `/opt/codeacode/storage/atretu/private-documents`.
+- `DOCUMENT_MAX_SIZE_BYTES`: limite por arquivo. Padrao: `8388608` bytes.
+
+Tipos:
+
+- `CPF`
+- `RG`
+- `PROOF_OF_ADDRESS`
+- `PROOF_OF_ENROLLMENT`
+
+Formatos aceitos:
+
+- PDF com MIME/extensao/assinatura validos
+- JPEG com MIME/extensao/assinatura validos
+- PNG com MIME/extensao/assinatura validos
+
+Rotas:
+
+- `GET /students/:studentId/documents`
+- `POST /students/:studentId/documents`
+- `GET /students/:studentId/documents/:documentId`
+- `POST /students/:studentId/documents/:documentId/replace`
+- `GET /students/:studentId/documents/:documentId/file`
+- `PATCH /students/:studentId/documents/:documentId/remove`
+
+Regras principais:
+
+- Ha no maximo um documento `ACTIVE` por tipo para cada academico.
+- Substituicao preserva o arquivo anterior e marca o metadado como `REPLACED`.
+- Remocao e logica: metadado vira `REMOVED` e o arquivo fisico permanece.
+- Documento `REMOVED` nao pode ser baixado pela operacao comum.
+- Upload e substituicao compensam falhas entre filesystem e PostgreSQL removendo
+  arquivo novo quando a persistencia falha.
+- Download protegido aplica `nosniff`, `no-store`, `no-referrer` e nome seguro
+  gerado pelo sistema.
+- Auditoria administrativa registra upload, substituicao, visualizacao/download
+  e remocao sem dados pessoais completos.
+
 O bootstrap do primeiro Super Admin exige o header:
 
 ```text
@@ -182,11 +229,17 @@ Smoke da Sprint 4, com API e banco ja disponiveis:
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:bus-assignments
 ```
 
+Smoke da Sprint 5, com API, banco e storage privado ja disponiveis:
+
+```bash
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... DOCUMENT_STORAGE_DIR=/tmp/atretu-documents-smoke DOCUMENT_MAX_SIZE_BYTES=1024 npm --prefix apps/api run smoke:documents
+```
+
 ## Limites atuais
 - Nao ha PDF de alunos por onibus.
 - Nao ha suspensao, desligamento, diretoria ou rematricula completa.
 - Nao ha integracao Sicredi.
-- Nao ha documentos/uploads.
+- Nao ha pre-cadastro, OCR, leitura automatica de documentos nem envio ao Sicredi.
 - Nao ha portal do academico.
 - Nao ha deploy.
 

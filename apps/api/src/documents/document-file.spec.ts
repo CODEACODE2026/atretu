@@ -77,6 +77,7 @@ assert.throws(
 );
 
 assert.throws(() => sanitizeOriginalFileName("../cpf.pdf"), BadRequestException);
+assert.throws(() => sanitizeOriginalFileName("..cpf.pdf"), BadRequestException);
 assert.equal(
   buildStorageKey({
     studentId: "student-id",

@@ -85,7 +85,7 @@ export function sanitizeOriginalFileName(fileName: string): string {
   }
   const baseName = path.basename(fileName).replace(/[\u0000-\u001f\u007f]/g, "");
   const normalized = baseName.trim().replace(/\s+/g, " ");
-  if (!normalized || normalized === "." || normalized === "..") {
+  if (!normalized || normalized === "." || normalized === ".." || normalized.includes("..")) {
     throw new BadRequestException("Nome do arquivo invalido");
   }
   return normalized.slice(0, 255);
