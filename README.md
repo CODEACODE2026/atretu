@@ -3,9 +3,8 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 1: base de seguranca, autenticacao e permissoes em andamento.
-
-Este repositorio ainda nao implementa regras de negocio. A Sprint 0 prepara apenas a base tecnica do projeto.
+Sprint 2: cadastros base administrativos implementados para Instituicoes,
+Turnos e Onibus.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -50,6 +49,42 @@ Rotas iniciais:
 - `GET /auth/operational-check`
 - `POST /auth/users` restrita ao Super Admin
 
+## Cadastros base
+
+A Sprint 2 implementa Instituicoes, Turnos e Onibus com ativacao,
+inativacao e reativacao. Nao ha `DELETE` administrativo para esses cadastros.
+Registros inativos permanecem no banco e as listagens usam ativos como padrao.
+
+Rotas:
+
+- `GET /institutions`
+- `POST /institutions`
+- `GET /institutions/:id`
+- `PATCH /institutions/:id`
+- `PATCH /institutions/:id/inactivate`
+- `PATCH /institutions/:id/reactivate`
+- `GET /shifts`
+- `POST /shifts`
+- `GET /shifts/:id`
+- `PATCH /shifts/:id`
+- `PATCH /shifts/:id/inactivate`
+- `PATCH /shifts/:id/reactivate`
+- `GET /buses`
+- `POST /buses`
+- `GET /buses/:id`
+- `PATCH /buses/:id`
+- `PATCH /buses/:id/inactivate`
+- `PATCH /buses/:id/reactivate`
+
+Parametros de listagem:
+
+- `page`
+- `limit`
+- `search`
+- `status=active|inactive|all`
+- `sort=name|status|createdAt|updatedAt`
+- `order=asc|desc`
+
 O bootstrap do primeiro Super Admin exige o header:
 
 ```text
@@ -64,12 +99,18 @@ npm --prefix apps/api run start
 ADMIN_SETUP_TOKEN=... npm --prefix apps/api run smoke:auth
 ```
 
+Smoke da Sprint 2, com API e banco ja disponiveis:
+
+```bash
+ADMIN_SETUP_TOKEN=... npm --prefix apps/api run smoke:base-records
+```
+
 ## Limites atuais
-- Nao ha regras de negocio.
-- Nao ha modulos funcionais.
-- Nao ha migrations de dominio.
+- Nao ha pessoas, academicos, matriculas ou vinculos com onibus.
+- Nao ha ocupacao real de onibus nem contador manual de vagas.
 - Nao ha integracao Sicredi.
 - Nao ha PDFs.
+- Nao ha documentos/uploads.
 - Nao ha portal do academico.
 - Nao ha deploy.
 
