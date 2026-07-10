@@ -42,6 +42,10 @@ enum AdministrativeAuditEventType {
   ACADEMIC_YEAR_CREATED
   ACADEMIC_YEAR_UPDATED
   ACADEMIC_YEAR_CURRENT_CHANGED
+  BUS_ASSIGNMENT_LINKED
+  BUS_ASSIGNMENT_RELEASED
+  BUS_ASSIGNMENT_SWITCHED
+  BUS_CAPACITY_UPDATED
 }
 
 enum StudentStatus {
@@ -50,6 +54,22 @@ enum StudentStatus {
 
 enum EnrollmentStatus {
   ACTIVE
+}
+
+enum BusAssignmentStatus {
+  ACTIVE
+  ENDED
+}
+
+enum BusAssignmentEndReason {
+  RELEASED
+  SWITCHED
+}
+
+enum BusAssignmentEventType {
+  LINKED
+  RELEASED
+  SWITCHED
 }
 
 model User {
@@ -141,6 +161,9 @@ model Bus {
   status         RecordStatus @default(ACTIVE)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignments    BusAssignment[]
+  eventsFrom     BusAssignmentEvent[] @relation("BusAssignmentEventFromBus")
+  eventsTo       BusAssignmentEvent[] @relation("BusAssignmentEventToBus")
 
   @@index([status, name])
   @@index([createdAt])
@@ -247,6 +270,8 @@ model Enrollment {
   academicYear   AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   institution    Institution      @relation(fields: [institutionId], references: [id], onDelete: Restrict)
   shift          Shift            @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  busAssignments BusAssignment[]
+  busAssignmentEvents BusAssignmentEvent[]
 
   @@unique([studentId, academicYearId])
   @@index([academicYearId, status])
@@ -254,4 +279,48 @@ model Enrollment {
   @@index([shiftId])
   @@index([createdAt])
   @@map("enrollments")
+}
+
+model BusAssignment {
+  id           String                  @id @default(uuid()) @db.Uuid
+  enrollmentId String                  @map("enrollment_id") @db.Uuid
+  busId        String                  @map("bus_id") @db.Uuid
+  status       BusAssignmentStatus     @default(ACTIVE)
+  startedAt    DateTime                @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime?               @map("ended_at") @db.Timestamptz(6)
+  endReason    BusAssignmentEndReason? @map("end_reason")
+  note         String?                 @db.VarChar(240)
+  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollment   Enrollment              @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  bus          Bus                     @relation(fields: [busId], references: [id], onDelete: Restrict)
+  events       BusAssignmentEvent[]
+
+  @@index([busId, status])
+  @@index([enrollmentId, status])
+  @@index([startedAt])
+  @@map("bus_assignments")
+}
+
+model BusAssignmentEvent {
+  id              String                 @id @default(uuid()) @db.Uuid
+  enrollmentId    String                 @map("enrollment_id") @db.Uuid
+  busAssignmentId String?                @map("bus_assignment_id") @db.Uuid
+  fromBusId       String?                @map("from_bus_id") @db.Uuid
+  toBusId         String?                @map("to_bus_id") @db.Uuid
+  eventType       BusAssignmentEventType @map("event_type")
+  note            String?                @db.VarChar(240)
+  occurredAt      DateTime               @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  enrollment      Enrollment             @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  busAssignment   BusAssignment?         @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
+  fromBus         Bus?                   @relation("BusAssignmentEventFromBus", fields: [fromBusId], references: [id], onDelete: SetNull)
+  toBus           Bus?                   @relation("BusAssignmentEventToBus", fields: [toBusId], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId, occurredAt])
+  @@index([busAssignmentId, occurredAt])
+  @@index([fromBusId, occurredAt])
+  @@index([toBusId, occurredAt])
+  @@index([eventType, occurredAt])
+  @@map("bus_assignment_events")
 }
