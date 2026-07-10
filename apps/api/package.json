@@ -9,10 +9,11 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "npm run typecheck",
-    "test": "tsx src/auth/auth.service.spec.ts && tsx src/base-records/base-records.service.spec.ts && tsx src/students/cpf.spec.ts && tsx src/config/env.spec.ts",
+    "test": "tsx src/auth/auth.service.spec.ts && tsx src/base-records/base-records.service.spec.ts && tsx src/students/cpf.spec.ts && tsx src/bus-assignments/capacity.spec.ts && tsx src/config/env.spec.ts",
     "smoke:auth": "node scripts/smoke-auth.mjs",
     "smoke:base-records": "node scripts/smoke-base-records.mjs",
     "smoke:students": "node scripts/smoke-students.mjs",
+    "smoke:bus-assignments": "node scripts/smoke-bus-assignments.mjs",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate deploy"

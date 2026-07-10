@@ -12,6 +12,7 @@ import {
   RecordStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import { assertCapacityCanFitOccupancy, deriveBusAvailability } from "../bus-assignments/capacity.js";
 import { PrismaService } from "../database/prisma.service.js";
 import {
   BaseRecordSort,
@@ -230,10 +231,8 @@ export class BaseRecordsService {
         }
 
         const maxOccupancy = await this.countMaxActiveAssignmentsByAcademicYear(tx, id);
-        if (data.capacity !== undefined && data.capacity < maxOccupancy) {
-          throw new ConflictException(
-            "Capacidade nao pode ser menor que a ocupacao ativa",
-          );
+        if (data.capacity !== undefined) {
+          assertCapacityCanFitOccupancy(data.capacity, maxOccupancy);
         }
 
         const updated = await tx.bus.update({ where: { id }, data: updateData });
@@ -428,9 +427,7 @@ export class BaseRecordsService {
   private withOccupancy<T extends { capacity: number }>(bus: T, occupiedSeats: number) {
     return {
       ...bus,
-      occupiedSeats,
-      availableSeats: bus.capacity - occupiedSeats,
-      isFull: occupiedSeats >= bus.capacity,
+      ...deriveBusAvailability(bus.capacity, occupiedSeats),
     };
   }
 

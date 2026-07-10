@@ -3,8 +3,8 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 3: cadastros base e nucleo academico implementados para Pessoas,
-Academicos, Responsavel unico opcional, Ano Letivo e Matricula Anual.
+Sprint 4: cadastros base, nucleo academico e vinculos de Onibus por Matricula
+Anual implementados com ocupacao derivada e controle de vagas.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -116,6 +116,40 @@ Regras principais:
 - Listagem de academicos mostra CPF mascarado.
 - Auditoria administrativa nao deve registrar dados pessoais completos.
 
+## Onibus, vinculos e vagas
+
+A Sprint 4 implementa vinculos entre Matricula Anual e Onibus. Ocupacao e
+disponibilidade sao sempre derivadas dos vinculos ativos do Ano Letivo
+consultado.
+
+Rotas:
+
+- `GET /buses` inclui `occupiedSeats`, `availableSeats` e `isFull`
+- `GET /buses/:id`
+- `PATCH /buses/:id` bloqueia capacidade menor que ocupacao ativa
+- `GET /buses/:id/assignments`
+- `GET /enrollments/:enrollmentId/bus-assignment`
+- `POST /enrollments/:enrollmentId/bus-assignment`
+- `POST /enrollments/:enrollmentId/bus-assignment/release`
+- `POST /enrollments/:enrollmentId/bus-assignment/switch`
+- `GET /enrollments/:enrollmentId/bus-assignment-events`
+
+Regras principais:
+
+- Nao existe contador manual de ocupacao ou vagas disponiveis.
+- Disponiveis = capacidade fisica do onibus - vinculos ativos.
+- Ocupacao considera as Matriculas do Ano Letivo selecionado.
+- Ano Letivo atual e usado como padrao operacional quando aplicavel.
+- Onibus inativo nao recebe novos vinculos.
+- Onibus lotado bloqueia novo vinculo.
+- Matricula possui no maximo um vinculo ativo de onibus.
+- Liberacao encerra vinculo ativo com motivo tecnico `RELEASED`.
+- Troca encerra vinculo anterior com motivo tecnico `SWITCHED` e cria novo
+  vinculo na mesma transacao.
+- Falha na troca preserva o vinculo anterior ativo.
+- Historico permanece legivel mesmo se o onibus for inativado depois.
+- Auditoria administrativa registra eventos sem dados pessoais completos.
+
 O bootstrap do primeiro Super Admin exige o header:
 
 ```text
@@ -142,11 +176,16 @@ Smoke da Sprint 3, com API e banco ja disponiveis:
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:students
 ```
 
+Smoke da Sprint 4, com API e banco ja disponiveis:
+
+```bash
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:bus-assignments
+```
+
 ## Limites atuais
-- Nao ha vinculos com onibus.
-- Nao ha ocupacao real de onibus nem contador manual de vagas.
+- Nao ha PDF de alunos por onibus.
+- Nao ha suspensao, desligamento, diretoria ou rematricula completa.
 - Nao ha integracao Sicredi.
-- Nao ha PDFs.
 - Nao ha documentos/uploads.
 - Nao ha portal do academico.
 - Nao ha deploy.

@@ -19,6 +19,7 @@ import {
   AssignmentStatusFilter,
   ListBusAssignmentsDto,
 } from "./dto/bus-assignments.dto.js";
+import { assertBusHasAvailableSeat, deriveBusAvailability } from "./capacity.js";
 
 @Injectable()
 export class BusAssignmentsService {
@@ -283,10 +284,7 @@ export class BusAssignmentsService {
 
     return {
       busId,
-      capacity: bus.capacity,
-      occupiedSeats,
-      availableSeats: bus.capacity - occupiedSeats,
-      isFull: occupiedSeats >= bus.capacity,
+      ...deriveBusAvailability(bus.capacity, occupiedSeats),
     };
   }
 
@@ -306,9 +304,7 @@ export class BusAssignmentsService {
         enrollment: { academicYearId },
       },
     });
-    if (occupiedSeats >= bus.capacity) {
-      throw new ConflictException("Onibus sem vagas disponiveis");
-    }
+    assertBusHasAvailableSeat(bus.capacity, occupiedSeats);
   }
 
   private async ensureActiveBus(tx: Prisma.TransactionClient, id: string) {
