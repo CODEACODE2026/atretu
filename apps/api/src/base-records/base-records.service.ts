@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  BusAssignmentStatus,
   Prisma,
   RecordStatus,
 } from "@prisma/client";
@@ -118,7 +119,7 @@ export class BaseRecordsService {
   }
 
   listBuses(query: ListBaseRecordsDto) {
-    return this.list(this.prisma.bus, "buses", query);
+    return this.listBusesWithOccupancy(query);
   }
 
   createBus(data: { name: string; capacity: number }, userId: string) {
@@ -126,11 +127,11 @@ export class BaseRecordsService {
   }
 
   getBus(id: string) {
-    return this.get(this.prisma.bus, "buses", id);
+    return this.getBusWithOccupancy(id);
   }
 
   updateBus(id: string, data: { name?: string; capacity?: number }, userId: string) {
-    return this.update(this.prisma.bus, "buses", id, data, userId);
+    return this.updateBusWithCapacityRule(id, data, userId);
   }
 
   inactivateBus(id: string, userId: string) {
@@ -175,6 +176,96 @@ export class BaseRecordsService {
         totalPages: Math.ceil(total / query.limit),
       },
     };
+  }
+
+  private async listBusesWithOccupancy(query: ListBaseRecordsDto) {
+    const result = await this.list(this.prisma.bus, "buses", query);
+    const academicYearId = await this.resolveAcademicYearId(query.academicYearId);
+    const occupancy = await this.countActiveAssignmentsByBus(
+      result.data.map((bus) => bus.id),
+      academicYearId,
+    );
+
+    return {
+      ...result,
+      data: result.data.map((bus) => this.withOccupancy(bus, occupancy.get(bus.id) ?? 0)),
+      academicYearId,
+    };
+  }
+
+  private async getBusWithOccupancy(id: string) {
+    const bus = await this.get(this.prisma.bus, "buses", id);
+    const academicYearId = await this.resolveAcademicYearId();
+    const occupancy = await this.countActiveAssignmentsByBus([id], academicYearId);
+    return {
+      ...this.withOccupancy(bus, occupancy.get(id) ?? 0),
+      academicYearId,
+    };
+  }
+
+  private async updateBusWithCapacityRule(
+    id: string,
+    data: { name?: string; capacity?: number },
+    userId: string,
+  ) {
+    if (data.capacity === undefined) {
+      return this.update(this.prisma.bus, "buses", id, data, userId);
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException("Informe ao menos um campo para atualizar");
+    }
+
+    const updateData: WritableData & { normalizedName?: string } = { ...data };
+    if (data.name) {
+      updateData.normalizedName = this.normalizeName(data.name);
+    }
+
+    try {
+      const record = await this.prisma.$transaction(async (tx) => {
+        await this.lockBus(tx, id);
+        const current = await tx.bus.findUnique({ where: { id } });
+        if (!current) {
+          throw new NotFoundException("onibus nao encontrado");
+        }
+
+        const maxOccupancy = await this.countMaxActiveAssignmentsByAcademicYear(tx, id);
+        if (data.capacity !== undefined && data.capacity < maxOccupancy) {
+          throw new ConflictException(
+            "Capacidade nao pode ser menor que a ocupacao ativa",
+          );
+        }
+
+        const updated = await tx.bus.update({ where: { id }, data: updateData });
+        const eventType =
+          data.capacity !== undefined && data.capacity !== current.capacity
+            ? AdministrativeAuditEventType.BUS_CAPACITY_UPDATED
+            : AdministrativeAuditEventType.BASE_RECORD_UPDATED;
+        await tx.administrativeAuditLog.create({
+          data: {
+            eventType,
+            userId,
+            domain: "buses",
+            recordId: updated.id,
+            metadata: {
+              domain: "buses",
+              recordId: updated.id,
+              changedFields: Object.keys(updateData).join(","),
+            },
+          },
+        });
+        return updated;
+      });
+
+      const academicYearId = await this.resolveAcademicYearId();
+      const occupancy = await this.countActiveAssignmentsByBus([record.id], academicYearId);
+      return {
+        ...this.withOccupancy(record, occupancy.get(record.id) ?? 0),
+        academicYearId,
+      };
+    } catch (error) {
+      this.handleWriteError(error, "buses");
+    }
   }
 
   private async create<T extends { id: string }>(
@@ -298,6 +389,74 @@ export class BaseRecordsService {
             : "name";
 
     return [{ [primary]: direction }, { name: "asc" }];
+  }
+
+  private async resolveAcademicYearId(academicYearId?: string) {
+    if (academicYearId) {
+      return academicYearId;
+    }
+    const current = await this.prisma.academicYear.findFirst({
+      where: { isCurrent: true },
+      select: { id: true },
+    });
+    return current?.id ?? null;
+  }
+
+  private async countActiveAssignmentsByBus(
+    busIds: string[],
+    academicYearId: string | null,
+  ) {
+    if (busIds.length === 0) {
+      return new Map<string, number>();
+    }
+
+    const grouped = await this.prisma.busAssignment.groupBy({
+      by: ["busId"],
+      where: {
+        busId: { in: busIds },
+        status: BusAssignmentStatus.ACTIVE,
+        ...(academicYearId
+          ? { enrollment: { academicYearId } }
+          : {}),
+      },
+      _count: { _all: true },
+    });
+
+    return new Map(grouped.map((item) => [item.busId, item._count._all]));
+  }
+
+  private withOccupancy<T extends { capacity: number }>(bus: T, occupiedSeats: number) {
+    return {
+      ...bus,
+      occupiedSeats,
+      availableSeats: bus.capacity - occupiedSeats,
+      isFull: occupiedSeats >= bus.capacity,
+    };
+  }
+
+  private async lockBus(tx: Prisma.TransactionClient, id: string) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM buses WHERE id = ${id}::uuid FOR UPDATE
+    `;
+    if (rows.length === 0) {
+      throw new NotFoundException("onibus nao encontrado");
+    }
+  }
+
+  private async countMaxActiveAssignmentsByAcademicYear(
+    tx: Prisma.TransactionClient,
+    busId: string,
+  ) {
+    const rows = await tx.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count
+      FROM bus_assignments ba
+      INNER JOIN enrollments e ON e.id = ba.enrollment_id
+      WHERE ba.bus_id = ${busId}::uuid AND ba.status = 'ACTIVE'
+      GROUP BY e.academic_year_id
+      ORDER BY COUNT(*) DESC
+      LIMIT 1
+    `;
+    return rows[0] ? Number(rows[0].count) : 0;
   }
 
   private normalizeName(name: string): string {

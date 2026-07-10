@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -59,6 +60,10 @@ export class ListBaseRecordsDto {
   @IsOptional()
   @IsEnum(SortOrder)
   order = SortOrder.ASC;
+
+  @IsOptional()
+  @IsUUID()
+  academicYearId?: string;
 }
 
 export class CreateNamedRecordDto {
