@@ -46,6 +46,11 @@ enum AdministrativeAuditEventType {
   BUS_ASSIGNMENT_RELEASED
   BUS_ASSIGNMENT_SWITCHED
   BUS_CAPACITY_UPDATED
+  STUDENT_DOCUMENT_UPLOADED
+  STUDENT_DOCUMENT_REPLACED
+  STUDENT_DOCUMENT_DOWNLOADED
+  STUDENT_DOCUMENT_VIEWED
+  STUDENT_DOCUMENT_REMOVED
 }
 
 enum StudentStatus {
@@ -72,6 +77,19 @@ enum BusAssignmentEventType {
   SWITCHED
 }
 
+enum StudentDocumentType {
+  CPF
+  RG
+  PROOF_OF_ADDRESS
+  PROOF_OF_ENROLLMENT
+}
+
+enum StudentDocumentStatus {
+  ACTIVE
+  REPLACED
+  REMOVED
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   name         String     @db.VarChar(120)
@@ -84,6 +102,8 @@ model User {
   roles        UserRole[]
   auditLogs    SecurityAuditLog[]
   administrativeAuditLogs AdministrativeAuditLog[]
+  uploadedStudentDocuments StudentDocument[] @relation("StudentDocumentUploadedBy")
+  removedStudentDocuments  StudentDocument[] @relation("StudentDocumentRemovedBy")
 
   @@map("users")
 }
@@ -222,6 +242,7 @@ model Student {
   person      Person           @relation(fields: [personId], references: [id], onDelete: Restrict)
   guardian    StudentGuardian?
   enrollments Enrollment[]
+  documents   StudentDocument[]
 
   @@index([status, createdAt])
   @@index([joinedAt])
@@ -323,4 +344,35 @@ model BusAssignmentEvent {
   @@index([toBusId, occurredAt])
   @@index([eventType, occurredAt])
   @@map("bus_assignment_events")
+}
+
+model StudentDocument {
+  id               String                @id @default(uuid()) @db.Uuid
+  studentId        String                @map("student_id") @db.Uuid
+  documentType     StudentDocumentType   @map("document_type")
+  storageKey       String                @unique @map("storage_key") @db.VarChar(500)
+  originalFileName String                @map("original_file_name") @db.VarChar(255)
+  storedFileName   String                @map("stored_file_name") @db.VarChar(120)
+  mimeType         String                @map("mime_type") @db.VarChar(80)
+  extension        String                @db.VarChar(10)
+  sizeBytes        Int                   @map("size_bytes")
+  checksumSha256   String                @map("checksum_sha256") @db.VarChar(64)
+  status           StudentDocumentStatus @default(ACTIVE)
+  uploadedByUserId String?               @map("uploaded_by_user_id") @db.Uuid
+  removedByUserId  String?               @map("removed_by_user_id") @db.Uuid
+  replacedById     String?               @map("replaced_by_id") @db.Uuid
+  replacedAt       DateTime?             @map("replaced_at") @db.Timestamptz(6)
+  removedAt        DateTime?             @map("removed_at") @db.Timestamptz(6)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student          Student               @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  uploadedBy       User?                 @relation("StudentDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  removedBy        User?                 @relation("StudentDocumentRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+  replacedBy       StudentDocument?      @relation("StudentDocumentReplacement", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces         StudentDocument[]     @relation("StudentDocumentReplacement")
+
+  @@index([studentId, status, documentType])
+  @@index([checksumSha256])
+  @@index([uploadedByUserId, createdAt])
+  @@map("student_documents")
 }

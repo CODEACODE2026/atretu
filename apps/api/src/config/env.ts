@@ -11,6 +11,8 @@ export type EnvConfig = {
   adminSetupToken: string;
   authRateLimitTtlMs: number;
   authRateLimitMax: number;
+  documentStorageDir: string;
+  documentMaxSizeBytes: number;
 };
 
 const DEFAULT_INSECURE_SECRETS = new Set([
@@ -87,5 +89,12 @@ export function loadEnvConfig(): EnvConfig {
     adminSetupToken,
     authRateLimitTtlMs: readNumberEnv("AUTH_RATE_LIMIT_TTL_MS", 60_000),
     authRateLimitMax: readNumberEnv("AUTH_RATE_LIMIT_MAX", 5),
+    documentStorageDir:
+      process.env.DOCUMENT_STORAGE_DIR?.trim() ||
+      "/opt/codeacode/storage/atretu/private-documents",
+    documentMaxSizeBytes: readNumberEnv(
+      "DOCUMENT_MAX_SIZE_BYTES",
+      8 * 1024 * 1024,
+    ),
   };
 }
