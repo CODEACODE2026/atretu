@@ -149,6 +149,37 @@ export type BusAssignmentEvent = {
   toBus?: BusRecord | null;
 };
 
+export type StudentDocumentType =
+  | "CPF"
+  | "RG"
+  | "PROOF_OF_ADDRESS"
+  | "PROOF_OF_ENROLLMENT";
+
+export type StudentDocumentStatus = "ACTIVE" | "REPLACED" | "REMOVED";
+
+export type StudentDocumentRecord = {
+  id: string;
+  studentId: string;
+  documentType: StudentDocumentType;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  checksumSha256: string;
+  status: StudentDocumentStatus;
+  uploadedByUserId?: string | null;
+  removedByUserId?: string | null;
+  replacedById?: string | null;
+  replacedAt?: string | null;
+  removedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StudentDocumentsResponse = {
+  data: StudentDocumentRecord[];
+  missingTypes: StudentDocumentType[];
+};
+
 export type StudentPayload = {
   person: {
     fullName: string;
@@ -195,11 +226,13 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...options.headers,
     },
   });
@@ -464,4 +497,91 @@ export const api = {
       `/enrollments/${enrollmentId}/bus-assignment-events`,
     );
   },
+
+  listStudentDocuments(
+    studentId: string,
+    params?: { status?: StudentDocumentStatus | "all" },
+  ) {
+    return request<StudentDocumentsResponse>(
+      withParams(`/students/${studentId}/documents`, params),
+    );
+  },
+
+  uploadStudentDocument(
+    studentId: string,
+    documentType: StudentDocumentType,
+    file: File,
+  ) {
+    const form = new FormData();
+    form.set("documentType", documentType);
+    form.set("file", file);
+    return request<StudentDocumentRecord>(`/students/${studentId}/documents`, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  getStudentDocument(studentId: string, documentId: string) {
+    return request<StudentDocumentRecord>(
+      `/students/${studentId}/documents/${documentId}`,
+    );
+  },
+
+  replaceStudentDocument(studentId: string, documentId: string, file: File) {
+    const form = new FormData();
+    form.set("file", file);
+    return request<StudentDocumentRecord>(
+      `/students/${studentId}/documents/${documentId}/replace`,
+      {
+        method: "POST",
+        body: form,
+      },
+    );
+  },
+
+  removeStudentDocument(studentId: string, documentId: string) {
+    return request<StudentDocumentRecord>(
+      `/students/${studentId}/documents/${documentId}/remove`,
+      {
+        method: "PATCH",
+      },
+    );
+  },
+
+  async downloadStudentDocument(
+    studentId: string,
+    documentId: string,
+    disposition: "attachment" | "inline" = "attachment",
+  ) {
+    const response = await fetch(
+      `${API_URL}${withParams(
+        `/students/${studentId}/documents/${documentId}/file`,
+        { disposition },
+      )}`,
+      { credentials: "include" },
+    );
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+      throw new Error(body?.message ?? "Nao foi possivel baixar o documento");
+    }
+
+    return {
+      blob: await response.blob(),
+      fileName: fileNameFromDisposition(
+        response.headers.get("content-disposition"),
+      ),
+    };
+  },
 };
+
+function fileNameFromDisposition(value: string | null) {
+  const fallback = "atretu-documento";
+  if (!value) {
+    return fallback;
+  }
+  const match = /filename="([^"]+)"/i.exec(value);
+  return match?.[1] ?? fallback;
+}

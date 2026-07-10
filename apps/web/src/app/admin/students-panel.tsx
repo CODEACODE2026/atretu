@@ -8,6 +8,8 @@ import {
   type BusAssignmentRecord,
   type BusRecord,
   type EnrollmentRecord,
+  type StudentDocumentRecord,
+  type StudentDocumentType,
   type StudentDetail,
   type StudentPayload,
   type StudentSummary,
@@ -477,14 +479,17 @@ export function StudentsPanel() {
           )}
 
           {selected ? (
-            <StudentEnrollments
-              enrollments={selected.enrollments}
-              onChanged={async () => {
-                const detail = await api.getStudent(selected.id);
-                setSelected(detail);
-                await loadStudents();
-              }}
-            />
+            <>
+              <StudentEnrollments
+                enrollments={selected.enrollments}
+                onChanged={async () => {
+                  const detail = await api.getStudent(selected.id);
+                  setSelected(detail);
+                  await loadStudents();
+                }}
+              />
+              <StudentDocuments studentId={selected.id} />
+            </>
           ) : null}
         </form>
       </div>
@@ -808,6 +813,253 @@ function BusAssignmentControls({
   );
 }
 
+const documentTypes: Array<{ label: string; value: StudentDocumentType }> = [
+  { label: "CPF", value: "CPF" },
+  { label: "RG", value: "RG" },
+  { label: "Comprovante de residencia", value: "PROOF_OF_ADDRESS" },
+  { label: "Comprovante de matricula", value: "PROOF_OF_ENROLLMENT" },
+];
+
+function StudentDocuments({ studentId }: { studentId: string }) {
+  const [documents, setDocuments] = useState<StudentDocumentRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyType, setBusyType] = useState<StudentDocumentType | "download" | "remove" | "">("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void loadDocuments();
+  }, [studentId]);
+
+  async function loadDocuments() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.listStudentDocuments(studentId, { status: "all" });
+      setDocuments(response.data);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao carregar documentos",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFile(
+    documentType: StudentDocumentType,
+    file: File | undefined,
+    activeDocument?: StudentDocumentRecord,
+  ) {
+    if (!file) {
+      return;
+    }
+    if (activeDocument) {
+      const confirmed = window.confirm("Substituir o documento ativo?");
+      if (!confirmed) {
+        return;
+      }
+    }
+    setBusyType(documentType);
+    setMessage("");
+    setError("");
+    try {
+      if (activeDocument) {
+        await api.replaceStudentDocument(studentId, activeDocument.id, file);
+        setMessage("Documento substituido");
+      } else {
+        await api.uploadStudentDocument(studentId, documentType, file);
+        setMessage("Documento enviado");
+      }
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao enviar arquivo");
+    } finally {
+      setBusyType("");
+    }
+  }
+
+  async function handleDownload(
+    studentDocument: StudentDocumentRecord,
+    disposition: "attachment" | "inline",
+  ) {
+    setBusyType("download");
+    setMessage("");
+    setError("");
+    try {
+      const { blob, fileName } = await api.downloadStudentDocument(
+        studentId,
+        studentDocument.id,
+        disposition,
+      );
+      const objectUrl = URL.createObjectURL(blob);
+      if (disposition === "inline") {
+        window.open(objectUrl, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      } else {
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = fileName;
+        link.click();
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao baixar documento");
+    } finally {
+      setBusyType("");
+    }
+  }
+
+  async function handleRemove(document: StudentDocumentRecord) {
+    const confirmed = window.confirm("Remover logicamente este documento?");
+    if (!confirmed) {
+      return;
+    }
+    setBusyType("remove");
+    setMessage("");
+    setError("");
+    try {
+      await api.removeStudentDocument(studentId, document.id);
+      setMessage("Documento removido");
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao remover documento");
+    } finally {
+      setBusyType("");
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-slate-200 pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-slate-950">Documentos</h3>
+        <button
+          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+          disabled={loading}
+          onClick={() => void loadDocuments()}
+          type="button"
+        >
+          Atualizar
+        </button>
+      </div>
+
+      {message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}
+      {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
+
+      <div className="mt-3 grid gap-3">
+        {loading ? (
+          <p className="rounded border border-slate-200 p-3 text-sm text-slate-500">
+            Carregando documentos...
+          </p>
+        ) : (
+          documentTypes.map((item) => {
+            const activeDocument = documents.find(
+              (document) =>
+                document.documentType === item.value &&
+                document.status === "ACTIVE",
+            );
+            const history = documents.filter(
+              (document) =>
+                document.documentType === item.value &&
+                document.status !== "ACTIVE",
+            );
+            return (
+              <div className="rounded border border-slate-200 p-3" key={item.value}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-slate-950">{item.label}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {activeDocument
+                        ? `${activeDocument.extension.toUpperCase()} - ${formatBytes(
+                            activeDocument.sizeBytes,
+                          )} - enviado em ${formatDateTime(
+                            activeDocument.createdAt,
+                          )}`
+                        : "Documento ausente"}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-1 text-xs font-medium ${
+                      activeDocument
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {activeDocument ? "Ativo" : "Ausente"}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid gap-2">
+                  <input
+                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                    className="block w-full text-xs text-slate-700 file:mr-3 file:rounded file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white"
+                    disabled={busyType === item.value}
+                    onChange={(event) => {
+                      void handleFile(
+                        item.value,
+                        event.target.files?.[0],
+                        activeDocument,
+                      );
+                      event.target.value = "";
+                    }}
+                    type="file"
+                  />
+                  {activeDocument ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                        disabled={busyType !== ""}
+                        onClick={() => void handleDownload(activeDocument, "inline")}
+                        type="button"
+                      >
+                        Visualizar
+                      </button>
+                      <button
+                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                        disabled={busyType !== ""}
+                        onClick={() =>
+                          void handleDownload(activeDocument, "attachment")
+                        }
+                        type="button"
+                      >
+                        Baixar
+                      </button>
+                      <button
+                        className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
+                        disabled={busyType !== ""}
+                        onClick={() => void handleRemove(activeDocument)}
+                        type="button"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {history.length > 0 ? (
+                  <details className="mt-3 text-xs text-slate-600">
+                    <summary className="cursor-pointer font-medium">
+                      Historico
+                    </summary>
+                    <div className="mt-2 grid gap-1">
+                      {history.map((document) => (
+                        <p key={document.id}>
+                          {document.status} - {document.extension.toUpperCase()} -{" "}
+                          {formatDateTime(document.updatedAt)}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Field({
   label,
   maxLength,
@@ -927,4 +1179,21 @@ function cleanPerson(person: StudentPayload["person"]): StudentPayload["person"]
 
 function emptyToUndefined(value?: string) {
   return value && value.length > 0 ? value : undefined;
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KiB`;
+  }
+  return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
