@@ -6,9 +6,16 @@ import { HttpErrorFilter } from "./common/http-exception.filter.js";
 import { AppConfigModule } from "./config/app-config.module.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { HealthController } from "./health.controller.js";
+import { StudentsModule } from "./students/students.module.js";
 
 @Module({
-  imports: [AppConfigModule, DatabaseModule, AuthModule, BaseRecordsModule],
+  imports: [
+    AppConfigModule,
+    DatabaseModule,
+    AuthModule,
+    BaseRecordsModule,
+    StudentsModule,
+  ],
   controllers: [HealthController],
   providers: [
     {
