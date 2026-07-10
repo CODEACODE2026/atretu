@@ -160,10 +160,10 @@ export function StudentsPanel() {
     event.preventDefault();
     setSaving(true);
     setMessage("");
-    setError("");
+      setError("");
     try {
       await api.createStudent({
-        person,
+        person: cleanPerson(person),
         guardian: guardian?.fullName ? guardian : undefined,
         enrollment,
       });
@@ -185,7 +185,7 @@ export function StudentsPanel() {
     setMessage("");
     setError("");
     try {
-      const detail = await api.updateStudentPerson(selected.id, person);
+      const detail = await api.updateStudentPerson(selected.id, cleanPerson(person));
       setSelected(detail);
       setMessage("Dados pessoais atualizados");
       await loadStudents();
@@ -733,4 +733,20 @@ function toEnrollmentPayload(enrollment: EnrollmentRecord): StudentPayload["enro
 
 function formatDateInput(value: string) {
   return value.slice(0, 10);
+}
+
+function cleanPerson(person: StudentPayload["person"]): StudentPayload["person"] {
+  return {
+    ...person,
+    rg: emptyToUndefined(person.rg),
+    phone: emptyToUndefined(person.phone),
+    email: emptyToUndefined(person.email),
+    addressZipCode: emptyToUndefined(person.addressZipCode),
+    addressState: emptyToUndefined(person.addressState),
+    addressComplement: emptyToUndefined(person.addressComplement),
+  };
+}
+
+function emptyToUndefined(value?: string) {
+  return value && value.length > 0 ? value : undefined;
 }

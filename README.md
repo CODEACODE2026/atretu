@@ -3,8 +3,8 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 2: cadastros base administrativos implementados para Instituicoes,
-Turnos e Onibus.
+Sprint 3: cadastros base e nucleo academico implementados para Pessoas,
+Academicos, Responsavel unico opcional, Ano Letivo e Matricula Anual.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -85,6 +85,37 @@ Parametros de listagem:
 - `sort=name|status|createdAt|updatedAt`
 - `order=asc|desc`
 
+## Academicos e matriculas
+
+A Sprint 3 implementa o nucleo academico sem transporte, documentos,
+carteirinhas, financeiro, dashboard ou portal do academico.
+
+Rotas:
+
+- `GET /academic-years`
+- `POST /academic-years` restrita ao Super Admin
+- `PATCH /academic-years/:id` restrita ao Super Admin
+- `PATCH /academic-years/:id/set-current` restrita ao Super Admin
+- `GET /students`
+- `POST /students`
+- `GET /students/:id`
+- `PATCH /students/:id/person`
+- `PATCH /students/:id/guardian`
+- `POST /students/:id/enrollments`
+- `PATCH /students/:id/enrollments/:enrollmentId`
+
+Regras principais:
+
+- CPF do academico e obrigatorio, valido, normalizado e unico.
+- Data de nascimento do academico e obrigatoria e nao pode ser futura.
+- Endereco minimo: logradouro, numero, bairro e cidade.
+- Responsavel e opcional e limitado a um por academico.
+- Ano de ingresso no Student nao substitui Ano Letivo da Matricula.
+- Instituicao e Turno precisam estar ativos em novas matriculas.
+- Nao existe duas matriculas do mesmo academico no mesmo Ano Letivo.
+- Listagem de academicos mostra CPF mascarado.
+- Auditoria administrativa nao deve registrar dados pessoais completos.
+
 O bootstrap do primeiro Super Admin exige o header:
 
 ```text
@@ -105,8 +136,14 @@ Smoke da Sprint 2, com API e banco ja disponiveis:
 ADMIN_SETUP_TOKEN=... npm --prefix apps/api run smoke:base-records
 ```
 
+Smoke da Sprint 3, com API e banco ja disponiveis:
+
+```bash
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:students
+```
+
 ## Limites atuais
-- Nao ha pessoas, academicos, matriculas ou vinculos com onibus.
+- Nao ha vinculos com onibus.
 - Nao ha ocupacao real de onibus nem contador manual de vagas.
 - Nao ha integracao Sicredi.
 - Nao ha PDFs.
