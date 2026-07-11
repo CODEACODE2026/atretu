@@ -57,10 +57,17 @@ enum AdministrativeAuditEventType {
   PRE_REGISTRATION_APPROVED
   PRE_REGISTRATION_REJECTED
   PRE_REGISTRATION_DOCUMENT_PROMOTED
+  STUDENT_SUSPENDED
+  STUDENT_REACTIVATED
+  STUDENT_TERMINATED
+  BOARD_MEMBERSHIP_STARTED
+  BOARD_MEMBERSHIP_ENDED
 }
 
 enum StudentStatus {
   ACTIVE
+  SUSPENDED
+  TERMINATED
 }
 
 enum EnrollmentStatus {
@@ -75,12 +82,40 @@ enum BusAssignmentStatus {
 enum BusAssignmentEndReason {
   RELEASED
   SWITCHED
+  SUSPENSION
+  TERMINATION
 }
 
 enum BusAssignmentEventType {
   LINKED
   RELEASED
   SWITCHED
+  SUSPENSION_RELEASED
+  TERMINATION_RELEASED
+}
+
+enum StudentHistoryEventType {
+  STUDENT_SUSPENDED
+  STUDENT_REACTIVATED
+  STUDENT_TERMINATED
+  BOARD_MEMBERSHIP_STARTED
+  BOARD_MEMBERSHIP_ENDED
+}
+
+enum StudentSuspensionReason {
+  NON_PAYMENT
+  INFRACTION
+  OTHER
+}
+
+enum StudentTerminationReason {
+  WITHDRAWAL
+  NON_PAYMENT
+}
+
+enum BoardMembershipStatus {
+  ACTIVE
+  ENDED
 }
 
 enum StudentDocumentType {
@@ -109,20 +144,23 @@ enum PreRegistrationDocumentStatus {
 }
 
 model User {
-  id           String     @id @default(uuid()) @db.Uuid
-  name         String     @db.VarChar(120)
-  email        String     @unique @db.VarChar(180)
-  passwordHash String     @map("password_hash") @db.VarChar(255)
-  status       UserStatus @default(ACTIVE)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  roles        UserRole[]
-  auditLogs    SecurityAuditLog[]
-  administrativeAuditLogs AdministrativeAuditLog[]
-  uploadedStudentDocuments StudentDocument[] @relation("StudentDocumentUploadedBy")
-  removedStudentDocuments  StudentDocument[] @relation("StudentDocumentRemovedBy")
-  reviewedPreRegistrations PublicPreRegistration[] @relation("PreRegistrationReviewedBy")
+  id                       String                   @id @default(uuid()) @db.Uuid
+  name                     String                   @db.VarChar(120)
+  email                    String                   @unique @db.VarChar(180)
+  passwordHash             String                   @map("password_hash") @db.VarChar(255)
+  status                   UserStatus               @default(ACTIVE)
+  createdAt                DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt              DateTime?                @map("last_login_at") @db.Timestamptz(6)
+  roles                    UserRole[]
+  auditLogs                SecurityAuditLog[]
+  administrativeAuditLogs  AdministrativeAuditLog[]
+  uploadedStudentDocuments StudentDocument[]        @relation("StudentDocumentUploadedBy")
+  removedStudentDocuments  StudentDocument[]        @relation("StudentDocumentRemovedBy")
+  reviewedPreRegistrations PublicPreRegistration[]  @relation("PreRegistrationReviewedBy")
+  studentHistoryEvents     StudentHistoryEvent[]    @relation("StudentHistoryPerformedBy")
+  boardMembershipsStarted  BoardMembership[]        @relation("BoardMembershipStartedBy")
+  boardMembershipsEnded    BoardMembership[]        @relation("BoardMembershipEndedBy")
 
   @@map("users")
 }
@@ -165,13 +203,13 @@ model SecurityAuditLog {
 }
 
 model Institution {
-  id             String       @id @default(uuid()) @db.Uuid
-  name           String       @db.VarChar(140)
-  normalizedName String       @unique @map("normalized_name") @db.VarChar(140)
-  status         RecordStatus @default(ACTIVE)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  enrollments    Enrollment[]
+  id               String                  @id @default(uuid()) @db.Uuid
+  name             String                  @db.VarChar(140)
+  normalizedName   String                  @unique @map("normalized_name") @db.VarChar(140)
+  status           RecordStatus            @default(ACTIVE)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollments      Enrollment[]
   preRegistrations PublicPreRegistration[]
 
   @@index([status, name])
@@ -180,13 +218,13 @@ model Institution {
 }
 
 model Shift {
-  id             String       @id @default(uuid()) @db.Uuid
-  name           String       @db.VarChar(80)
-  normalizedName String       @unique @map("normalized_name") @db.VarChar(80)
-  status         RecordStatus @default(ACTIVE)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  enrollments    Enrollment[]
+  id               String                  @id @default(uuid()) @db.Uuid
+  name             String                  @db.VarChar(80)
+  normalizedName   String                  @unique @map("normalized_name") @db.VarChar(80)
+  status           RecordStatus            @default(ACTIVE)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollments      Enrollment[]
   preRegistrations PublicPreRegistration[]
 
   @@index([status, name])
@@ -195,16 +233,17 @@ model Shift {
 }
 
 model Bus {
-  id             String       @id @default(uuid()) @db.Uuid
-  name           String       @db.VarChar(100)
-  normalizedName String       @unique @map("normalized_name") @db.VarChar(100)
-  capacity       Int
-  status         RecordStatus @default(ACTIVE)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assignments    BusAssignment[]
-  eventsFrom     BusAssignmentEvent[] @relation("BusAssignmentEventFromBus")
-  eventsTo       BusAssignmentEvent[] @relation("BusAssignmentEventToBus")
+  id                   String                @id @default(uuid()) @db.Uuid
+  name                 String                @db.VarChar(100)
+  normalizedName       String                @unique @map("normalized_name") @db.VarChar(100)
+  capacity             Int
+  status               RecordStatus          @default(ACTIVE)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignments          BusAssignment[]
+  eventsFrom           BusAssignmentEvent[]  @relation("BusAssignmentEventFromBus")
+  eventsTo             BusAssignmentEvent[]  @relation("BusAssignmentEventToBus")
+  studentHistoryEvents StudentHistoryEvent[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -228,23 +267,23 @@ model AdministrativeAuditLog {
 }
 
 model Person {
-  id                  String    @id @default(uuid()) @db.Uuid
-  fullName            String    @map("full_name") @db.VarChar(160)
-  normalizedName      String    @map("normalized_name") @db.VarChar(160)
-  cpf                 String    @db.VarChar(11)
-  rg                  String?   @db.VarChar(30)
-  birthDate           DateTime  @map("birth_date") @db.Date
-  phone               String?   @db.VarChar(30)
-  email               String?   @db.VarChar(180)
-  addressStreet       String    @map("address_street") @db.VarChar(180)
-  addressNumber       String    @map("address_number") @db.VarChar(30)
-  addressNeighborhood String    @map("address_neighborhood") @db.VarChar(120)
-  addressCity         String    @map("address_city") @db.VarChar(120)
-  addressZipCode      String?   @map("address_zip_code") @db.VarChar(20)
-  addressState        String?   @map("address_state") @db.VarChar(2)
-  addressComplement   String?   @map("address_complement") @db.VarChar(120)
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                  String   @id @default(uuid()) @db.Uuid
+  fullName            String   @map("full_name") @db.VarChar(160)
+  normalizedName      String   @map("normalized_name") @db.VarChar(160)
+  cpf                 String   @db.VarChar(11)
+  rg                  String?  @db.VarChar(30)
+  birthDate           DateTime @map("birth_date") @db.Date
+  phone               String?  @db.VarChar(30)
+  email               String?  @db.VarChar(180)
+  addressStreet       String   @map("address_street") @db.VarChar(180)
+  addressNumber       String   @map("address_number") @db.VarChar(30)
+  addressNeighborhood String   @map("address_neighborhood") @db.VarChar(120)
+  addressCity         String   @map("address_city") @db.VarChar(120)
+  addressZipCode      String?  @map("address_zip_code") @db.VarChar(20)
+  addressState        String?  @map("address_state") @db.VarChar(2)
+  addressComplement   String?  @map("address_complement") @db.VarChar(120)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   student             Student?
 
   @@unique([cpf])
@@ -254,21 +293,72 @@ model Person {
 }
 
 model Student {
-  id          String           @id @default(uuid()) @db.Uuid
-  personId    String           @unique @map("person_id") @db.Uuid
-  status      StudentStatus    @default(ACTIVE)
-  joinedAt    DateTime         @default(now()) @map("joined_at") @db.Date
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  person      Person           @relation(fields: [personId], references: [id], onDelete: Restrict)
-  guardian    StudentGuardian?
-  enrollments Enrollment[]
-  documents   StudentDocument[]
+  id                       String                  @id @default(uuid()) @db.Uuid
+  personId                 String                  @unique @map("person_id") @db.Uuid
+  status                   StudentStatus           @default(ACTIVE)
+  joinedAt                 DateTime                @default(now()) @map("joined_at") @db.Date
+  createdAt                DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  person                   Person                  @relation(fields: [personId], references: [id], onDelete: Restrict)
+  guardian                 StudentGuardian?
+  enrollments              Enrollment[]
+  documents                StudentDocument[]
   approvedPreRegistrations PublicPreRegistration[]
+  historyEvents            StudentHistoryEvent[]
+  boardMemberships         BoardMembership[]
 
   @@index([status, createdAt])
   @@index([joinedAt])
   @@map("students")
+}
+
+model StudentHistoryEvent {
+  id                String                    @id @default(uuid()) @db.Uuid
+  studentId         String                    @map("student_id") @db.Uuid
+  eventType         StudentHistoryEventType   @map("event_type")
+  suspensionReason  StudentSuspensionReason?  @map("suspension_reason")
+  terminationReason StudentTerminationReason? @map("termination_reason")
+  justification     String?                   @db.VarChar(500)
+  busSeatReleased   Boolean?                  @map("bus_seat_released")
+  busId             String?                   @map("bus_id") @db.Uuid
+  busAssignmentId   String?                   @map("bus_assignment_id") @db.Uuid
+  boardMembershipId String?                   @map("board_membership_id") @db.Uuid
+  performedByUserId String?                   @map("performed_by_user_id") @db.Uuid
+  occurredAt        DateTime                  @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  student           Student                   @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  bus               Bus?                      @relation(fields: [busId], references: [id], onDelete: SetNull)
+  busAssignment     BusAssignment?            @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
+  boardMembership   BoardMembership?          @relation(fields: [boardMembershipId], references: [id], onDelete: SetNull)
+  performedBy       User?                     @relation("StudentHistoryPerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([studentId, occurredAt])
+  @@index([eventType, occurredAt])
+  @@index([busAssignmentId, occurredAt])
+  @@index([boardMembershipId, occurredAt])
+  @@map("student_history_events")
+}
+
+model BoardMembership {
+  id              String                @id @default(uuid()) @db.Uuid
+  studentId       String                @map("student_id") @db.Uuid
+  status          BoardMembershipStatus @default(ACTIVE)
+  startedAt       DateTime              @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt         DateTime?             @map("ended_at") @db.Timestamptz(6)
+  startedByUserId String?               @map("started_by_user_id") @db.Uuid
+  endedByUserId   String?               @map("ended_by_user_id") @db.Uuid
+  startNote       String?               @map("start_note") @db.VarChar(500)
+  endNote         String?               @map("end_note") @db.VarChar(500)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student         Student               @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  startedBy       User?                 @relation("BoardMembershipStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
+  endedBy         User?                 @relation("BoardMembershipEndedBy", fields: [endedByUserId], references: [id], onDelete: SetNull)
+  historyEvents   StudentHistoryEvent[]
+
+  @@index([studentId, status])
+  @@index([status, createdAt])
+  @@map("board_memberships")
 }
 
 model StudentGuardian {
@@ -286,12 +376,12 @@ model StudentGuardian {
 }
 
 model AcademicYear {
-  id          String       @id @default(uuid()) @db.Uuid
-  year        Int          @unique
-  isCurrent   Boolean      @default(false) @map("is_current")
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  enrollments Enrollment[]
+  id               String                  @id @default(uuid()) @db.Uuid
+  year             Int                     @unique
+  isCurrent        Boolean                 @default(false) @map("is_current")
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollments      Enrollment[]
   preRegistrations PublicPreRegistration[]
 
   @@index([isCurrent])
@@ -300,21 +390,21 @@ model AcademicYear {
 }
 
 model Enrollment {
-  id             String           @id @default(uuid()) @db.Uuid
-  studentId      String           @map("student_id") @db.Uuid
-  academicYearId String           @map("academic_year_id") @db.Uuid
-  institutionId  String           @map("institution_id") @db.Uuid
-  shiftId        String           @map("shift_id") @db.Uuid
-  course         String           @db.VarChar(140)
-  grade          String           @db.VarChar(40)
-  status         EnrollmentStatus @default(ACTIVE)
-  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  student        Student          @relation(fields: [studentId], references: [id], onDelete: Restrict)
-  academicYear   AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  institution    Institution      @relation(fields: [institutionId], references: [id], onDelete: Restrict)
-  shift          Shift            @relation(fields: [shiftId], references: [id], onDelete: Restrict)
-  busAssignments BusAssignment[]
+  id                  String               @id @default(uuid()) @db.Uuid
+  studentId           String               @map("student_id") @db.Uuid
+  academicYearId      String               @map("academic_year_id") @db.Uuid
+  institutionId       String               @map("institution_id") @db.Uuid
+  shiftId             String               @map("shift_id") @db.Uuid
+  course              String               @db.VarChar(140)
+  grade               String               @db.VarChar(40)
+  status              EnrollmentStatus     @default(ACTIVE)
+  createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student             Student              @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear        AcademicYear         @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  institution         Institution          @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  shift               Shift                @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  busAssignments      BusAssignment[]
   busAssignmentEvents BusAssignmentEvent[]
 
   @@unique([studentId, academicYearId])
@@ -326,19 +416,20 @@ model Enrollment {
 }
 
 model BusAssignment {
-  id           String                  @id @default(uuid()) @db.Uuid
-  enrollmentId String                  @map("enrollment_id") @db.Uuid
-  busId        String                  @map("bus_id") @db.Uuid
-  status       BusAssignmentStatus     @default(ACTIVE)
-  startedAt    DateTime                @default(now()) @map("started_at") @db.Timestamptz(6)
-  endedAt      DateTime?               @map("ended_at") @db.Timestamptz(6)
-  endReason    BusAssignmentEndReason? @map("end_reason")
-  note         String?                 @db.VarChar(240)
-  createdAt    DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
-  enrollment   Enrollment              @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
-  bus          Bus                     @relation(fields: [busId], references: [id], onDelete: Restrict)
-  events       BusAssignmentEvent[]
+  id                   String                  @id @default(uuid()) @db.Uuid
+  enrollmentId         String                  @map("enrollment_id") @db.Uuid
+  busId                String                  @map("bus_id") @db.Uuid
+  status               BusAssignmentStatus     @default(ACTIVE)
+  startedAt            DateTime                @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt              DateTime?               @map("ended_at") @db.Timestamptz(6)
+  endReason            BusAssignmentEndReason? @map("end_reason")
+  note                 String?                 @db.VarChar(240)
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollment           Enrollment              @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  bus                  Bus                     @relation(fields: [busId], references: [id], onDelete: Restrict)
+  events               BusAssignmentEvent[]
+  studentHistoryEvents StudentHistoryEvent[]
 
   @@index([busId, status])
   @@index([enrollmentId, status])
@@ -370,29 +461,29 @@ model BusAssignmentEvent {
 }
 
 model StudentDocument {
-  id               String                @id @default(uuid()) @db.Uuid
-  studentId        String                @map("student_id") @db.Uuid
-  documentType     StudentDocumentType   @map("document_type")
-  storageKey       String                @unique @map("storage_key") @db.VarChar(500)
-  originalFileName String                @map("original_file_name") @db.VarChar(255)
-  storedFileName   String                @map("stored_file_name") @db.VarChar(120)
-  mimeType         String                @map("mime_type") @db.VarChar(80)
-  extension        String                @db.VarChar(10)
-  sizeBytes        Int                   @map("size_bytes")
-  checksumSha256   String                @map("checksum_sha256") @db.VarChar(64)
-  status           StudentDocumentStatus @default(ACTIVE)
-  uploadedByUserId String?               @map("uploaded_by_user_id") @db.Uuid
-  removedByUserId  String?               @map("removed_by_user_id") @db.Uuid
-  replacedById     String?               @map("replaced_by_id") @db.Uuid
-  replacedAt       DateTime?             @map("replaced_at") @db.Timestamptz(6)
-  removedAt        DateTime?             @map("removed_at") @db.Timestamptz(6)
-  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  student          Student               @relation(fields: [studentId], references: [id], onDelete: Restrict)
-  uploadedBy       User?                 @relation("StudentDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
-  removedBy        User?                 @relation("StudentDocumentRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
-  replacedBy       StudentDocument?      @relation("StudentDocumentReplacement", fields: [replacedById], references: [id], onDelete: SetNull)
-  replaces         StudentDocument[]     @relation("StudentDocumentReplacement")
+  id                                  String                   @id @default(uuid()) @db.Uuid
+  studentId                           String                   @map("student_id") @db.Uuid
+  documentType                        StudentDocumentType      @map("document_type")
+  storageKey                          String                   @unique @map("storage_key") @db.VarChar(500)
+  originalFileName                    String                   @map("original_file_name") @db.VarChar(255)
+  storedFileName                      String                   @map("stored_file_name") @db.VarChar(120)
+  mimeType                            String                   @map("mime_type") @db.VarChar(80)
+  extension                           String                   @db.VarChar(10)
+  sizeBytes                           Int                      @map("size_bytes")
+  checksumSha256                      String                   @map("checksum_sha256") @db.VarChar(64)
+  status                              StudentDocumentStatus    @default(ACTIVE)
+  uploadedByUserId                    String?                  @map("uploaded_by_user_id") @db.Uuid
+  removedByUserId                     String?                  @map("removed_by_user_id") @db.Uuid
+  replacedById                        String?                  @map("replaced_by_id") @db.Uuid
+  replacedAt                          DateTime?                @map("replaced_at") @db.Timestamptz(6)
+  removedAt                           DateTime?                @map("removed_at") @db.Timestamptz(6)
+  createdAt                           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student                             Student                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  uploadedBy                          User?                    @relation("StudentDocumentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  removedBy                           User?                    @relation("StudentDocumentRemovedBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+  replacedBy                          StudentDocument?         @relation("StudentDocumentReplacement", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces                            StudentDocument[]        @relation("StudentDocumentReplacement")
   promotedFromPreRegistrationDocument PreRegistrationDocument? @relation("PreRegistrationDocumentPromotion")
 
   @@index([studentId, status, documentType])
@@ -402,40 +493,40 @@ model StudentDocument {
 }
 
 model PublicPreRegistration {
-  id                     String                @id @default(uuid()) @db.Uuid
-  publicCode             String                @unique @map("public_code") @db.VarChar(32)
-  status                 PreRegistrationStatus @default(PENDING)
-  fullName               String                @map("full_name") @db.VarChar(160)
-  normalizedName         String                @map("normalized_name") @db.VarChar(160)
-  cpf                    String                @db.VarChar(11)
-  rg                     String?               @db.VarChar(30)
-  birthDate              DateTime              @map("birth_date") @db.Date
-  phone                  String?               @db.VarChar(30)
-  email                  String?               @db.VarChar(180)
-  addressStreet          String                @map("address_street") @db.VarChar(180)
-  addressNumber          String                @map("address_number") @db.VarChar(30)
-  addressNeighborhood    String                @map("address_neighborhood") @db.VarChar(120)
-  addressCity            String                @map("address_city") @db.VarChar(120)
-  guardianFullName       String?               @map("guardian_full_name") @db.VarChar(160)
-  guardianCpf            String?               @map("guardian_cpf") @db.VarChar(11)
-  guardianRg             String?               @map("guardian_rg") @db.VarChar(30)
-  academicYearId         String                @map("academic_year_id") @db.Uuid
-  institutionId          String                @map("institution_id") @db.Uuid
-  shiftId                String                @map("shift_id") @db.Uuid
-  course                 String                @db.VarChar(140)
-  grade                  String                @db.VarChar(40)
-  requestFingerprintHash String?               @map("request_fingerprint_hash") @db.VarChar(64)
-  reviewedByUserId       String?               @map("reviewed_by_user_id") @db.Uuid
-  reviewedAt             DateTime?             @map("reviewed_at") @db.Timestamptz(6)
-  rejectionReason        String?               @map("rejection_reason") @db.VarChar(500)
-  approvedStudentId      String?               @unique @map("approved_student_id") @db.Uuid
-  createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  academicYear           AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  institution            Institution           @relation(fields: [institutionId], references: [id], onDelete: Restrict)
-  shift                  Shift                 @relation(fields: [shiftId], references: [id], onDelete: Restrict)
-  reviewedBy             User?                 @relation("PreRegistrationReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  approvedStudent        Student?              @relation(fields: [approvedStudentId], references: [id], onDelete: SetNull)
+  id                     String                    @id @default(uuid()) @db.Uuid
+  publicCode             String                    @unique @map("public_code") @db.VarChar(32)
+  status                 PreRegistrationStatus     @default(PENDING)
+  fullName               String                    @map("full_name") @db.VarChar(160)
+  normalizedName         String                    @map("normalized_name") @db.VarChar(160)
+  cpf                    String                    @db.VarChar(11)
+  rg                     String?                   @db.VarChar(30)
+  birthDate              DateTime                  @map("birth_date") @db.Date
+  phone                  String?                   @db.VarChar(30)
+  email                  String?                   @db.VarChar(180)
+  addressStreet          String                    @map("address_street") @db.VarChar(180)
+  addressNumber          String                    @map("address_number") @db.VarChar(30)
+  addressNeighborhood    String                    @map("address_neighborhood") @db.VarChar(120)
+  addressCity            String                    @map("address_city") @db.VarChar(120)
+  guardianFullName       String?                   @map("guardian_full_name") @db.VarChar(160)
+  guardianCpf            String?                   @map("guardian_cpf") @db.VarChar(11)
+  guardianRg             String?                   @map("guardian_rg") @db.VarChar(30)
+  academicYearId         String                    @map("academic_year_id") @db.Uuid
+  institutionId          String                    @map("institution_id") @db.Uuid
+  shiftId                String                    @map("shift_id") @db.Uuid
+  course                 String                    @db.VarChar(140)
+  grade                  String                    @db.VarChar(40)
+  requestFingerprintHash String?                   @map("request_fingerprint_hash") @db.VarChar(64)
+  reviewedByUserId       String?                   @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt             DateTime?                 @map("reviewed_at") @db.Timestamptz(6)
+  rejectionReason        String?                   @map("rejection_reason") @db.VarChar(500)
+  approvedStudentId      String?                   @unique @map("approved_student_id") @db.Uuid
+  createdAt              DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  academicYear           AcademicYear              @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  institution            Institution               @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  shift                  Shift                     @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  reviewedBy             User?                     @relation("PreRegistrationReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  approvedStudent        Student?                  @relation(fields: [approvedStudentId], references: [id], onDelete: SetNull)
   documents              PreRegistrationDocument[]
 
   @@index([status, createdAt])
