@@ -3,9 +3,9 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 6: cadastros base, nucleo academico, vinculos de Onibus por Matricula
-Anual, documentos privados e pre-cadastro publico com aprovacao
-administrativa implementados.
+Sprint 7: cadastros base, nucleo academico, vinculos de Onibus por Matricula
+Anual, documentos privados, pre-cadastro publico com aprovacao administrativa,
+suspensao, reativacao, desligamento e diretoria implementados.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -218,6 +218,43 @@ Rotas administrativas:
 - `POST /pre-registrations/:id/approve`
 - `POST /pre-registrations/:id/reject`
 
+## Ciclo de vida do academico e diretoria
+
+A Sprint 7 implementa suspensao, reativacao, desligamento e participacao na
+diretoria. A fonte da verdade para a situacao global e `Student.status`.
+`Enrollment` continua representando o contexto academico anual, `BoardMembership`
+representa participacao atual/historica na diretoria e `StudentHistoryEvent`
+guarda historico funcional. Auditoria administrativa permanece em
+`administrative_audit_logs`.
+
+Rotas:
+
+- `POST /students/:id/suspend`
+- `POST /students/:id/reactivate`
+- `POST /students/:id/terminate`
+- `GET /students/:id/history`
+- `GET /students/:id/board-memberships`
+- `POST /students/:id/board-memberships`
+- `POST /students/:id/board-memberships/:membershipId/end`
+
+Regras principais:
+
+- Suspensao exige motivo, justificativa e escolha explicita sobre liberar vaga.
+- Suspensao pode manter o vinculo ativo de Onibus ou encerrar o vinculo com
+  motivo tecnico `SUSPENSION`.
+- Reativacao de suspensao com vaga mantida preserva o vinculo existente.
+- Reativacao de suspensao com vaga liberada exige Onibus ativo com vaga.
+- Desligamento aceita `WITHDRAWAL` ou `NON_PAYMENT`, exige justificativa,
+  encerra vinculo ativo de Onibus com motivo `TERMINATION` e libera vaga.
+- Desligamento tambem encerra BoardMembership ativo na mesma transacao.
+- Diretoria ativa nao altera matricula nem Onibus, mas torna o academico
+  inelegivel para futuros boletos.
+- Elegibilidade futura para boleto e regra derivada: Student `ACTIVE` sem
+  BoardMembership `ACTIVE`.
+- Nao ha DELETE de academico.
+- A Sprint 7 nao implementa financeiro, boletos, Sicredi, carteirinhas,
+  rematricula, PDFs, portal, dashboard, notificacoes ou deploy.
+
 Regras principais:
 
 - CPF do interessado e obrigatorio, valido, normalizado e revalidado na
@@ -278,6 +315,7 @@ Smoke da Sprint 6, com API, banco e storage privado ja disponiveis:
 
 ```bash
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... DOCUMENT_STORAGE_DIR=/tmp/atretu-pre-registration-smoke DOCUMENT_MAX_SIZE_BYTES=1024 npm --prefix apps/api run smoke:pre-registrations
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:lifecycle
 ```
 
 ## Limites atuais

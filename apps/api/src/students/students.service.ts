@@ -21,6 +21,7 @@ import { AdministrativeAuditService } from "../administrative-audit/administrati
 import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "./cpf.js";
+import { canReceiveFutureInvoices } from "./lifecycle.js";
 import {
   CreateAcademicYearDto,
   CreateEnrollmentDto,
@@ -1048,7 +1049,7 @@ export class StudentsService {
       joinedAt: student.joinedAt,
       createdAt: student.createdAt,
       updatedAt: student.updatedAt,
-      canReceiveFutureInvoices: this.canReceiveFutureInvoices(student),
+      canReceiveFutureInvoices: canReceiveFutureInvoices(student),
       activeBoardMembership: student.boardMemberships[0] ?? null,
       person: {
         id: student.person.id,
@@ -1068,7 +1069,7 @@ export class StudentsService {
       updatedAt: student.updatedAt,
       person: student.person,
       guardian: student.guardian,
-      canReceiveFutureInvoices: this.canReceiveFutureInvoices(student),
+      canReceiveFutureInvoices: canReceiveFutureInvoices(student),
       activeBoardMembership: student.boardMemberships[0] ?? null,
       enrollments: student.enrollments.map((enrollment) =>
         this.toEnrollment(enrollment),
@@ -1111,18 +1112,6 @@ export class StudentsService {
 
   private optional(value?: string) {
     return value && value.length > 0 ? value : undefined;
-  }
-
-  private canReceiveFutureInvoices(student: {
-    status: StudentStatus;
-    boardMemberships: Array<{ status: BoardMembershipStatus }>;
-  }) {
-    return (
-      student.status === StudentStatus.ACTIVE &&
-      !student.boardMemberships.some(
-        (membership) => membership.status === BoardMembershipStatus.ACTIVE,
-      )
-    );
   }
 
   private async recordAudit(
