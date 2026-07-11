@@ -22,6 +22,7 @@ import {
   EndBoardMembershipDto,
   ListStudentsDto,
   ReactivateStudentDto,
+  ReenrollStudentDto,
   StartBoardMembershipDto,
   SuspendStudentDto,
   TerminateStudentDto,
@@ -85,10 +86,25 @@ export class StudentsController {
     return this.students.createStudent(body, user.id);
   }
 
+  @Get("students/reenrollment-candidates")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listReenrollmentCandidates(@Query() query: ListStudentsDto) {
+    return this.students.listReenrollmentCandidates(query);
+  }
+
   @Get("students/:id")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   getStudent(@Param("id") id: string) {
     return this.students.getStudent(id);
+  }
+
+  @Get("students/:id/reenrollment-preview")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  previewReenrollment(
+    @Param("id") id: string,
+    @Query("academicYearId") academicYearId?: string,
+  ) {
+    return this.students.previewReenrollment(id, academicYearId);
   }
 
   @Patch("students/:id/person")
@@ -130,6 +146,16 @@ export class StudentsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.students.updateEnrollment(id, enrollmentId, body, user.id);
+  }
+
+  @Post("students/:id/reenroll")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  reenrollStudent(
+    @Param("id") id: string,
+    @Body() body: ReenrollStudentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.reenrollStudent(id, body, user.id);
   }
 
   @Post("students/:id/suspend")

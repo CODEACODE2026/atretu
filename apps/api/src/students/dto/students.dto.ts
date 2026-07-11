@@ -236,6 +236,40 @@ export class UpdateGuardianDto {
 
 export class CreateEnrollmentDto extends EnrollmentInputDto {}
 
+export class ReenrollStudentDto {
+  @IsOptional()
+  @IsUUID()
+  academicYearId?: string;
+
+  @IsUUID()
+  institutionId!: string;
+
+  @IsUUID()
+  shiftId!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(140)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  course!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  grade!: string;
+
+  @IsOptional()
+  @IsUUID()
+  busId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  note?: string;
+}
+
 export class UpdateEnrollmentDto {
   @IsOptional()
   @IsUUID()

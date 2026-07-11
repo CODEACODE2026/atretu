@@ -21,7 +21,10 @@ import { AdministrativeAuditService } from "../administrative-audit/administrati
 import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "./cpf.js";
-import { canReceiveFutureInvoices } from "./lifecycle.js";
+import {
+  canReceiveFutureInvoices,
+  getReenrollmentBlockingReason,
+} from "./lifecycle.js";
 import {
   CreateAcademicYearDto,
   CreateEnrollmentDto,
@@ -31,6 +34,7 @@ import {
   GuardianInputDto,
   ListStudentsDto,
   ReactivateStudentDto,
+  ReenrollStudentDto,
   SortOrder,
   StartBoardMembershipDto,
   StudentSort,
@@ -138,13 +142,13 @@ export class StudentsService {
   async listStudents(query: ListStudentsDto) {
     const where = this.buildStudentWhere(query);
     const orderBy = this.buildStudentOrderBy(query);
-    const skip = (query.page - 1) * query.limit;
+    const pagination = this.resolvePagination(query);
     const [data, total] = await Promise.all([
       this.prisma.student.findMany({
         where,
         orderBy,
-        skip,
-        take: query.limit,
+        skip: pagination.skip,
+        take: pagination.limit,
         include: this.studentSummaryInclude(),
       }),
       this.prisma.student.count({ where }),
@@ -153,10 +157,10 @@ export class StudentsService {
     return {
       data: data.map((student) => this.toStudentSummary(student)),
       pagination: {
-        page: query.page,
-        limit: query.limit,
+        page: pagination.page,
+        limit: pagination.limit,
         total,
-        totalPages: Math.ceil(total / query.limit),
+        totalPages: Math.ceil(total / pagination.limit),
       },
     };
   }
@@ -224,6 +228,93 @@ export class StudentsService {
     }
 
     return this.toStudentDetail(student);
+  }
+
+  async listReenrollmentCandidates(query: ListStudentsDto) {
+    const academicYear = await this.resolveTargetAcademicYear(query.academicYearId);
+    const where = this.buildStudentWhere({
+      ...query,
+      status: StudentStatusFilter.ACTIVE,
+      academicYearId: undefined,
+    });
+    where.status = StudentStatus.ACTIVE;
+    where.enrollments = {
+      some: {},
+      none: { academicYearId: academicYear.id },
+    };
+
+    const orderBy = this.buildStudentOrderBy(query);
+    const pagination = this.resolvePagination(query);
+    const [data, total] = await Promise.all([
+      this.prisma.student.findMany({
+        where,
+        orderBy,
+        skip: pagination.skip,
+        take: pagination.limit,
+        include: this.studentSummaryInclude(),
+      }),
+      this.prisma.student.count({ where }),
+    ]);
+
+    return {
+      data: data.map((student) => this.toStudentSummary(student)),
+      academicYear,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
+  }
+
+  async previewReenrollment(id: string, academicYearId?: string) {
+    const student = await this.prisma.student.findUnique({
+      where: { id },
+      include: this.studentDetailInclude(),
+    });
+    if (!student) {
+      throw new NotFoundException("Academico nao encontrado");
+    }
+
+    const academicYear = await this.resolveTargetAcademicYear(academicYearId);
+    const previousEnrollment = student.enrollments[0] ?? null;
+    const existingEnrollment = student.enrollments.find(
+      (enrollment) => enrollment.academicYear.id === academicYear.id,
+    );
+    const previousBusAssignment = previousEnrollment
+      ? await this.prisma.busAssignment.findFirst({
+          where: {
+            enrollmentId: previousEnrollment.id,
+            status: BusAssignmentStatus.ACTIVE,
+          },
+          include: { bus: true },
+        })
+      : null;
+
+    return {
+      student: this.toStudentDetail(student),
+      academicYear,
+      previousEnrollment: previousEnrollment
+        ? this.toEnrollment(previousEnrollment)
+        : null,
+      previousBusAssignment: previousBusAssignment
+        ? {
+            id: previousBusAssignment.id,
+            bus: previousBusAssignment.bus,
+            note: previousBusAssignment.note,
+          }
+        : null,
+      eligible:
+        getReenrollmentBlockingReason({
+          status: student.status,
+          hasEnrollmentInTargetYear: Boolean(existingEnrollment),
+        }) === null,
+      blockingReason: getReenrollmentBlockingReason({
+        status: student.status,
+        hasEnrollmentInTargetYear: Boolean(existingEnrollment),
+      }),
+    };
   }
 
   async updatePerson(id: string, body: UpdatePersonDto, userId: string) {
@@ -359,6 +450,154 @@ export class StudentsService {
           changedFields: Object.keys(data).join(","),
         },
       );
+      return this.toEnrollment(enrollment);
+    } catch (error) {
+      this.handleWriteError(error, "Academico ja possui matricula neste Ano Letivo");
+    }
+  }
+
+  async reenrollStudent(id: string, body: ReenrollStudentDto, userId: string) {
+    try {
+      const enrollment = await this.prisma.$transaction(async (tx) => {
+        const student = await this.lockStudent(tx, id);
+        const statusBlock = getReenrollmentBlockingReason({
+          status: student.status,
+          hasEnrollmentInTargetYear: false,
+        });
+        if (statusBlock) {
+          throw new BadRequestException(statusBlock);
+        }
+
+        const academicYear = await this.resolveTargetAcademicYear(
+          body.academicYearId,
+          tx,
+        );
+        const existingEnrollment = await tx.enrollment.findUnique({
+          where: {
+            studentId_academicYearId: {
+              studentId: id,
+              academicYearId: academicYear.id,
+            },
+          },
+        });
+        if (existingEnrollment) {
+          const block = getReenrollmentBlockingReason({
+            status: student.status,
+            hasEnrollmentInTargetYear: true,
+          });
+          throw new ConflictException(block ?? "Matricula duplicada");
+        }
+
+        await this.ensureEnrollmentReferences(tx, {
+          academicYearId: academicYear.id,
+          institutionId: body.institutionId,
+          shiftId: body.shiftId,
+          course: body.course,
+          grade: body.grade,
+        });
+
+        const previousEnrollment = await this.findOperationalEnrollment(tx, id);
+        const previousAssignment = previousEnrollment
+          ? await this.findActiveBusAssignment(tx, previousEnrollment.id)
+          : null;
+
+        if (body.busId) {
+          await this.lockBus(tx, body.busId);
+          const bus = await this.ensureActiveBus(tx, body.busId);
+          await this.ensureBusHasSeat(tx, bus.id, academicYear.id);
+        }
+
+        const created = await tx.enrollment.create({
+          data: {
+            studentId: id,
+            academicYearId: academicYear.id,
+            institutionId: body.institutionId,
+            shiftId: body.shiftId,
+            course: body.course,
+            grade: body.grade,
+          },
+          include: this.enrollmentInclude(),
+        });
+
+        let createdAssignment:
+          | { id: string; busId: string; enrollmentId: string }
+          | undefined;
+        if (body.busId) {
+          createdAssignment = await tx.busAssignment.create({
+            data: {
+              enrollmentId: created.id,
+              busId: body.busId,
+              note: this.optional(body.note),
+            },
+          });
+          await tx.busAssignmentEvent.create({
+            data: {
+              enrollmentId: created.id,
+              busAssignmentId: createdAssignment.id,
+              toBusId: body.busId,
+              eventType: BusAssignmentEventType.LINKED,
+              note: this.optional(body.note),
+            },
+          });
+          await this.recordAuditTx(tx, {
+            eventType: AdministrativeAuditEventType.BUS_ASSIGNMENT_LINKED,
+            domain: "bus_assignments",
+            recordId: createdAssignment.id,
+            userId,
+            metadata: {
+              studentId: id,
+              enrollmentId: created.id,
+              busAssignmentId: createdAssignment.id,
+              busId: body.busId,
+              academicYearId: academicYear.id,
+            },
+          });
+        }
+
+        await tx.studentHistoryEvent.create({
+          data: {
+            studentId: id,
+            eventType: StudentHistoryEventType.STUDENT_REENROLLED,
+            justification: this.optional(body.note),
+            busSeatReleased: false,
+            busId: createdAssignment?.busId,
+            busAssignmentId: createdAssignment?.id,
+            performedByUserId: userId,
+          },
+        });
+        await this.recordAuditTx(tx, {
+          eventType: AdministrativeAuditEventType.ENROLLMENT_CREATED,
+          domain: "enrollments",
+          recordId: created.id,
+          userId,
+          metadata: {
+            studentId: id,
+            enrollmentId: created.id,
+            academicYearId: academicYear.id,
+            reenrollment: true,
+          },
+        });
+        await this.recordAuditTx(tx, {
+          eventType: AdministrativeAuditEventType.STUDENT_REENROLLED,
+          domain: "students",
+          recordId: id,
+          userId,
+          metadata: {
+            studentId: id,
+            previousEnrollmentId: previousEnrollment?.id ?? "",
+            previousBusAssignmentId: previousAssignment?.id ?? "",
+            previousBusId: previousAssignment?.busId ?? "",
+            enrollmentId: created.id,
+            academicYearId: academicYear.id,
+            busAssignmentId: createdAssignment?.id ?? "",
+            busId: createdAssignment?.busId ?? "",
+            hasBus: Boolean(createdAssignment),
+          },
+        });
+
+        return created;
+      });
+
       return this.toEnrollment(enrollment);
     } catch (error) {
       this.handleWriteError(error, "Academico ja possui matricula neste Ano Letivo");
@@ -784,6 +1023,16 @@ export class StudentsService {
     return where;
   }
 
+  private resolvePagination(query: ListStudentsDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    return {
+      page,
+      limit,
+      skip: (page - 1) * limit,
+    };
+  }
+
   private buildStudentOrderBy(
     query: ListStudentsDto,
   ): Prisma.StudentOrderByWithRelationInput[] {
@@ -861,6 +1110,23 @@ export class StudentsService {
     const record = await tx.academicYear.findUnique({ where: { id } });
     if (!record) {
       throw new BadRequestException("Ano Letivo invalido");
+    }
+    return record;
+  }
+
+  private async resolveTargetAcademicYear(
+    academicYearId?: string,
+    tx: PrismaTx = this.prisma,
+  ) {
+    if (academicYearId) {
+      return this.ensureAcademicYear(academicYearId, tx);
+    }
+
+    const record = await tx.academicYear.findFirst({
+      where: { isCurrent: true },
+    });
+    if (!record) {
+      throw new BadRequestException("Ano Letivo atual nao configurado");
     }
     return record;
   }
