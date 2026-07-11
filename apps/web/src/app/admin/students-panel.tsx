@@ -16,6 +16,7 @@ import {
   type ReenrollmentPreview,
   type StudentSummary,
 } from "../../lib/api";
+import { StudentInvoicesForStudent } from "./finance-panel";
 import { StudentCardsForStudent } from "./student-cards-panel";
 
 const emptyPerson: StudentPayload["person"] = {
@@ -560,7 +561,7 @@ export function StudentsPanel() {
                   <th className="px-4 py-3">Ano</th>
                   <th className="px-4 py-3">Situacao</th>
                   <th className="px-4 py-3">Diretoria</th>
-                  <th className="px-4 py-3">Boleto futuro</th>
+                  <th className="px-4 py-3">Fatura futura</th>
                   <th className="px-4 py-3">Acoes</th>
                 </tr>
               </thead>
@@ -680,7 +681,7 @@ export function StudentsPanel() {
                 </p>
                 <p>
                   <span className="font-medium text-slate-950">
-                    Boleto futuro:
+                    Fatura futura:
                   </span>{" "}
                   {selected.canReceiveFutureInvoices ? "Elegivel" : "Nao elegivel"}
                 </p>
@@ -795,6 +796,12 @@ export function StudentsPanel() {
                 }}
               />
               <StudentCardsForStudent
+                student={selected}
+                onChanged={async () => {
+                  await refreshSelected(selected.id);
+                }}
+              />
+              <StudentInvoicesForStudent
                 student={selected}
                 onChanged={async () => {
                   await refreshSelected(selected.id);
@@ -1936,6 +1943,8 @@ function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     STUDENT_REENROLLED: "Rematricula",
     STUDENT_CARD_ISSUED: "Carteirinha emitida",
     STUDENT_CARD_INVALIDATED: "Carteirinha invalidada",
+    INVOICE_CREATED: "Fatura criada",
+    INVOICE_CANCELLED: "Fatura cancelada",
     BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
     BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
   };

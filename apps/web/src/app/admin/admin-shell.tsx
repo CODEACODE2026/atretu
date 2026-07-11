@@ -13,6 +13,7 @@ import {
 } from "../../lib/api";
 import { canAccessRestrictedAdmin, getPrimaryRoleLabel } from "../../lib/auth";
 import { AcademicYearsPanel } from "./academic-years-panel";
+import { FinancePanel } from "./finance-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { StudentCardsPanel } from "./student-cards-panel";
 import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
@@ -150,6 +151,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
     | "students"
     | "reenrollments"
     | "student-cards"
+    | "finance"
     | "pre-registrations"
     | "years"
     | "base"
@@ -158,6 +160,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
     { key: "students", label: "Academicos" },
     { key: "reenrollments", label: "Rematriculas" },
     { key: "student-cards", label: "Carteirinhas" },
+    { key: "finance", label: "Financeiro" },
     { key: "pre-registrations", label: "Pre-cadastros" },
     { key: "years", label: "Anos Letivos" },
     { key: "base", label: "Cadastros Base" },
@@ -185,6 +188,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
       {area === "students" ? <StudentsPanel /> : null}
       {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
       {area === "student-cards" ? <StudentCardsPanel /> : null}
+      {area === "finance" ? <FinancePanel /> : null}
       {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
       {area === "years" ? <AcademicYearsPanel user={user} /> : null}
       {area === "base" ? <BaseRecordsPanel /> : null}

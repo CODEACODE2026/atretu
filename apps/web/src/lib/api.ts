@@ -372,6 +372,8 @@ export type StudentHistoryEvent = {
     | "STUDENT_REENROLLED"
     | "STUDENT_CARD_ISSUED"
     | "STUDENT_CARD_INVALIDATED"
+    | "INVOICE_CREATED"
+    | "INVOICE_CANCELLED"
     | "BOARD_MEMBERSHIP_STARTED"
     | "BOARD_MEMBERSHIP_ENDED";
   suspensionReason?: "NON_PAYMENT" | "INFRACTION" | "OTHER" | null;
@@ -455,6 +457,58 @@ export type ListStudentCardsParams = {
   status?: StudentCardStatus;
   validity?: "all" | "usable" | "notUsable";
   sort?: "issuedAt" | "cardNumber";
+  order?: "asc" | "desc";
+};
+
+export type InvoiceStatus = "OPEN" | "CANCELLED";
+export type InvoiceCancellationReason = "MANUAL_CORRECTION" | "DUPLICATE" | "OTHER";
+
+export type InvoiceRecord = {
+  id: string;
+  amountCents: number;
+  amountFormatted: string;
+  dueDate: string;
+  status: InvoiceStatus;
+  overdue: boolean;
+  description?: string | null;
+  cancelledAt?: string | null;
+  cancellationReason?: InvoiceCancellationReason | null;
+  cancellationNote?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  student: {
+    id: string;
+    status: StudentStatus;
+    person: {
+      id: string;
+      fullName: string;
+      cpfMasked: string;
+    };
+    activeBoardMembership?: BoardMembershipRecord | null;
+  };
+  enrollment: EnrollmentRecord;
+  createdByUser?: Pick<ApiUser, "id" | "name" | "email"> | null;
+  cancelledByUser?: Pick<ApiUser, "id" | "name" | "email"> | null;
+};
+
+export type InvoicePreview = {
+  student: InvoiceRecord["student"];
+  enrollment: EnrollmentRecord;
+  eligible: boolean;
+  blockingReason?: string | null;
+};
+
+export type ListInvoicesParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  academicYearId?: string;
+  institutionId?: string;
+  status?: InvoiceStatus;
+  overdue?: "all" | "overdue" | "notOverdue";
+  dueDateFrom?: string;
+  dueDateTo?: string;
+  sort?: "dueDate" | "createdAt" | "amount" | "studentName";
   order?: "asc" | "desc";
 };
 
@@ -641,6 +695,52 @@ export const api = {
     return request<ListResponse<StudentCardRecord>>(
       withParams("/student-cards", params),
     );
+  },
+
+  listInvoices(params?: ListInvoicesParams) {
+    return request<ListResponse<InvoiceRecord>>(
+      withParams("/finance/invoices", params),
+    );
+  },
+
+  getInvoice(id: string) {
+    return request<InvoiceRecord>(`/finance/invoices/${id}`);
+  },
+
+  listInvoicesForStudent(studentId: string) {
+    return request<{ data: InvoiceRecord[] }>(`/students/${studentId}/invoices`);
+  },
+
+  previewInvoice(studentId: string, params: { enrollmentId: string }) {
+    return request<InvoicePreview>(
+      withParams(`/students/${studentId}/invoice-preview`, params),
+    );
+  },
+
+  createInvoice(
+    studentId: string,
+    body: {
+      enrollmentId: string;
+      amountCents: number;
+      dueDate: string;
+      description?: string;
+      idempotencyKey: string;
+    },
+  ) {
+    return request<InvoiceRecord>(`/students/${studentId}/invoices`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  cancelInvoice(
+    invoiceId: string,
+    body: { reason: InvoiceCancellationReason; note?: string },
+  ) {
+    return request<InvoiceRecord>(`/finance/invoices/${invoiceId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   },
 
   listStudentCardsForStudent(studentId: string) {
