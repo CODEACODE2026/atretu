@@ -255,6 +255,42 @@ Regras principais:
 - A Sprint 7 nao implementa financeiro, boletos, Sicredi, carteirinhas,
   rematricula, PDFs, portal, dashboard, notificacoes ou deploy.
 
+## Rematricula anual
+
+A Sprint 8 implementa rematricula anual individual. A rematricula cria uma nova
+`Enrollment` para o Ano Letivo de destino e preserva a matricula anterior. Ela
+nao edita dados pessoais, nao duplica documentos, nao copia automaticamente
+Onibus do ano anterior, nao gera boleto, nao gera carteirinha e nao toca em
+financeiro.
+
+Rotas:
+
+- `GET /students/reenrollment-candidates`
+- `GET /students/:id/reenrollment-preview`
+- `POST /students/:id/reenroll`
+
+Regras principais:
+
+- O Ano Letivo atual e usado como padrao quando `academicYearId` nao e enviado.
+- `Student ACTIVE` pode ser rematriculado.
+- `Student SUSPENDED` exige reativacao antes da rematricula.
+- `Student TERMINATED` nao pode ser rematriculado nesta Sprint.
+- BoardMembership `ACTIVE` nao bloqueia rematricula.
+- Cada academico continua podendo ter no maximo uma `Enrollment` por Ano Letivo.
+- Instituicao e Turno precisam estar ativos.
+- Onibus e opcional na rematricula.
+- Se Onibus for selecionado, ele precisa estar ativo e ter vaga no Ano Letivo de
+  destino.
+- Criacao da `Enrollment`, `BusAssignment` opcional, historico funcional e
+  auditorias acontece na mesma transacao.
+- Falha por duplicidade, Onibus lotado ou referencia invalida nao deixa
+  matricula parcial.
+- O Onibus anterior aparece apenas como referencia operacional.
+- Documentos seguem pelo modulo de documentos existente; comprovante de
+  matricula novo pode ser substituido ali quando a Secretaria decidir.
+- Auditoria administrativa registra IDs operacionais sem CPF, RG, endereco ou
+  payload sensivel.
+
 Regras principais:
 
 - CPF do interessado e obrigatorio, valido, normalizado e revalidado na
@@ -316,11 +352,12 @@ Smoke da Sprint 6, com API, banco e storage privado ja disponiveis:
 ```bash
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... DOCUMENT_STORAGE_DIR=/tmp/atretu-pre-registration-smoke DOCUMENT_MAX_SIZE_BYTES=1024 npm --prefix apps/api run smoke:pre-registrations
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:lifecycle
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:reenrollment
 ```
 
 ## Limites atuais
 - Nao ha PDF de alunos por onibus.
-- Nao ha suspensao, desligamento, diretoria ou rematricula completa.
+- Nao ha rematricula em lote.
 - Nao ha integracao Sicredi.
 - Nao ha consulta publica de status do pre-cadastro.
 - Nao ha OCR, leitura automatica de documentos nem envio ao Sicredi.

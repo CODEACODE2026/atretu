@@ -17,6 +17,7 @@
     "smoke:documents": "node scripts/smoke-documents.mjs",
     "smoke:pre-registrations": "node scripts/smoke-pre-registrations.mjs",
     "smoke:lifecycle": "node scripts/smoke-lifecycle.mjs",
+    "smoke:reenrollment": "node scripts/smoke-reenrollment.mjs",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate deploy"
