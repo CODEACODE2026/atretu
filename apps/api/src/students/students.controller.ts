@@ -20,6 +20,9 @@ import {
   CreateEnrollmentDto,
   CreateStudentDto,
   ListStudentsDto,
+  ReactivateStudentDto,
+  SuspendStudentDto,
+  TerminateStudentDto,
   UpdateAcademicYearDto,
   UpdateEnrollmentDto,
   UpdateGuardianDto,
@@ -126,4 +129,41 @@ export class StudentsController {
   ) {
     return this.students.updateEnrollment(id, enrollmentId, body, user.id);
   }
+
+  @Post("students/:id/suspend")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  suspendStudent(
+    @Param("id") id: string,
+    @Body() body: SuspendStudentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.suspendStudent(id, body, user.id);
+  }
+
+  @Post("students/:id/reactivate")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  reactivateStudent(
+    @Param("id") id: string,
+    @Body() body: ReactivateStudentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.reactivateStudent(id, body, user.id);
+  }
+
+  @Post("students/:id/terminate")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  terminateStudent(
+    @Param("id") id: string,
+    @Body() body: TerminateStudentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.terminateStudent(id, body, user.id);
+  }
+
+  @Get("students/:id/history")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listStudentHistory(@Param("id") id: string) {
+    return this.students.listStudentHistory(id);
+  }
+
 }

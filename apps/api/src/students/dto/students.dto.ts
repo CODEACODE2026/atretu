@@ -15,6 +15,13 @@ import {
   ValidateNested,
 } from "class-validator";
 
+export enum StudentStatusFilter {
+  ACTIVE = "active",
+  SUSPENDED = "suspended",
+  TERMINATED = "terminated",
+  ALL = "all",
+}
+
 export enum StudentSort {
   NAME = "name",
   JOINED_AT = "joinedAt",
@@ -45,6 +52,10 @@ export class ListStudentsDto {
   @MaxLength(120)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   search?: string;
+
+  @IsOptional()
+  @IsEnum(StudentStatusFilter)
+  status = StudentStatusFilter.ACTIVE;
 
   @IsOptional()
   @IsUUID()
@@ -272,4 +283,68 @@ export class UpdateAcademicYearDto {
   @Min(2000)
   @Max(2100)
   year?: number;
+}
+
+export enum SuspensionReasonDto {
+  NON_PAYMENT = "NON_PAYMENT",
+  INFRACTION = "INFRACTION",
+  OTHER = "OTHER",
+}
+
+export enum TerminationReasonDto {
+  WITHDRAWAL = "WITHDRAWAL",
+  NON_PAYMENT = "NON_PAYMENT",
+}
+
+export class SuspendStudentDto {
+  @IsEnum(SuspensionReasonDto)
+  reason!: SuspensionReasonDto;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  justification!: string;
+
+  @IsBoolean()
+  releaseBusSeat!: boolean;
+}
+
+export class ReactivateStudentDto {
+  @IsOptional()
+  @IsUUID()
+  busId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  note?: string;
+}
+
+export class TerminateStudentDto {
+  @IsEnum(TerminationReasonDto)
+  terminationReason!: TerminationReasonDto;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  justification!: string;
+}
+
+export class StartBoardMembershipDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  note?: string;
+}
+
+export class EndBoardMembershipDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  note?: string;
 }

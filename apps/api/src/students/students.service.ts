@@ -7,9 +7,15 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  BoardMembershipStatus,
+  BusAssignmentEndReason,
+  BusAssignmentEventType,
+  BusAssignmentStatus,
   Prisma,
   RecordStatus,
   RoleCode,
+  StudentHistoryEventType,
+  StudentStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -22,8 +28,13 @@ import {
   EnrollmentInputDto,
   GuardianInputDto,
   ListStudentsDto,
+  ReactivateStudentDto,
   SortOrder,
+  StartBoardMembershipDto,
   StudentSort,
+  StudentStatusFilter,
+  SuspendStudentDto,
+  TerminateStudentDto,
   UpdateAcademicYearDto,
   UpdateEnrollmentDto,
   UpdateGuardianDto,
@@ -352,6 +363,270 @@ export class StudentsService {
     }
   }
 
+  async suspendStudent(id: string, body: SuspendStudentDto, userId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const student = await this.lockStudent(tx, id);
+      if (student.status !== StudentStatus.ACTIVE) {
+        throw new BadRequestException("Somente academico ativo pode ser suspenso");
+      }
+
+      const enrollment = await this.findOperationalEnrollment(tx, id);
+      const activeAssignment = enrollment
+        ? await this.findActiveBusAssignment(tx, enrollment.id)
+        : null;
+      let affectedAssignmentId: string | undefined;
+      let affectedBusId: string | undefined;
+
+      if (body.releaseBusSeat && activeAssignment) {
+        await this.lockBus(tx, activeAssignment.busId);
+        const ended = await tx.busAssignment.update({
+          where: { id: activeAssignment.id },
+          data: {
+            status: BusAssignmentStatus.ENDED,
+            endedAt: new Date(),
+            endReason: BusAssignmentEndReason.SUSPENSION,
+            note: body.justification,
+          },
+        });
+        await tx.busAssignmentEvent.create({
+          data: {
+            enrollmentId: enrollment!.id,
+            busAssignmentId: ended.id,
+            fromBusId: activeAssignment.busId,
+            eventType: BusAssignmentEventType.SUSPENSION_RELEASED,
+            note: body.justification,
+          },
+        });
+        affectedAssignmentId = ended.id;
+        affectedBusId = activeAssignment.busId;
+      } else if (activeAssignment) {
+        affectedAssignmentId = activeAssignment.id;
+        affectedBusId = activeAssignment.busId;
+      }
+
+      await tx.student.update({
+        where: { id },
+        data: { status: StudentStatus.SUSPENDED },
+      });
+
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId: id,
+          eventType: StudentHistoryEventType.STUDENT_SUSPENDED,
+          suspensionReason: body.reason,
+          justification: body.justification,
+          busSeatReleased: body.releaseBusSeat,
+          busId: affectedBusId,
+          busAssignmentId: affectedAssignmentId,
+          performedByUserId: userId,
+        },
+      });
+
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.STUDENT_SUSPENDED,
+        domain: "students",
+        recordId: id,
+        userId,
+        metadata: {
+          studentId: id,
+          enrollmentId: enrollment?.id ?? "",
+          busAssignmentId: affectedAssignmentId ?? "",
+          busId: affectedBusId ?? "",
+          releaseBusSeat: body.releaseBusSeat,
+        },
+      });
+    });
+
+    await result;
+    return this.getStudent(id);
+  }
+
+  async reactivateStudent(id: string, body: ReactivateStudentDto, userId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const student = await this.lockStudent(tx, id);
+      if (student.status !== StudentStatus.SUSPENDED) {
+        throw new BadRequestException("Somente academico suspenso pode ser reativado");
+      }
+
+      const lastSuspension = await tx.studentHistoryEvent.findFirst({
+        where: {
+          studentId: id,
+          eventType: StudentHistoryEventType.STUDENT_SUSPENDED,
+        },
+        orderBy: { occurredAt: "desc" },
+      });
+      if (!lastSuspension) {
+        throw new BadRequestException("Historico de suspensao nao encontrado");
+      }
+
+      const enrollment = await this.findOperationalEnrollment(tx, id);
+      if (!enrollment) {
+        throw new BadRequestException("Matricula anual obrigatoria para reativacao");
+      }
+
+      let activeAssignment = await this.findActiveBusAssignment(tx, enrollment.id);
+      let newAssignmentId: string | undefined;
+      let busId: string | undefined;
+
+      if (lastSuspension.busSeatReleased) {
+        if (!body.busId) {
+          throw new BadRequestException("Onibus ativo com vaga obrigatorio");
+        }
+        if (activeAssignment) {
+          throw new ConflictException("Matricula ja possui onibus ativo");
+        }
+        await this.lockBus(tx, body.busId);
+        const bus = await this.ensureActiveBus(tx, body.busId);
+        await this.ensureBusHasSeat(tx, bus.id, enrollment.academicYearId);
+        activeAssignment = await tx.busAssignment.create({
+          data: {
+            enrollmentId: enrollment.id,
+            busId: bus.id,
+            note: body.note,
+          },
+        });
+        await tx.busAssignmentEvent.create({
+          data: {
+            enrollmentId: enrollment.id,
+            busAssignmentId: activeAssignment.id,
+            toBusId: bus.id,
+            eventType: BusAssignmentEventType.LINKED,
+            note: body.note,
+          },
+        });
+        newAssignmentId = activeAssignment.id;
+        busId = bus.id;
+      } else {
+        if (!activeAssignment) {
+          throw new BadRequestException("Vinculo de onibus ativo esperado");
+        }
+        busId = activeAssignment.busId;
+      }
+
+      await tx.student.update({
+        where: { id },
+        data: { status: StudentStatus.ACTIVE },
+      });
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId: id,
+          eventType: StudentHistoryEventType.STUDENT_REACTIVATED,
+          justification: body.note,
+          busSeatReleased: lastSuspension.busSeatReleased,
+          busId,
+          busAssignmentId: newAssignmentId ?? activeAssignment?.id,
+          performedByUserId: userId,
+        },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.STUDENT_REACTIVATED,
+        domain: "students",
+        recordId: id,
+        userId,
+        metadata: {
+          studentId: id,
+          enrollmentId: enrollment.id,
+          busAssignmentId: newAssignmentId ?? activeAssignment?.id ?? "",
+          busId: busId ?? "",
+          busSeatWasReleased: Boolean(lastSuspension.busSeatReleased),
+        },
+      });
+    });
+
+    await result;
+    return this.getStudent(id);
+  }
+
+  async terminateStudent(id: string, body: TerminateStudentDto, userId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const student = await this.lockStudent(tx, id);
+      if (student.status === StudentStatus.TERMINATED) {
+        throw new BadRequestException("Academico ja desligado");
+      }
+
+      const enrollment = await this.findOperationalEnrollment(tx, id);
+      const activeAssignment = enrollment
+        ? await this.findActiveBusAssignment(tx, enrollment.id)
+        : null;
+      let affectedAssignmentId: string | undefined;
+      let affectedBusId: string | undefined;
+
+      if (activeAssignment && enrollment) {
+        await this.lockBus(tx, activeAssignment.busId);
+        const ended = await tx.busAssignment.update({
+          where: { id: activeAssignment.id },
+          data: {
+            status: BusAssignmentStatus.ENDED,
+            endedAt: new Date(),
+            endReason: BusAssignmentEndReason.TERMINATION,
+            note: body.justification,
+          },
+        });
+        await tx.busAssignmentEvent.create({
+          data: {
+            enrollmentId: enrollment.id,
+            busAssignmentId: ended.id,
+            fromBusId: activeAssignment.busId,
+            eventType: BusAssignmentEventType.TERMINATION_RELEASED,
+            note: body.justification,
+          },
+        });
+        affectedAssignmentId = ended.id;
+        affectedBusId = activeAssignment.busId;
+      }
+
+      await tx.student.update({
+        where: { id },
+        data: { status: StudentStatus.TERMINATED },
+      });
+
+      await this.endActiveBoardMembershipForTermination(tx, id, userId);
+
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId: id,
+          eventType: StudentHistoryEventType.STUDENT_TERMINATED,
+          terminationReason: body.terminationReason,
+          justification: body.justification,
+          busSeatReleased: true,
+          busId: affectedBusId,
+          busAssignmentId: affectedAssignmentId,
+          performedByUserId: userId,
+        },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.STUDENT_TERMINATED,
+        domain: "students",
+        recordId: id,
+        userId,
+        metadata: {
+          studentId: id,
+          enrollmentId: enrollment?.id ?? "",
+          busAssignmentId: affectedAssignmentId ?? "",
+          busId: affectedBusId ?? "",
+          terminationReason: body.terminationReason,
+        },
+      });
+    });
+
+    await result;
+    return this.getStudent(id);
+  }
+
+  async listStudentHistory(id: string) {
+    await this.ensureStudent(id);
+    const data = await this.prisma.studentHistoryEvent.findMany({
+      where: { studentId: id },
+      include: {
+        bus: true,
+        busAssignment: { include: { bus: true } },
+        boardMembership: true,
+      },
+      orderBy: { occurredAt: "desc" },
+    });
+    return { data };
+  }
+
   assertCanWriteAcademicYear(user: AuthUser) {
     if (!user.roles.includes(RoleCode.SUPER_ADMIN)) {
       throw new BadRequestException("Somente Super Admin altera Ano Letivo");
@@ -360,6 +635,15 @@ export class StudentsService {
 
   private buildStudentWhere(query: ListStudentsDto): Prisma.StudentWhereInput {
     const where: Prisma.StudentWhereInput = {};
+    if (query.status !== StudentStatusFilter.ALL) {
+      where.status =
+        query.status === StudentStatusFilter.SUSPENDED
+          ? StudentStatus.SUSPENDED
+          : query.status === StudentStatusFilter.TERMINATED
+            ? StudentStatus.TERMINATED
+            : StudentStatus.ACTIVE;
+    }
+
     if (query.search) {
       const normalizedSearch = this.normalizeName(query.search);
       const cpfSearch = normalizeCpf(query.search);
@@ -492,6 +776,120 @@ export class StudentsService {
     return student;
   }
 
+  private async lockStudent(tx: Prisma.TransactionClient, id: string) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM students WHERE id = ${id}::uuid FOR UPDATE
+    `;
+    if (rows.length === 0) {
+      throw new NotFoundException("Academico nao encontrado");
+    }
+    const student = await tx.student.findUnique({ where: { id } });
+    if (!student) {
+      throw new NotFoundException("Academico nao encontrado");
+    }
+    return student;
+  }
+
+  private async findOperationalEnrollment(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+  ) {
+    return tx.enrollment.findFirst({
+      where: { studentId },
+      orderBy: [{ academicYear: { year: "desc" } }, { createdAt: "desc" }],
+    });
+  }
+
+  private findActiveBusAssignment(
+    tx: Prisma.TransactionClient,
+    enrollmentId: string,
+  ) {
+    return tx.busAssignment.findFirst({
+      where: { enrollmentId, status: BusAssignmentStatus.ACTIVE },
+    });
+  }
+
+  private async lockBus(tx: Prisma.TransactionClient, id: string) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM buses WHERE id = ${id}::uuid FOR UPDATE
+    `;
+    if (rows.length === 0) {
+      throw new NotFoundException("Onibus nao encontrado");
+    }
+  }
+
+  private async ensureActiveBus(tx: Prisma.TransactionClient, id: string) {
+    const bus = await tx.bus.findUnique({ where: { id } });
+    if (!bus || bus.status !== RecordStatus.ACTIVE) {
+      throw new BadRequestException("Onibus ativo obrigatorio");
+    }
+    return bus;
+  }
+
+  private async ensureBusHasSeat(
+    tx: Prisma.TransactionClient,
+    busId: string,
+    academicYearId: string,
+  ) {
+    const bus = await tx.bus.findUnique({ where: { id: busId } });
+    if (!bus || bus.status !== RecordStatus.ACTIVE) {
+      throw new BadRequestException("Onibus ativo obrigatorio");
+    }
+    const occupiedSeats = await tx.busAssignment.count({
+      where: {
+        busId,
+        status: BusAssignmentStatus.ACTIVE,
+        enrollment: { academicYearId },
+      },
+    });
+    if (occupiedSeats >= bus.capacity) {
+      throw new ConflictException("Onibus lotado");
+    }
+  }
+
+  private async endActiveBoardMembershipForTermination(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+    userId: string,
+  ) {
+    const active = await tx.boardMembership.findFirst({
+      where: { studentId, status: BoardMembershipStatus.ACTIVE },
+    });
+    if (!active) {
+      return;
+    }
+
+    const ended = await tx.boardMembership.update({
+      where: { id: active.id },
+      data: {
+        status: BoardMembershipStatus.ENDED,
+        endedAt: new Date(),
+        endedByUserId: userId,
+        endNote: "Encerrado automaticamente pelo desligamento do academico",
+      },
+    });
+    await tx.studentHistoryEvent.create({
+      data: {
+        studentId,
+        eventType: StudentHistoryEventType.BOARD_MEMBERSHIP_ENDED,
+        boardMembershipId: ended.id,
+        justification: ended.endNote,
+        performedByUserId: userId,
+      },
+    });
+    await this.recordAuditTx(tx, {
+      eventType: AdministrativeAuditEventType.BOARD_MEMBERSHIP_ENDED,
+      domain: "board_memberships",
+      recordId: ended.id,
+      userId,
+      metadata: {
+        studentId,
+        boardMembershipId: ended.id,
+        action: "ended_by_termination",
+      },
+    });
+  }
+
   private studentSummaryInclude() {
     return {
       person: true,
@@ -599,6 +997,27 @@ export class StudentsService {
     metadata: Record<string, string | number | boolean>,
   ) {
     await this.audit.record({ eventType, domain, recordId, userId, metadata });
+  }
+
+  private async recordAuditTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      eventType: AdministrativeAuditEventType;
+      domain: string;
+      recordId: string;
+      userId: string;
+      metadata: Record<string, string | number | boolean>;
+    },
+  ) {
+    await tx.administrativeAuditLog.create({
+      data: {
+        eventType: input.eventType,
+        userId: input.userId,
+        domain: input.domain,
+        recordId: input.recordId,
+        metadata: input.metadata,
+      },
+    });
   }
 
   private handleWriteError(error: unknown, conflictMessage: string): never {
