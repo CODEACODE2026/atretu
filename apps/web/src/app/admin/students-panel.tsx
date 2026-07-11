@@ -8,6 +8,7 @@ import {
   type BusAssignmentRecord,
   type BusRecord,
   type EnrollmentRecord,
+  type StudentHistoryEvent,
   type StudentDocumentRecord,
   type StudentDocumentType,
   type StudentDetail,
@@ -53,6 +54,10 @@ export function StudentsPanel() {
   const [academicYearId, setAcademicYearId] = useState("");
   const [institutionId, setInstitutionId] = useState("");
   const [shiftId, setShiftId] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "active" | "suspended" | "terminated" | "all"
+  >("active");
+  const [history, setHistory] = useState<StudentHistoryEvent[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -66,7 +71,7 @@ export function StudentsPanel() {
 
   useEffect(() => {
     void loadStudents();
-  }, [page, academicYearId, institutionId, shiftId]);
+  }, [page, academicYearId, institutionId, shiftId, statusFilter]);
 
   async function loadReferences() {
     setError("");
@@ -105,6 +110,7 @@ export function StudentsPanel() {
         academicYearId,
         institutionId,
         shiftId,
+        status: statusFilter,
       });
       setStudents(response.data);
       setTotalPages(Math.max(response.pagination.totalPages, 1));
@@ -119,7 +125,9 @@ export function StudentsPanel() {
     setError("");
     try {
       const detail = await api.getStudent(id);
+      const historyResponse = await api.listStudentHistory(id);
       setSelected(detail);
+      setHistory(historyResponse.data);
       setPerson({
         fullName: detail.person.fullName,
         cpf: detail.person.cpf,
@@ -155,6 +163,7 @@ export function StudentsPanel() {
 
   function resetForm() {
     setSelected(null);
+    setHistory([]);
     setPerson(emptyPerson);
     setGuardian(undefined);
     setEnrollment(emptyEnrollment);
@@ -244,6 +253,199 @@ export function StudentsPanel() {
     }
   }
 
+  async function refreshSelected(studentId = selected?.id) {
+    if (!studentId) {
+      return;
+    }
+    const [detail, historyResponse] = await Promise.all([
+      api.getStudent(studentId),
+      api.listStudentHistory(studentId),
+    ]);
+    setSelected(detail);
+    setHistory(historyResponse.data);
+    await loadStudents();
+  }
+
+  async function handleSuspend() {
+    if (!selected) {
+      return;
+    }
+    const reason = window.prompt("Motivo: NON_PAYMENT, INFRACTION ou OTHER");
+    if (
+      reason !== "NON_PAYMENT" &&
+      reason !== "INFRACTION" &&
+      reason !== "OTHER"
+    ) {
+      setError("Motivo de suspensao invalido");
+      return;
+    }
+    const justification = window.prompt("Justificativa obrigatoria");
+    if (!justification || justification.trim().length < 3) {
+      setError("Justificativa obrigatoria");
+      return;
+    }
+    const releaseBusSeat = window.confirm(
+      "Deseja liberar a vaga do onibus deste academico? OK libera; Cancelar mantem a vaga ocupada.",
+    );
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.suspendStudent(selected.id, {
+        reason,
+        justification: justification.trim(),
+        releaseBusSeat,
+      });
+      setMessage("Academico suspenso");
+      await refreshSelected(selected.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao suspender");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReactivate() {
+    if (!selected) {
+      return;
+    }
+    const lastSuspension = history.find(
+      (item) => item.eventType === "STUDENT_SUSPENDED",
+    );
+    let busId: string | undefined;
+    if (lastSuspension?.busSeatReleased) {
+      const enrollment = selected.enrollments[0];
+      if (!enrollment) {
+        setError("Matricula obrigatoria para reativar");
+        return;
+      }
+      const busesResponse = await api.listBuses({
+        status: "active",
+        limit: 100,
+        sort: "name",
+        academicYearId: enrollment.academicYear.id,
+      });
+      const available = busesResponse.data.filter((bus) => !bus.isFull);
+      const choice = window.prompt(
+        `Informe o numero do onibus para reativar:\n${available
+          .map(
+            (bus, index) =>
+              `${index + 1}. ${bus.name} (${bus.availableSeats ?? bus.capacity} vagas)`,
+          )
+          .join("\n")}`,
+      );
+      const index = Number(choice) - 1;
+      busId = available[index]?.id;
+      if (!busId) {
+        setError("Onibus ativo com vaga obrigatorio");
+        return;
+      }
+    } else if (
+      !window.confirm("Reativar academico mantendo o vinculo atual de onibus?")
+    ) {
+      return;
+    }
+    const note = window.prompt("Observacao opcional") ?? undefined;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.reactivateStudent(selected.id, {
+        busId,
+        note: emptyToUndefined(note),
+      });
+      setMessage("Academico reativado");
+      await refreshSelected(selected.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao reativar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleTerminate() {
+    if (!selected) {
+      return;
+    }
+    const terminationReason = window.prompt("Tipo: WITHDRAWAL ou NON_PAYMENT");
+    if (terminationReason !== "WITHDRAWAL" && terminationReason !== "NON_PAYMENT") {
+      setError("Tipo de desligamento invalido");
+      return;
+    }
+    const justification = window.prompt("Justificativa obrigatoria");
+    if (!justification || justification.trim().length < 3) {
+      setError("Justificativa obrigatoria");
+      return;
+    }
+    const confirmed = window.confirm(
+      "O desligamento preserva o historico, libera a vaga e encerra diretoria ativa se existir. Confirmar?",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.terminateStudent(selected.id, {
+        terminationReason,
+        justification: justification.trim(),
+      });
+      setMessage("Academico desligado");
+      await refreshSelected(selected.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao desligar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleStartBoard() {
+    if (!selected) {
+      return;
+    }
+    if (!window.confirm("Adicionar este academico a diretoria?")) {
+      return;
+    }
+    const note = window.prompt("Observacao opcional") ?? undefined;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.startBoardMembership(selected.id, { note: emptyToUndefined(note) });
+      setMessage("Diretoria ativada");
+      await refreshSelected(selected.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro na diretoria");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEndBoard() {
+    if (!selected?.activeBoardMembership) {
+      return;
+    }
+    if (!window.confirm("Inativar participacao na diretoria?")) {
+      return;
+    }
+    const note = window.prompt("Observacao opcional") ?? undefined;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.endBoardMembership(selected.id, selected.activeBoardMembership.id, {
+        note: emptyToUndefined(note),
+      });
+      setMessage("Diretoria inativada");
+      await refreshSelected(selected.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro na diretoria");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -307,6 +509,26 @@ export function StudentsPanel() {
             }))}
             value={shiftId}
           />
+          <Select
+            label="Situacao"
+            onChange={(value) => {
+              setStatusFilter(
+                (value || "active") as
+                  | "active"
+                  | "suspended"
+                  | "terminated"
+                  | "all",
+              );
+              setPage(1);
+            }}
+            options={[
+              { label: "Ativos", value: "active" },
+              { label: "Suspensos", value: "suspended" },
+              { label: "Desligados", value: "terminated" },
+              { label: "Todos", value: "all" },
+            ]}
+            value={statusFilter}
+          />
         </div>
       </div>
 
@@ -334,19 +556,22 @@ export function StudentsPanel() {
                   <th className="px-4 py-3">Serie</th>
                   <th className="px-4 py-3">Turno</th>
                   <th className="px-4 py-3">Ano</th>
+                  <th className="px-4 py-3">Situacao</th>
+                  <th className="px-4 py-3">Diretoria</th>
+                  <th className="px-4 py-3">Boleto futuro</th>
                   <th className="px-4 py-3">Acoes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={8}>
+                    <td className="px-4 py-6 text-slate-500" colSpan={11}>
                       Carregando...
                     </td>
                   </tr>
                 ) : students.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={8}>
+                    <td className="px-4 py-6 text-slate-500" colSpan={11}>
                       Nenhum academico encontrado
                     </td>
                   </tr>
@@ -373,6 +598,15 @@ export function StudentsPanel() {
                       </td>
                       <td className="px-4 py-3 text-slate-700">
                         {student.currentEnrollment?.academicYear.year ?? "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={student.status} />
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {student.activeBoardMembership ? "Ativa" : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {student.canReceiveFutureInvoices ? "Elegivel" : "Nao"}
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -430,6 +664,76 @@ export function StudentsPanel() {
               </button>
             ) : null}
           </div>
+
+          {selected ? (
+            <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <p>
+                  <span className="font-medium text-slate-950">Situacao:</span>{" "}
+                  {statusLabel(selected.status)}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-950">Diretoria:</span>{" "}
+                  {selected.activeBoardMembership ? "Ativa" : "Inativa"}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-950">
+                    Boleto futuro:
+                  </span>{" "}
+                  {selected.canReceiveFutureInvoices ? "Elegivel" : "Nao elegivel"}
+                </p>
+                <p>
+                  <span className="font-medium text-slate-950">Onibus:</span>{" "}
+                  consulte a matricula abaixo
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="rounded border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-amber-700 disabled:opacity-50"
+                  disabled={saving || selected.status !== "ACTIVE"}
+                  onClick={() => void handleSuspend()}
+                  type="button"
+                >
+                  Suspender
+                </button>
+                <button
+                  className="rounded border border-emerald-200 bg-white px-2 py-1 text-xs font-medium text-emerald-700 disabled:opacity-50"
+                  disabled={saving || selected.status !== "SUSPENDED"}
+                  onClick={() => void handleReactivate()}
+                  type="button"
+                >
+                  Reativar
+                </button>
+                <button
+                  className="rounded border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-50"
+                  disabled={saving || selected.status === "TERMINATED"}
+                  onClick={() => void handleTerminate()}
+                  type="button"
+                >
+                  Desligar
+                </button>
+                {selected.activeBoardMembership ? (
+                  <button
+                    className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                    disabled={saving}
+                    onClick={() => void handleEndBoard()}
+                    type="button"
+                  >
+                    Inativar diretoria
+                  </button>
+                ) : (
+                  <button
+                    className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                    disabled={saving || selected.status !== "ACTIVE"}
+                    onClick={() => void handleStartBoard()}
+                    type="button"
+                  >
+                    Adicionar diretoria
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           <PersonFields person={person} setPerson={setPerson} />
           <GuardianFields guardian={guardian} setGuardian={setGuardian} />
@@ -489,6 +793,7 @@ export function StudentsPanel() {
                 }}
               />
               <StudentDocuments studentId={selected.id} />
+              <StudentHistory events={history} />
             </>
           ) : null}
         </form>
@@ -1060,6 +1365,67 @@ function StudentDocuments({ studentId }: { studentId: string }) {
   );
 }
 
+function StudentHistory({ events }: { events: StudentHistoryEvent[] }) {
+  return (
+    <div className="mt-5 border-t border-slate-200 pt-4">
+      <h3 className="text-sm font-semibold text-slate-950">
+        Historico funcional
+      </h3>
+      <div className="mt-3 grid gap-2">
+        {events.length === 0 ? (
+          <p className="rounded border border-slate-200 p-3 text-sm text-slate-500">
+            Nenhum evento funcional registrado
+          </p>
+        ) : (
+          events.map((event) => (
+            <div className="rounded border border-slate-200 p-3 text-sm" key={event.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-medium text-slate-950">
+                  {historyEventLabel(event.eventType)}
+                </p>
+                <span className="text-xs text-slate-500">
+                  {formatDateTime(event.occurredAt)}
+                </span>
+              </div>
+              <div className="mt-1 grid gap-1 text-xs text-slate-600">
+                {event.suspensionReason ? (
+                  <p>Motivo: {reasonLabel(event.suspensionReason)}</p>
+                ) : null}
+                {event.terminationReason ? (
+                  <p>Tipo: {terminationLabel(event.terminationReason)}</p>
+                ) : null}
+                {event.justification ? <p>Observacao: {event.justification}</p> : null}
+                {event.busSeatReleased !== null &&
+                event.busSeatReleased !== undefined ? (
+                  <p>
+                    Vaga de onibus:{" "}
+                    {event.busSeatReleased ? "liberada" : "mantida"}
+                  </p>
+                ) : null}
+                {event.bus ? <p>Onibus: {event.bus.name}</p> : null}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: StudentSummary["status"] }) {
+  const classes =
+    status === "ACTIVE"
+      ? "bg-emerald-50 text-emerald-700"
+      : status === "SUSPENDED"
+        ? "bg-amber-50 text-amber-700"
+        : "bg-red-50 text-red-700";
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs font-medium ${classes}`}>
+      {statusLabel(status)}
+    </span>
+  );
+}
+
 function Field({
   label,
   maxLength,
@@ -1196,4 +1562,37 @@ function formatDateTime(value: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function statusLabel(status: StudentSummary["status"]) {
+  return status === "ACTIVE"
+    ? "Ativo"
+    : status === "SUSPENDED"
+      ? "Suspenso"
+      : "Desligado";
+}
+
+function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
+  const labels: Record<StudentHistoryEvent["eventType"], string> = {
+    STUDENT_SUSPENDED: "Suspensao",
+    STUDENT_REACTIVATED: "Reativacao",
+    STUDENT_TERMINATED: "Desligamento",
+    BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
+    BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
+  };
+  return labels[eventType];
+}
+
+function reasonLabel(reason: NonNullable<StudentHistoryEvent["suspensionReason"]>) {
+  return reason === "NON_PAYMENT"
+    ? "Falta de pagamento"
+    : reason === "INFRACTION"
+      ? "Infracao"
+      : "Outro";
+}
+
+function terminationLabel(
+  reason: NonNullable<StudentHistoryEvent["terminationReason"]>,
+) {
+  return reason === "WITHDRAWAL" ? "Desistencia" : "Inadimplencia";
 }

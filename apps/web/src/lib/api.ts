@@ -58,12 +58,29 @@ export type AcademicYear = {
   updatedAt: string;
 };
 
+export type StudentStatus = "ACTIVE" | "SUSPENDED" | "TERMINATED";
+export type BoardMembershipStatus = "ACTIVE" | "ENDED";
+
+export type BoardMembershipRecord = {
+  id: string;
+  studentId: string;
+  status: BoardMembershipStatus;
+  startedAt: string;
+  endedAt?: string | null;
+  startNote?: string | null;
+  endNote?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type StudentSummary = {
   id: string;
-  status: "ACTIVE";
+  status: StudentStatus;
   joinedAt: string;
   createdAt: string;
   updatedAt: string;
+  canReceiveFutureInvoices: boolean;
+  activeBoardMembership?: BoardMembershipRecord | null;
   person: {
     id: string;
     fullName: string;
@@ -119,7 +136,7 @@ export type BusAssignmentRecord = {
   status: "ACTIVE" | "ENDED";
   startedAt: string;
   endedAt?: string | null;
-  endReason?: "RELEASED" | "SWITCHED" | null;
+  endReason?: "RELEASED" | "SWITCHED" | "SUSPENSION" | "TERMINATION" | null;
   note?: string | null;
   bus: BusRecord;
   enrollment: EnrollmentRecord;
@@ -142,7 +159,12 @@ export type BusAssignmentsResponse = ListResponse<BusAssignmentRecord> & {
 
 export type BusAssignmentEvent = {
   id: string;
-  eventType: "LINKED" | "RELEASED" | "SWITCHED";
+  eventType:
+    | "LINKED"
+    | "RELEASED"
+    | "SWITCHED"
+    | "SUSPENSION_RELEASED"
+    | "TERMINATION_RELEASED";
   note?: string | null;
   occurredAt: string;
   fromBus?: BusRecord | null;
@@ -328,8 +350,27 @@ export type ListStudentsParams = {
   academicYearId?: string;
   institutionId?: string;
   shiftId?: string;
+  status?: "active" | "suspended" | "terminated" | "all";
   sort?: "name" | "joinedAt" | "createdAt";
   order?: "asc" | "desc";
+};
+
+export type StudentHistoryEvent = {
+  id: string;
+  eventType:
+    | "STUDENT_SUSPENDED"
+    | "STUDENT_REACTIVATED"
+    | "STUDENT_TERMINATED"
+    | "BOARD_MEMBERSHIP_STARTED"
+    | "BOARD_MEMBERSHIP_ENDED";
+  suspensionReason?: "NON_PAYMENT" | "INFRACTION" | "OTHER" | null;
+  terminationReason?: "WITHDRAWAL" | "NON_PAYMENT" | null;
+  justification?: string | null;
+  busSeatReleased?: boolean | null;
+  occurredAt: string;
+  bus?: BusRecord | null;
+  busAssignment?: BusAssignmentRecord | null;
+  boardMembership?: BoardMembershipRecord | null;
 };
 
 async function request<T>(
@@ -549,6 +590,67 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     });
+  },
+
+  suspendStudent(
+    id: string,
+    body: {
+      reason: "NON_PAYMENT" | "INFRACTION" | "OTHER";
+      justification: string;
+      releaseBusSeat: boolean;
+    },
+  ) {
+    return request<StudentDetail>(`/students/${id}/suspend`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  reactivateStudent(id: string, body: { busId?: string; note?: string }) {
+    return request<StudentDetail>(`/students/${id}/reactivate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  terminateStudent(
+    id: string,
+    body: {
+      terminationReason: "WITHDRAWAL" | "NON_PAYMENT";
+      justification: string;
+    },
+  ) {
+    return request<StudentDetail>(`/students/${id}/terminate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  listStudentHistory(id: string) {
+    return request<{ data: StudentHistoryEvent[] }>(`/students/${id}/history`);
+  },
+
+  listBoardMemberships(id: string) {
+    return request<{ data: BoardMembershipRecord[] }>(
+      `/students/${id}/board-memberships`,
+    );
+  },
+
+  startBoardMembership(id: string, body: { note?: string }) {
+    return request<BoardMembershipRecord>(`/students/${id}/board-memberships`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  endBoardMembership(id: string, membershipId: string, body: { note?: string }) {
+    return request<BoardMembershipRecord>(
+      `/students/${id}/board-memberships/${membershipId}/end`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
   },
 
   listBusAssignments(
