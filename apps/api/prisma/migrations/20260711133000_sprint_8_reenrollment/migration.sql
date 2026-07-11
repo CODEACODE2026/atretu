@@ -1,0 +1,2 @@
+ALTER TYPE "AdministrativeAuditEventType" ADD VALUE 'STUDENT_REENROLLED';
+ALTER TYPE "StudentHistoryEventType" ADD VALUE 'STUDENT_REENROLLED';
