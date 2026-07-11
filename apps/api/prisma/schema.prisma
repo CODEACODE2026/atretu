@@ -63,6 +63,8 @@ enum AdministrativeAuditEventType {
   STUDENT_REENROLLED
   STUDENT_CARD_ISSUED
   STUDENT_CARD_INVALIDATED
+  INVOICE_CREATED
+  INVOICE_CANCELLED
   BOARD_MEMBERSHIP_STARTED
   BOARD_MEMBERSHIP_ENDED
 }
@@ -104,6 +106,8 @@ enum StudentHistoryEventType {
   STUDENT_REENROLLED
   STUDENT_CARD_ISSUED
   STUDENT_CARD_INVALIDATED
+  INVOICE_CREATED
+  INVOICE_CANCELLED
   BOARD_MEMBERSHIP_STARTED
   BOARD_MEMBERSHIP_ENDED
 }
@@ -139,6 +143,17 @@ enum StudentCardInvalidationReason {
   BOARD_MEMBERSHIP_ENDED
   STUDENT_TERMINATED
   MANUAL_CORRECTION
+  OTHER
+}
+
+enum InvoiceStatus {
+  OPEN
+  CANCELLED
+}
+
+enum InvoiceCancellationReason {
+  MANUAL_CORRECTION
+  DUPLICATE
   OTHER
 }
 
@@ -187,6 +202,8 @@ model User {
   boardMembershipsEnded    BoardMembership[]        @relation("BoardMembershipEndedBy")
   studentCardsIssued       StudentCard[]            @relation("StudentCardIssuedBy")
   studentCardsInvalidated  StudentCard[]            @relation("StudentCardInvalidatedBy")
+  invoicesCreated          Invoice[]                @relation("InvoiceCreatedBy")
+  invoicesCancelled        Invoice[]                @relation("InvoiceCancelledBy")
 
   @@map("users")
 }
@@ -333,6 +350,7 @@ model Student {
   historyEvents            StudentHistoryEvent[]
   boardMemberships         BoardMembership[]
   studentCards             StudentCard[]
+  invoices                 Invoice[]
 
   @@index([status, createdAt])
   @@index([joinedAt])
@@ -351,6 +369,7 @@ model StudentHistoryEvent {
   busAssignmentId   String?                   @map("bus_assignment_id") @db.Uuid
   boardMembershipId String?                   @map("board_membership_id") @db.Uuid
   studentCardId     String?                   @map("student_card_id") @db.Uuid
+  invoiceId         String?                   @map("invoice_id") @db.Uuid
   performedByUserId String?                   @map("performed_by_user_id") @db.Uuid
   occurredAt        DateTime                  @default(now()) @map("occurred_at") @db.Timestamptz(6)
   createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -359,6 +378,7 @@ model StudentHistoryEvent {
   busAssignment     BusAssignment?            @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
   boardMembership   BoardMembership?          @relation(fields: [boardMembershipId], references: [id], onDelete: SetNull)
   studentCard       StudentCard?              @relation(fields: [studentCardId], references: [id], onDelete: SetNull)
+  invoice           Invoice?                  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   performedBy       User?                     @relation("StudentHistoryPerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
 
   @@index([studentId, occurredAt])
@@ -366,6 +386,7 @@ model StudentHistoryEvent {
   @@index([busAssignmentId, occurredAt])
   @@index([boardMembershipId, occurredAt])
   @@index([studentCardId, occurredAt])
+  @@index([invoiceId, occurredAt])
   @@map("student_history_events")
 }
 
@@ -440,6 +461,7 @@ model Enrollment {
   busAssignments      BusAssignment[]
   busAssignmentEvents BusAssignmentEvent[]
   studentCards        StudentCard[]
+  invoices            Invoice[]
 
   @@unique([studentId, academicYearId])
   @@index([academicYearId, status])
@@ -497,6 +519,35 @@ model StudentCard {
   @@index([cardType, status])
   @@index([status, issuedAt])
   @@map("student_cards")
+}
+
+model Invoice {
+  id                   String                     @id @default(uuid()) @db.Uuid
+  studentId            String                     @map("student_id") @db.Uuid
+  enrollmentId         String                     @map("enrollment_id") @db.Uuid
+  amountCents          Int                        @map("amount_cents")
+  dueDate              DateTime                   @map("due_date") @db.Date
+  status               InvoiceStatus              @default(OPEN)
+  description          String?                    @db.VarChar(300)
+  idempotencyKey       String                     @unique @map("idempotency_key") @db.VarChar(120)
+  cancelledAt          DateTime?                  @map("cancelled_at") @db.Timestamptz(6)
+  cancellationReason   InvoiceCancellationReason? @map("cancellation_reason")
+  cancellationNote     String?                    @map("cancellation_note") @db.VarChar(500)
+  createdByUserId      String?                    @map("created_by_user_id") @db.Uuid
+  cancelledByUserId    String?                    @map("cancelled_by_user_id") @db.Uuid
+  createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student              Student                    @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  enrollment           Enrollment                 @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  createdBy            User?                      @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  cancelledBy          User?                      @relation("InvoiceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  studentHistoryEvents StudentHistoryEvent[]
+
+  @@index([studentId, createdAt])
+  @@index([enrollmentId])
+  @@index([status, dueDate])
+  @@index([createdByUserId, createdAt])
+  @@map("invoices")
 }
 
 model BusAssignment {

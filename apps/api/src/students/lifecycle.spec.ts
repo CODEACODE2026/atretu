@@ -3,6 +3,7 @@ import { BoardMembershipStatus, StudentStatus } from "@prisma/client";
 import {
   canReceiveFutureInvoices,
   canReenroll,
+  getFutureInvoiceBlockingReason,
   getReenrollmentBlockingReason,
 } from "./lifecycle.js";
 
@@ -44,6 +45,38 @@ assert.equal(
     boardMemberships: [{ status: BoardMembershipStatus.ENDED }],
   }),
   true,
+);
+
+assert.equal(
+  getFutureInvoiceBlockingReason({
+    status: StudentStatus.ACTIVE,
+    boardMemberships: [],
+  }),
+  null,
+);
+
+assert.equal(
+  getFutureInvoiceBlockingReason({
+    status: StudentStatus.SUSPENDED,
+    boardMemberships: [],
+  }),
+  "Academico suspenso nao pode receber nova fatura",
+);
+
+assert.equal(
+  getFutureInvoiceBlockingReason({
+    status: StudentStatus.TERMINATED,
+    boardMemberships: [],
+  }),
+  "Academico desligado nao pode receber nova fatura",
+);
+
+assert.equal(
+  getFutureInvoiceBlockingReason({
+    status: StudentStatus.ACTIVE,
+    boardMemberships: [{ status: BoardMembershipStatus.ACTIVE }],
+  }),
+  "Academico com diretoria ativa nao pode receber nova fatura",
 );
 
 assert.equal(

@@ -12,6 +12,26 @@ export function canReceiveFutureInvoices(input: {
   );
 }
 
+export function getFutureInvoiceBlockingReason(input: {
+  status: StudentStatus;
+  boardMemberships: Array<{ status: BoardMembershipStatus }>;
+}) {
+  if (input.status === StudentStatus.SUSPENDED) {
+    return "Academico suspenso nao pode receber nova fatura";
+  }
+  if (input.status === StudentStatus.TERMINATED) {
+    return "Academico desligado nao pode receber nova fatura";
+  }
+  if (
+    input.boardMemberships.some(
+      (membership) => membership.status === BoardMembershipStatus.ACTIVE,
+    )
+  ) {
+    return "Academico com diretoria ativa nao pode receber nova fatura";
+  }
+  return null;
+}
+
 export function getReenrollmentBlockingReason(input: {
   status: StudentStatus;
   hasEnrollmentInTargetYear: boolean;
