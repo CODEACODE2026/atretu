@@ -60,6 +60,14 @@ export type AcademicYear = {
 
 export type StudentStatus = "ACTIVE" | "SUSPENDED" | "TERMINATED";
 export type BoardMembershipStatus = "ACTIVE" | "ENDED";
+export type StudentCardType = "STUDENT" | "BOARD_MEMBER";
+export type StudentCardStatus = "ACTIVE" | "INVALIDATED";
+export type StudentCardInvalidationReason =
+  | "SUPERSEDED_BY_BOARD_CARD"
+  | "BOARD_MEMBERSHIP_ENDED"
+  | "STUDENT_TERMINATED"
+  | "MANUAL_CORRECTION"
+  | "OTHER";
 
 export type BoardMembershipRecord = {
   id: string;
@@ -362,6 +370,8 @@ export type StudentHistoryEvent = {
     | "STUDENT_REACTIVATED"
     | "STUDENT_TERMINATED"
     | "STUDENT_REENROLLED"
+    | "STUDENT_CARD_ISSUED"
+    | "STUDENT_CARD_INVALIDATED"
     | "BOARD_MEMBERSHIP_STARTED"
     | "BOARD_MEMBERSHIP_ENDED";
   suspensionReason?: "NON_PAYMENT" | "INFRACTION" | "OTHER" | null;
@@ -394,6 +404,58 @@ export type ReenrollmentCandidatesResponse = ListResponse<StudentSummary> & {
 export type ReenrollmentPayload = StudentPayload["enrollment"] & {
   busId?: string;
   note?: string;
+};
+
+export type StudentCardRecord = {
+  id: string;
+  cardType: StudentCardType;
+  sequenceNumber: number;
+  cardNumber: string;
+  status: StudentCardStatus;
+  issuedAt: string;
+  invalidatedAt?: string | null;
+  invalidationReason?: StudentCardInvalidationReason | null;
+  invalidationNote?: string | null;
+  validity: {
+    usable: boolean;
+    reason?: string | null;
+  };
+  student: {
+    id: string;
+    status: StudentStatus;
+    person: {
+      id: string;
+      fullName: string;
+      cpfMasked: string;
+    };
+    activeBoardMembership?: BoardMembershipRecord | null;
+  };
+  enrollment: EnrollmentRecord;
+  academicYear: AcademicYear;
+  boardMembership?: BoardMembershipRecord | null;
+};
+
+export type StudentCardPreview = {
+  student: StudentCardRecord["student"];
+  enrollment: EnrollmentRecord;
+  academicYear: AcademicYear;
+  cardType: StudentCardType;
+  activeBoardMembership?: BoardMembershipRecord | null;
+  previousCard?: StudentCardRecord | null;
+  eligible: boolean;
+  blockingReason?: string | null;
+};
+
+export type ListStudentCardsParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  academicYearId?: string;
+  cardType?: StudentCardType;
+  status?: StudentCardStatus;
+  validity?: "all" | "usable" | "notUsable";
+  sort?: "issuedAt" | "cardNumber";
+  order?: "asc" | "desc";
 };
 
 async function request<T>(
@@ -572,6 +634,49 @@ export const api = {
   listReenrollmentCandidates(params?: ListStudentsParams) {
     return request<ReenrollmentCandidatesResponse>(
       withParams("/students/reenrollment-candidates", params),
+    );
+  },
+
+  listStudentCards(params?: ListStudentCardsParams) {
+    return request<ListResponse<StudentCardRecord>>(
+      withParams("/student-cards", params),
+    );
+  },
+
+  listStudentCardsForStudent(studentId: string) {
+    return request<{ data: StudentCardRecord[] }>(`/students/${studentId}/cards`);
+  },
+
+  previewStudentCard(
+    studentId: string,
+    params: { enrollmentId: string; cardType: StudentCardType },
+  ) {
+    return request<StudentCardPreview>(
+      withParams(`/students/${studentId}/card-preview`, params),
+    );
+  },
+
+  issueStudentCard(
+    studentId: string,
+    body: { enrollmentId: string; cardType: StudentCardType; note?: string },
+  ) {
+    return request<StudentCardRecord>(`/students/${studentId}/cards`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  invalidateStudentCard(
+    studentId: string,
+    cardId: string,
+    body: { reason: StudentCardInvalidationReason; note?: string },
+  ) {
+    return request<StudentCardRecord>(
+      `/students/${studentId}/cards/${cardId}/invalidate`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
     );
   },
 

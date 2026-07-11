@@ -16,6 +16,7 @@ import {
   type ReenrollmentPreview,
   type StudentSummary,
 } from "../../lib/api";
+import { StudentCardsForStudent } from "./student-cards-panel";
 
 const emptyPerson: StudentPayload["person"] = {
   fullName: "",
@@ -791,6 +792,12 @@ export function StudentsPanel() {
                   const detail = await api.getStudent(selected.id);
                   setSelected(detail);
                   await loadStudents();
+                }}
+              />
+              <StudentCardsForStudent
+                student={selected}
+                onChanged={async () => {
+                  await refreshSelected(selected.id);
                 }}
               />
               <StudentDocuments studentId={selected.id} />
@@ -1927,6 +1934,8 @@ function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     STUDENT_REACTIVATED: "Reativacao",
     STUDENT_TERMINATED: "Desligamento",
     STUDENT_REENROLLED: "Rematricula",
+    STUDENT_CARD_ISSUED: "Carteirinha emitida",
+    STUDENT_CARD_INVALIDATED: "Carteirinha invalidada",
     BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
     BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
   };
