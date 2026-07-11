@@ -9,6 +9,7 @@ import { DatabaseModule } from "./database/database.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
 import { HealthController } from "./health.controller.js";
 import { PreRegistrationsModule } from "./pre-registrations/pre-registrations.module.js";
+import { StudentCardsModule } from "./student-cards/student-cards.module.js";
 import { StudentsModule } from "./students/students.module.js";
 
 @Module({
@@ -20,6 +21,7 @@ import { StudentsModule } from "./students/students.module.js";
     BusAssignmentsModule,
     DocumentsModule,
     PreRegistrationsModule,
+    StudentCardsModule,
     StudentsModule,
   ],
   controllers: [HealthController],

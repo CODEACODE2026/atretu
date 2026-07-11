@@ -14,6 +14,9 @@ import {
   Prisma,
   RecordStatus,
   RoleCode,
+  StudentCardInvalidationReason,
+  StudentCardStatus,
+  StudentCardType,
   StudentHistoryEventType,
   StudentStatus,
 } from "@prisma/client";
@@ -822,6 +825,12 @@ export class StudentsService {
       });
 
       await this.endActiveBoardMembershipForTermination(tx, id, userId);
+      await this.invalidateActiveStudentCardsForTermination(
+        tx,
+        id,
+        userId,
+        body.justification,
+      );
 
       await tx.studentHistoryEvent.create({
         data: {
@@ -954,6 +963,13 @@ export class StudentsService {
           endNote: this.optional(body.note),
         },
       });
+      await this.invalidateBoardMemberCardsForMembership(
+        tx,
+        studentId,
+        ended.id,
+        userId,
+        this.optional(body.note),
+      );
       await tx.studentHistoryEvent.create({
         data: {
           studentId,
@@ -1265,6 +1281,108 @@ export class StudentsService {
         studentId,
         boardMembershipId: ended.id,
         action: "ended_by_termination",
+      },
+    });
+  }
+
+  private async invalidateBoardMemberCardsForMembership(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+    boardMembershipId: string,
+    userId: string,
+    note?: string,
+  ) {
+    const cards = await tx.studentCard.findMany({
+      where: {
+        studentId,
+        boardMembershipId,
+        cardType: StudentCardType.BOARD_MEMBER,
+        status: StudentCardStatus.ACTIVE,
+      },
+    });
+
+    for (const card of cards) {
+      await this.invalidateStudentCardTx(tx, {
+        card,
+        userId,
+        reason: StudentCardInvalidationReason.BOARD_MEMBERSHIP_ENDED,
+        note: note ?? "Invalidada pelo encerramento da diretoria",
+      });
+    }
+  }
+
+  private async invalidateActiveStudentCardsForTermination(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+    userId: string,
+    note?: string,
+  ) {
+    const cards = await tx.studentCard.findMany({
+      where: { studentId, status: StudentCardStatus.ACTIVE },
+    });
+
+    for (const card of cards) {
+      await this.invalidateStudentCardTx(tx, {
+        card,
+        userId,
+        reason: StudentCardInvalidationReason.STUDENT_TERMINATED,
+        note: note ?? "Invalidada pelo desligamento do academico",
+      });
+    }
+  }
+
+  private async invalidateStudentCardTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      card: {
+        id: string;
+        studentId: string;
+        enrollmentId: string;
+        academicYearId: string;
+        boardMembershipId: string | null;
+        cardType: StudentCardType;
+        sequenceNumber: number;
+        cardNumber: string;
+      };
+      userId: string;
+      reason: StudentCardInvalidationReason;
+      note?: string;
+    },
+  ) {
+    await tx.studentCard.update({
+      where: { id: input.card.id },
+      data: {
+        status: StudentCardStatus.INVALIDATED,
+        invalidatedAt: new Date(),
+        invalidationReason: input.reason,
+        invalidationNote: input.note,
+        invalidatedByUserId: input.userId,
+      },
+    });
+    await tx.studentHistoryEvent.create({
+      data: {
+        studentId: input.card.studentId,
+        eventType: StudentHistoryEventType.STUDENT_CARD_INVALIDATED,
+        studentCardId: input.card.id,
+        boardMembershipId: input.card.boardMembershipId,
+        justification: input.note,
+        performedByUserId: input.userId,
+      },
+    });
+    await this.recordAuditTx(tx, {
+      eventType: AdministrativeAuditEventType.STUDENT_CARD_INVALIDATED,
+      domain: "student_cards",
+      recordId: input.card.id,
+      userId: input.userId,
+      metadata: {
+        studentId: input.card.studentId,
+        enrollmentId: input.card.enrollmentId,
+        academicYearId: input.card.academicYearId,
+        studentCardId: input.card.id,
+        cardType: input.card.cardType,
+        sequenceNumber: input.card.sequenceNumber,
+        cardNumber: input.card.cardNumber,
+        reason: input.reason,
       },
     });
   }
