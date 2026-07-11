@@ -7,6 +7,7 @@ import { HttpErrorFilter } from "./common/http-exception.filter.js";
 import { AppConfigModule } from "./config/app-config.module.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
+import { FinanceModule } from "./finance/finance.module.js";
 import { HealthController } from "./health.controller.js";
 import { PreRegistrationsModule } from "./pre-registrations/pre-registrations.module.js";
 import { StudentCardsModule } from "./student-cards/student-cards.module.js";
@@ -20,6 +21,7 @@ import { StudentsModule } from "./students/students.module.js";
     BaseRecordsModule,
     BusAssignmentsModule,
     DocumentsModule,
+    FinanceModule,
     PreRegistrationsModule,
     StudentCardsModule,
     StudentsModule,
