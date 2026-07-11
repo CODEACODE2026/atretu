@@ -25,6 +25,7 @@ import {
   CreateAcademicYearDto,
   CreateEnrollmentDto,
   CreateStudentDto,
+  EndBoardMembershipDto,
   EnrollmentInputDto,
   GuardianInputDto,
   ListStudentsDto,
@@ -627,6 +628,117 @@ export class StudentsService {
     return { data };
   }
 
+  async listBoardMemberships(id: string) {
+    await this.ensureStudent(id);
+    const data = await this.prisma.boardMembership.findMany({
+      where: { studentId: id },
+      orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
+    });
+    return { data };
+  }
+
+  async startBoardMembership(
+    id: string,
+    body: StartBoardMembershipDto,
+    userId: string,
+  ) {
+    const membership = await this.prisma.$transaction(async (tx) => {
+      const student = await this.lockStudent(tx, id);
+      if (student.status !== StudentStatus.ACTIVE) {
+        throw new BadRequestException("Somente academico ativo pode entrar na diretoria");
+      }
+      const active = await tx.boardMembership.findFirst({
+        where: { studentId: id, status: BoardMembershipStatus.ACTIVE },
+      });
+      if (active) {
+        throw new ConflictException("Academico ja possui diretoria ativa");
+      }
+
+      const created = await tx.boardMembership.create({
+        data: {
+          studentId: id,
+          startedByUserId: userId,
+          startNote: this.optional(body.note),
+        },
+      });
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId: id,
+          eventType: StudentHistoryEventType.BOARD_MEMBERSHIP_STARTED,
+          boardMembershipId: created.id,
+          justification: this.optional(body.note),
+          performedByUserId: userId,
+        },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.BOARD_MEMBERSHIP_STARTED,
+        domain: "board_memberships",
+        recordId: created.id,
+        userId,
+        metadata: {
+          studentId: id,
+          boardMembershipId: created.id,
+          action: "started",
+        },
+      });
+      return created;
+    });
+    return membership;
+  }
+
+  async endBoardMembership(
+    studentId: string,
+    membershipId: string,
+    body: EndBoardMembershipDto,
+    userId: string,
+  ) {
+    const membership = await this.prisma.$transaction(async (tx) => {
+      await this.lockStudent(tx, studentId);
+      const active = await tx.boardMembership.findFirst({
+        where: {
+          id: membershipId,
+          studentId,
+          status: BoardMembershipStatus.ACTIVE,
+        },
+      });
+      if (!active) {
+        throw new BadRequestException("Diretoria ativa nao encontrada");
+      }
+
+      const ended = await tx.boardMembership.update({
+        where: { id: active.id },
+        data: {
+          status: BoardMembershipStatus.ENDED,
+          endedAt: new Date(),
+          endedByUserId: userId,
+          endNote: this.optional(body.note),
+        },
+      });
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId,
+          eventType: StudentHistoryEventType.BOARD_MEMBERSHIP_ENDED,
+          boardMembershipId: ended.id,
+          justification: this.optional(body.note),
+          performedByUserId: userId,
+        },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.BOARD_MEMBERSHIP_ENDED,
+        domain: "board_memberships",
+        recordId: ended.id,
+        userId,
+        metadata: {
+          studentId,
+          boardMembershipId: ended.id,
+          action: "ended",
+        },
+      });
+      return ended;
+    });
+    return membership;
+  }
+
   assertCanWriteAcademicYear(user: AuthUser) {
     if (!user.roles.includes(RoleCode.SUPER_ADMIN)) {
       throw new BadRequestException("Somente Super Admin altera Ano Letivo");
@@ -893,6 +1005,10 @@ export class StudentsService {
   private studentSummaryInclude() {
     return {
       person: true,
+      boardMemberships: {
+        where: { status: BoardMembershipStatus.ACTIVE },
+        take: 1,
+      },
       enrollments: {
         orderBy: { academicYear: { year: "desc" } },
         take: 1,
@@ -905,6 +1021,10 @@ export class StudentsService {
     return {
       person: true,
       guardian: true,
+      boardMemberships: {
+        where: { status: BoardMembershipStatus.ACTIVE },
+        take: 1,
+      },
       enrollments: {
         orderBy: { academicYear: { year: "desc" } },
         include: this.enrollmentInclude(),
@@ -928,6 +1048,8 @@ export class StudentsService {
       joinedAt: student.joinedAt,
       createdAt: student.createdAt,
       updatedAt: student.updatedAt,
+      canReceiveFutureInvoices: this.canReceiveFutureInvoices(student),
+      activeBoardMembership: student.boardMemberships[0] ?? null,
       person: {
         id: student.person.id,
         fullName: student.person.fullName,
@@ -946,6 +1068,8 @@ export class StudentsService {
       updatedAt: student.updatedAt,
       person: student.person,
       guardian: student.guardian,
+      canReceiveFutureInvoices: this.canReceiveFutureInvoices(student),
+      activeBoardMembership: student.boardMemberships[0] ?? null,
       enrollments: student.enrollments.map((enrollment) =>
         this.toEnrollment(enrollment),
       ),
@@ -987,6 +1111,18 @@ export class StudentsService {
 
   private optional(value?: string) {
     return value && value.length > 0 ? value : undefined;
+  }
+
+  private canReceiveFutureInvoices(student: {
+    status: StudentStatus;
+    boardMemberships: Array<{ status: BoardMembershipStatus }>;
+  }) {
+    return (
+      student.status === StudentStatus.ACTIVE &&
+      !student.boardMemberships.some(
+        (membership) => membership.status === BoardMembershipStatus.ACTIVE,
+      )
+    );
   }
 
   private async recordAudit(

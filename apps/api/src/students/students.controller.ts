@@ -19,8 +19,10 @@ import {
   CreateAcademicYearDto,
   CreateEnrollmentDto,
   CreateStudentDto,
+  EndBoardMembershipDto,
   ListStudentsDto,
   ReactivateStudentDto,
+  StartBoardMembershipDto,
   SuspendStudentDto,
   TerminateStudentDto,
   UpdateAcademicYearDto,
@@ -166,4 +168,30 @@ export class StudentsController {
     return this.students.listStudentHistory(id);
   }
 
+  @Get("students/:id/board-memberships")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listBoardMemberships(@Param("id") id: string) {
+    return this.students.listBoardMemberships(id);
+  }
+
+  @Post("students/:id/board-memberships")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  startBoardMembership(
+    @Param("id") id: string,
+    @Body() body: StartBoardMembershipDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.startBoardMembership(id, body, user.id);
+  }
+
+  @Post("students/:id/board-memberships/:membershipId/end")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  endBoardMembership(
+    @Param("id") id: string,
+    @Param("membershipId") membershipId: string,
+    @Body() body: EndBoardMembershipDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.endBoardMembership(id, membershipId, body, user.id);
+  }
 }
