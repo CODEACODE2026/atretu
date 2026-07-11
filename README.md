@@ -3,9 +3,10 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 7: cadastros base, nucleo academico, vinculos de Onibus por Matricula
+Sprint 9: cadastros base, nucleo academico, vinculos de Onibus por Matricula
 Anual, documentos privados, pre-cadastro publico com aprovacao administrativa,
-suspensao, reativacao, desligamento e diretoria implementados.
+suspensao, reativacao, desligamento, diretoria, rematricula anual e
+carteirinhas com sequencias anuais implementados.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -291,6 +292,48 @@ Regras principais:
 - Auditoria administrativa registra IDs operacionais sem CPF, RG, endereco ou
   payload sensivel.
 
+## Carteirinhas e sequencias anuais
+
+A Sprint 9 implementa a fundacao funcional de carteirinhas sem PDF final,
+impressao, QR Code ou validacao publica. A emissao e manual por Super Admin ou
+Secretaria apos conferencia dos dados.
+
+Rotas:
+
+- `GET /student-cards`
+- `GET /students/:studentId/cards`
+- `GET /students/:studentId/card-preview`
+- `POST /students/:studentId/cards`
+- `POST /students/:studentId/cards/:cardId/invalidate`
+
+Regras principais:
+
+- Tipos suportados: `STUDENT` e `BOARD_MEMBER`.
+- Status persistidos: `ACTIVE` e `INVALIDATED`.
+- Sequencias sao independentes por Ano Letivo e tipo de carteirinha.
+- `cardNumber` e formado por `sequenceNumber` concatenado ao ano, por exemplo
+  `1` + `2026` = `12026`.
+- `cardNumber` nao e globalmente unico; a identidade correta considera Ano
+  Letivo, tipo e sequencia.
+- Preview nao cria carteirinha, nao reserva numero e nao altera sequencia.
+- Emissao usa transacao, lock da sequencia anual e rollback completo em falha.
+- `STUDENT` exige academico `ACTIVE`, matricula valida e ausencia de diretoria
+  ativa incompativel.
+- `BOARD_MEMBER` exige academico `ACTIVE`, matricula valida e BoardMembership
+  `ACTIVE`.
+- Emissao de `BOARD_MEMBER` invalida `STUDENT` ativa do mesmo contexto anual na
+  mesma transacao.
+- Encerramento de diretoria invalida `BOARD_MEMBER` ativa relacionada, sem
+  gerar `STUDENT` automaticamente.
+- Suspensao nao invalida carteirinha; a validade fica derivada do status do
+  academico.
+- Reativacao reutiliza a carteirinha `ACTIVE` existente.
+- Desligamento invalida carteirinhas ativas do academico na mesma transacao.
+- Rematricula nao gera carteirinha automaticamente; a nova carteirinha referencia
+  a nova `Enrollment` e o novo Ano Letivo.
+- Historico funcional e auditoria registram emissao/invalidation sem CPF, RG,
+  endereco, documentos ou payload sensivel.
+
 Regras principais:
 
 - CPF do interessado e obrigatorio, valido, normalizado e revalidado na
@@ -353,11 +396,13 @@ Smoke da Sprint 6, com API, banco e storage privado ja disponiveis:
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... DOCUMENT_STORAGE_DIR=/tmp/atretu-pre-registration-smoke DOCUMENT_MAX_SIZE_BYTES=1024 npm --prefix apps/api run smoke:pre-registrations
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:lifecycle
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:reenrollment
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:student-cards
 ```
 
 ## Limites atuais
 - Nao ha PDF de alunos por onibus.
 - Nao ha rematricula em lote.
+- Nao ha PDF definitivo, impressao, QR Code ou validacao publica de carteirinha.
 - Nao ha integracao Sicredi.
 - Nao ha consulta publica de status do pre-cadastro.
 - Nao ha OCR, leitura automatica de documentos nem envio ao Sicredi.
