@@ -361,6 +361,7 @@ export type StudentHistoryEvent = {
     | "STUDENT_SUSPENDED"
     | "STUDENT_REACTIVATED"
     | "STUDENT_TERMINATED"
+    | "STUDENT_REENROLLED"
     | "BOARD_MEMBERSHIP_STARTED"
     | "BOARD_MEMBERSHIP_ENDED";
   suspensionReason?: "NON_PAYMENT" | "INFRACTION" | "OTHER" | null;
@@ -371,6 +372,28 @@ export type StudentHistoryEvent = {
   bus?: BusRecord | null;
   busAssignment?: BusAssignmentRecord | null;
   boardMembership?: BoardMembershipRecord | null;
+};
+
+export type ReenrollmentPreview = {
+  student: StudentDetail;
+  academicYear: AcademicYear;
+  previousEnrollment: EnrollmentRecord | null;
+  previousBusAssignment: {
+    id: string;
+    bus: BusRecord;
+    note?: string | null;
+  } | null;
+  eligible: boolean;
+  blockingReason?: string | null;
+};
+
+export type ReenrollmentCandidatesResponse = ListResponse<StudentSummary> & {
+  academicYear: AcademicYear;
+};
+
+export type ReenrollmentPayload = StudentPayload["enrollment"] & {
+  busId?: string;
+  note?: string;
 };
 
 async function request<T>(
@@ -546,6 +569,12 @@ export const api = {
     return request<ListResponse<StudentSummary>>(withParams("/students", params));
   },
 
+  listReenrollmentCandidates(params?: ListStudentsParams) {
+    return request<ReenrollmentCandidatesResponse>(
+      withParams("/students/reenrollment-candidates", params),
+    );
+  },
+
   createStudent(body: StudentPayload) {
     return request<StudentDetail>("/students", {
       method: "POST",
@@ -588,6 +617,19 @@ export const api = {
   ) {
     return request<EnrollmentRecord>(`/students/${id}/enrollments/${enrollmentId}`, {
       method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  previewReenrollment(id: string, academicYearId?: string) {
+    return request<ReenrollmentPreview>(
+      withParams(`/students/${id}/reenrollment-preview`, { academicYearId }),
+    );
+  },
+
+  reenrollStudent(id: string, body: ReenrollmentPayload) {
+    return request<EnrollmentRecord>(`/students/${id}/reenroll`, {
+      method: "POST",
       body: JSON.stringify(body),
     });
   },

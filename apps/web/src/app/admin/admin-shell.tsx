@@ -14,7 +14,7 @@ import {
 import { canAccessRestrictedAdmin, getPrimaryRoleLabel } from "../../lib/auth";
 import { AcademicYearsPanel } from "./academic-years-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
-import { StudentsPanel } from "./students-panel";
+import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
 
 type DomainKey = "institutions" | "shifts" | "buses";
 type StatusFilter = "active" | "inactive" | "all";
@@ -145,9 +145,12 @@ export function AdminShell() {
 }
 
 function AdminWorkspace({ user }: { user: ApiUser }) {
-  const [area, setArea] = useState<"students" | "pre-registrations" | "years" | "base">("students");
+  const [area, setArea] = useState<
+    "students" | "reenrollments" | "pre-registrations" | "years" | "base"
+  >("students");
   const tabs = [
     { key: "students", label: "Academicos" },
+    { key: "reenrollments", label: "Rematriculas" },
     { key: "pre-registrations", label: "Pre-cadastros" },
     { key: "years", label: "Anos Letivos" },
     { key: "base", label: "Cadastros Base" },
@@ -173,6 +176,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
       </div>
 
       {area === "students" ? <StudentsPanel /> : null}
+      {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
       {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
       {area === "years" ? <AcademicYearsPanel user={user} /> : null}
       {area === "base" ? <BaseRecordsPanel /> : null}

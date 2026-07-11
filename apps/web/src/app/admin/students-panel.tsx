@@ -13,6 +13,7 @@ import {
   type StudentDocumentType,
   type StudentDetail,
   type StudentPayload,
+  type ReenrollmentPreview,
   type StudentSummary,
 } from "../../lib/api";
 
@@ -802,6 +803,352 @@ export function StudentsPanel() {
   );
 }
 
+export function ReenrollmentsPanel() {
+  const [candidates, setCandidates] = useState<StudentSummary[]>([]);
+  const [years, setYears] = useState<AcademicYear[]>([]);
+  const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
+  const [shifts, setShifts] = useState<BaseRecord[]>([]);
+  const [buses, setBuses] = useState<BusRecord[]>([]);
+  const [academicYearId, setAcademicYearId] = useState("");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<StudentSummary | null>(null);
+  const [preview, setPreview] = useState<ReenrollmentPreview | null>(null);
+  const [enrollment, setEnrollment] =
+    useState<StudentPayload["enrollment"]>(emptyEnrollment);
+  const [busId, setBusId] = useState("");
+  const [note, setNote] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void loadReferences();
+  }, []);
+
+  useEffect(() => {
+    if (academicYearId) {
+      void loadCandidates();
+      void loadBuses();
+      setEnrollment((current) => ({ ...current, academicYearId }));
+    }
+  }, [academicYearId]);
+
+  async function loadReferences() {
+    setError("");
+    try {
+      const [yearsResponse, institutionsResponse, shiftsResponse] =
+        await Promise.all([
+          api.listAcademicYears(),
+          api.listInstitutions({ status: "active", limit: 100, sort: "name" }),
+          api.listShifts({ status: "active", limit: 100, sort: "name" }),
+        ]);
+      setYears(yearsResponse.data);
+      setInstitutions(institutionsResponse.data);
+      setShifts(shiftsResponse.data);
+      const target = yearsResponse.data.find((year) => year.isCurrent);
+      setAcademicYearId(target?.id ?? yearsResponse.data[0]?.id ?? "");
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao carregar referencias",
+      );
+    }
+  }
+
+  async function loadCandidates(nextSearch = search) {
+    if (!academicYearId) {
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.listReenrollmentCandidates({
+        academicYearId,
+        search: nextSearch,
+        limit: 20,
+      });
+      setCandidates(response.data);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao carregar candidatos",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadBuses() {
+    if (!academicYearId) {
+      return;
+    }
+    try {
+      const response = await api.listBuses({
+        status: "active",
+        limit: 100,
+        sort: "name",
+        academicYearId,
+      });
+      setBuses(response.data);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao carregar onibus");
+    }
+  }
+
+  async function selectCandidate(candidate: StudentSummary) {
+    setSelected(candidate);
+    setMessage("");
+    setError("");
+    setBusId("");
+    setNote("");
+    try {
+      const nextPreview = await api.previewReenrollment(candidate.id, academicYearId);
+      setPreview(nextPreview);
+      setEnrollment({
+        academicYearId,
+        institutionId: nextPreview.previousEnrollment?.institution.id ?? "",
+        shiftId: nextPreview.previousEnrollment?.shift.id ?? "",
+        course: nextPreview.previousEnrollment?.course ?? "",
+        grade: nextPreview.previousEnrollment?.grade ?? "",
+      });
+    } catch (caught) {
+      setPreview(null);
+      setError(caught instanceof Error ? caught.message : "Erro ao abrir preview");
+    }
+  }
+
+  async function handleReenroll(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected || !preview?.eligible) {
+      setError(preview?.blockingReason ?? "Selecione um academico elegivel");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Confirmar rematricula preservando a matricula anterior? A selecao de onibus e opcional e nao gera boleto, carteirinha ou copia de documentos.",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.reenrollStudent(selected.id, {
+        ...enrollment,
+        busId: emptyToUndefined(busId),
+        note: emptyToUndefined(note),
+      });
+      setMessage("Rematricula criada");
+      setSelected(null);
+      setPreview(null);
+      setBusId("");
+      setNote("");
+      setEnrollment({ ...emptyEnrollment, academicYearId });
+      await loadCandidates();
+      await loadBuses();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao rematricular");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
+      <div className="rounded border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 p-4">
+          <div className="flex flex-wrap items-end gap-2">
+            <form
+              className="flex min-w-[260px] flex-1 gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void loadCandidates(search);
+              }}
+            >
+              <input
+                className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar candidato"
+                type="search"
+                value={search}
+              />
+              <button
+                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+                type="submit"
+              >
+                Buscar
+              </button>
+            </form>
+            <Select
+              label="Ano de destino"
+              onChange={(value) => {
+                setAcademicYearId(value);
+                setSelected(null);
+                setPreview(null);
+              }}
+              options={years.map((year) => ({
+                label: year.isCurrent ? `${year.year} atual` : String(year.year),
+                value: year.id,
+              }))}
+              value={academicYearId}
+            />
+          </div>
+        </div>
+
+        {message ? (
+          <div className="mx-4 mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {message}
+          </div>
+        ) : null}
+        {error ? (
+          <div className="mx-4 mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Academico</th>
+                <th className="px-4 py-3">CPF</th>
+                <th className="px-4 py-3">Ano anterior</th>
+                <th className="px-4 py-3">Instituicao</th>
+                <th className="px-4 py-3">Curso</th>
+                <th className="px-4 py-3">Acoes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr>
+                  <td className="px-4 py-6 text-slate-500" colSpan={6}>
+                    Carregando...
+                  </td>
+                </tr>
+              ) : candidates.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-6 text-slate-500" colSpan={6}>
+                    Nenhum candidato elegivel
+                  </td>
+                </tr>
+              ) : (
+                candidates.map((candidate) => (
+                  <tr key={candidate.id}>
+                    <td className="px-4 py-3 font-medium text-slate-950">
+                      {candidate.person.fullName}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {candidate.person.cpfMasked}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {candidate.currentEnrollment?.academicYear.year ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {candidate.currentEnrollment?.institution.name ?? "-"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {candidate.currentEnrollment?.course ?? "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                        onClick={() => void selectCandidate(candidate)}
+                        type="button"
+                      >
+                        Preparar
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <form
+        className="rounded border border-slate-200 bg-white p-4 shadow-sm"
+        onSubmit={handleReenroll}
+      >
+        <h2 className="text-base font-semibold text-slate-950">
+          Nova rematricula
+        </h2>
+
+        {selected && preview ? (
+          <div className="mt-4 grid gap-3">
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+              <p className="font-medium text-slate-950">
+                {selected.person.fullName}
+              </p>
+              <p className="mt-1 text-slate-600">
+                Matricula anterior preservada:{" "}
+                {preview.previousEnrollment
+                  ? `${preview.previousEnrollment.academicYear.year} - ${preview.previousEnrollment.institution.name}`
+                  : "sem matricula anterior"}
+              </p>
+              <p className="mt-1 text-slate-600">
+                Onibus anterior:{" "}
+                {preview.previousBusAssignment?.bus.name ?? "sem referencia"}
+              </p>
+              <p className="mt-1 text-slate-600">
+                Esta rematricula nao gera boleto, carteirinha ou copia documentos.
+              </p>
+              {preview.blockingReason ? (
+                <p className="mt-2 text-red-700">{preview.blockingReason}</p>
+              ) : null}
+            </div>
+
+            <EnrollmentFields
+              enrollment={enrollment}
+              institutions={institutions}
+              setEnrollment={setEnrollment}
+              shifts={shifts}
+              title="Nova matricula anual"
+              years={years}
+            />
+
+            <div className="grid gap-2">
+              <h3 className="text-sm font-semibold text-slate-950">
+                Onibus opcional
+              </h3>
+              <select
+                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                onChange={(event) => setBusId(event.target.value)}
+                value={busId}
+              >
+                <option value="">Sem onibus nesta rematricula</option>
+                {buses.map((bus) => (
+                  <option disabled={Boolean(bus.isFull)} key={bus.id} value={bus.id}>
+                    {bus.name} - {bus.availableSeats ?? bus.capacity} vagas
+                  </option>
+                ))}
+              </select>
+              <input
+                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                maxLength={240}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Observacao opcional"
+                value={note}
+              />
+            </div>
+
+            <button
+              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+              disabled={saving || !preview.eligible}
+              type="submit"
+            >
+              {saving ? "Criando..." : "Confirmar rematricula"}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-slate-600">
+            Selecione um candidato elegivel para preparar a nova Enrollment.
+          </p>
+        )}
+      </form>
+    </div>
+  );
+}
+
 function PersonFields({
   person,
   setPerson,
@@ -882,12 +1229,14 @@ function EnrollmentFields({
   institutions,
   setEnrollment,
   shifts,
+  title = "Matricula inicial",
   years,
 }: {
   enrollment: StudentPayload["enrollment"];
   institutions: BaseRecord[];
   setEnrollment: (enrollment: StudentPayload["enrollment"]) => void;
   shifts: BaseRecord[];
+  title?: string;
   years: AcademicYear[];
 }) {
   function update(key: keyof StudentPayload["enrollment"], value: string) {
@@ -896,7 +1245,7 @@ function EnrollmentFields({
 
   return (
     <div className="mt-4 grid gap-3">
-      <h3 className="text-sm font-semibold text-slate-950">Matricula inicial</h3>
+      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         <LabeledSelect
           label="Ano Letivo"
@@ -1577,6 +1926,7 @@ function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     STUDENT_SUSPENDED: "Suspensao",
     STUDENT_REACTIVATED: "Reativacao",
     STUDENT_TERMINATED: "Desligamento",
+    STUDENT_REENROLLED: "Rematricula",
     BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
     BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
   };
