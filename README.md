@@ -3,8 +3,9 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 5: cadastros base, nucleo academico, vinculos de Onibus por Matricula
-Anual e documentos privados dos academicos implementados.
+Sprint 6: cadastros base, nucleo academico, vinculos de Onibus por Matricula
+Anual, documentos privados e pre-cadastro publico com aprovacao
+administrativa implementados.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -197,6 +198,44 @@ Regras principais:
 - Auditoria administrativa registra upload, substituicao, visualizacao/download
   e remocao sem dados pessoais completos.
 
+## Pre-cadastro publico
+
+A Sprint 6 implementa solicitacao publica de cadastro com aprovacao
+administrativa. O pre-cadastro nao cria Academico, Pessoa definitiva,
+Matricula, vinculo de Onibus, boleto, carteirinha, portal ou reserva de vaga
+antes da aprovacao.
+
+Rotas publicas:
+
+- `GET /public/pre-registration/options`
+- `POST /public/pre-registrations`
+
+Rotas administrativas:
+
+- `GET /pre-registrations`
+- `GET /pre-registrations/:id`
+- `GET /pre-registrations/:id/documents/:documentId/file`
+- `POST /pre-registrations/:id/approve`
+- `POST /pre-registrations/:id/reject`
+
+Regras principais:
+
+- CPF do interessado e obrigatorio, valido, normalizado e revalidado na
+  aprovacao.
+- Ha no maximo uma solicitacao `PENDING` por CPF.
+- Solicitacao `REJECTED` preserva historico e permite novo envio futuro.
+- Erros publicos de duplicidade usam mensagem generica para reduzir enumeracao
+  de CPF.
+- Honeypot preenchido retorna sucesso generico sem criar registro.
+- Upload publico de documentos e opcional, usa storage privado, validacao de
+  MIME/extensao/magic bytes/tamanho e nao reutiliza endpoints administrativos.
+- Aprovacao e transacional: cria Person, Student, responsavel opcional,
+  Enrollment e promove documentos temporarios para StudentDocument.
+- Promocao documental nao duplica arquivo fisico; metadados definitivos apontam
+  para o mesmo arquivo privado ja validado.
+- Rejeicao exige motivo, registra auditoria e preserva documentos temporarios.
+- Auditoria nao registra CPF, RG, endereco, payload bruto, storageKey ou path.
+
 O bootstrap do primeiro Super Admin exige o header:
 
 ```text
@@ -235,11 +274,18 @@ Smoke da Sprint 5, com API, banco e storage privado ja disponiveis:
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... DOCUMENT_STORAGE_DIR=/tmp/atretu-documents-smoke DOCUMENT_MAX_SIZE_BYTES=1024 npm --prefix apps/api run smoke:documents
 ```
 
+Smoke da Sprint 6, com API, banco e storage privado ja disponiveis:
+
+```bash
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... DOCUMENT_STORAGE_DIR=/tmp/atretu-pre-registration-smoke DOCUMENT_MAX_SIZE_BYTES=1024 npm --prefix apps/api run smoke:pre-registrations
+```
+
 ## Limites atuais
 - Nao ha PDF de alunos por onibus.
 - Nao ha suspensao, desligamento, diretoria ou rematricula completa.
 - Nao ha integracao Sicredi.
-- Nao ha pre-cadastro, OCR, leitura automatica de documentos nem envio ao Sicredi.
+- Nao ha consulta publica de status do pre-cadastro.
+- Nao ha OCR, leitura automatica de documentos nem envio ao Sicredi.
 - Nao ha portal do academico.
 - Nao ha deploy.
 
