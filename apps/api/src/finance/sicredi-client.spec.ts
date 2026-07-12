@@ -1,0 +1,355 @@
+import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import {
+  SicrediClient,
+  SicrediClientError,
+  type SicrediIssueBankSlipInput,
+} from "./sicredi-client.js";
+import type { SicrediConfig } from "./sicredi-config.js";
+
+const config: SicrediConfig = {
+  environment: "sandbox",
+  authUrl: "https://sicredi.test/auth/openapi/token",
+  baseUrl: "https://sicredi.test/sb",
+  apiKey: "secret-api-key",
+  username: "123456789",
+  password: "secret-password",
+  cooperativa: "6789",
+  posto: "03",
+  codigoBeneficiario: "12345",
+  timeoutMs: 10,
+  requirePayerAddress: false,
+};
+
+const issueInput: SicrediIssueBankSlipInput = {
+  pagador: {
+    tipoPessoa: "PESSOA_FISICA",
+    documento: "12345678901",
+    nome: "Aluno Teste",
+  },
+  especieDocumento: "RECIBO",
+  seuNumero: "AT0000001",
+  dataVencimento: "2026-08-10",
+  valor: "120.50",
+};
+
+await testAccessTokenReuse();
+await testRefreshToken();
+await testConcurrentAuthentication();
+await testSafe401Retry();
+await testIssueBankSlip();
+await testIssueTimeoutIsUncertainAndNotRetried();
+await testIssueErrorsAreSanitized();
+await testGetBankSlip();
+await testPaidDayPagination();
+await testPaidDayPaginationLimit();
+await testCancellation();
+await testPdf();
+await testPdfInvalidContentType();
+await testPdfTooLarge();
+
+async function testAccessTokenReuse() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    bankSlipResponse(),
+    bankSlipResponse(),
+  ]);
+  const client = createClient(fetch);
+  await client.getBankSlip("123456789");
+  await client.getBankSlip("123456789");
+  assert.equal(fetch.calls.filter((call) => call.url.includes("/auth/")).length, 1);
+  assert.equal(fetch.calls.length, 3);
+}
+
+async function testRefreshToken() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 1, 900),
+    bankSlipResponse(),
+    tokenResponse("access-2", "refresh-2", 300, 900),
+    bankSlipResponse(),
+  ]);
+  const client = createClient(fetch);
+  await client.getBankSlip("123456789");
+  await client.getBankSlip("123456789");
+  const refreshBody = String(fetch.calls[2]?.body);
+  assert.match(refreshBody, /grant_type=refresh_token/);
+  assert.doesNotMatch(refreshBody, /secret-password/);
+}
+
+async function testConcurrentAuthentication() {
+  const fetch = queueFetch([
+    asyncJson({ access_token: "access-1", refresh_token: "refresh-1", expires_in: 300, refresh_expires_in: 900 }),
+    bankSlipResponse(),
+    bankSlipResponse(),
+  ]);
+  const client = createClient(fetch);
+  await Promise.all([client.getBankSlip("123456789"), client.getBankSlip("123456789")]);
+  assert.equal(fetch.calls.filter((call) => call.url.includes("/auth/")).length, 1);
+}
+
+async function testSafe401Retry() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({ message: "UNAUTHORIZED" }, 401),
+    tokenResponse("access-2", "refresh-2", 300, 900),
+    bankSlipResponse(),
+  ]);
+  const client = createClient(fetch);
+  const result = await client.getBankSlip("123456789");
+  assert.equal(result.nossoNumero, "123456789");
+  assert.equal(fetch.calls.filter((call) => call.url.includes("/auth/")).length, 2);
+}
+
+async function testIssueBankSlip() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      nossoNumero: "251006142",
+      linhaDigitavel: "74891125110061420512803153351030188640000009990",
+      codigoBarras: "74891886400000099901125100614205120315335103",
+      cooperativa: "6789",
+      posto: "03",
+    }, 201),
+  ]);
+  const client = createClient(fetch);
+  const result = await client.issueBankSlip(issueInput);
+  assert.equal(result.nossoNumero, "251006142");
+  const body = JSON.parse(String(fetch.calls[1]?.body)) as Record<string, unknown>;
+  assert.equal(body.tipoCobranca, "NORMAL");
+  assert.equal(body.codigoBeneficiario, "12345");
+  assert.equal(body.nossoNumero, undefined);
+}
+
+async function testIssueTimeoutIsUncertainAndNotRetried() {
+  let issueCalls = 0;
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    async () => {
+      issueCalls += 1;
+      throw new DOMException("aborted", "AbortError");
+    },
+  ]);
+  const client = createClient(fetch);
+  await assert.rejects(
+    () => client.issueBankSlip(issueInput),
+    (error) =>
+      error instanceof SicrediClientError &&
+      error.operation === "issueBankSlip" &&
+      error.uncertain &&
+      error.code === "TIMEOUT",
+  );
+  assert.equal(issueCalls, 1);
+}
+
+async function testIssueErrorsAreSanitized() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      message: `Credencial ${config.password} token access-1 x-api-key ${config.apiKey}`,
+      code: "422",
+    }, 422),
+  ]);
+  const client = createClient(fetch);
+  await assert.rejects(
+    () => client.issueBankSlip(issueInput),
+    (error) =>
+      error instanceof SicrediClientError &&
+      !error.message.includes(config.password) &&
+      !error.message.includes(config.apiKey) &&
+      !error.message.includes("access-1") &&
+      error.statusCode === 422,
+  );
+}
+
+async function testGetBankSlip() {
+  const fetch = queueFetch([tokenResponse("access-1", "refresh-1", 300, 900), bankSlipResponse()]);
+  const client = createClient(fetch);
+  const result = await client.getBankSlip("123456789");
+  assert.equal(result.situacao, "LIQUIDADO");
+  assert.equal(result.dadosLiquidacao?.valor, "120.50");
+}
+
+async function testPaidDayPagination() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    paidPageResponse(true),
+    paidPageResponse(false),
+  ]);
+  const client = createClient(fetch);
+  const pages = [];
+  for await (const page of client.iteratePaidBankSlipsByDay({ day: "10/08/2026", maxPages: 3 })) {
+    pages.push(page);
+  }
+  assert.equal(pages.length, 2);
+  assert.equal(pages[0]?.items[0]?.valorLiquidado, "120.50");
+  assert.match(fetch.calls[1]?.url ?? "", /pagina=1/);
+  assert.match(fetch.calls[2]?.url ?? "", /pagina=2/);
+}
+
+async function testPaidDayPaginationLimit() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    paidPageResponse(true),
+  ]);
+  const client = createClient(fetch);
+  await assert.rejects(
+    async () => {
+      for await (const _page of client.iteratePaidBankSlipsByDay({ day: "10/08/2026", maxPages: 1 })) {
+        // consume generator
+      }
+    },
+    /pagination exceeded/,
+  );
+}
+
+async function testCancellation() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      transactionId: "tx-1",
+      dataMovimento: "2026-08-10",
+      codigoBeneficiario: "12345",
+      nossoNumero: "123456789",
+      cooperativa: "6789",
+      posto: "03",
+      statusComando: "MOVIMENTO_ENVIADO",
+      tipoMensagem: "BAIXA",
+    }, 202),
+  ]);
+  const client = createClient(fetch);
+  const result = await client.requestCancellation("123456789");
+  assert.equal(result.statusComando, "MOVIMENTO_ENVIADO");
+  assert.equal(fetch.calls[1]?.method, "PATCH");
+}
+
+async function testPdf() {
+  const bytes = Buffer.from("%PDF-1.4\n%%EOF\n");
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    new Response(bytes, { status: 201, headers: { "content-type": "application/pdf" } }),
+  ]);
+  const client = createClient(fetch);
+  const result = await client.getPdf("74891125110061420512803153351030188640000009990");
+  assert.equal(result.contentType, "application/pdf");
+  assert.equal(result.sizeBytes, bytes.byteLength);
+  assert.match(result.filename, /^boleto-/);
+}
+
+async function testPdfInvalidContentType() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    new Response("{}", { status: 201, headers: { "content-type": "application/json" } }),
+  ]);
+  const client = createClient(fetch);
+  await assert.rejects(() => client.getPdf("123"), /unsupported content type/);
+}
+
+async function testPdfTooLarge() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    new Response(Buffer.alloc(11), {
+      status: 201,
+      headers: { "content-type": "application/pdf", "content-length": "11" },
+    }),
+  ]);
+  const client = createClient(fetch, { maxPdfBytes: 10 });
+  await assert.rejects(() => client.getPdf("123"), /exceeds/);
+}
+
+function createClient(
+  fetch: ReturnType<typeof queueFetch>,
+  options: { maxPdfBytes?: number } = {},
+) {
+  return new SicrediClient(config, {
+    fetch,
+    sleep: async () => {},
+    maxAttempts: 2,
+    maxPdfBytes: options.maxPdfBytes,
+  });
+}
+
+function queueFetch(items: Array<Response | (() => Promise<Response>)>) {
+  const calls: Array<{ url: string; method?: string; body?: BodyInit | null }> = [];
+  const fetch = async (input: string | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      method: init?.method,
+      body: init?.body ?? null,
+    });
+    const item = items.shift();
+    if (!item) {
+      throw new Error("Unexpected fetch call");
+    }
+    return typeof item === "function" ? item() : item;
+  };
+  return Object.assign(fetch, { calls });
+}
+
+function tokenResponse(
+  accessToken: string,
+  refreshToken: string,
+  expiresIn: number,
+  refreshExpiresIn: number,
+) {
+  return jsonResponse({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_in: expiresIn,
+    refresh_expires_in: refreshExpiresIn,
+    token_type: "Bearer",
+  });
+}
+
+function asyncJson(body: Record<string, unknown>) {
+  return async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return jsonResponse(body);
+  };
+}
+
+function bankSlipResponse() {
+  return jsonResponse({
+    nossoNumero: "123456789",
+    seuNumero: "AT0000001",
+    situacao: "LIQUIDADO",
+    valorNominal: 120.5,
+    dataVencimento: "2026-08-10",
+    linhaDigitavel: "74891125110061420512803153351030188640000009990",
+    codigoBarras: "74891886400000099901125100614205120315335103",
+    dadosLiquidacao: {
+      data: "2026-08-10T12:00:00.000Z",
+      valor: 120.5,
+      multa: 0,
+      abatimento: 0,
+      juros: 0,
+      desconto: 0,
+    },
+  });
+}
+
+function paidPageResponse(hasNext: boolean) {
+  return jsonResponse({
+    items: [
+      {
+        nossoNumero: "123456789",
+        seuNumero: "AT0000001",
+        dataPagamento: "2026-08-10",
+        valor: 120.5,
+        valorLiquidado: 120.5,
+        jurosLiquido: 0,
+        descontoLiquido: 0,
+        multaLiquida: 0,
+        abatimentoLiquido: 0,
+        tipoLiquidacao: "COMPE",
+      },
+    ],
+    hasNext,
+  });
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
