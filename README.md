@@ -336,10 +336,9 @@ Regras principais:
 
 ## Faturas internas manuais
 
-A Sprint 10 implementa somente `Invoice`, a obrigacao financeira interna do
-Atretu. `BankSlip`/boleto bancario, Sicredi, PDF, nosso numero, pagamento,
-juros, multa, baixa bancaria, webhook, polling e geracao em lote ficam fora
-desta Sprint.
+A Sprint 10 implementa `Invoice`, a obrigacao financeira interna do Atretu.
+A Sprint 11 adiciona `BankSlip` como titulo bancario separado e vinculado 1:1
+a `Invoice`, mantendo a separacao entre regra interna e integracao Sicredi.
 
 Rotas:
 
@@ -360,7 +359,7 @@ Regras principais:
 - Mudancas futuras de status do academico nao alteram faturas antigas.
 - Valor e persistido em `amountCents`, inteiro positivo, sem float.
 - Vencimento e data civil e pode estar no passado.
-- Status persistidos: `OPEN` e `CANCELLED`.
+- Status persistidos: `OPEN`, `PAID` e `CANCELLED`.
 - Vencida e condicao derivada de `OPEN` com `dueDate` anterior ao dia atual.
 - Idempotencia usa `idempotencyKey` unica; mesma chave com mesmo payload retorna
   a fatura existente e payload diferente retorna conflito.
@@ -369,6 +368,97 @@ Regras principais:
   e nao representa cancelamento bancario futuro.
 - Historico funcional e auditoria registram IDs operacionais sem CPF, RG,
   endereco, documentos, dados bancarios ou payload sensivel.
+
+## Boletos Sicredi
+
+A integracao da Sprint 11 e exclusiva Sicredi. O `SicrediClient` cuida apenas
+de transporte HTTP, autenticacao, token/refresh, parsing seguro de JSON/PDF e
+erros sanitizados. O `BankSlipsService` concentra regra de negocio,
+persistencia, historico e auditoria. O frontend administrativo consome somente
+os endpoints internos do Atretu e nunca chama URLs Sicredi diretamente.
+
+Variaveis de ambiente:
+
+```text
+SICREDI_ENV=sandbox
+SICREDI_AUTH_URL=https://...
+SICREDI_BASE_URL=https://...
+SICREDI_API_KEY=...
+SICREDI_USERNAME=...
+SICREDI_PASSWORD=...
+SICREDI_COOPERATIVA=0000
+SICREDI_POSTO=00
+SICREDI_CODIGO_BENEFICIARIO=00000
+SICREDI_HTTP_TIMEOUT_MS=10000
+SICREDI_REQUIRE_PAYER_ADDRESS=false
+```
+
+Regras principais:
+
+- Emissao cria `BankSlip` `PENDING_ISSUE` em transacao local, chama Sicredi fora
+  da transacao e depois confirma `ISSUED` com `nossoNumero`, `linhaDigitavel`,
+  `codigoBarras`, `issuedAt` e `lastCheckedAt`.
+- `seuNumero` usa prefixo `A` + sequencia numerica de 9 digitos. A proxima
+  sequencia e calculada por `MAX(seuNumero) + 1` por provider/ambiente, dentro
+  de transacao protegida por `pg_advisory_xact_lock(7811003)`. A unique
+  `(provider, environment, seuNumero)` permanece como protecao final.
+- Nao ha retry cego de POST de emissao. Timeout, conexao interrompida ou
+  resposta 5xx/504 incerta marcam `BankSlip.UNKNOWN`, preservam erro
+  sanitizado e bloqueiam nova emissao automatica para a mesma `Invoice`.
+- Erro definitivo de emissao marca `ISSUE_FAILED`, com codigo/mensagem
+  sanitizados. Reemissao automatica continua bloqueada pelo vinculo 1:1.
+- Consulta individual usa Nosso Numero e atualiza `providerStatus`,
+  `lastCheckedAt` e campos retornados. Mudanca para liquidado marca
+  `BankSlip.PAID` e `Invoice.PAID` de forma idempotente.
+- Consulta de liquidados por dia e restrita a `SUPER_ADMIN`, pagina com limite
+  de seguranca, localiza por `nossoNumero` ou `seuNumero` e nao cria boletos
+  novos para registros desconhecidos.
+- Baixa exige motivo administrativo, grava `cancellationRequestedAt`,
+  `cancellationRequestedByUserId`, `cancellationReason` e `cancellationNote`
+  no proprio `BankSlip`, marca `PENDING_CANCELLATION` e so confirma
+  `CANCELLED` no sync posterior. A `Invoice` e cancelada apenas apos
+  confirmacao bancaria.
+- PDF e buscado sob demanda via endpoint protegido, nao e salvo em banco/disco
+  e responde com `Content-Type: application/pdf`, `Cache-Control: no-store,
+  private` e `X-Content-Type-Options: nosniff`.
+- Auditoria e historico nao registram CPF, linha digitavel completa, codigo de
+  barras completo, token, refresh token, `x-api-key`, senha ou payload bruto.
+- A especie `RECIBO` e provisoria para Sandbox e deve ser validada antes de
+  producao. CEP/UF podem ser obrigatorios quando
+  `SICREDI_REQUIRE_PAYER_ADDRESS=true`.
+- Webhook, polling, Pix, QR Code, boleto hibrido, juros, multa, desconto,
+  split, alteracao de vencimento e envio em lote ficam fora da Sprint 11.
+
+Smoke local com mock Sicredi, sem Sandbox real:
+
+```bash
+DATABASE_URL=... ADMIN_SETUP_TOKEN=... JWT_SECRET=... npm --prefix apps/api run smoke:bank-slips
+```
+
+O smoke sobe uma API local temporaria, usa PostgreSQL local e um mock HTTP
+Sicredi deterministico para validar emissao, consulta, pagamento, baixa, PDF,
+autorizacao, concorrencia, resultado incerto, historico e auditoria.
+
+Smoke Sandbox real deve ser executado somente manualmente, fora da validacao
+obrigatoria local, com credenciais de homologacao e confirmacao explicita:
+
+```bash
+SICREDI_ENV=sandbox \
+RUN_SICREDI_SANDBOX_SMOKE=true \
+SICREDI_AUTH_URL=... \
+SICREDI_BASE_URL=... \
+SICREDI_API_KEY=... \
+SICREDI_USERNAME=... \
+SICREDI_PASSWORD=... \
+SICREDI_COOPERATIVA=0000 \
+SICREDI_POSTO=00 \
+SICREDI_CODIGO_BENEFICIARIO=00000 \
+npm --prefix apps/api run smoke:bank-slips:sandbox
+```
+
+Se `RUN_SICREDI_SANDBOX_SMOKE=true` nao estiver presente, qualquer smoke real
+de homologacao deve abortar antes de chamar o Sicredi. Nao usar credenciais de
+producao neste fluxo.
 
 Regras principais:
 
@@ -434,14 +524,15 @@ ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:lifecycle
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:reenrollment
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:student-cards
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:invoices
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... JWT_SECRET=... npm --prefix apps/api run smoke:bank-slips
 ```
 
 ## Limites atuais
 - Nao ha PDF de alunos por onibus.
 - Nao ha rematricula em lote.
 - Nao ha PDF definitivo, impressao, QR Code ou validacao publica de carteirinha.
-- Nao ha BankSlip/boleto bancario, integracao Sicredi, nosso numero, baixa
-  bancaria, pagamento, multa, juros ou lote financeiro.
+- Nao ha webhook bancario, polling, Pix, QR Code, boleto hibrido, juros, multa,
+  desconto, split, alteracao de vencimento ou envio financeiro em lote.
 - Nao ha consulta publica de status do pre-cadastro.
 - Nao ha OCR, leitura automatica de documentos nem envio ao Sicredi.
 - Nao ha portal do academico.

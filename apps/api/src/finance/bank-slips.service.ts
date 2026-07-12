@@ -732,7 +732,9 @@ export class BankSlipsService {
   }
 
   private async nextSeuNumero(tx: Prisma.TransactionClient) {
-    await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_advisory_xact_lock(7811003) AS locked`;
+    await tx.$queryRaw<Array<{ locked: number }>>`
+      SELECT 1::int AS locked FROM pg_advisory_xact_lock(7811003)
+    `;
     const latest = await tx.bankSlip.findFirst({
       where: { provider: BankSlipProvider.SICREDI, environment: this.environment() },
       orderBy: { seuNumero: "desc" },

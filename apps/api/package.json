@@ -20,6 +20,8 @@
     "smoke:reenrollment": "node scripts/smoke-reenrollment.mjs",
     "smoke:student-cards": "node scripts/smoke-student-cards.mjs",
     "smoke:invoices": "node scripts/smoke-invoices.mjs",
+    "smoke:bank-slips": "node scripts/smoke-bank-slips.mjs",
+    "smoke:bank-slips:sandbox": "node scripts/smoke-bank-slips-sandbox.mjs",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate deploy"
