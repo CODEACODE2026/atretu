@@ -9,7 +9,7 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "npm run typecheck",
-    "test": "tsx src/auth/auth.service.spec.ts && tsx src/base-records/base-records.service.spec.ts && tsx src/students/cpf.spec.ts && tsx src/students/lifecycle.spec.ts && tsx src/student-cards/card-number.spec.ts && tsx src/finance/money.spec.ts && tsx src/finance/due-date.spec.ts && tsx src/bus-assignments/capacity.spec.ts && tsx src/documents/document-file.spec.ts && tsx src/pre-registrations/pre-registration-public.dto.spec.ts && tsx src/config/env.spec.ts",
+    "test": "tsx src/auth/auth.service.spec.ts && tsx src/base-records/base-records.service.spec.ts && tsx src/students/cpf.spec.ts && tsx src/students/lifecycle.spec.ts && tsx src/student-cards/card-number.spec.ts && tsx src/finance/money.spec.ts && tsx src/finance/due-date.spec.ts && tsx src/finance/bank-slip-status.spec.ts && tsx src/bus-assignments/capacity.spec.ts && tsx src/documents/document-file.spec.ts && tsx src/pre-registrations/pre-registration-public.dto.spec.ts && tsx src/config/env.spec.ts",
     "smoke:auth": "node scripts/smoke-auth.mjs",
     "smoke:base-records": "node scripts/smoke-base-records.mjs",
     "smoke:students": "node scripts/smoke-students.mjs",

@@ -34,3 +34,24 @@ export function formatInvoiceAmount(amountCents: number) {
     currency: "BRL",
   }).format(amountCents / 100);
 }
+
+export function formatCentsAsSicrediAmount(amountCents: number) {
+  assertValidInvoiceAmountCents(amountCents);
+  const reais = Math.trunc(amountCents / 100);
+  const cents = String(amountCents % 100).padStart(2, "0");
+  return `${reais}.${cents}`;
+}
+
+export function parseSicrediAmountToCents(input: string | number) {
+  const normalized =
+    typeof input === "number" ? input.toFixed(2) : input.trim().replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    throw new Error("Sicredi amount must be a positive decimal value");
+  }
+  const [reais = "0", cents = ""] = normalized.split(".");
+  const amountCents =
+    Number.parseInt(reais, 10) * 100 +
+    Number.parseInt(cents.padEnd(2, "0") || "0", 10);
+  assertValidInvoiceAmountCents(amountCents);
+  return amountCents;
+}
