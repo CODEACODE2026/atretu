@@ -34,9 +34,12 @@ const issueInput: SicrediIssueBankSlipInput = {
 };
 
 await testAccessTokenReuse();
+await testTokenExpirationAcceptsNumericStrings();
+await testTokenExpirationRejectsInvalidValues();
 await testRefreshToken();
 await testConcurrentAuthentication();
 await testSafe401Retry();
+await testAuthenticationHeadersKeepApiKeySeparateFromBearer();
 await testIssueBankSlip();
 await testIssueTimeoutIsUncertainAndNotRetried();
 await testIssueErrorsAreSanitized();
@@ -61,6 +64,37 @@ async function testAccessTokenReuse() {
   assert.equal(fetch.calls.length, 3);
 }
 
+async function testTokenExpirationAcceptsNumericStrings() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", "300", "900"),
+    bankSlipResponse(),
+  ]);
+  const client = createClient(fetch);
+  const result = await client.getBankSlip("123456789");
+  assert.equal(result.nossoNumero, "123456789");
+}
+
+async function testTokenExpirationRejectsInvalidValues() {
+  for (const value of ["abc", "0", "-1", Number.NaN, undefined]) {
+    const fetch = queueFetch([
+      jsonResponse({
+        access_token: "access-1",
+        refresh_token: "refresh-1",
+        expires_in: value,
+        refresh_expires_in: 900,
+      }),
+    ]);
+    const client = createClient(fetch);
+    await assert.rejects(
+      () => client.getBankSlip("123456789"),
+      (error) =>
+        error instanceof SicrediClientError &&
+        error.code === "INVALID_RESPONSE" &&
+        error.operation === "authenticate",
+    );
+  }
+}
+
 async function testRefreshToken() {
   const fetch = queueFetch([
     tokenResponse("access-1", "refresh-1", 1, 900),
@@ -74,6 +108,21 @@ async function testRefreshToken() {
   const refreshBody = String(fetch.calls[2]?.body);
   assert.match(refreshBody, /grant_type=refresh_token/);
   assert.doesNotMatch(refreshBody, /secret-password/);
+}
+
+async function testAuthenticationHeadersKeepApiKeySeparateFromBearer() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    bankSlipResponse(),
+  ]);
+  const client = createClient(fetch);
+  await client.getBankSlip("123456789");
+  const authHeaders = new Headers(fetch.calls[0]?.headers);
+  const apiHeaders = new Headers(fetch.calls[1]?.headers);
+  assert.equal(authHeaders.get("x-api-key"), config.apiKey);
+  assert.equal(authHeaders.get("context"), "COBRANCA");
+  assert.equal(apiHeaders.get("x-api-key"), config.apiKey);
+  assert.equal(apiHeaders.get("authorization"), "Bearer access-1");
 }
 
 async function testConcurrentAuthentication() {
@@ -269,12 +318,18 @@ function createClient(
 }
 
 function queueFetch(items: Array<Response | (() => Promise<Response>)>) {
-  const calls: Array<{ url: string; method?: string; body?: BodyInit | null }> = [];
+  const calls: Array<{
+    url: string;
+    method?: string;
+    body?: BodyInit | null;
+    headers?: HeadersInit;
+  }> = [];
   const fetch = async (input: string | URL, init?: RequestInit) => {
     calls.push({
       url: String(input),
       method: init?.method,
       body: init?.body ?? null,
+      headers: init?.headers,
     });
     const item = items.shift();
     if (!item) {
@@ -288,8 +343,8 @@ function queueFetch(items: Array<Response | (() => Promise<Response>)>) {
 function tokenResponse(
   accessToken: string,
   refreshToken: string,
-  expiresIn: number,
-  refreshExpiresIn: number,
+  expiresIn: number | string,
+  refreshExpiresIn: number | string,
 ) {
   return jsonResponse({
     access_token: accessToken,

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { ConflictException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
   BankSlipEnvironment,
@@ -138,6 +143,66 @@ async function testSyncPaidByDay() {
   assert.equal(prisma.invoiceRecord.status, InvoiceStatus.PAID);
 }
 
+async function testSyncUnknownStatusPreservesCurrentState() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextStatus = "EM CARTORIO";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncByInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(result.providerStatus, "EM CARTORIO");
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+}
+
+async function testSyncRejectedStatusPreservesCurrentState() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextStatus = "REJEITADO";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncByInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+}
+
+async function testSyncPaidDoesNotRegress() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({ status: BankSlipStatus.PAID });
+  (prisma.invoiceRecord as Record<string, unknown>).status = InvoiceStatus.PAID;
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextStatus = "EM CARTEIRA";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncByInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.PAID);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.PAID);
+}
+
+async function testSync404DoesNotAlterState() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.getError = new SicrediClientError({
+    operation: "getBankSlip",
+    message: "Nosso Numero nao encontrado",
+    statusCode: 404,
+    code: "NAO_ENCONTRADO",
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () => service.syncByInvoice("invoice-1", "user-1"),
+    (error) => error instanceof NotFoundException,
+  );
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+}
+
 async function testCancellationRequestStaysPending() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip();
@@ -174,6 +239,78 @@ async function testCancellationReasonRequired() {
     service.requestCancellation("invoice-1", "user-1", {} as never),
   );
   assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+}
+
+async function testCancellationTimeoutStaysPending() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.cancelError = new SicrediClientError({
+    operation: "requestCancellation",
+    message: "Gateway timeout",
+    statusCode: 504,
+    code: "504",
+    transient: true,
+    uncertain: true,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () =>
+      service.requestCancellation("invoice-1", "user-1", {
+        reason: InvoiceCancellationReason.OTHER,
+      }),
+    (error) => error instanceof ServiceUnavailableException,
+  );
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.PENDING_CANCELLATION);
+  assert.notEqual(prisma.bankSlips[0]?.status, BankSlipStatus.CANCELLATION_FAILED);
+}
+
+async function testCancellationAlreadyCancelledConfirmsBySync() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.cancelError = new SicrediClientError({
+    operation: "requestCancellation",
+    message: "Boleto ja baixado",
+    statusCode: 422,
+    code: "BOLETO_BAIXADO",
+  });
+  sicredi.nextStatus = "BAIXADO POR SOLICITACAO";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () =>
+      service.requestCancellation("invoice-1", "user-1", {
+        reason: InvoiceCancellationReason.OTHER,
+      }),
+    (error) => error instanceof ConflictException,
+  );
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.CANCELLED);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.CANCELLED);
+}
+
+async function testCancellationNotFoundPreservesPreviousStatus() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.cancelError = new SicrediClientError({
+    operation: "requestCancellation",
+    message: "Nosso Numero nao encontrado",
+    statusCode: 404,
+    code: "NAO_ENCONTRADO",
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () =>
+      service.requestCancellation("invoice-1", "user-1", {
+        reason: InvoiceCancellationReason.OTHER,
+      }),
+    (error) => error instanceof NotFoundException,
+  );
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
 }
 
 async function testCancellationConfirmedBySyncCancelsInvoice() {
@@ -233,9 +370,60 @@ async function testPdfUsesStoredLinhaDigitavel() {
   assert.equal(sicredi.pdfLinhaDigitavel, "74891125110061420512803153351030188640000009990");
 }
 
+async function testPdfErrorsAreMappedSafely() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Forbidden secret-api-key",
+    statusCode: 403,
+    code: "FORBIDDEN",
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(() => service.getPdf("invoice-1"), /Operacao nao autorizada/);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+}
+
+async function testPayerManualLimits() {
+  const prisma = new FakePrisma();
+  prisma.invoiceRecord.student.person.fullName = "A".repeat(41);
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof BadRequestException,
+  );
+
+  prisma.invoiceRecord.student.person.fullName = "Aluno Teste";
+  prisma.invoiceRecord.student.person.addressCity = "C".repeat(26);
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof BadRequestException,
+  );
+
+  prisma.invoiceRecord.student.person.addressCity = "Curitiba";
+  prisma.invoiceRecord.student.person.addressState = "PAR";
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof BadRequestException,
+  );
+
+  prisma.invoiceRecord.student.person.addressState = "PR";
+  prisma.invoiceRecord.student.person.addressZipCode = "123";
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof BadRequestException,
+  );
+}
+
 class FakeSicrediClient {
   issueCalls: Array<Record<string, unknown>> = [];
   issueError?: SicrediClientError;
+  getError?: SicrediClientError;
+  cancelError?: SicrediClientError;
+  pdfError?: SicrediClientError;
   pdfLinhaDigitavel?: string;
   nextStatus = "LIQUIDADO";
 
@@ -254,6 +442,9 @@ class FakeSicrediClient {
   }
 
   async getBankSlip() {
+    if (this.getError) {
+      throw this.getError;
+    }
     return {
       nossoNumero: "251006142",
       seuNumero: "A000000001",
@@ -283,6 +474,9 @@ class FakeSicrediClient {
   }
 
   async requestCancellation() {
+    if (this.cancelError) {
+      throw this.cancelError;
+    }
     return {
       transactionId: "tx-1",
       dataMovimento: "2099-08-11",
@@ -295,6 +489,9 @@ class FakeSicrediClient {
   }
 
   async getPdf(linhaDigitavel: string) {
+    if (this.pdfError) {
+      throw this.pdfError;
+    }
     this.pdfLinhaDigitavel = linhaDigitavel;
     return {
       bytes: Buffer.from("%PDF-1.4"),
@@ -429,7 +626,7 @@ class FakePrisma {
     return [{ id: "locked" }];
   }
 
-  seedIssuedBankSlip() {
+  seedIssuedBankSlip(overrides: Record<string, unknown> = {}) {
     this.bankSlips.push({
       id: "bank-slip-1",
       invoiceId: "invoice-1",
@@ -456,6 +653,7 @@ class FakePrisma {
       providerErrorMessage: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      ...overrides,
     });
     (this.invoiceRecord as Record<string, unknown>).bankSlip = this.bankSlips[0];
   }
@@ -517,7 +715,16 @@ await testIssueUncertainMarksUnknown();
 await testConcurrentSeuNumeroGeneration();
 await testSyncPaidMarksInvoicePaid();
 await testSyncPaidByDay();
+await testSyncUnknownStatusPreservesCurrentState();
+await testSyncRejectedStatusPreservesCurrentState();
+await testSyncPaidDoesNotRegress();
+await testSync404DoesNotAlterState();
 await testCancellationRequestStaysPending();
 await testCancellationReasonRequired();
+await testCancellationTimeoutStaysPending();
+await testCancellationAlreadyCancelledConfirmsBySync();
+await testCancellationNotFoundPreservesPreviousStatus();
 await testCancellationConfirmedBySyncCancelsInvoice();
 await testPdfUsesStoredLinhaDigitavel();
+await testPdfErrorsAreMappedSafely();
+await testPayerManualLimits();

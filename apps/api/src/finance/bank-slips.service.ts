@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
@@ -29,6 +30,11 @@ import {
 } from "./sicredi-client.js";
 import type { SicrediConfig } from "./sicredi-config.js";
 import { mapSicrediStatusToBankSlipStatus } from "./bank-slip-status.js";
+import {
+  toSicrediHttpException,
+  translateSicrediClientError,
+  type SicrediBusinessError,
+} from "./sicredi-business-errors.js";
 import type { RequestBankSlipCancellationDto } from "./dto/bank-slips.dto.js";
 
 export const SICREDI_CLIENT = Symbol("SICREDI_CLIENT");
@@ -117,6 +123,7 @@ export class BankSlipsService {
       if (!(error instanceof SicrediClientError)) {
         throw error;
       }
+      const translated = translateSicrediClientError(error, "issue");
       const status = error.uncertain
         ? BankSlipStatus.UNKNOWN
         : BankSlipStatus.ISSUE_FAILED;
@@ -158,8 +165,8 @@ export class BankSlipsService {
         });
       }
       throw new BadRequestException({
-        code: "SICREDI_REQUEST_REJECTED",
-        message: "Sicredi rejeitou a emissao do boleto",
+        code: translated.code,
+        message: translated.message,
         bankSlip: this.toBankSlipSummary(failed),
       });
     }
@@ -178,8 +185,15 @@ export class BankSlipsService {
         message: "Boleto ainda nao possui Nosso Numero para consulta",
       });
     }
-    const details = await this.sicredi.getBankSlip(bankSlip.nossoNumero);
-    return this.applyProviderDetails(bankSlip.id, details, userId);
+    try {
+      const details = await this.sicredi.getBankSlip(bankSlip.nossoNumero);
+      return this.applyProviderDetails(bankSlip.id, details, userId);
+    } catch (error) {
+      if (error instanceof SicrediClientError) {
+        throw toSicrediHttpException(translateSicrediClientError(error, "sync"));
+      }
+      throw error;
+    }
   }
 
   async syncPaidByDay(day: string, userId: string) {
@@ -194,34 +208,41 @@ export class BankSlipsService {
       notFound: 0,
       errors: [] as Array<{ seuNumero: string; nossoNumero: string; code: string }>,
     };
-    for await (const page of this.sicredi.iteratePaidBankSlipsByDay({
-      day: sicrediDay,
-      maxPages: 20,
-    })) {
-      summary.pagesProcessed += 1;
-      summary.recordsReceived += page.items.length;
-      for (const item of page.items) {
-        const bankSlip = await this.findBankSlipForPaidItem(item);
-        if (!bankSlip) {
-          summary.notFound += 1;
-          continue;
-        }
-        summary.bankSlipsFound += 1;
-        try {
-          const result = await this.applyPaidItem(bankSlip.id, item, userId);
-          if (result.changed) {
-            summary.paymentsConfirmed += 1;
-          } else {
-            summary.alreadySynced += 1;
+    try {
+      for await (const page of this.sicredi.iteratePaidBankSlipsByDay({
+        day: sicrediDay,
+        maxPages: 20,
+      })) {
+        summary.pagesProcessed += 1;
+        summary.recordsReceived += page.items.length;
+        for (const item of page.items) {
+          const bankSlip = await this.findBankSlipForPaidItem(item);
+          if (!bankSlip) {
+            summary.notFound += 1;
+            continue;
           }
-        } catch {
-          summary.errors.push({
-            seuNumero: item.seuNumero,
-            nossoNumero: this.maskNossoNumero(item.nossoNumero),
-            code: "PAYMENT_SYNC_CONFLICT",
-          });
+          summary.bankSlipsFound += 1;
+          try {
+            const result = await this.applyPaidItem(bankSlip.id, item, userId);
+            if (result.changed) {
+              summary.paymentsConfirmed += 1;
+            } else {
+              summary.alreadySynced += 1;
+            }
+          } catch {
+            summary.errors.push({
+              seuNumero: item.seuNumero,
+              nossoNumero: this.maskNossoNumero(item.nossoNumero),
+              code: "PAYMENT_SYNC_CONFLICT",
+            });
+          }
         }
       }
+    } catch (error) {
+      if (error instanceof SicrediClientError) {
+        throw toSicrediHttpException(translateSicrediClientError(error, "syncPaidByDay"));
+      }
+      throw error;
     }
     await this.prisma.administrativeAuditLog.create({
       data: {
@@ -293,16 +314,26 @@ export class BankSlipsService {
       if (!(error instanceof SicrediClientError)) {
         throw error;
       }
+      const translated = translateSicrediClientError(error, "cancellation");
+      if (
+        translated.cancellationOutcome === "ALREADY_PAID" ||
+        translated.cancellationOutcome === "ALREADY_CANCELLED"
+      ) {
+        return this.confirmCancellationConflictBySync(prepared, translated, userId);
+      }
       const failed = await this.prisma.$transaction(async (tx) => {
-        const status = error.uncertain
-          ? BankSlipStatus.PENDING_CANCELLATION
-          : BankSlipStatus.CANCELLATION_FAILED;
+        const status =
+          translated.cancellationOutcome === "NOT_FOUND"
+            ? prepared.previousStatus
+            : translated.cancellationOutcome === "PROCESSING" || translated.uncertain
+              ? BankSlipStatus.PENDING_CANCELLATION
+              : BankSlipStatus.CANCELLATION_FAILED;
         const bankSlip = await tx.bankSlip.update({
           where: { id: prepared.bankSlipId },
           data: {
             status,
-            providerErrorCode: this.truncate(error.code, 80),
-            providerErrorMessage: this.truncate(error.message, 500),
+            providerErrorCode: this.truncate(translated.providerCode, 80),
+            providerErrorMessage: translated.message,
             lastCheckedAt: new Date(),
           },
           include: this.bankSlipInclude(),
@@ -318,21 +349,27 @@ export class BankSlipsService {
             nossoNumero: this.maskNossoNumero(bankSlip.nossoNumero),
             statusAnterior: prepared.previousStatus,
             statusNovo: bankSlip.status,
-            code: error.code ?? "",
-            uncertain: error.uncertain,
+            code: translated.providerCode ?? "",
+            uncertain: translated.uncertain,
           },
         });
         return bankSlip;
       });
-      throw new BadRequestException({
-        code: error.uncertain
-          ? "SICREDI_TEMPORARILY_UNAVAILABLE"
-          : "SICREDI_REQUEST_REJECTED",
-        message: error.uncertain
-          ? "Pedido de baixa ficou pendente de confirmacao; consulte o Sicredi antes de nova acao"
-          : "Sicredi rejeitou o pedido de baixa do boleto",
+      const body = {
+        code: translated.code,
+        message: translated.message,
         bankSlip: this.toBankSlipSummary(failed),
-      });
+      };
+      if (translated.code === "SICREDI_NOT_FOUND") {
+        throw new NotFoundException(body);
+      }
+      if (translated.code === "SICREDI_TEMPORARILY_UNAVAILABLE") {
+        throw new ServiceUnavailableException(body);
+      }
+      if (translated.code === "SICREDI_CONFLICT") {
+        throw new ConflictException(body);
+      }
+      throw new BadRequestException(body);
     }
   }
 
@@ -348,7 +385,21 @@ export class BankSlipsService {
     ) {
       throw new BadRequestException("PDF disponivel somente para boleto emitido");
     }
-    return this.sicredi.getPdf(bankSlip.linhaDigitavel);
+    try {
+      const pdf = await this.sicredi.getPdf(bankSlip.linhaDigitavel);
+      if (pdf.sizeBytes <= 0) {
+        throw new BadRequestException({
+          code: "SICREDI_INVALID_RESPONSE",
+          message: "PDF do boleto esta vazio",
+        });
+      }
+      return pdf;
+    } catch (error) {
+      if (error instanceof SicrediClientError) {
+        throw toSicrediHttpException(translateSicrediClientError(error, "pdf"));
+      }
+      throw error;
+    }
   }
 
   private async prepareIssue(invoiceId: string, userId: string): Promise<IssuePreparation> {
@@ -477,6 +528,7 @@ export class BankSlipsService {
         });
       }
 
+      const previousStatus = bankSlip.status;
       const updated = await tx.bankSlip.update({
         where: { id: bankSlip.id },
         data: {
@@ -511,7 +563,7 @@ export class BankSlipsService {
           bankSlipId: bankSlip.id,
           seuNumero: bankSlip.seuNumero,
           nossoNumero: this.maskNossoNumero(bankSlip.nossoNumero),
-          statusAnterior: bankSlip.status,
+          statusAnterior: previousStatus,
           statusNovo: updated.status,
           reason: body.reason,
         },
@@ -521,7 +573,7 @@ export class BankSlipsService {
         invoiceId: invoice.id,
         studentId: invoice.studentId,
         nossoNumero: bankSlip.nossoNumero,
-        previousStatus: bankSlip.status,
+        previousStatus,
         reason: body.reason,
       };
     });
@@ -672,10 +724,16 @@ export class BankSlipsService {
   }
 
   private resolveSyncedStatus(current: BankSlipStatus, mapped: BankSlipStatus) {
+    if (mapped === BankSlipStatus.UNKNOWN) {
+      return current;
+    }
     if (
       (current === BankSlipStatus.PAID || current === BankSlipStatus.CANCELLED) &&
       mapped !== current
     ) {
+      return current;
+    }
+    if (current === BankSlipStatus.PENDING_CANCELLATION && mapped === BankSlipStatus.ISSUED) {
       return current;
     }
     return mapped;
@@ -693,12 +751,14 @@ export class BankSlipsService {
   }
 
   private buildPayer(person: InvoiceWithRelations["student"]["person"]): SicrediIssueBankSlipInput["pagador"] {
-    if (!person.fullName.trim()) {
+    const name = person.fullName.trim();
+    if (!name) {
       throw new BadRequestException({
         code: "PAYER_DATA_INCOMPLETE",
         message: "Pagador sem nome valido",
       });
     }
+    this.assertMaxLength(name, 40, "PAYER_DATA_INCOMPLETE", "Nome do pagador excede o limite aceito pelo Sicredi");
     if (!isValidCpf(person.cpf)) {
       throw new BadRequestException({
         code: "PAYER_DATA_INCOMPLETE",
@@ -709,8 +769,8 @@ export class BankSlipsService {
       const missingAddress =
         !person.addressStreet.trim() ||
         !person.addressCity.trim() ||
-        !person.addressZipCode?.trim() ||
-        !person.addressState?.trim();
+        !this.hasEightDigitCep(person.addressZipCode) ||
+        !this.hasTwoLetterUf(person.addressState);
       if (missingAddress) {
         throw new BadRequestException({
           code: "PAYER_ADDRESS_REQUIRED",
@@ -718,13 +778,14 @@ export class BankSlipsService {
         });
       }
     }
+    this.validatePayerOptionalFields(person);
     return {
       tipoPessoa: "PESSOA_FISICA",
       documento: person.cpf,
-      nome: person.fullName.trim(),
+      nome: name,
       endereco: this.optional(person.addressStreet),
       cidade: this.optional(person.addressCity),
-      uf: this.optional(person.addressState),
+      uf: this.optional(person.addressState)?.toUpperCase(),
       cep: this.onlyDigits(person.addressZipCode),
       telefone: this.optional(person.phone),
       email: this.optional(person.email),
@@ -930,6 +991,77 @@ export class BankSlipsService {
 
   private truncate(value: string | undefined, maxLength: number) {
     return value ? value.slice(0, maxLength) : undefined;
+  }
+
+  private async confirmCancellationConflictBySync(
+    prepared: CancellationPreparation,
+    translated: SicrediBusinessError,
+    userId: string,
+  ): Promise<never> {
+    try {
+      const details = await this.sicredi.getBankSlip(prepared.nossoNumero);
+      const bankSlip = await this.applyProviderDetails(prepared.bankSlipId, details, userId);
+      throw new ConflictException({
+        code: translated.code,
+        message:
+          translated.cancellationOutcome === "ALREADY_PAID"
+            ? "Boleto ja liquidado no Sicredi; baixa bancaria nao foi aplicada"
+            : "Boleto ja baixado no Sicredi; estado local foi sincronizado quando confirmado",
+        bankSlip,
+      });
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        throw error;
+      }
+      if (error instanceof SicrediClientError) {
+        throw toSicrediHttpException(translateSicrediClientError(error, "sync"));
+      }
+      throw error;
+    }
+  }
+
+  private validatePayerOptionalFields(person: InvoiceWithRelations["student"]["person"]) {
+    this.assertMaxLength(person.addressStreet, 80, "PAYER_ADDRESS_REQUIRED", "Endereco do pagador excede o limite aceito pelo Sicredi");
+    this.assertMaxLength(person.addressCity, 25, "PAYER_ADDRESS_REQUIRED", "Cidade do pagador excede o limite aceito pelo Sicredi");
+    if (person.addressState && !this.hasTwoLetterUf(person.addressState)) {
+      throw new BadRequestException({
+        code: "PAYER_ADDRESS_REQUIRED",
+        message: "UF do pagador deve ter 2 letras",
+      });
+    }
+    if (person.addressZipCode && !this.hasEightDigitCep(person.addressZipCode)) {
+      throw new BadRequestException({
+        code: "PAYER_ADDRESS_REQUIRED",
+        message: "CEP do pagador deve ter 8 digitos",
+      });
+    }
+    const phone = this.onlyDigits(person.phone);
+    if (phone && phone.length > 11) {
+      throw new BadRequestException({
+        code: "PAYER_DATA_INCOMPLETE",
+        message: "Telefone do pagador excede o limite aceito pelo Sicredi",
+      });
+    }
+    this.assertMaxLength(person.email, 40, "PAYER_DATA_INCOMPLETE", "E-mail do pagador excede o limite aceito pelo Sicredi");
+  }
+
+  private assertMaxLength(
+    value: string | null | undefined,
+    maxLength: number,
+    code: string,
+    message: string,
+  ) {
+    if (value && value.trim().length > maxLength) {
+      throw new BadRequestException({ code, message });
+    }
+  }
+
+  private hasTwoLetterUf(value: string | null | undefined) {
+    return /^[A-Za-z]{2}$/.test(value?.trim() ?? "");
+  }
+
+  private hasEightDigitCep(value: string | null | undefined) {
+    return /^\d{8}$/.test(value?.replace(/\D/g, "") ?? "");
   }
 }
 

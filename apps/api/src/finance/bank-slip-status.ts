@@ -20,9 +20,6 @@ export function mapSicrediStatusToBankSlipStatus(providerStatus: string) {
   if (normalized === "EM CARTEIRA" || normalized === "VENCIDO") {
     return BankSlipStatus.ISSUED;
   }
-  if (normalized === "REJEITADO") {
-    return BankSlipStatus.ISSUE_FAILED;
-  }
   return BankSlipStatus.UNKNOWN;
 }
 

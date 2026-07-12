@@ -423,9 +423,28 @@ Regras principais:
   private` e `X-Content-Type-Options: nosniff`.
 - Auditoria e historico nao registram CPF, linha digitavel completa, codigo de
   barras completo, token, refresh token, `x-api-key`, senha ou payload bruto.
+- `x-api-key` e a chave do Portal do Desenvolvedor e e diferente do
+  `access_token`; chamadas autenticadas usam os dois: `x-api-key` e
+  `Authorization: Bearer <access_token>`. A autenticacao usa `context=COBRANCA`
+  e `scope=cobranca`; o refresh usa apenas `refresh_token`, sem reenviar
+  usuario/senha.
+- `SICREDI_USERNAME` deve ser configurado conforme o manual 3.3 como codigo do
+  beneficiario + codigo da cooperativa. O sistema nao concatena esse valor em
+  runtime; ele deve vir pronto e validado na configuracao operacional.
+- A expiracao de token aceita `expires_in` e `refresh_expires_in` como numero ou
+  string numerica positiva. Valor ausente, zero, negativo ou nao numerico e
+  rejeitado como resposta invalida.
 - A especie `RECIBO` e provisoria para Sandbox e deve ser validada antes de
-  producao. CEP/UF podem ser obrigatorios quando
-  `SICREDI_REQUIRE_PAYER_ADDRESS=true`.
+  producao. CEP/UF/endereco/cidade podem ser obrigatorios conforme o cadastro do
+  beneficiario; quando `SICREDI_REQUIRE_PAYER_ADDRESS=true`, o sistema exige
+  endereco, cidade, UF com 2 letras e CEP com 8 digitos, sem inventar dados.
+- Nome, endereco, cidade, telefone e e-mail do pagador seguem limites
+  conservadores antes do envio para reduzir rejeicoes no Sicredi.
+- Vencimento retroativo nao e aceito para emissao de boleto, embora faturas
+  retroativas possam existir internamente sem boleto.
+- Baixa com retorno `202` ou `MOVIMENTO_ENVIADO` nao significa baixa concluida:
+  o boleto permanece `PENDING_CANCELLATION` ate confirmacao em consulta
+  posterior. Timeout/5xx na baixa tambem exige sincronizacao posterior.
 - Webhook, polling, Pix, QR Code, boleto hibrido, juros, multa, desconto,
   split, alteracao de vencimento e envio em lote ficam fora da Sprint 11.
 

@@ -463,15 +463,31 @@ export class SicrediClient {
     operation: "authenticate" | "refreshToken",
     body: Record<string, string>,
   ): Promise<SicrediToken> {
-    const response = await this.fetchForm(operation, body);
-    const json = (await response.json()) as Record<string, unknown>;
-    const now = Date.now();
-    return {
-      accessToken: readString(json, "access_token"),
-      refreshToken: readString(json, "refresh_token"),
-      expiresAt: now + readNumber(json, "expires_in") * 1000,
-      refreshExpiresAt: now + readNumber(json, "refresh_expires_in") * 1000,
-    };
+    try {
+      const response = await this.fetchForm(operation, body);
+      const json = (await response.json()) as Record<string, unknown>;
+      const now = Date.now();
+      return {
+        accessToken: readString(json, "access_token"),
+        refreshToken: readString(json, "refresh_token"),
+        expiresAt: now + readPositiveNumber(json, "expires_in") * 1000,
+        refreshExpiresAt: now + readPositiveNumber(json, "refresh_expires_in") * 1000,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Missing Sicredi")) {
+        throw new SicrediClientError({
+          operation,
+          message: "Invalid Sicredi authentication response",
+          code: "INVALID_RESPONSE",
+        });
+      }
+      throw this.toClientError(error, {
+        operation,
+        method: "POST",
+        path: this.config.authUrl,
+        safeToRetry: false,
+      });
+    }
   }
 
   private async fetchForm(
@@ -668,12 +684,18 @@ function readOptionalString(record: Record<string, unknown>, key: string): strin
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function readNumber(record: Record<string, unknown>, key: string): number {
+function readPositiveNumber(record: Record<string, unknown>, key: string): number {
   const value = record[key];
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim().length > 0
+        ? Number(value.trim())
+        : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`Missing Sicredi numeric field: ${key}`);
   }
-  return value;
+  return parsed;
 }
 
 function readBoolean(record: Record<string, unknown>, key: string): boolean {

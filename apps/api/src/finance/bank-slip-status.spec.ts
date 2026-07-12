@@ -28,7 +28,7 @@ assert.equal(
 );
 assert.equal(
   mapSicrediStatusToBankSlipStatus("REJEITADO"),
-  BankSlipStatus.ISSUE_FAILED,
+  BankSlipStatus.UNKNOWN,
 );
 assert.equal(
   mapSicrediStatusToBankSlipStatus("EM CARTORIO"),

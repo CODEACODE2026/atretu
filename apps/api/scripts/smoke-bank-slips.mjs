@@ -565,12 +565,12 @@ async function createBaseFixture(cookie) {
 async function createStudentAndInvoice(cookie, base, input) {
   const student = await createRecord(cookie, "/students", {
     person: {
-      fullName: `Academico Boleto ${runId} ${input.suffix}`,
+      fullName: `Acad ${runId.slice(0, 8)} ${input.suffix}`.slice(0, 40),
       cpf: generateCpf(cpfSeedBase + Math.floor(Math.random() * 900000)),
       rg: `RG-${input.suffix}`.slice(0, 30),
       birthDate: "2001-05-12",
       phone: "49999999999",
-      email: `boleto-${input.suffix}-${runId}@example.com`,
+      email: `b${runId.slice(0, 8)}${input.suffix.slice(0, 8)}@ex.com`,
       addressStreet: "Rua Smoke",
       addressNumber: "123",
       addressNeighborhood: "Centro",
