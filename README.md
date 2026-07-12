@@ -479,6 +479,67 @@ Se `RUN_SICREDI_SANDBOX_SMOKE=true` nao estiver presente, qualquer smoke real
 de homologacao deve abortar antes de chamar o Sicredi. Nao usar credenciais de
 producao neste fluxo.
 
+Fechamento da auditoria Sprint 12:
+
+- A auditoria tecnica da integracao Sicredi foi realizada antes de qualquer
+  chamada real ao Sandbox.
+- Conformidades confirmadas: `x-api-key` separado do token Bearer, refresh sem
+  usuario/senha, ausencia de credenciais hardcoded, `UNKNOWN` bloqueando
+  reemissao e protecao contra duplicidade por `Invoice` 1:1 e `seuNumero`
+  unico por provider/ambiente.
+- Correcoes aplicadas: parser de token aceita numero ou string numerica
+  positiva, erros Sicredi passam por traducao central sanitizada, HTTP
+  400/401/403/404/409/422/429/5xx possuem tratamento funcional, baixa ja
+  liquidada/baixada/em processamento e tratada de forma conservadora, status
+  confirmados nao regridem, `REJEITADO` em consulta nao vira `ISSUE_FAILED`
+  automaticamente e limites do pagador seguem o manual 3.3.
+- Validacao local concluida com testes automatizados, build, audit de nivel alto
+  e `smoke:bank-slips` usando mock Sicredi local.
+- Nenhuma chamada Sandbox real foi executada e nenhuma credencial real foi
+  usada durante a Sprint 12.
+
+Checklist local para o Product Owner executar futuramente:
+
+- Autenticar como `SUPER_ADMIN` e `SECRETARIA`.
+- Criar/validar academico, matricula e `Invoice OPEN`.
+- Emitir boleto com mock local e confirmar `BankSlip.ISSUED`, Nosso Numero,
+  Seu Numero, linha digitavel e codigo de barras.
+- Consultar situacao e validar `lastCheckedAt`.
+- Simular pagamento e confirmar `BankSlip.PAID`, `Invoice.PAID`, historico e
+  auditoria sem dados sensiveis.
+- Solicitar baixa com motivo, confirmar `PENDING_CANCELLATION` e depois baixa
+  confirmada por sync.
+- Obter PDF pelo endpoint protegido e validar headers.
+- Confirmar permissoes: anonimo bloqueado, `SECRETARIA` sem sync diario,
+  `SUPER_ADMIN` com sync diario.
+- Validar `UNKNOWN`, vencimento passado, duplicidade de emissao, auditoria e
+  historico.
+
+Checklist de homologacao Sandbox:
+
+- Configurar `SICREDI_ENV=sandbox`, `SICREDI_AUTH_URL`, `SICREDI_BASE_URL`,
+  `SICREDI_API_KEY`, `SICREDI_USERNAME`, `SICREDI_PASSWORD`,
+  `SICREDI_COOPERATIVA`, `SICREDI_POSTO` e `SICREDI_CODIGO_BENEFICIARIO`.
+- Confirmar que Cobrança Online/API esta contratada e liberada para o
+  beneficiario/convenio.
+- Confirmar boleto `NORMAL` habilitado, especie `RECIBO` aceita e regras reais
+  de endereco/CEP/UF do beneficiario.
+- Executar somente com `RUN_SICREDI_SANDBOX_SMOKE=true` em ambiente protegido
+  contra producao acidental.
+- Conferir status reais retornados pelo Sicredi, consulta, liquidados por dia,
+  baixa e PDF real.
+
+Bloqueios para producao:
+
+- Sandbox real ainda nao foi executado.
+- Credenciais, convenio e beneficiario ainda nao foram homologados.
+- `RECIBO` permanece decisao provisoria ate validacao operacional.
+- Exigencia real de endereco/CEP/UF ainda precisa confirmacao.
+- Status reais, baixa, consulta, liquidados por dia e PDF ainda precisam ser
+  confrontados com respostas Sandbox.
+- Politica operacional de conciliacao, webhook, revisao de seguranca e deploy
+  produtivo seguem pendentes.
+
 Regras principais:
 
 - CPF do interessado e obrigatorio, valido, normalizado e revalidado na
