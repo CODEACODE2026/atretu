@@ -3,13 +3,34 @@ import { AdministrativeAuditModule } from "../administrative-audit/administrativ
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { UsersModule } from "../users/users.module.js";
+import { BankSlipsController } from "./bank-slips.controller.js";
+import {
+  BankSlipsService,
+  SICREDI_CLIENT,
+  SICREDI_CONFIG,
+} from "./bank-slips.service.js";
 import { InvoicesController } from "./invoices.controller.js";
 import { InvoicesService } from "./invoices.service.js";
+import { SicrediClient } from "./sicredi-client.js";
+import { loadSicrediConfig } from "./sicredi-config.js";
 
 @Module({
   imports: [AdministrativeAuditModule, AuthModule, DatabaseModule, UsersModule],
-  controllers: [InvoicesController],
-  providers: [InvoicesService],
-  exports: [InvoicesService],
+  controllers: [InvoicesController, BankSlipsController],
+  providers: [
+    InvoicesService,
+    BankSlipsService,
+    {
+      provide: SICREDI_CONFIG,
+      useFactory: () => loadSicrediConfig(),
+    },
+    {
+      provide: SICREDI_CLIENT,
+      useFactory: (config: ReturnType<typeof loadSicrediConfig>) =>
+        new SicrediClient(config),
+      inject: [SICREDI_CONFIG],
+    },
+  ],
+  exports: [InvoicesService, BankSlipsService],
 })
 export class FinanceModule {}

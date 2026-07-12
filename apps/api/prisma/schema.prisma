@@ -236,6 +236,7 @@ model User {
   studentCardsInvalidated  StudentCard[]            @relation("StudentCardInvalidatedBy")
   invoicesCreated          Invoice[]                @relation("InvoiceCreatedBy")
   invoicesCancelled        Invoice[]                @relation("InvoiceCancelledBy")
+  bankSlipCancellations    BankSlip[]               @relation("BankSlipCancellationRequestedBy")
 
   @@map("users")
 }
@@ -587,34 +588,40 @@ model Invoice {
 }
 
 model BankSlip {
-  id                   String                @id @default(uuid()) @db.Uuid
-  invoiceId            String                @unique @map("invoice_id") @db.Uuid
-  provider             BankSlipProvider      @default(SICREDI)
-  environment          BankSlipEnvironment
-  status               BankSlipStatus        @default(PENDING_ISSUE)
-  documentSpecies      String                @default("RECIBO") @map("document_species") @db.VarChar(40)
-  nossoNumero          String?               @map("nosso_numero") @db.VarChar(9)
-  seuNumero            String                @map("seu_numero") @db.VarChar(10)
-  linhaDigitavel       String?               @map("linha_digitavel") @db.VarChar(47)
-  codigoBarras         String?               @map("codigo_barras") @db.VarChar(44)
-  originalAmountCents  Int                   @map("original_amount_cents")
-  paidAmountCents      Int?                  @map("paid_amount_cents")
-  issuedAt             DateTime?             @map("issued_at") @db.Timestamptz(6)
-  paidAt               DateTime?             @map("paid_at") @db.Timestamptz(6)
-  cancelledAt          DateTime?             @map("cancelled_at") @db.Timestamptz(6)
-  lastCheckedAt        DateTime?             @map("last_checked_at") @db.Timestamptz(6)
-  providerStatus       String?               @map("provider_status") @db.VarChar(80)
-  providerErrorCode    String?               @map("provider_error_code") @db.VarChar(80)
-  providerErrorMessage String?               @map("provider_error_message") @db.VarChar(500)
-  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  invoice              Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  studentHistoryEvents StudentHistoryEvent[]
+  id                            String                     @id @default(uuid()) @db.Uuid
+  invoiceId                     String                     @unique @map("invoice_id") @db.Uuid
+  provider                      BankSlipProvider           @default(SICREDI)
+  environment                   BankSlipEnvironment
+  status                        BankSlipStatus             @default(PENDING_ISSUE)
+  documentSpecies               String                     @default("RECIBO") @map("document_species") @db.VarChar(40)
+  nossoNumero                   String?                    @map("nosso_numero") @db.VarChar(9)
+  seuNumero                     String                     @map("seu_numero") @db.VarChar(10)
+  linhaDigitavel                String?                    @map("linha_digitavel") @db.VarChar(47)
+  codigoBarras                  String?                    @map("codigo_barras") @db.VarChar(44)
+  originalAmountCents           Int                        @map("original_amount_cents")
+  paidAmountCents               Int?                       @map("paid_amount_cents")
+  issuedAt                      DateTime?                  @map("issued_at") @db.Timestamptz(6)
+  paidAt                        DateTime?                  @map("paid_at") @db.Timestamptz(6)
+  cancellationRequestedAt       DateTime?                  @map("cancellation_requested_at") @db.Timestamptz(6)
+  cancellationRequestedByUserId String?                    @map("cancellation_requested_by_user_id") @db.Uuid
+  cancellationReason            InvoiceCancellationReason? @map("cancellation_reason")
+  cancellationNote              String?                    @map("cancellation_note") @db.VarChar(500)
+  cancelledAt                   DateTime?                  @map("cancelled_at") @db.Timestamptz(6)
+  lastCheckedAt                 DateTime?                  @map("last_checked_at") @db.Timestamptz(6)
+  providerStatus                String?                    @map("provider_status") @db.VarChar(80)
+  providerErrorCode             String?                    @map("provider_error_code") @db.VarChar(80)
+  providerErrorMessage          String?                    @map("provider_error_message") @db.VarChar(500)
+  createdAt                     DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  invoice                       Invoice                    @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  cancellationRequestedBy       User?                      @relation("BankSlipCancellationRequestedBy", fields: [cancellationRequestedByUserId], references: [id], onDelete: Restrict)
+  studentHistoryEvents          StudentHistoryEvent[]
 
   @@unique([provider, environment, seuNumero])
   @@unique([provider, environment, nossoNumero])
   @@index([status, updatedAt])
   @@index([lastCheckedAt])
+  @@index([cancellationRequestedByUserId, cancellationRequestedAt])
   @@index([paidAt])
   @@index([cancelledAt])
   @@map("bank_slips")
