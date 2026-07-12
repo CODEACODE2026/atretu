@@ -460,8 +460,55 @@ export type ListStudentCardsParams = {
   order?: "asc" | "desc";
 };
 
-export type InvoiceStatus = "OPEN" | "CANCELLED";
+export type InvoiceStatus = "OPEN" | "PAID" | "CANCELLED";
 export type InvoiceCancellationReason = "MANUAL_CORRECTION" | "DUPLICATE" | "OTHER";
+export type BankSlipStatus =
+  | "PENDING_ISSUE"
+  | "ISSUED"
+  | "PAID"
+  | "PENDING_CANCELLATION"
+  | "CANCELLED"
+  | "ISSUE_FAILED"
+  | "CANCELLATION_FAILED"
+  | "UNKNOWN";
+
+export type BankSlipRecord = {
+  id: string;
+  invoiceId: string;
+  provider: "SICREDI";
+  environment: "SANDBOX" | "PRODUCTION";
+  status: BankSlipStatus;
+  documentSpecies: string;
+  nossoNumero?: string | null;
+  seuNumero: string;
+  linhaDigitavel?: string | null;
+  codigoBarras?: string | null;
+  originalAmountCents: number;
+  paidAmountCents?: number | null;
+  issuedAt?: string | null;
+  paidAt?: string | null;
+  cancellationRequestedAt?: string | null;
+  cancellationReason?: InvoiceCancellationReason | null;
+  cancellationNote?: string | null;
+  cancelledAt?: string | null;
+  lastCheckedAt?: string | null;
+  providerStatus?: string | null;
+  providerErrorCode?: string | null;
+  providerErrorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SyncPaidBankSlipsDaySummary = {
+  date: string;
+  pagesProcessed: number;
+  recordsReceived: number;
+  bankSlipsFound: number;
+  paymentsConfirmed: number;
+  alreadySynced: number;
+  notFound: number;
+  errors: Array<{ seuNumero: string; nossoNumero: string; code: string }>;
+};
 
 export type InvoiceRecord = {
   id: string;
@@ -535,6 +582,25 @@ async function request<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+async function requestBlob(path: string, options: RequestInit = {}) {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as
+      | { message?: string }
+      | null;
+    throw new Error(body?.message ?? "Nao foi possivel concluir a operacao");
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: fileNameFromDisposition(response.headers.get("content-disposition")),
+  };
 }
 
 function withParams(path: string, params: Record<string, unknown> = {}) {
@@ -740,6 +806,47 @@ export const api = {
     return request<InvoiceRecord>(`/finance/invoices/${invoiceId}/cancel`, {
       method: "POST",
       body: JSON.stringify(body),
+    });
+  },
+
+  getInvoiceBankSlip(invoiceId: string) {
+    return request<BankSlipRecord>(`/finance/invoices/${invoiceId}/bank-slip`);
+  },
+
+  issueInvoiceBankSlip(invoiceId: string) {
+    return request<BankSlipRecord>(
+      `/finance/invoices/${invoiceId}/bank-slip/issue`,
+      { method: "POST" },
+    );
+  },
+
+  syncInvoiceBankSlip(invoiceId: string) {
+    return request<BankSlipRecord>(`/finance/invoices/${invoiceId}/bank-slip/sync`, {
+      method: "POST",
+    });
+  },
+
+  cancelInvoiceBankSlip(
+    invoiceId: string,
+    body: { reason: InvoiceCancellationReason; note?: string },
+  ) {
+    return request<BankSlipRecord>(
+      `/finance/invoices/${invoiceId}/bank-slip/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  downloadInvoiceBankSlipPdf(invoiceId: string) {
+    return requestBlob(`/finance/invoices/${invoiceId}/bank-slip/pdf`);
+  },
+
+  syncPaidBankSlipsDay(date: string) {
+    return request<SyncPaidBankSlipsDaySummary>("/finance/bank-slips/sync-paid-day", {
+      method: "POST",
+      body: JSON.stringify({ date }),
     });
   },
 
@@ -1012,27 +1119,11 @@ export const api = {
     documentId: string,
     disposition: "attachment" | "inline" = "attachment",
   ) {
-    const response = await fetch(
-      `${API_URL}${withParams(
-        `/students/${studentId}/documents/${documentId}/file`,
-        { disposition },
-      )}`,
-      { credentials: "include" },
+    return requestBlob(
+      withParams(`/students/${studentId}/documents/${documentId}/file`, {
+        disposition,
+      }),
     );
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { message?: string }
-        | null;
-      throw new Error(body?.message ?? "Nao foi possivel baixar o documento");
-    }
-
-    return {
-      blob: await response.blob(),
-      fileName: fileNameFromDisposition(
-        response.headers.get("content-disposition"),
-      ),
-    };
   },
 
   getPreRegistrationOptions() {

@@ -185,10 +185,10 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
         ))}
       </div>
 
-      {area === "students" ? <StudentsPanel /> : null}
+      {area === "students" ? <StudentsPanel user={user} /> : null}
       {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
       {area === "student-cards" ? <StudentCardsPanel /> : null}
-      {area === "finance" ? <FinancePanel /> : null}
+      {area === "finance" ? <FinancePanel user={user} /> : null}
       {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
       {area === "years" ? <AcademicYearsPanel user={user} /> : null}
       {area === "base" ? <BaseRecordsPanel /> : null}

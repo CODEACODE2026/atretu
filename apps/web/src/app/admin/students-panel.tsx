@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import {
   api,
   type AcademicYear,
+  type ApiUser,
   type BaseRecord,
   type BusAssignmentRecord,
   type BusRecord,
@@ -43,7 +44,7 @@ const emptyEnrollment: StudentPayload["enrollment"] = {
   grade: "",
 };
 
-export function StudentsPanel() {
+export function StudentsPanel({ user }: { user: ApiUser }) {
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
@@ -803,6 +804,7 @@ export function StudentsPanel() {
               />
               <StudentInvoicesForStudent
                 student={selected}
+                user={user}
                 onChanged={async () => {
                   await refreshSelected(selected.id);
                 }}
