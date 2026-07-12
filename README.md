@@ -3,10 +3,10 @@
 Sistema administrativo para a Associacao Terrariquense de Estudantes Tecnicos e Universitarios.
 
 ## Status
-Sprint 9: cadastros base, nucleo academico, vinculos de Onibus por Matricula
+Sprint 10: cadastros base, nucleo academico, vinculos de Onibus por Matricula
 Anual, documentos privados, pre-cadastro publico com aprovacao administrativa,
 suspensao, reativacao, desligamento, diretoria, rematricula anual e
-carteirinhas com sequencias anuais implementados.
+carteirinhas com sequencias anuais e faturas internas manuais implementados.
 
 ## Stack
 - Frontend: Next.js + TypeScript + Tailwind CSS.
@@ -249,8 +249,8 @@ Regras principais:
   encerra vinculo ativo de Onibus com motivo `TERMINATION` e libera vaga.
 - Desligamento tambem encerra BoardMembership ativo na mesma transacao.
 - Diretoria ativa nao altera matricula nem Onibus, mas torna o academico
-  inelegivel para futuros boletos.
-- Elegibilidade futura para boleto e regra derivada: Student `ACTIVE` sem
+  inelegivel para futuras faturas.
+- Elegibilidade futura para fatura e regra derivada: Student `ACTIVE` sem
   BoardMembership `ACTIVE`.
 - Nao ha DELETE de academico.
 - A Sprint 7 nao implementa financeiro, boletos, Sicredi, carteirinhas,
@@ -334,6 +334,42 @@ Regras principais:
 - Historico funcional e auditoria registram emissao/invalidation sem CPF, RG,
   endereco, documentos ou payload sensivel.
 
+## Faturas internas manuais
+
+A Sprint 10 implementa somente `Invoice`, a obrigacao financeira interna do
+Atretu. `BankSlip`/boleto bancario, Sicredi, PDF, nosso numero, pagamento,
+juros, multa, baixa bancaria, webhook, polling e geracao em lote ficam fora
+desta Sprint.
+
+Rotas:
+
+- `GET /finance/invoices`
+- `GET /finance/invoices/:id`
+- `GET /students/:studentId/invoices`
+- `GET /students/:studentId/invoice-preview`
+- `POST /students/:studentId/invoices`
+- `POST /finance/invoices/:id/cancel`
+
+Regras principais:
+
+- A geracao de fatura e manual por Super Admin ou Secretaria.
+- `Invoice` referencia obrigatoriamente `Student` e `Enrollment`; Ano Letivo e
+  Instituicao sao obtidos pela propria `Enrollment`, sem duplicacao no model.
+- `ACTIVE` comum pode receber nova fatura.
+- `SUSPENDED`, `TERMINATED` e BoardMembership `ACTIVE` bloqueiam nova fatura.
+- Mudancas futuras de status do academico nao alteram faturas antigas.
+- Valor e persistido em `amountCents`, inteiro positivo, sem float.
+- Vencimento e data civil e pode estar no passado.
+- Status persistidos: `OPEN` e `CANCELLED`.
+- Vencida e condicao derivada de `OPEN` com `dueDate` anterior ao dia atual.
+- Idempotencia usa `idempotencyKey` unica; mesma chave com mesmo payload retorna
+  a fatura existente e payload diferente retorna conflito.
+- Cancelamento interno exige fatura `OPEN`, motivo, registra `cancelledAt`,
+  `cancelledByUserId`, historico funcional e auditoria; nao exclui fisicamente
+  e nao representa cancelamento bancario futuro.
+- Historico funcional e auditoria registram IDs operacionais sem CPF, RG,
+  endereco, documentos, dados bancarios ou payload sensivel.
+
 Regras principais:
 
 - CPF do interessado e obrigatorio, valido, normalizado e revalidado na
@@ -397,13 +433,15 @@ ADMIN_SETUP_TOKEN=... DATABASE_URL=... DOCUMENT_STORAGE_DIR=/tmp/atretu-pre-regi
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:lifecycle
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:reenrollment
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:student-cards
+ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:invoices
 ```
 
 ## Limites atuais
 - Nao ha PDF de alunos por onibus.
 - Nao ha rematricula em lote.
 - Nao ha PDF definitivo, impressao, QR Code ou validacao publica de carteirinha.
-- Nao ha integracao Sicredi.
+- Nao ha BankSlip/boleto bancario, integracao Sicredi, nosso numero, baixa
+  bancaria, pagamento, multa, juros ou lote financeiro.
 - Nao ha consulta publica de status do pre-cadastro.
 - Nao ha OCR, leitura automatica de documentos nem envio ao Sicredi.
 - Nao ha portal do academico.

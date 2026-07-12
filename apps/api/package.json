@@ -19,6 +19,7 @@
     "smoke:lifecycle": "node scripts/smoke-lifecycle.mjs",
     "smoke:reenrollment": "node scripts/smoke-reenrollment.mjs",
     "smoke:student-cards": "node scripts/smoke-student-cards.mjs",
+    "smoke:invoices": "node scripts/smoke-invoices.mjs",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate": "prisma migrate deploy"

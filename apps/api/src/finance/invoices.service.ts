@@ -263,11 +263,27 @@ export class InvoicesService {
   }
 
   private normalizeCreateBody(body: CreateInvoiceDto) {
-    assertValidInvoiceAmountCents(body.amountCents);
+    try {
+      assertValidInvoiceAmountCents(body.amountCents);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : "Valor invalido",
+      );
+    }
+
+    let dueDate: Date;
+    try {
+      dueDate = parseInvoiceDueDate(body.dueDate);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : "Vencimento invalido",
+      );
+    }
+
     return {
       enrollmentId: body.enrollmentId,
       amountCents: body.amountCents,
-      dueDate: parseInvoiceDueDate(body.dueDate),
+      dueDate,
       description: this.optional(body.description),
       idempotencyKey: body.idempotencyKey.trim(),
     };
