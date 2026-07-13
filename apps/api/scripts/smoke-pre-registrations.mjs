@@ -10,6 +10,7 @@ const secretaryEmail =
   process.env.SMOKE_SECRETARIA_EMAIL ?? "secretaria@atretu.local";
 const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte123";
 const runId = `s6-${Date.now()}`;
+const runSeed = Number(runId.replace(/\D/g, "").slice(-6));
 
 if (!setupToken) {
   throw new Error("ADMIN_SETUP_TOKEN is required for Sprint 6 smoke");
@@ -162,6 +163,10 @@ function generateCpf(seed) {
   return `${base}${first}${second}`;
 }
 
+function generateRunCpf(offset) {
+  return generateCpf(200000000 + ((runSeed + offset) % 700000000));
+}
+
 function checkDigit(value) {
   const numbers = value.split("").map(Number);
   const start = numbers.length + 1;
@@ -194,23 +199,6 @@ async function countAcademicRecordsByCpf(cpf) {
   };
 }
 
-async function forbiddenOperationalTables() {
-  return prisma.$queryRaw`
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND (
-        table_name ILIKE '%boleto%'
-        OR table_name ILIKE '%financial%'
-        OR table_name ILIKE '%finance%'
-        OR table_name ILIKE '%invoice%'
-        OR table_name ILIKE '%payment%'
-        OR table_name ILIKE '%carteir%'
-        OR table_name ILIKE '%card%'
-      )
-  `;
-}
-
 const files = {
   pdf: {
     name: "documento.pdf",
@@ -237,7 +225,10 @@ const files = {
   oversized: {
     name: "grande.pdf",
     mimeType: "application/pdf",
-    buffer: Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(2048, 0x31)]),
+    buffer: Buffer.concat([
+      Buffer.from("%PDF-1.4\n"),
+      Buffer.alloc(8 * 1024 * 1024 + 1, 0x31),
+    ]),
   },
   traversal: {
     name: "..evil.pdf",
@@ -325,7 +316,7 @@ try {
 
   const futureBirth = await publicSubmit(
     preRegistrationPayload({
-      cpf: generateCpf(100000001),
+      cpf: generateRunCpf(1),
       academicYearId: academicYear.body.id,
       institutionId: institution.id,
       shiftId: shift.id,
@@ -338,7 +329,7 @@ try {
   }
 
   const incompleteAddressPayload = preRegistrationPayload({
-    cpf: generateCpf(100000002),
+    cpf: generateRunCpf(2),
     academicYearId: academicYear.body.id,
     institutionId: institution.id,
     shiftId: shift.id,
@@ -352,7 +343,7 @@ try {
 
   const inactiveReference = await publicSubmit(
     preRegistrationPayload({
-      cpf: generateCpf(100000003),
+      cpf: generateRunCpf(3),
       academicYearId: academicYear.body.id,
       institutionId: inactiveInstitution.id,
       shiftId: inactiveShift.id,
@@ -363,7 +354,7 @@ try {
     throw new Error("Inactive institution/shift were not blocked");
   }
 
-  const honeypotCpf = generateCpf(100000004);
+  const honeypotCpf = generateRunCpf(4);
   const honeypot = await publicSubmit({
     ...preRegistrationPayload({
       cpf: honeypotCpf,
@@ -404,7 +395,7 @@ try {
     throw new Error("Pre-registration rate limit was not enforced");
   }
 
-  const duplicateCpf = generateCpf(100000005);
+  const duplicateCpf = generateRunCpf(5);
   const pending = await publicSubmit(
     preRegistrationPayload({
       cpf: duplicateCpf,
@@ -433,7 +424,7 @@ try {
     throw new Error("Duplicate pending CPF was not blocked generically");
   }
 
-  const rejectedCpf = generateCpf(100000006);
+  const rejectedCpf = generateRunCpf(6);
   const rejectedInitial = await publicSubmit(
     preRegistrationPayload({
       cpf: rejectedCpf,
@@ -540,7 +531,7 @@ try {
 
   const invalidSvg = await publicSubmit(
     preRegistrationPayload({
-      cpf: generateCpf(100000007),
+      cpf: generateRunCpf(7),
       academicYearId: academicYear.body.id,
       institutionId: institution.id,
       shiftId: shift.id,
@@ -553,7 +544,7 @@ try {
   }
   const oversized = await publicSubmit(
     preRegistrationPayload({
-      cpf: generateCpf(100000008),
+      cpf: generateRunCpf(8),
       academicYearId: academicYear.body.id,
       institutionId: institution.id,
       shiftId: shift.id,
@@ -566,7 +557,7 @@ try {
   }
   const traversal = await publicSubmit(
     preRegistrationPayload({
-      cpf: generateCpf(100000009),
+      cpf: generateRunCpf(9),
       academicYearId: academicYear.body.id,
       institutionId: institution.id,
       shiftId: shift.id,
@@ -640,15 +631,6 @@ try {
   });
   if (approvedRecord.status !== "APPROVED") {
     throw new Error("Pre-registration was not marked APPROVED");
-  }
-
-  const forbiddenTables = await forbiddenOperationalTables();
-  if (forbiddenTables.length > 0) {
-    throw new Error(
-      `Unexpected financial/card tables found: ${forbiddenTables
-        .map((item) => item.table_name)
-        .join(", ")}`,
-    );
   }
 
   const auditLogs = await prisma.administrativeAuditLog.findMany({

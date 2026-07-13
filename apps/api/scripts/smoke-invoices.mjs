@@ -260,9 +260,12 @@ const usedYears = new Set(
     (item) => item.year,
   ),
 );
-let yearValue = 2160;
+let yearValue = 2100;
 while (usedYears.has(yearValue)) {
-  yearValue += 1;
+  yearValue -= 1;
+}
+if (yearValue < 2000) {
+  throw new Error("No available academic year for invoice smoke");
 }
 
 const academicYear = await createYear(adminCookie, yearValue, true);

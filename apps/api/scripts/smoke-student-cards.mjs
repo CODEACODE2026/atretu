@@ -308,9 +308,12 @@ const usedYears = new Set(
     (item) => item.year,
   ),
 );
-let yearValue = 2120;
+let yearValue = 2098;
 while (usedYears.has(yearValue) || usedYears.has(yearValue + 1)) {
-  yearValue += 2;
+  yearValue -= 2;
+}
+if (yearValue < 2000) {
+  throw new Error("No available academic year pair for student card smoke");
 }
 
 const academicYear = await createYear(adminCookie, yearValue, false);
