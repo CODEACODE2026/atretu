@@ -14,6 +14,7 @@ import {
   type StudentDocumentType,
   type StudentDetail,
   type StudentPayload,
+  type ReinstateStudentPayload,
   type ReenrollmentPreview,
   type StudentSummary,
 } from "../../lib/api";
@@ -58,6 +59,15 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
   const [createBuses, setCreateBuses] = useState<BusRecord[]>([]);
   const [createBusesLoading, setCreateBusesLoading] = useState(false);
   const [createBusesError, setCreateBusesError] = useState("");
+  const [reinstateOpen, setReinstateOpen] = useState(false);
+  const [reinstateEnrollment, setReinstateEnrollment] =
+    useState<StudentPayload["enrollment"]>(emptyEnrollment);
+  const [reinstateBusId, setReinstateBusId] = useState("");
+  const [reinstateBuses, setReinstateBuses] = useState<BusRecord[]>([]);
+  const [reinstateBusesLoading, setReinstateBusesLoading] = useState(false);
+  const [reinstateBusesError, setReinstateBusesError] = useState("");
+  const [reinstateReason, setReinstateReason] = useState("");
+  const [reinstateNote, setReinstateNote] = useState("");
   const [search, setSearch] = useState("");
   const [academicYearId, setAcademicYearId] = useState("");
   const [institutionId, setInstitutionId] = useState("");
@@ -90,6 +100,16 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     }
     void loadCreateBuses(enrollment.academicYearId);
   }, [selected, enrollment.academicYearId]);
+
+  useEffect(() => {
+    if (!reinstateOpen || !reinstateEnrollment.academicYearId) {
+      setReinstateBusId("");
+      setReinstateBuses([]);
+      setReinstateBusesError("");
+      return;
+    }
+    void loadReinstateBuses(reinstateEnrollment.academicYearId);
+  }, [reinstateOpen, reinstateEnrollment.academicYearId]);
 
   async function loadReferences() {
     setError("");
@@ -161,6 +181,28 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     }
   }
 
+  async function loadReinstateBuses(nextAcademicYearId: string) {
+    setReinstateBusId("");
+    setReinstateBusesLoading(true);
+    setReinstateBusesError("");
+    try {
+      const response = await api.listBuses({
+        status: "active",
+        limit: 100,
+        sort: "name",
+        academicYearId: nextAcademicYearId,
+      });
+      setReinstateBuses(response.data.filter((bus) => !bus.isFull));
+    } catch (caught) {
+      setReinstateBuses([]);
+      setReinstateBusesError(
+        caught instanceof Error ? caught.message : "Erro ao carregar onibus",
+      );
+    } finally {
+      setReinstateBusesLoading(false);
+    }
+  }
+
   async function openStudent(id: string) {
     setError("");
     try {
@@ -196,6 +238,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
       if (currentEnrollment) {
         setEnrollment(toEnrollmentPayload(currentEnrollment));
       }
+      prepareReinstatement(detail);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao abrir");
     }
@@ -208,6 +251,41 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     setGuardian(undefined);
     setEnrollment(emptyEnrollment);
     setCreateBusId("");
+    resetReinstatement();
+  }
+
+  function resetReinstatement() {
+    setReinstateOpen(false);
+    setReinstateEnrollment(emptyEnrollment);
+    setReinstateBusId("");
+    setReinstateBuses([]);
+    setReinstateBusesError("");
+    setReinstateReason("");
+    setReinstateNote("");
+  }
+
+  function prepareReinstatement(student: StudentDetail) {
+    const currentYear = years.find((year) => year.isCurrent) ?? years[0];
+    const targetYearId =
+      currentYear?.id ?? student.enrollments[0]?.academicYear.id ?? "";
+    const existing = student.enrollments.find(
+      (item) => item.academicYear.id === targetYearId,
+    );
+    setReinstateEnrollment(
+      existing
+        ? toEnrollmentPayload(existing)
+        : {
+            ...emptyEnrollment,
+            academicYearId: targetYearId,
+            institutionId: student.enrollments[0]?.institution.id ?? "",
+            shiftId: student.enrollments[0]?.shift.id ?? "",
+            course: student.enrollments[0]?.course ?? "",
+            grade: student.enrollments[0]?.grade ?? "",
+          },
+    );
+    setReinstateBusId("");
+    setReinstateReason("");
+    setReinstateNote("");
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -437,6 +515,90 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
       await refreshSelected(selected.id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao desligar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function applyReinstateAcademicYear(nextAcademicYearId: string) {
+    if (!selected) {
+      return;
+    }
+    const existing = selected.enrollments.find(
+      (item) => item.academicYear.id === nextAcademicYearId,
+    );
+    setReinstateEnrollment(
+      existing
+        ? toEnrollmentPayload(existing)
+        : {
+            ...emptyEnrollment,
+            academicYearId: nextAcademicYearId,
+            institutionId: selected.enrollments[0]?.institution.id ?? "",
+            shiftId: selected.enrollments[0]?.shift.id ?? "",
+            course: selected.enrollments[0]?.course ?? "",
+            grade: selected.enrollments[0]?.grade ?? "",
+          },
+    );
+    setReinstateBusId("");
+  }
+
+  async function handleReinstate() {
+    if (!selected) {
+      return;
+    }
+    const existing = selected.enrollments.find(
+      (item) => item.academicYear.id === reinstateEnrollment.academicYearId,
+    );
+    if (!reinstateEnrollment.academicYearId) {
+      setError("Ano Letivo obrigatorio para religamento");
+      return;
+    }
+    if (!reinstateReason.trim()) {
+      setError("Motivo obrigatorio para religamento");
+      return;
+    }
+    if (
+      !existing &&
+      (!reinstateEnrollment.institutionId ||
+        !reinstateEnrollment.shiftId ||
+        !reinstateEnrollment.course ||
+        !reinstateEnrollment.grade)
+    ) {
+      setError("Dados academicos obrigatorios para nova matricula");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Confirmar religamento? Uma nova carteirinha sera emitida, o vinculo antigo de onibus nao sera restaurado e o financeiro existente sera preservado.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const payload: ReinstateStudentPayload = {
+      academicYearId: reinstateEnrollment.academicYearId,
+      busId: emptyToUndefined(reinstateBusId),
+      reason: reinstateReason.trim(),
+      note: emptyToUndefined(reinstateNote),
+      ...(existing
+        ? {}
+        : {
+            institutionId: reinstateEnrollment.institutionId,
+            shiftId: reinstateEnrollment.shiftId,
+            course: reinstateEnrollment.course,
+            grade: reinstateEnrollment.grade,
+          }),
+    };
+
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.reinstateStudent(selected.id, payload);
+      setMessage("Academico religado");
+      resetReinstatement();
+      await refreshSelected(selected.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao religar");
     } finally {
       setSaving(false);
     }
@@ -758,6 +920,17 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
                 >
                   Desligar
                 </button>
+                <button
+                  className="rounded border border-emerald-200 bg-white px-2 py-1 text-xs font-medium text-emerald-700 disabled:opacity-50"
+                  disabled={saving || selected.status !== "TERMINATED"}
+                  onClick={() => {
+                    prepareReinstatement(selected);
+                    setReinstateOpen((current) => !current);
+                  }}
+                  type="button"
+                >
+                  Religar academico
+                </button>
                 {selected.activeBoardMembership ? (
                   <button
                     className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
@@ -777,6 +950,156 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
                     Adicionar diretoria
                   </button>
                 )}
+              </div>
+            </div>
+          ) : null}
+
+          {selected?.status === "TERMINATED" && reinstateOpen ? (
+            <div
+              className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm"
+            >
+              <div className="grid gap-3">
+                <p className="text-xs text-emerald-900">
+                  O religamento emite nova carteirinha, nao restaura onibus antigo
+                  e preserva faturas, boletos e documentos existentes.
+                </p>
+                <label className="block text-sm font-medium text-slate-700">
+                  Ano Letivo
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    onChange={(event) =>
+                      applyReinstateAcademicYear(event.target.value)
+                    }
+                    value={reinstateEnrollment.academicYearId}
+                  >
+                    <option value="">Selecione</option>
+                    {years.map((year) => (
+                      <option key={year.id} value={year.id}>
+                        {year.year}
+                        {year.isCurrent ? " (atual)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {selected.enrollments.some(
+                  (item) =>
+                    item.academicYear.id === reinstateEnrollment.academicYearId,
+                ) ? (
+                  <div className="rounded border border-emerald-200 bg-white p-3 text-xs text-slate-700">
+                    <p className="font-medium text-slate-950">
+                      Matricula existente sera reutilizada
+                    </p>
+                    <p>
+                      {
+                        selected.enrollments.find(
+                          (item) =>
+                            item.academicYear.id ===
+                            reinstateEnrollment.academicYearId,
+                        )?.institution.name
+                      }{" "}
+                      /{" "}
+                      {
+                        selected.enrollments.find(
+                          (item) =>
+                            item.academicYear.id ===
+                            reinstateEnrollment.academicYearId,
+                        )?.shift.name
+                      }
+                    </p>
+                    <p>
+                      {
+                        selected.enrollments.find(
+                          (item) =>
+                            item.academicYear.id ===
+                            reinstateEnrollment.academicYearId,
+                        )?.course
+                      }{" "}
+                      -{" "}
+                      {
+                        selected.enrollments.find(
+                          (item) =>
+                            item.academicYear.id ===
+                            reinstateEnrollment.academicYearId,
+                        )?.grade
+                      }
+                    </p>
+                  </div>
+                ) : (
+                  <EnrollmentFields
+                    enrollment={reinstateEnrollment}
+                    institutions={institutions}
+                    setEnrollment={setReinstateEnrollment}
+                    shifts={shifts}
+                    years={years}
+                  />
+                )}
+
+                <label className="block text-sm font-medium text-slate-700">
+                  Onibus opcional
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    disabled={
+                      reinstateBusesLoading || !reinstateEnrollment.academicYearId
+                    }
+                    onChange={(event) => setReinstateBusId(event.target.value)}
+                    value={reinstateBusId}
+                  >
+                    <option value="">
+                      {reinstateBusesLoading
+                        ? "Carregando onibus..."
+                        : "Religar sem onibus"}
+                    </option>
+                    {reinstateBuses.map((bus) => (
+                      <option key={bus.id} value={bus.id}>
+                        {bus.name} - {bus.availableSeats ?? bus.capacity}/
+                        {bus.capacity} vagas
+                      </option>
+                    ))}
+                  </select>
+                  {!reinstateBusesLoading &&
+                  reinstateEnrollment.academicYearId &&
+                  reinstateBuses.length === 0 &&
+                  !reinstateBusesError ? (
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Nenhum onibus com vaga disponivel
+                    </span>
+                  ) : null}
+                  {reinstateBusesError ? (
+                    <span className="mt-1 block text-xs text-red-700">
+                      {reinstateBusesError}
+                    </span>
+                  ) : null}
+                </label>
+
+                <label className="block text-sm font-medium text-slate-700">
+                  Motivo obrigatorio
+                  <textarea
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    maxLength={500}
+                    minLength={3}
+                    onChange={(event) => setReinstateReason(event.target.value)}
+                    required
+                    value={reinstateReason}
+                  />
+                </label>
+                <label className="block text-sm font-medium text-slate-700">
+                  Observacao opcional
+                  <textarea
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    maxLength={500}
+                    onChange={(event) => setReinstateNote(event.target.value)}
+                    value={reinstateNote}
+                  />
+                </label>
+                <button
+                  className="rounded bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  disabled={saving}
+                  onClick={() => void handleReinstate()}
+                  type="button"
+                >
+                  {saving ? "Religando..." : "Confirmar religamento"}
+                </button>
               </div>
             </div>
           ) : null}
@@ -2023,6 +2346,7 @@ function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     STUDENT_SUSPENDED: "Suspensao",
     STUDENT_REACTIVATED: "Reativacao",
     STUDENT_TERMINATED: "Desligamento",
+    STUDENT_REINSTATED: "Religamento",
     STUDENT_REENROLLED: "Rematricula",
     STUDENT_CARD_ISSUED: "Carteirinha emitida",
     STUDENT_CARD_INVALIDATED: "Carteirinha invalidada",

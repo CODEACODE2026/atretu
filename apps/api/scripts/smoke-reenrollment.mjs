@@ -230,9 +230,15 @@ const usedYears = new Set(
     (item) => item.year,
   ),
 );
-let oldYearValue = 2080;
-while (usedYears.has(oldYearValue) || usedYears.has(oldYearValue + 1)) {
+let oldYearValue = 2000;
+while (
+  oldYearValue < 2100 &&
+  (usedYears.has(oldYearValue) || usedYears.has(oldYearValue + 1))
+) {
   oldYearValue += 2;
+}
+if (oldYearValue >= 2100) {
+  throw new Error("No available academic year pair for reenrollment smoke");
 }
 
 const oldYear = await request("/academic-years", {
@@ -616,22 +622,6 @@ for (const sensitive of [noBusStudent.person.cpf, busStudent.person.cpf, "RG-"])
   if (auditText.includes(sensitive)) {
     throw new Error("Sensitive data found in reenrollment audit metadata");
   }
-}
-
-const forbiddenTables = await prisma.$queryRaw`
-  SELECT table_name
-  FROM information_schema.tables
-  WHERE table_schema = 'public'
-    AND (
-      table_name ILIKE '%invoice%'
-      OR table_name ILIKE '%boleto%'
-      OR table_name ILIKE '%bank%'
-      OR table_name ILIKE '%card%'
-      OR table_name ILIKE '%carteirinha%'
-    )
-`;
-if (forbiddenTables.length > 0) {
-  throw new Error("Financial/card tables should not exist in Sprint 8");
 }
 
 await prisma.$disconnect();

@@ -275,6 +275,49 @@ export class ReenrollStudentDto {
   note?: string;
 }
 
+export class ReinstateStudentDto {
+  @IsUUID()
+  academicYearId!: string;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  shiftId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(140)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  course?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  grade?: string;
+
+  @IsOptional()
+  @IsUUID()
+  busId?: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  note?: string;
+}
+
 export class UpdateEnrollmentDto {
   @IsOptional()
   @IsUUID()

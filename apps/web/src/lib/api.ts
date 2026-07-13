@@ -377,6 +377,7 @@ export type StudentHistoryEvent = {
     | "STUDENT_SUSPENDED"
     | "STUDENT_REACTIVATED"
     | "STUDENT_TERMINATED"
+    | "STUDENT_REINSTATED"
     | "STUDENT_REENROLLED"
     | "STUDENT_CARD_ISSUED"
     | "STUDENT_CARD_INVALIDATED"
@@ -413,6 +414,13 @@ export type ReenrollmentCandidatesResponse = ListResponse<StudentSummary> & {
 
 export type ReenrollmentPayload = StudentPayload["enrollment"] & {
   busId?: string;
+  note?: string;
+};
+
+export type ReinstateStudentPayload = Partial<StudentPayload["enrollment"]> & {
+  academicYearId: string;
+  busId?: string;
+  reason: string;
   note?: string;
 };
 
@@ -970,6 +978,13 @@ export const api = {
 
   reactivateStudent(id: string, body: { busId?: string; note?: string }) {
     return request<StudentDetail>(`/students/${id}/reactivate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  reinstateStudent(id: string, body: ReinstateStudentPayload) {
+    return request<StudentDetail>(`/students/${id}/reinstate`, {
       method: "POST",
       body: JSON.stringify(body),
     });

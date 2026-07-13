@@ -175,6 +175,14 @@ async function assign(cookie, enrollmentId, busId) {
   return linked.body;
 }
 
+async function reinstate(cookie, studentId, payload) {
+  return request(`/students/${studentId}/reinstate`, {
+    method: "POST",
+    headers: json(cookie),
+    body: JSON.stringify(payload),
+  });
+}
+
 async function occupancy(cookie, busId, academicYearId) {
   const list = await request(
     `/buses?status=all&academicYearId=${academicYearId}&search=${encodeURIComponent(runId)}`,
@@ -256,6 +264,18 @@ const fullBus = await createBaseRecord(adminCookie, "/buses", {
 const boardBus = await createBaseRecord(adminCookie, "/buses", {
   name: `Onibus ${runId} Diretoria`,
   capacity: 1,
+});
+const reinstateBus = await createBaseRecord(adminCookie, "/buses", {
+  name: `Onibus ${runId} Religamento`,
+  capacity: 1,
+});
+const inactiveBus = await createBaseRecord(adminCookie, "/buses", {
+  name: `Onibus ${runId} Inativo`,
+  capacity: 1,
+});
+await request(`/buses/${inactiveBus.id}/inactivate`, {
+  method: "PATCH",
+  headers: json(adminCookie),
 });
 
 const baseSeed = Date.now() % 700000000;
@@ -518,6 +538,216 @@ if (!terminateActive.response.ok || terminateActive.body.status !== "TERMINATED"
   throw new Error(`Termination by non-payment failed: ${terminateActive.body.message}`);
 }
 
+const preReinstateEnrollments = await prisma.enrollment.count({
+  where: { studentId: keepStudent.id },
+});
+const preReinstateInvalidCards = await prisma.studentCard.count({
+  where: { studentId: keepStudent.id, status: "INVALIDATED" },
+});
+const sameYearReinstate = await reinstate(secretaryCookie, keepStudent.id, {
+  academicYearId: academicYear.body.id,
+  reason: "Retorno no mesmo ano letivo",
+});
+if (!sameYearReinstate.response.ok || sameYearReinstate.body.status !== "ACTIVE") {
+  throw new Error(`Same-year reinstatement failed: ${sameYearReinstate.body.message}`);
+}
+const postSameYearEnrollments = await prisma.enrollment.count({
+  where: { studentId: keepStudent.id },
+});
+if (postSameYearEnrollments !== preReinstateEnrollments) {
+  throw new Error("Same-year reinstatement created duplicate enrollment");
+}
+const sameYearCards = await prisma.studentCard.groupBy({
+  by: ["status"],
+  where: { studentId: keepStudent.id },
+  _count: true,
+});
+const activeCardCount =
+  sameYearCards.find((item) => item.status === "ACTIVE")?._count ?? 0;
+const invalidCardCount =
+  sameYearCards.find((item) => item.status === "INVALIDATED")?._count ?? 0;
+if (activeCardCount !== 1 || invalidCardCount < preReinstateInvalidCards) {
+  throw new Error("Reinstatement did not issue new card preserving invalidated cards");
+}
+const activeBlocked = await reinstate(secretaryCookie, keepStudent.id, {
+  academicYearId: academicYear.body.id,
+  reason: "Tentativa invalida",
+});
+if (activeBlocked.response.status !== 400) {
+  throw new Error("Active student reinstatement was not blocked");
+}
+
+let reinstatementYearValue = smokeYear - 1;
+while (usedYears.has(reinstatementYearValue)) {
+  reinstatementYearValue -= 1;
+}
+const reinstatementYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: reinstatementYearValue, isCurrent: false }),
+});
+if (!reinstatementYear.response.ok) {
+  throw new Error(`Reinstatement year create failed: ${reinstatementYear.body.message}`);
+}
+
+const newYearStudent = await createStudent(
+  secretaryCookie,
+  studentPayload({
+    cpf: generateCpf(baseSeed + 4),
+    academicYearId: academicYear.body.id,
+    institutionId: institution.id,
+    shiftId: shift.id,
+    suffix: `${runId}-rna`,
+  }),
+);
+await request(`/students/${newYearStudent.id}/terminate`, {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    terminationReason: "WITHDRAWAL",
+    justification: "Desligamento antes do religamento",
+  }),
+});
+const newYearReinstate = await reinstate(secretaryCookie, newYearStudent.id, {
+  academicYearId: reinstatementYear.body.id,
+  institutionId: institution.id,
+  shiftId: shift.id,
+  course: "Tecnico em Contabilidade",
+  grade: "2o",
+  busId: reinstateBus.id,
+  reason: "Retorno em novo ano letivo",
+});
+if (!newYearReinstate.response.ok || newYearReinstate.body.status !== "ACTIVE") {
+  throw new Error(`New-year reinstatement failed: ${newYearReinstate.body.message}`);
+}
+const newYearDb = await prisma.student.findUnique({
+  where: { id: newYearStudent.id },
+  include: {
+    enrollments: { include: { busAssignments: true } },
+    historyEvents: true,
+  },
+});
+const reinstatedEnrollment = newYearDb?.enrollments.find(
+  (item) => item.academicYearId === reinstatementYear.body.id,
+);
+if (
+  !newYearDb ||
+  newYearDb.enrollments.length !== 2 ||
+  !reinstatedEnrollment ||
+  reinstatedEnrollment.busAssignments.filter((item) => item.status === "ACTIVE")
+    .length !== 1 ||
+  !newYearDb.historyEvents.some((item) => item.eventType === "STUDENT_REINSTATED")
+) {
+  throw new Error("New-year reinstatement did not preserve enrollment/history");
+}
+
+const inactiveBusStudent = await createStudent(
+  secretaryCookie,
+  studentPayload({
+    cpf: generateCpf(baseSeed + 5),
+    academicYearId: academicYear.body.id,
+    institutionId: institution.id,
+    shiftId: shift.id,
+    suffix: `${runId}-ri`,
+  }),
+);
+await request(`/students/${inactiveBusStudent.id}/terminate`, {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    terminationReason: "WITHDRAWAL",
+    justification: "Desligamento antes de onibus inativo",
+  }),
+});
+const inactiveBusReinstate = await reinstate(secretaryCookie, inactiveBusStudent.id, {
+  academicYearId: academicYear.body.id,
+  busId: inactiveBus.id,
+  reason: "Onibus inativo",
+});
+if (inactiveBusReinstate.response.status !== 400) {
+  throw new Error("Inactive bus reinstatement was not blocked");
+}
+const inactiveBusState = await prisma.student.findUnique({
+  where: { id: inactiveBusStudent.id },
+});
+if (inactiveBusState?.status !== "TERMINATED") {
+  throw new Error("Inactive bus reinstatement changed student status");
+}
+
+const fullBusReinstate = await reinstate(secretaryCookie, inactiveBusStudent.id, {
+  academicYearId: academicYear.body.id,
+  busId: fullBus.id,
+  reason: "Onibus lotado",
+});
+if (fullBusReinstate.response.status !== 409) {
+  throw new Error("Full bus reinstatement was not blocked");
+}
+
+const suspendedReinstateStudent = await createStudent(
+  secretaryCookie,
+  studentPayload({
+    cpf: generateCpf(baseSeed + 6),
+    academicYearId: academicYear.body.id,
+    institutionId: institution.id,
+    shiftId: shift.id,
+    suffix: `${runId}-rs`,
+  }),
+);
+await request(`/students/${suspendedReinstateStudent.id}/suspend`, {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    reason: "OTHER",
+    justification: "Suspenso antes de tentativa de religamento",
+    releaseBusSeat: false,
+  }),
+});
+const suspendedReinstateBlocked = await reinstate(secretaryCookie, suspendedReinstateStudent.id, {
+  academicYearId: academicYear.body.id,
+  reason: "Suspenso nao deve religar",
+});
+if (suspendedReinstateBlocked.response.status !== 400) {
+  throw new Error("Suspended student reinstatement was not blocked");
+}
+
+const concurrentStudent = await createStudent(
+  secretaryCookie,
+  studentPayload({
+    cpf: generateCpf(baseSeed + 7),
+    academicYearId: academicYear.body.id,
+    institutionId: institution.id,
+    shiftId: shift.id,
+    suffix: `${runId}-rc`,
+  }),
+);
+await request(`/students/${concurrentStudent.id}/terminate`, {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    terminationReason: "WITHDRAWAL",
+    justification: "Desligamento antes de concorrencia",
+  }),
+});
+const [concurrentA, concurrentB] = await Promise.all([
+  reinstate(secretaryCookie, concurrentStudent.id, {
+    academicYearId: academicYear.body.id,
+    reason: "Concorrencia A",
+  }),
+  reinstate(secretaryCookie, concurrentStudent.id, {
+    academicYearId: academicYear.body.id,
+    reason: "Concorrencia B",
+  }),
+]);
+const concurrentStatuses = [
+  concurrentA.response.status,
+  concurrentB.response.status,
+].sort();
+if (concurrentStatuses[0] !== 201 || concurrentStatuses[1] !== 400) {
+  throw new Error(
+    `Concurrent reinstatement was not serialized: ${concurrentStatuses.join(",")}`,
+  );
+}
+
 const history = await request(`/students/${releaseStudent.id}/history`, {
   headers: json(secretaryCookie),
 });
@@ -571,22 +801,6 @@ if (
   throw new Error("Terminated student has active bus assignment");
 }
 
-const forbiddenTables = await prisma.$queryRaw`
-  SELECT table_name
-  FROM information_schema.tables
-  WHERE table_schema = 'public'
-    AND (
-      table_name ILIKE '%invoice%'
-      OR table_name ILIKE '%boleto%'
-      OR table_name ILIKE '%bank%'
-      OR table_name ILIKE '%card%'
-      OR table_name ILIKE '%carteirinha%'
-    )
-`;
-if (forbiddenTables.length > 0) {
-  throw new Error("Financial/card tables should not exist in Sprint 7");
-}
-
 const audits = await prisma.administrativeAuditLog.findMany({
   where: {
     eventType: {
@@ -594,6 +808,7 @@ const audits = await prisma.administrativeAuditLog.findMany({
         "STUDENT_SUSPENDED",
         "STUDENT_REACTIVATED",
         "STUDENT_TERMINATED",
+        "STUDENT_REINSTATED",
         "BOARD_MEMBERSHIP_STARTED",
         "BOARD_MEMBERSHIP_ENDED",
       ],

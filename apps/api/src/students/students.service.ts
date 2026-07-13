@@ -40,6 +40,7 @@ import {
   GuardianInputDto,
   ListStudentsDto,
   ReactivateStudentDto,
+  ReinstateStudentDto,
   ReenrollStudentDto,
   SortOrder,
   StartBoardMembershipDto,
@@ -808,6 +809,123 @@ export class StudentsService {
     return this.getStudent(id);
   }
 
+  async reinstateStudent(id: string, body: ReinstateStudentDto, userId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const student = await this.lockStudent(tx, id);
+      if (student.status !== StudentStatus.TERMINATED) {
+        throw new BadRequestException("Somente academico desligado pode ser religado");
+      }
+
+      const academicYear = await this.ensureAcademicYear(body.academicYearId, tx);
+      let enrollment = await tx.enrollment.findUnique({
+        where: {
+          studentId_academicYearId: {
+            studentId: id,
+            academicYearId: academicYear.id,
+          },
+        },
+        include: this.enrollmentInclude(),
+      });
+      const previousEnrollment = await this.findOperationalEnrollment(tx, id);
+      const reusedEnrollment = Boolean(enrollment);
+
+      if (enrollment) {
+        this.ensureExistingEnrollmentMatchesReinstatement(enrollment, body);
+      } else {
+        this.ensureReinstatementEnrollmentInput(body);
+        await this.ensureEnrollmentReferences(tx, {
+          academicYearId: academicYear.id,
+          institutionId: body.institutionId!,
+          shiftId: body.shiftId!,
+          course: body.course!,
+          grade: body.grade!,
+        });
+        enrollment = await tx.enrollment.create({
+          data: {
+            studentId: id,
+            academicYearId: academicYear.id,
+            institutionId: body.institutionId!,
+            shiftId: body.shiftId!,
+            course: body.course!,
+            grade: body.grade!,
+          },
+          include: this.enrollmentInclude(),
+        });
+        await this.recordAuditTx(tx, {
+          eventType: AdministrativeAuditEventType.ENROLLMENT_CREATED,
+          domain: "enrollments",
+          recordId: enrollment.id,
+          userId,
+          metadata: {
+            studentId: id,
+            enrollmentId: enrollment.id,
+            academicYearId: academicYear.id,
+            reinstatement: true,
+          },
+        });
+      }
+
+      await tx.student.update({
+        where: { id },
+        data: { status: StudentStatus.ACTIVE },
+      });
+
+      const card = await this.studentCards.issueAutomaticStudentCardTx(tx, {
+        studentId: id,
+        enrollmentId: enrollment.id,
+        userId,
+        note: "Emitida automaticamente no religamento do academico",
+      });
+
+      let busAssignment:
+        | { id: string; busId: string; enrollmentId: string }
+        | undefined;
+      if (body.busId) {
+        busAssignment = await this.busAssignments.assignBusTx(tx, {
+          enrollmentId: enrollment.id,
+          busId: body.busId,
+          userId,
+          note: "Vinculo inicial criado no religamento do academico",
+        });
+      }
+
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId: id,
+          eventType: StudentHistoryEventType.STUDENT_REINSTATED,
+          justification: this.optional(
+            body.note ? `${body.reason} - ${body.note}` : body.reason,
+          ),
+          busId: busAssignment?.busId,
+          busAssignmentId: busAssignment?.id,
+          studentCardId: card.id,
+          performedByUserId: userId,
+        },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.STUDENT_REINSTATED,
+        domain: "students",
+        recordId: id,
+        userId,
+        metadata: {
+          studentId: id,
+          enrollmentId: enrollment.id,
+          previousEnrollmentId: previousEnrollment?.id ?? "",
+          academicYearId: academicYear.id,
+          reusedEnrollment,
+          studentCardId: card.id,
+          cardNumber: card.cardNumber,
+          busAssignmentId: busAssignment?.id ?? "",
+          busId: busAssignment?.busId ?? "",
+          hasBus: Boolean(busAssignment),
+        },
+      });
+    });
+
+    await result;
+    return this.getStudent(id);
+  }
+
   async terminateStudent(id: string, body: TerminateStudentDto, userId: string) {
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await this.lockStudent(tx, id);
@@ -1389,6 +1507,35 @@ export class StudentsService {
     });
     if (occupiedSeats >= bus.capacity) {
       throw new ConflictException("Onibus lotado");
+    }
+  }
+
+  private ensureReinstatementEnrollmentInput(body: ReinstateStudentDto) {
+    if (!body.institutionId || !body.shiftId || !body.course || !body.grade) {
+      throw new BadRequestException(
+        "Dados academicos obrigatorios para nova matricula no religamento",
+      );
+    }
+  }
+
+  private ensureExistingEnrollmentMatchesReinstatement(
+    enrollment: {
+      institutionId: string;
+      shiftId: string;
+      course: string;
+      grade: string;
+    },
+    body: ReinstateStudentDto,
+  ) {
+    if (
+      (body.institutionId && body.institutionId !== enrollment.institutionId) ||
+      (body.shiftId && body.shiftId !== enrollment.shiftId) ||
+      (body.course && body.course !== enrollment.course) ||
+      (body.grade && body.grade !== enrollment.grade)
+    ) {
+      throw new BadRequestException(
+        "Dados academicos informados divergem da matricula existente",
+      );
     }
   }
 

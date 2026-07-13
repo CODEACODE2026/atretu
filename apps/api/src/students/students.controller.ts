@@ -22,6 +22,7 @@ import {
   EndBoardMembershipDto,
   ListStudentsDto,
   ReactivateStudentDto,
+  ReinstateStudentDto,
   ReenrollStudentDto,
   StartBoardMembershipDto,
   SuspendStudentDto,
@@ -176,6 +177,16 @@ export class StudentsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.students.reactivateStudent(id, body, user.id);
+  }
+
+  @Post("students/:id/reinstate")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  reinstateStudent(
+    @Param("id") id: string,
+    @Body() body: ReinstateStudentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.reinstateStudent(id, body, user.id);
   }
 
   @Post("students/:id/terminate")
