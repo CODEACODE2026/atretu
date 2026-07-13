@@ -15,6 +15,7 @@ import {
   StudentDocumentType,
 } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
+import { resolvePagination } from "../common/pagination.js";
 import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import {
@@ -203,13 +204,13 @@ export class PreRegistrationsService {
   async listPreRegistrations(query: ListPreRegistrationsDto) {
     const where = this.buildListWhere(query);
     const orderBy = this.buildListOrderBy(query);
-    const skip = (query.page - 1) * query.limit;
+    const pagination = resolvePagination(query);
     const [data, total] = await Promise.all([
       this.prisma.publicPreRegistration.findMany({
         where,
         orderBy,
-        skip,
-        take: query.limit,
+        skip: pagination.skip,
+        take: pagination.limit,
         include: this.summaryInclude(),
       }),
       this.prisma.publicPreRegistration.count({ where }),
@@ -218,10 +219,10 @@ export class PreRegistrationsService {
     return {
       data: data.map((item) => this.toSummary(item)),
       pagination: {
-        page: query.page,
-        limit: query.limit,
+        page: pagination.page,
+        limit: pagination.limit,
         total,
-        totalPages: Math.ceil(total / query.limit),
+        totalPages: Math.ceil(total / pagination.limit),
       },
     };
   }

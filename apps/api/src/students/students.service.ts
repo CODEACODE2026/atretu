@@ -21,6 +21,7 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "./cpf.js";
@@ -1040,13 +1041,7 @@ export class StudentsService {
   }
 
   private resolvePagination(query: ListStudentsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
-    return {
-      page,
-      limit,
-      skip: (page - 1) * limit,
-    };
+    return resolvePagination(query);
   }
 
   private buildStudentOrderBy(

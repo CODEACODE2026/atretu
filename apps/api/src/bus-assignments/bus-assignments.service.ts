@@ -13,8 +13,9 @@ import {
   Prisma,
   RecordStatus,
 } from "@prisma/client";
-import { maskCpf, normalizeCpf } from "../students/cpf.js";
+import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { maskCpf, normalizeCpf } from "../students/cpf.js";
 import {
   AssignmentStatusFilter,
   ListBusAssignmentsDto,
@@ -229,7 +230,7 @@ export class BusAssignmentsService {
       };
     }
 
-    const skip = (query.page - 1) * query.limit;
+    const pagination = resolvePagination(query);
     const [data, total, occupancy] = await Promise.all([
       this.prisma.busAssignment.findMany({
         where,
@@ -238,8 +239,8 @@ export class BusAssignmentsService {
           { enrollment: { student: { person: { normalizedName: "asc" } } } },
           { startedAt: "desc" },
         ],
-        skip,
-        take: query.limit,
+        skip: pagination.skip,
+        take: pagination.limit,
       }),
       this.prisma.busAssignment.count({ where }),
       this.getBusOccupancy(busId, academicYearId),
@@ -250,10 +251,10 @@ export class BusAssignmentsService {
       occupancy,
       academicYearId,
       pagination: {
-        page: query.page,
-        limit: query.limit,
+        page: pagination.page,
+        limit: pagination.limit,
         total,
-        totalPages: Math.ceil(total / query.limit),
+        totalPages: Math.ceil(total / pagination.limit),
       },
     };
   }

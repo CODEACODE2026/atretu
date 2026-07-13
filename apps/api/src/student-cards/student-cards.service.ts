@@ -16,6 +16,7 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { maskCpf, normalizeCpf } from "../students/cpf.js";
 import { buildStudentCardNumber } from "./card-number.js";
@@ -407,9 +408,7 @@ export class StudentCardsService {
   }
 
   private resolvePagination(query: ListStudentCardsDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
-    return { page, limit, skip: (page - 1) * limit };
+    return resolvePagination(query);
   }
 
   private matchesValidity(

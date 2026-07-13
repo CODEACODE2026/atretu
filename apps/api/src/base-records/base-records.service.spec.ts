@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { BadRequestException } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
   RecordStatus,
@@ -9,6 +10,7 @@ import {
   RecordStatusFilter,
   SortOrder,
 } from "./dto/base-record.dto.js";
+import { resolvePagination } from "../common/pagination.js";
 
 type Row = {
   id: string;
@@ -20,6 +22,7 @@ type Row = {
 
 function createDelegate() {
   const rows: Row[] = [];
+  let lastFindManyArgs: Record<string, unknown> | undefined;
   let nextId = 1;
   const filterRows = (where: Partial<Row> & { name?: unknown }) =>
     rows.filter((row) => {
@@ -41,8 +44,17 @@ function createDelegate() {
 
   return {
     rows,
+    get lastFindManyArgs() {
+      return lastFindManyArgs;
+    },
     delegate: {
-      async findMany({ where }: { where: Partial<Row> & { name?: unknown } }) {
+      async findMany(args: {
+        where: Partial<Row> & { name?: unknown };
+        skip?: number;
+        take?: number;
+      }) {
+        lastFindManyArgs = args;
+        const { where } = args;
         return filterRows(where);
       },
       async count({ where }: { where: Partial<Row> }) {
@@ -146,3 +158,73 @@ const allList = await service.listInstitutions({
   order: SortOrder.ASC,
 });
 assert.equal(allList.data.length, 1);
+
+const stringPaginationList = await service.listInstitutions({
+  page: "2",
+  limit: "10",
+  status: RecordStatusFilter.ALL,
+  sort: BaseRecordSort.NAME,
+  order: SortOrder.ASC,
+} as never);
+assert.equal(stringPaginationList.pagination.page, 2);
+assert.equal(stringPaginationList.pagination.limit, 10);
+assert.equal(institutions.lastFindManyArgs?.skip, 10);
+assert.equal(institutions.lastFindManyArgs?.take, 10);
+assert.equal(typeof institutions.lastFindManyArgs?.skip, "number");
+assert.equal(typeof institutions.lastFindManyArgs?.take, "number");
+
+const defaultPaginationList = await service.listInstitutions({
+  status: RecordStatusFilter.ALL,
+  sort: BaseRecordSort.NAME,
+  order: SortOrder.ASC,
+} as never);
+assert.equal(defaultPaginationList.pagination.page, 1);
+assert.equal(defaultPaginationList.pagination.limit, 20);
+
+for (const query of [
+  { page: "0", limit: "10" },
+  { page: "-1", limit: "10" },
+  { page: "abc", limit: "10" },
+  { page: "1", limit: "0" },
+  { page: "1", limit: "-10" },
+  { page: "1", limit: "101" },
+  { page: "1", limit: "abc" },
+]) {
+  await assert.rejects(
+    () =>
+      service.listInstitutions({
+        ...query,
+        status: RecordStatusFilter.ALL,
+        sort: BaseRecordSort.NAME,
+        order: SortOrder.ASC,
+      } as never),
+    (error) => error instanceof BadRequestException,
+  );
+}
+
+for (const moduleName of [
+  "base-records",
+  "students",
+  "bus-assignments",
+  "pre-registrations",
+  "student-cards",
+  "finance/invoices",
+]) {
+  const defaults = resolvePagination({});
+  assert.equal(defaults.page, 1, moduleName);
+  assert.equal(defaults.limit, 20, moduleName);
+  assert.equal(defaults.skip, 0, moduleName);
+  const maximum = resolvePagination({ page: "1", limit: "100" });
+  assert.equal(maximum.limit, 100, moduleName);
+  const numeric = resolvePagination({ page: "2", limit: "10" });
+  assert.equal(numeric.page, 2, moduleName);
+  assert.equal(numeric.limit, 10, moduleName);
+  assert.equal(numeric.skip, 10, moduleName);
+  await assert.rejects(
+    async () => {
+      resolvePagination({ page: "1", limit: "101" });
+    },
+    (error) => error instanceof BadRequestException,
+    moduleName,
+  );
+}

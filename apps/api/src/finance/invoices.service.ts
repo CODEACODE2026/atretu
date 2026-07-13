@@ -12,6 +12,7 @@ import {
   Prisma,
   StudentHistoryEventType,
 } from "@prisma/client";
+import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { maskCpf, normalizeCpf } from "../students/cpf.js";
 import { getFutureInvoiceBlockingReason } from "../students/lifecycle.js";
@@ -365,9 +366,7 @@ export class InvoicesService {
   }
 
   private resolvePagination(query: ListInvoicesDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
-    return { page, limit, skip: (page - 1) * limit };
+    return resolvePagination(query);
   }
 
   private matchesOverdue(

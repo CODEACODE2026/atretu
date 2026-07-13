@@ -13,6 +13,7 @@ import {
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { assertCapacityCanFitOccupancy, deriveBusAvailability } from "../bus-assignments/capacity.js";
+import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
 import {
   BaseRecordSort,
@@ -162,19 +163,24 @@ export class BaseRecordsService {
   ): Promise<ListResult<T>> {
     const where = this.buildWhere(query);
     const orderBy = this.buildOrderBy(query);
-    const skip = (query.page - 1) * query.limit;
+    const pagination = resolvePagination(query);
     const [data, total] = await Promise.all([
-      delegate.findMany({ where, orderBy, skip, take: query.limit }),
+      delegate.findMany({
+        where,
+        orderBy,
+        skip: pagination.skip,
+        take: pagination.limit,
+      }),
       delegate.count({ where }),
     ]);
 
     return {
       data,
       pagination: {
-        page: query.page,
-        limit: query.limit,
+        page: pagination.page,
+        limit: pagination.limit,
         total,
-        totalPages: Math.ceil(total / query.limit),
+        totalPages: Math.ceil(total / pagination.limit),
       },
     };
   }
