@@ -54,6 +54,10 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
   const [guardian, setGuardian] = useState<StudentPayload["guardian"]>();
   const [enrollment, setEnrollment] =
     useState<StudentPayload["enrollment"]>(emptyEnrollment);
+  const [createBusId, setCreateBusId] = useState("");
+  const [createBuses, setCreateBuses] = useState<BusRecord[]>([]);
+  const [createBusesLoading, setCreateBusesLoading] = useState(false);
+  const [createBusesError, setCreateBusesError] = useState("");
   const [search, setSearch] = useState("");
   const [academicYearId, setAcademicYearId] = useState("");
   const [institutionId, setInstitutionId] = useState("");
@@ -76,6 +80,16 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
   useEffect(() => {
     void loadStudents();
   }, [page, academicYearId, institutionId, shiftId, statusFilter]);
+
+  useEffect(() => {
+    if (selected || !enrollment.academicYearId) {
+      setCreateBusId("");
+      setCreateBuses([]);
+      setCreateBusesError("");
+      return;
+    }
+    void loadCreateBuses(enrollment.academicYearId);
+  }, [selected, enrollment.academicYearId]);
 
   async function loadReferences() {
     setError("");
@@ -125,6 +139,28 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     }
   }
 
+  async function loadCreateBuses(nextAcademicYearId: string) {
+    setCreateBusId("");
+    setCreateBusesLoading(true);
+    setCreateBusesError("");
+    try {
+      const response = await api.listBuses({
+        status: "active",
+        limit: 100,
+        sort: "name",
+        academicYearId: nextAcademicYearId,
+      });
+      setCreateBuses(response.data.filter((bus) => !bus.isFull));
+    } catch (caught) {
+      setCreateBuses([]);
+      setCreateBusesError(
+        caught instanceof Error ? caught.message : "Erro ao carregar onibus",
+      );
+    } finally {
+      setCreateBusesLoading(false);
+    }
+  }
+
   async function openStudent(id: string) {
     setError("");
     try {
@@ -171,18 +207,20 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     setPerson(emptyPerson);
     setGuardian(undefined);
     setEnrollment(emptyEnrollment);
+    setCreateBusId("");
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setMessage("");
-      setError("");
+    setError("");
     try {
       await api.createStudent({
         person: cleanPerson(person),
         guardian: guardian?.fullName ? guardian : undefined,
         enrollment,
+        busId: emptyToUndefined(createBusId),
       });
       setMessage("Academico criado");
       resetForm();
@@ -752,6 +790,45 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
             shifts={shifts}
             years={years}
           />
+
+          {!selected ? (
+            <label className="mt-3 block text-sm font-medium text-slate-700">
+              Onibus opcional
+              <select
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                disabled={createBusesLoading || !enrollment.academicYearId}
+                onChange={(event) => setCreateBusId(event.target.value)}
+                value={createBusId}
+              >
+                <option value="">
+                  {createBusesLoading
+                    ? "Carregando onibus..."
+                    : enrollment.academicYearId
+                      ? "Sem onibus no cadastro"
+                      : "Selecione o ano letivo primeiro"}
+                </option>
+                {createBuses.map((bus) => (
+                  <option key={bus.id} value={bus.id}>
+                    {bus.name} - {bus.availableSeats ?? bus.capacity}/
+                    {bus.capacity} vagas
+                  </option>
+                ))}
+              </select>
+              {!createBusesLoading &&
+              enrollment.academicYearId &&
+              createBuses.length === 0 &&
+              !createBusesError ? (
+                <span className="mt-1 block text-xs text-slate-500">
+                  Nenhum onibus com vaga disponivel
+                </span>
+              ) : null}
+              {createBusesError ? (
+                <span className="mt-1 block text-xs text-red-700">
+                  {createBusesError}
+                </span>
+              ) : null}
+            </label>
+          ) : null}
 
           {selected ? (
             <div className="mt-5 grid gap-2 sm:grid-cols-3">

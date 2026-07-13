@@ -38,48 +38,64 @@ export class BusAssignmentsService {
 
   async assignBus(enrollmentId: string, busId: string, userId: string, note?: string) {
     try {
-      const assignment = await this.prisma.$transaction(async (tx) => {
-        const enrollment = await this.ensureEnrollment(enrollmentId, tx);
-        const existing = await this.findActiveAssignment(tx, enrollmentId);
-        if (existing) {
-          throw new ConflictException("Matricula ja possui onibus ativo");
-        }
-
-        await this.lockBus(tx, busId);
-        const bus = await this.ensureActiveBus(tx, busId);
-        await this.ensureBusHasSeat(tx, bus.id, enrollment.academicYearId);
-
-        const created = await tx.busAssignment.create({
-          data: { enrollmentId, busId: bus.id, note: this.optional(note) },
-          include: this.assignmentInclude(),
-        });
-        await tx.busAssignmentEvent.create({
-          data: {
-            enrollmentId,
-            busAssignmentId: created.id,
-            toBusId: bus.id,
-            eventType: BusAssignmentEventType.LINKED,
-            note: this.optional(note),
-          },
-        });
-        await this.recordAudit(tx, {
-          eventType: AdministrativeAuditEventType.BUS_ASSIGNMENT_LINKED,
-          userId,
-          domain: "bus_assignments",
-          recordId: created.id,
-          metadata: {
-            enrollmentId,
-            busAssignmentId: created.id,
-            busId: bus.id,
-            academicYearId: enrollment.academicYearId,
-          },
-        });
-        return created;
-      });
+      const assignment = await this.prisma.$transaction((tx) =>
+        this.assignBusTx(tx, { enrollmentId, busId, userId, note }),
+      );
       return this.toAssignment(assignment);
     } catch (error) {
       this.handleUniqueAssignmentError(error);
     }
+  }
+
+  async assignBusTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      enrollmentId: string;
+      busId: string;
+      userId: string;
+      note?: string;
+    },
+  ) {
+    const enrollment = await this.ensureEnrollment(input.enrollmentId, tx);
+    const existing = await this.findActiveAssignment(tx, input.enrollmentId);
+    if (existing) {
+      throw new ConflictException("Matricula ja possui onibus ativo");
+    }
+
+    await this.lockBus(tx, input.busId);
+    const bus = await this.ensureActiveBus(tx, input.busId);
+    await this.ensureBusHasSeat(tx, bus.id, enrollment.academicYearId);
+
+    const created = await tx.busAssignment.create({
+      data: {
+        enrollmentId: input.enrollmentId,
+        busId: bus.id,
+        note: this.optional(input.note),
+      },
+      include: this.assignmentInclude(),
+    });
+    await tx.busAssignmentEvent.create({
+      data: {
+        enrollmentId: input.enrollmentId,
+        busAssignmentId: created.id,
+        toBusId: bus.id,
+        eventType: BusAssignmentEventType.LINKED,
+        note: this.optional(input.note),
+      },
+    });
+    await this.recordAudit(tx, {
+      eventType: AdministrativeAuditEventType.BUS_ASSIGNMENT_LINKED,
+      userId: input.userId,
+      domain: "bus_assignments",
+      recordId: created.id,
+      metadata: {
+        enrollmentId: input.enrollmentId,
+        busAssignmentId: created.id,
+        busId: bus.id,
+        academicYearId: enrollment.academicYearId,
+      },
+    });
+    return created;
   }
 
   async releaseBus(enrollmentId: string, userId: string, note?: string) {

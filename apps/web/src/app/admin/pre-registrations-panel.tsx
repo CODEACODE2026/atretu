@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   api,
+  type BusRecord,
   type PreRegistrationDetail,
   type PreRegistrationDocumentRecord,
   type PreRegistrationStatus,
@@ -30,6 +31,10 @@ export function PreRegistrationsPanel() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [approvalBusId, setApprovalBusId] = useState("");
+  const [approvalBuses, setApprovalBuses] = useState<BusRecord[]>([]);
+  const [approvalBusesLoading, setApprovalBusesLoading] = useState(false);
+  const [approvalBusesError, setApprovalBusesError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -38,6 +43,16 @@ export function PreRegistrationsPanel() {
   useEffect(() => {
     void loadItems();
   }, [status, page]);
+
+  useEffect(() => {
+    if (!selected || selected.status !== "PENDING") {
+      setApprovalBusId("");
+      setApprovalBuses([]);
+      setApprovalBusesError("");
+      return;
+    }
+    void loadApprovalBuses(selected.academicYear.id);
+  }, [selected?.id, selected?.status, selected?.academicYear.id]);
 
   async function loadItems(nextSearch = search) {
     setLoading(true);
@@ -69,8 +84,31 @@ export function PreRegistrationsPanel() {
       const detail = await api.getPreRegistration(id);
       setSelected(detail);
       setRejectionReason("");
+      setApprovalBusId("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao abrir");
+    }
+  }
+
+  async function loadApprovalBuses(academicYearId: string) {
+    setApprovalBusId("");
+    setApprovalBusesLoading(true);
+    setApprovalBusesError("");
+    try {
+      const response = await api.listBuses({
+        status: "active",
+        limit: 100,
+        sort: "name",
+        academicYearId,
+      });
+      setApprovalBuses(response.data.filter((bus) => !bus.isFull));
+    } catch (caught) {
+      setApprovalBuses([]);
+      setApprovalBusesError(
+        caught instanceof Error ? caught.message : "Erro ao carregar onibus",
+      );
+    } finally {
+      setApprovalBusesLoading(false);
     }
   }
 
@@ -96,8 +134,11 @@ export function PreRegistrationsPanel() {
     setError("");
     setMessage("");
     try {
-      const detail = await api.approvePreRegistration(selected.id);
+      const detail = await api.approvePreRegistration(selected.id, {
+        busId: emptyToUndefined(approvalBusId),
+      });
       setSelected(detail);
+      setApprovalBusId("");
       setMessage("Pre-cadastro aprovado");
       await loadItems();
     } catch (caught) {
@@ -418,6 +459,39 @@ export function PreRegistrationsPanel() {
 
               {selected.status === "PENDING" ? (
                 <div className="grid gap-3 border-t border-slate-200 pt-4">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Onibus opcional
+                    <select
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      disabled={approvalBusesLoading}
+                      onChange={(event) => setApprovalBusId(event.target.value)}
+                      value={approvalBusId}
+                    >
+                      <option value="">
+                        {approvalBusesLoading
+                          ? "Carregando onibus..."
+                          : "Aprovar sem onibus"}
+                      </option>
+                      {approvalBuses.map((bus) => (
+                        <option key={bus.id} value={bus.id}>
+                          {bus.name} - {bus.availableSeats ?? bus.capacity}/
+                          {bus.capacity} vagas
+                        </option>
+                      ))}
+                    </select>
+                    {!approvalBusesLoading &&
+                    approvalBuses.length === 0 &&
+                    !approvalBusesError ? (
+                      <span className="mt-1 block text-xs text-slate-500">
+                        Nenhum onibus com vaga disponivel
+                      </span>
+                    ) : null}
+                    {approvalBusesError ? (
+                      <span className="mt-1 block text-xs text-red-700">
+                        {approvalBusesError}
+                      </span>
+                    ) : null}
+                  </label>
                   <button
                     className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
                     disabled={saving}
@@ -528,4 +602,9 @@ function formatBytes(value: number) {
     return `${(value / 1024).toFixed(1)} KiB`;
   }
   return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function emptyToUndefined(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
 }

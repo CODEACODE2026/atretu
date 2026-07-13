@@ -9,5 +9,6 @@ import { BusAssignmentsService } from "./bus-assignments.service.js";
   imports: [AuthModule, DatabaseModule, UsersModule],
   controllers: [BusAssignmentsController],
   providers: [BusAssignmentsService],
+  exports: [BusAssignmentsService],
 })
 export class BusAssignmentsModule {}

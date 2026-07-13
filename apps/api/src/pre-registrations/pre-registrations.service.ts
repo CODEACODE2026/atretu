@@ -15,6 +15,7 @@ import {
   StudentDocumentType,
 } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
+import { BusAssignmentsService } from "../bus-assignments/bus-assignments.service.js";
 import { resolvePagination } from "../common/pagination.js";
 import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -28,6 +29,7 @@ import { RateLimitService } from "../security/rate-limit.service.js";
 import { StudentCardsService } from "../student-cards/student-cards.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "../students/cpf.js";
 import {
+  ApprovePreRegistrationDto,
   ListPreRegistrationsDto,
   PreRegistrationSort,
   PreRegistrationSortOrder,
@@ -57,6 +59,8 @@ export class PreRegistrationsService {
     @Inject(DocumentStorageService)
     private readonly storage: DocumentStorageService,
     @Inject(RateLimitService) private readonly rateLimit: RateLimitService,
+    @Inject(BusAssignmentsService)
+    private readonly busAssignments: BusAssignmentsService,
     @Inject(StudentCardsService)
     private readonly studentCards: StudentCardsService,
   ) {}
@@ -291,7 +295,11 @@ export class PreRegistrationsService {
     };
   }
 
-  async approvePreRegistration(id: string, userId: string) {
+  async approvePreRegistration(
+    id: string,
+    body: ApprovePreRegistrationDto | undefined,
+    userId: string,
+  ) {
     try {
       const approvedId = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "public_pre_registrations" WHERE "id" = ${id}::uuid FOR UPDATE`;
@@ -364,6 +372,14 @@ export class PreRegistrationsService {
           userId,
           note: "Emitida automaticamente na aprovacao do pre-cadastro",
         });
+        if (body?.busId) {
+          await this.busAssignments.assignBusTx(tx, {
+            enrollmentId: enrollment.id,
+            busId: body.busId,
+            userId,
+            note: "Vinculo inicial criado na aprovacao do pre-cadastro",
+          });
+        }
 
         for (const document of record.documents.filter(
           (item) => item.status === PreRegistrationDocumentStatus.UPLOADED,

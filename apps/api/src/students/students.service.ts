@@ -21,6 +21,7 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import { BusAssignmentsService } from "../bus-assignments/bus-assignments.service.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { StudentCardsService } from "../student-cards/student-cards.service.js";
@@ -60,6 +61,8 @@ export class StudentsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AdministrativeAuditService)
     private readonly audit: AdministrativeAuditService,
+    @Inject(BusAssignmentsService)
+    private readonly busAssignments: BusAssignmentsService,
     @Inject(StudentCardsService)
     private readonly studentCards: StudentCardsService,
   ) {}
@@ -209,6 +212,14 @@ export class StudentsService {
           userId,
           note: "Emitida automaticamente no cadastro do academico",
         });
+        if (body.busId) {
+          await this.busAssignments.assignBusTx(tx, {
+            enrollmentId: enrollment.id,
+            busId: body.busId,
+            userId,
+            note: "Vinculo inicial criado no cadastro do academico",
+          });
+        }
 
         return createdStudent;
       });

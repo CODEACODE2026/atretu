@@ -107,6 +107,17 @@ async function createBaseRecord(cookie, path, body) {
   return created.body;
 }
 
+async function busOccupancy(cookie, busId, academicYearId) {
+  const list = await request(
+    `/buses?status=active&academicYearId=${academicYearId}&limit=100&search=${encodeURIComponent(runId)}`,
+    { headers: json(cookie) },
+  );
+  if (!list.response.ok) {
+    throw new Error("Bus list with occupancy failed");
+  }
+  return list.body.data.find((item) => item.id === busId);
+}
+
 function studentPayload({
   cpf,
   academicYearId,
@@ -230,11 +241,31 @@ const inactiveInstitution = await createBaseRecord(adminCookie, "/institutions",
 const inactiveShift = await createBaseRecord(adminCookie, "/shifts", {
   name: `Turno Inativo ${runId}`,
 });
+const initialBus = await createBaseRecord(adminCookie, "/buses", {
+  name: `Onibus ${runId} Inicial`,
+  capacity: 2,
+});
+const fullBus = await createBaseRecord(adminCookie, "/buses", {
+  name: `Onibus ${runId} Lotado`,
+  capacity: 1,
+});
+const concurrentBus = await createBaseRecord(adminCookie, "/buses", {
+  name: `Onibus ${runId} Concorrente`,
+  capacity: 1,
+});
+const inactiveBus = await createBaseRecord(adminCookie, "/buses", {
+  name: `Onibus ${runId} Inativo`,
+  capacity: 1,
+});
 await request(`/institutions/${inactiveInstitution.id}/inactivate`, {
   method: "PATCH",
   headers: json(adminCookie),
 });
 await request(`/shifts/${inactiveShift.id}/inactivate`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+});
+await request(`/buses/${inactiveBus.id}/inactivate`, {
   method: "PATCH",
   headers: json(adminCookie),
 });
@@ -312,6 +343,160 @@ if (
   throw new Error("Automatic student card was not issued on student create");
 }
 const createdCardNumber = createdCards.body.data[0].cardNumber;
+
+const busCpf = generateCpf(300000000 + ((runSeed + 31) % 600000000));
+const createWithBus = await request("/students", {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    ...studentPayload({
+      cpf: busCpf,
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-bus`,
+    }),
+    busId: initialBus.id,
+  }),
+});
+if (!createWithBus.response.ok) {
+  throw new Error(`Student create with bus failed: ${createWithBus.body.message}`);
+}
+const initialAssignment = await prisma.busAssignment.findFirst({
+  where: {
+    enrollmentId: createWithBus.body.enrollments[0].id,
+    busId: initialBus.id,
+    status: "ACTIVE",
+  },
+});
+if (!initialAssignment) {
+  throw new Error("Student create with bus did not create active BusAssignment");
+}
+const initialBusStatus = await busOccupancy(
+  secretaryCookie,
+  initialBus.id,
+  academicYear.body.id,
+);
+if (
+  !initialBusStatus ||
+  initialBusStatus.occupiedSeats !== 1 ||
+  initialBusStatus.availableSeats !== 1
+) {
+  throw new Error("Bus occupancy was not updated after student create");
+}
+
+const fullBusOccupant = await request("/students", {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    ...studentPayload({
+      cpf: generateCpf(300000000 + ((runSeed + 32) % 600000000)),
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-full-a`,
+    }),
+    busId: fullBus.id,
+  }),
+});
+if (!fullBusOccupant.response.ok) {
+  throw new Error(`Full bus occupant create failed: ${fullBusOccupant.body.message}`);
+}
+const fullBusRejectedCpf = generateCpf(300000000 + ((runSeed + 33) % 600000000));
+const fullBusRejected = await request("/students", {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    ...studentPayload({
+      cpf: fullBusRejectedCpf,
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-full-b`,
+    }),
+    busId: fullBus.id,
+  }),
+});
+if (fullBusRejected.response.status !== 409) {
+  throw new Error("Full bus student create was not blocked");
+}
+const fullBusRejectedRecords = await prisma.person.count({
+  where: { cpf: fullBusRejectedCpf },
+});
+if (fullBusRejectedRecords !== 0) {
+  throw new Error("Full bus failure left partial student data");
+}
+
+const inactiveBusCpf = generateCpf(300000000 + ((runSeed + 34) % 600000000));
+const inactiveBusStudent = await request("/students", {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify({
+    ...studentPayload({
+      cpf: inactiveBusCpf,
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-inactive-bus`,
+    }),
+    busId: inactiveBus.id,
+  }),
+});
+if (inactiveBusStudent.response.status !== 400) {
+  throw new Error("Inactive bus student create was not blocked");
+}
+const inactiveBusRecords = await prisma.person.count({
+  where: { cpf: inactiveBusCpf },
+});
+if (inactiveBusRecords !== 0) {
+  throw new Error("Inactive bus failure left partial student data");
+}
+
+const [busConcurrentA, busConcurrentB] = await Promise.all([
+  request("/students", {
+    method: "POST",
+    headers: json(secretaryCookie),
+    body: JSON.stringify({
+      ...studentPayload({
+        cpf: generateCpf(300000000 + ((runSeed + 35) % 600000000)),
+        academicYearId: academicYear.body.id,
+        institutionId: institution.id,
+        shiftId: shift.id,
+        suffix: `${runId}-bca`,
+      }),
+      busId: concurrentBus.id,
+    }),
+  }),
+  request("/students", {
+    method: "POST",
+    headers: json(secretaryCookie),
+    body: JSON.stringify({
+      ...studentPayload({
+        cpf: generateCpf(300000000 + ((runSeed + 36) % 600000000)),
+        academicYearId: academicYear.body.id,
+        institutionId: institution.id,
+        shiftId: shift.id,
+        suffix: `${runId}-bcb`,
+      }),
+      busId: concurrentBus.id,
+    }),
+  }),
+]);
+const concurrentStatuses = [
+  busConcurrentA.response.status,
+  busConcurrentB.response.status,
+].sort();
+if (concurrentStatuses[0] !== 201 || concurrentStatuses[1] !== 409) {
+  throw new Error(
+    `Concurrent bus last-seat create was not serialized: ${concurrentStatuses.join(",")}`,
+  );
+}
+const concurrentAssignments = await prisma.busAssignment.count({
+  where: { busId: concurrentBus.id, status: "ACTIVE" },
+});
+if (concurrentAssignments !== 1) {
+  throw new Error("Concurrent bus assignment created overbooking");
+}
 
 const list = await request(`/students?search=${cpf}`, {
   headers: json(secretaryCookie),

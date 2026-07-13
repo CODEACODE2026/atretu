@@ -64,6 +64,12 @@ export class RejectPreRegistrationDto {
   reason!: string;
 }
 
+export class ApprovePreRegistrationDto {
+  @IsOptional()
+  @IsUUID()
+  busId?: string;
+}
+
 export class PreRegistrationIdDto {
   @IsUUID()
   id!: string;

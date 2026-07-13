@@ -356,6 +356,7 @@ export type StudentPayload = {
     course: string;
     grade: string;
   };
+  busId?: string;
 };
 
 export type ListStudentsParams = {
@@ -1168,9 +1169,10 @@ export const api = {
     return request<PreRegistrationDetail>(`/pre-registrations/${id}`);
   },
 
-  approvePreRegistration(id: string) {
+  approvePreRegistration(id: string, body?: { busId?: string }) {
     return request<PreRegistrationDetail>(`/pre-registrations/${id}/approve`, {
       method: "POST",
+      body: JSON.stringify(body ?? {}),
     });
   },
 

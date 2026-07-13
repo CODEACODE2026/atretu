@@ -271,11 +271,23 @@ try {
   const inactiveShift = await createBaseRecord(adminCookie, "/shifts", {
     name: `Turno Inativo ${runId}`,
   });
+  const approvalBus = await createBaseRecord(adminCookie, "/buses", {
+    name: `Onibus ${runId} Aprovacao`,
+    capacity: 1,
+  });
+  const inactiveBus = await createBaseRecord(adminCookie, "/buses", {
+    name: `Onibus ${runId} Inativo`,
+    capacity: 1,
+  });
   await request(`/institutions/${inactiveInstitution.id}/inactivate`, {
     method: "PATCH",
     headers: json(adminCookie),
   });
   await request(`/shifts/${inactiveShift.id}/inactivate`, {
+    method: "PATCH",
+    headers: json(adminCookie),
+  });
+  await request(`/buses/${inactiveBus.id}/inactivate`, {
     method: "PATCH",
     headers: json(adminCookie),
   });
@@ -572,6 +584,7 @@ try {
   const approved = await request(`/pre-registrations/${approvalRecord.id}/approve`, {
     method: "POST",
     headers: json(secretaryCookie),
+    body: JSON.stringify({ busId: approvalBus.id }),
   });
   if (!approved.response.ok || approved.body.status !== "APPROVED") {
     throw new Error(`Approval failed: ${approved.body.message}`);
@@ -609,11 +622,124 @@ try {
     throw new Error("Approval did not issue one active automatic student card");
   }
 
-  const busAssignments = await prisma.busAssignment.count({
+  const busAssignments = await prisma.busAssignment.findMany({
     where: { enrollmentId: { in: afterApproval.enrollmentIds } },
   });
-  if (busAssignments !== 0) {
-    throw new Error("Approval created BusAssignment unexpectedly");
+  if (
+    busAssignments.length !== 1 ||
+    busAssignments[0].busId !== approvalBus.id ||
+    busAssignments[0].status !== "ACTIVE"
+  ) {
+    throw new Error("Approval with bus did not create expected BusAssignment");
+  }
+
+  const noBusCpf = generateRunCpf(20);
+  const noBusCandidate = await publicSubmit(
+    preRegistrationPayload({
+      cpf: noBusCpf,
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-no-bus`,
+    }),
+  );
+  if (!noBusCandidate.response.ok || !noBusCandidate.body.publicCode) {
+    throw new Error(`No-bus candidate create failed: ${noBusCandidate.body.message}`);
+  }
+  const noBusRecord = await prisma.publicPreRegistration.findUnique({
+    where: { publicCode: noBusCandidate.body.publicCode },
+  });
+  const noBusApproval = await request(`/pre-registrations/${noBusRecord.id}/approve`, {
+    method: "POST",
+    headers: json(secretaryCookie),
+  });
+  if (!noBusApproval.response.ok) {
+    throw new Error(`Approval without bus failed: ${noBusApproval.body.message}`);
+  }
+  const noBusRecords = await countAcademicRecordsByCpf(noBusCpf);
+  const noBusAssignments = await prisma.busAssignment.count({
+    where: { enrollmentId: { in: noBusRecords.enrollmentIds } },
+  });
+  if (noBusAssignments !== 0) {
+    throw new Error("Approval without bus created BusAssignment");
+  }
+
+  const fullBusCpf = generateRunCpf(21);
+  const fullBusCandidate = await publicSubmit(
+    preRegistrationPayload({
+      cpf: fullBusCpf,
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-full-bus`,
+    }),
+  );
+  if (!fullBusCandidate.response.ok || !fullBusCandidate.body.publicCode) {
+    throw new Error(`Full-bus candidate create failed: ${fullBusCandidate.body.message}`);
+  }
+  const fullBusRecord = await prisma.publicPreRegistration.findUnique({
+    where: { publicCode: fullBusCandidate.body.publicCode },
+  });
+  const fullBusApproval = await request(
+    `/pre-registrations/${fullBusRecord.id}/approve`,
+    {
+      method: "POST",
+      headers: json(secretaryCookie),
+      body: JSON.stringify({ busId: approvalBus.id }),
+    },
+  );
+  if (fullBusApproval.response.status !== 409) {
+    throw new Error("Approval with full bus was not blocked");
+  }
+  const fullBusRecords = await countAcademicRecordsByCpf(fullBusCpf);
+  const fullBusStillPending = await prisma.publicPreRegistration.findUnique({
+    where: { id: fullBusRecord.id },
+  });
+  if (
+    fullBusRecords.personCount !== 0 ||
+    fullBusStillPending?.status !== "PENDING"
+  ) {
+    throw new Error("Full bus approval left partial data or changed status");
+  }
+
+  const inactiveBusCpf = generateRunCpf(22);
+  const inactiveBusCandidate = await publicSubmit(
+    preRegistrationPayload({
+      cpf: inactiveBusCpf,
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-ib`,
+    }),
+  );
+  if (!inactiveBusCandidate.response.ok || !inactiveBusCandidate.body.publicCode) {
+    throw new Error(
+      `Inactive-bus candidate create failed: ${inactiveBusCandidate.body.message}`,
+    );
+  }
+  const inactiveBusRecord = await prisma.publicPreRegistration.findUnique({
+    where: { publicCode: inactiveBusCandidate.body.publicCode },
+  });
+  const inactiveBusApproval = await request(
+    `/pre-registrations/${inactiveBusRecord.id}/approve`,
+    {
+      method: "POST",
+      headers: json(secretaryCookie),
+      body: JSON.stringify({ busId: inactiveBus.id }),
+    },
+  );
+  if (inactiveBusApproval.response.status !== 400) {
+    throw new Error("Approval with inactive bus was not blocked");
+  }
+  const inactiveBusRecords = await countAcademicRecordsByCpf(inactiveBusCpf);
+  const inactiveBusStillPending = await prisma.publicPreRegistration.findUnique({
+    where: { id: inactiveBusRecord.id },
+  });
+  if (
+    inactiveBusRecords.personCount !== 0 ||
+    inactiveBusStillPending?.status !== "PENDING"
+  ) {
+    throw new Error("Inactive bus approval left partial data or changed status");
   }
 
   const promotedDocs = await prisma.preRegistrationDocument.findMany({

@@ -23,6 +23,7 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import { DownloadStudentDocumentDto } from "../documents/dto/documents.dto.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
+  ApprovePreRegistrationDto,
   ListPreRegistrationsDto,
   RejectPreRegistrationDto,
 } from "./dto/pre-registration-admin.dto.js";
@@ -121,9 +122,10 @@ export class PreRegistrationsController {
   @Post("pre-registrations/:id/approve")
   approvePreRegistration(
     @Param("id") id: string,
+    @Body() body: ApprovePreRegistrationDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.preRegistrations.approvePreRegistration(id, user.id);
+    return this.preRegistrations.approvePreRegistration(id, body, user.id);
   }
 
   @UseGuards(AuthGuard, RolesGuard)

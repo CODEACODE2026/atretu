@@ -220,6 +220,10 @@ export class CreateStudentDto {
   @ValidateNested()
   @Type(() => EnrollmentInputDto)
   enrollment!: EnrollmentInputDto;
+
+  @IsOptional()
+  @IsUUID()
+  busId?: string;
 }
 
 export class UpdatePersonDto extends PersonInputDto {}
