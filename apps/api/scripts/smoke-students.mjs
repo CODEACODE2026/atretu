@@ -9,6 +9,7 @@ const secretaryEmail =
   process.env.SMOKE_SECRETARIA_EMAIL ?? "secretaria@atretu.local";
 const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte123";
 const runId = `s3-${Date.now()}`;
+const runSeed = Number(runId.replace(/\D/g, "").slice(-6));
 
 if (!setupToken) {
   throw new Error("ADMIN_SETUP_TOKEN is required for Sprint 3 smoke");
@@ -176,6 +177,10 @@ let smokeYear = 2099;
 while (usedYears.has(smokeYear)) {
   smokeYear -= 1;
 }
+let rollbackYear = smokeYear - 1;
+while (usedYears.has(rollbackYear) || rollbackYear === smokeYear) {
+  rollbackYear -= 1;
+}
 
 const academicYear = await request("/academic-years", {
   method: "POST",
@@ -234,6 +239,47 @@ await request(`/shifts/${inactiveShift.id}/inactivate`, {
   headers: json(adminCookie),
 });
 
+const rollbackAcademicYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: rollbackYear }),
+});
+if (!rollbackAcademicYear.response.ok) {
+  throw new Error(
+    `Rollback academic year create failed: ${rollbackAcademicYear.body.message}`,
+  );
+}
+await prisma.cardSequence.create({
+  data: {
+    academicYearId: rollbackAcademicYear.body.id,
+    cardType: "STUDENT",
+    lastSequenceNumber: 2147483647,
+  },
+});
+const rollbackCpf = generateCpf(300000000 + ((runSeed + 30) % 600000000));
+const rollbackCreate = await request("/students", {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify(
+    studentPayload({
+      cpf: rollbackCpf,
+      academicYearId: rollbackAcademicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-rb`,
+    }),
+  ),
+});
+if (rollbackCreate.response.ok) {
+  throw new Error("Student create succeeded after forced card sequence failure");
+}
+const rollbackPersonCount = await prisma.person.count({
+  where: { cpf: rollbackCpf },
+});
+if (rollbackPersonCount !== 0) {
+  throw new Error("Student create left partial data after card generation failure");
+}
+
 const cpf = generateCpf(Date.now() % 900000000);
 const createStudent = await request("/students", {
   method: "POST",
@@ -252,15 +298,41 @@ if (!createStudent.response.ok) {
   throw new Error(`Student create failed: ${createStudent.body.message}`);
 }
 
+const createdCards = await request(`/students/${createStudent.body.id}/cards`, {
+  headers: json(secretaryCookie),
+});
+if (
+  !createdCards.response.ok ||
+  createdCards.body.data.length !== 1 ||
+  createdCards.body.data[0].cardType !== "STUDENT" ||
+  createdCards.body.data[0].status !== "ACTIVE" ||
+  createdCards.body.data[0].cardNumber !==
+    `${createdCards.body.data[0].sequenceNumber}${academicYear.body.year}`
+) {
+  throw new Error("Automatic student card was not issued on student create");
+}
+const createdCardNumber = createdCards.body.data[0].cardNumber;
+
 const list = await request(`/students?search=${cpf}`, {
   headers: json(secretaryCookie),
 });
 if (
   !list.response.ok ||
   list.body.data.length < 1 ||
-  list.body.data[0].person.cpfMasked.includes(cpf)
+  list.body.data[0].person.cpfMasked.includes(cpf) ||
+  list.body.data[0].currentStudentCard?.cardNumber !== createdCardNumber
 ) {
-  throw new Error("Student list or masked CPF failed");
+  throw new Error("Student list, card number, or masked CPF failed");
+}
+
+const cardSearch = await request(`/students?search=${createdCardNumber}`, {
+  headers: json(secretaryCookie),
+});
+if (
+  !cardSearch.response.ok ||
+  !cardSearch.body.data.some((student) => student.id === createStudent.body.id)
+) {
+  throw new Error("Student search by card number failed");
 }
 
 const detail = await request(`/students/${createStudent.body.id}`, {
@@ -347,6 +419,100 @@ const duplicateCpf = await request("/students", {
 });
 if (duplicateCpf.response.status !== 409) {
   throw new Error("Duplicate CPF validation failed");
+}
+
+const [concurrentA, concurrentB] = await Promise.all([
+  request("/students", {
+    method: "POST",
+    headers: json(secretaryCookie),
+    body: JSON.stringify(
+      studentPayload({
+        cpf: generateCpf(300000000 + ((runSeed + 20) % 600000000)),
+        academicYearId: academicYear.body.id,
+        institutionId: institution.id,
+        shiftId: shift.id,
+        suffix: `${runId}-ca`,
+      }),
+    ),
+  }),
+  request("/students", {
+    method: "POST",
+    headers: json(secretaryCookie),
+    body: JSON.stringify(
+      studentPayload({
+        cpf: generateCpf(300000000 + ((runSeed + 21) % 600000000)),
+        academicYearId: academicYear.body.id,
+        institutionId: institution.id,
+        shiftId: shift.id,
+        suffix: `${runId}-cb`,
+      }),
+    ),
+  }),
+]);
+if (!concurrentA.response.ok || !concurrentB.response.ok) {
+  throw new Error(
+    `Concurrent student create failed: ${concurrentA.response.status} ${JSON.stringify(concurrentA.body)} / ${concurrentB.response.status} ${JSON.stringify(concurrentB.body)}`,
+  );
+}
+const concurrentCards = await prisma.studentCard.findMany({
+  where: {
+    studentId: { in: [concurrentA.body.id, concurrentB.body.id] },
+    status: "ACTIVE",
+  },
+  orderBy: { sequenceNumber: "asc" },
+});
+if (
+  concurrentCards.length !== 2 ||
+  new Set(concurrentCards.map((card) => card.cardNumber)).size !== 2 ||
+  new Set(concurrentCards.map((card) => card.sequenceNumber)).size !== 2
+) {
+  throw new Error("Concurrent automatic card generation created duplicates");
+}
+
+const legacyPerson = await prisma.person.create({
+  data: {
+    fullName: `Academico Legado ${runId}`,
+    normalizedName: `academico legado ${runId}`.toLowerCase(),
+    cpf: generateCpf(300000000 + ((runSeed + 22) % 600000000)),
+    birthDate: new Date("2001-05-12T00:00:00.000Z"),
+    addressStreet: "Rua Legado",
+    addressNumber: "123",
+    addressNeighborhood: "Centro",
+    addressCity: "Terra Rica",
+  },
+});
+const legacyStudent = await prisma.student.create({
+  data: {
+    personId: legacyPerson.id,
+    enrollments: {
+      create: {
+        academicYearId: academicYear.body.id,
+        institutionId: institution.id,
+        shiftId: shift.id,
+        course: "Tecnico em Administracao",
+        grade: "1o",
+      },
+    },
+  },
+});
+const orderedList = await request(
+  `/students?academicYearId=${academicYear.body.id}&status=all&limit=100`,
+  { headers: json(secretaryCookie) },
+);
+if (
+  !orderedList.response.ok ||
+  !orderedList.body.data.some((student) => student.id === legacyStudent.id)
+) {
+  throw new Error("Legacy student without card was not listed");
+}
+const cardedRows = orderedList.body.data.filter((student) => student.currentStudentCard);
+const cardSequences = cardedRows.map(
+  (student) => student.currentStudentCard.sequenceNumber,
+);
+if (
+  cardSequences.some((sequence, index) => index > 0 && sequence < cardSequences[index - 1])
+) {
+  throw new Error("Student list was not ordered by card sequence before pagination");
 }
 
 const futureBirth = await request("/students", {

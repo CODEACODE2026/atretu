@@ -103,82 +103,34 @@ export class StudentCardsService {
     userId: string,
   ) {
     try {
-      const created = await this.prisma.$transaction(async (tx) => {
-        await this.lockStudent(tx, studentId);
-        const eligibility = await this.evaluateEligibility(tx, studentId, body);
-        if (eligibility.blockingReason) {
-          throw new BadRequestException(eligibility.blockingReason);
-        }
-
-        if (
-          body.cardType === StudentCardType.BOARD_MEMBER &&
-          eligibility.activeCard?.cardType === StudentCardType.STUDENT
-        ) {
-          await this.invalidateCardTx(tx, {
-            card: eligibility.activeCard,
-            userId,
-            reason: StudentCardInvalidationReason.SUPERSEDED_BY_BOARD_CARD,
-            note: "Invalidada pela emissao de carteirinha de diretoria",
-          });
-        }
-
-        const sequenceNumber = await this.nextSequenceNumber(
-          tx,
-          eligibility.academicYear.id,
-          body.cardType,
-        );
-        const cardNumber = buildStudentCardNumber(
-          sequenceNumber,
-          eligibility.academicYear.year,
-        );
-        const card = await tx.studentCard.create({
-          data: {
-            studentId,
-            enrollmentId: eligibility.enrollment.id,
-            academicYearId: eligibility.academicYear.id,
-            boardMembershipId:
-              body.cardType === StudentCardType.BOARD_MEMBER
-                ? eligibility.activeBoardMembership?.id
-                : undefined,
-            cardType: body.cardType,
-            sequenceNumber,
-            cardNumber,
-            issuedByUserId: userId,
-          },
-          include: this.cardInclude(),
-        });
-        await tx.studentHistoryEvent.create({
-          data: {
-            studentId,
-            eventType: StudentHistoryEventType.STUDENT_CARD_ISSUED,
-            studentCardId: card.id,
-            boardMembershipId: card.boardMembershipId,
-            justification: this.optional(body.note),
-            performedByUserId: userId,
-          },
-        });
-        await this.recordAuditTx(tx, {
-          eventType: AdministrativeAuditEventType.STUDENT_CARD_ISSUED,
-          domain: "student_cards",
-          recordId: card.id,
-          userId,
-          metadata: {
-            studentId,
-            enrollmentId: card.enrollmentId,
-            academicYearId: card.academicYearId,
-            studentCardId: card.id,
-            cardType: card.cardType,
-            sequenceNumber: card.sequenceNumber,
-            cardNumber: card.cardNumber,
-          },
-        });
-
-        return card;
-      });
+      const created = await this.prisma.$transaction((tx) =>
+        this.issueStudentCardTx(tx, studentId, body, userId),
+      );
       return this.toCardSummary(created);
     } catch (error) {
       this.handleWriteError(error);
     }
+  }
+
+  issueAutomaticStudentCardTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      studentId: string;
+      enrollmentId: string;
+      userId: string;
+      note?: string;
+    },
+  ) {
+    return this.issueStudentCardTx(
+      tx,
+      input.studentId,
+      {
+        enrollmentId: input.enrollmentId,
+        cardType: StudentCardType.STUDENT,
+        note: input.note,
+      },
+      input.userId,
+    );
   }
 
   async invalidateStudentCard(
@@ -293,6 +245,84 @@ export class StudentCardsService {
       latestCard,
       blockingReason,
     };
+  }
+
+  private async issueStudentCardTx(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+    body: IssueStudentCardDto,
+    userId: string,
+  ) {
+    await this.lockStudent(tx, studentId);
+    const eligibility = await this.evaluateEligibility(tx, studentId, body);
+    if (eligibility.blockingReason) {
+      throw new BadRequestException(eligibility.blockingReason);
+    }
+
+    if (
+      body.cardType === StudentCardType.BOARD_MEMBER &&
+      eligibility.activeCard?.cardType === StudentCardType.STUDENT
+    ) {
+      await this.invalidateCardTx(tx, {
+        card: eligibility.activeCard,
+        userId,
+        reason: StudentCardInvalidationReason.SUPERSEDED_BY_BOARD_CARD,
+        note: "Invalidada pela emissao de carteirinha de diretoria",
+      });
+    }
+
+    const sequenceNumber = await this.nextSequenceNumber(
+      tx,
+      eligibility.academicYear.id,
+      body.cardType,
+    );
+    const cardNumber = buildStudentCardNumber(
+      sequenceNumber,
+      eligibility.academicYear.year,
+    );
+    const card = await tx.studentCard.create({
+      data: {
+        studentId,
+        enrollmentId: eligibility.enrollment.id,
+        academicYearId: eligibility.academicYear.id,
+        boardMembershipId:
+          body.cardType === StudentCardType.BOARD_MEMBER
+            ? eligibility.activeBoardMembership?.id
+            : undefined,
+        cardType: body.cardType,
+        sequenceNumber,
+        cardNumber,
+        issuedByUserId: userId,
+      },
+      include: this.cardInclude(),
+    });
+    await tx.studentHistoryEvent.create({
+      data: {
+        studentId,
+        eventType: StudentHistoryEventType.STUDENT_CARD_ISSUED,
+        studentCardId: card.id,
+        boardMembershipId: card.boardMembershipId,
+        justification: this.optional(body.note),
+        performedByUserId: userId,
+      },
+    });
+    await this.recordAuditTx(tx, {
+      eventType: AdministrativeAuditEventType.STUDENT_CARD_ISSUED,
+      domain: "student_cards",
+      recordId: card.id,
+      userId,
+      metadata: {
+        studentId,
+        enrollmentId: card.enrollmentId,
+        academicYearId: card.academicYearId,
+        studentCardId: card.id,
+        cardType: card.cardType,
+        sequenceNumber: card.sequenceNumber,
+        cardNumber: card.cardNumber,
+      },
+    });
+
+    return card;
   }
 
   private async nextSequenceNumber(

@@ -23,6 +23,7 @@ import {
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { StudentCardsService } from "../student-cards/student-cards.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "./cpf.js";
 import {
@@ -59,6 +60,8 @@ export class StudentsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AdministrativeAuditService)
     private readonly audit: AdministrativeAuditService,
+    @Inject(StudentCardsService)
+    private readonly studentCards: StudentCardsService,
   ) {}
 
   async listAcademicYears() {
@@ -145,18 +148,20 @@ export class StudentsService {
 
   async listStudents(query: ListStudentsDto) {
     const where = this.buildStudentWhere(query);
-    const orderBy = this.buildStudentOrderBy(query);
     const pagination = this.resolvePagination(query);
-    const [data, total] = await Promise.all([
-      this.prisma.student.findMany({
-        where,
-        orderBy,
-        skip: pagination.skip,
-        take: pagination.limit,
-        include: this.studentSummaryInclude(),
-      }),
-      this.prisma.student.count({ where }),
-    ]);
+    const [data, total] =
+      query.sort === StudentSort.CARD_NUMBER
+        ? await this.listStudentsByCardNumber(query, pagination)
+        : await Promise.all([
+            this.prisma.student.findMany({
+              where,
+              orderBy: this.buildStudentOrderBy(query),
+              skip: pagination.skip,
+              take: pagination.limit,
+              include: this.studentSummaryInclude(),
+            }),
+            this.prisma.student.count({ where }),
+          ]);
 
     return {
       data: data.map((student) => this.toStudentSummary(student)),
@@ -193,6 +198,16 @@ export class StudentsService {
             },
           },
           include: this.studentDetailInclude(),
+        });
+        const enrollment = createdStudent.enrollments[0];
+        if (!enrollment) {
+          throw new BadRequestException("Matricula inicial obrigatoria");
+        }
+        await this.studentCards.issueAutomaticStudentCardTx(tx, {
+          studentId: createdStudent.id,
+          enrollmentId: enrollment.id,
+          userId,
+          note: "Emitida automaticamente no cadastro do academico",
         });
 
         return createdStudent;
@@ -1018,6 +1033,7 @@ export class StudentsService {
       const cpfSearch = normalizeCpf(query.search);
       where.OR = [
         { person: { normalizedName: { contains: normalizedSearch } } },
+        { studentCards: { some: { cardNumber: { contains: query.search.trim() } } } },
         ...(cpfSearch ? [{ person: { cpf: { contains: cpfSearch } } }] : []),
       ];
     }
@@ -1038,6 +1054,134 @@ export class StudentsService {
     }
 
     return where;
+  }
+
+  private async listStudentsByCardNumber(
+    query: ListStudentsDto,
+    pagination: { skip: number; limit: number },
+  ): Promise<[StudentWithSummary[], number]> {
+    const where = this.buildStudentSqlWhere(query);
+    const direction = query.order === SortOrder.DESC ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+    const [idRows, totalRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        WITH filtered_students AS (
+          SELECT s.id
+          FROM students s
+          INNER JOIN people p ON p.id = s.person_id
+          WHERE ${where}
+        ),
+        visible_cards AS (
+          SELECT DISTINCT ON (sc.student_id)
+            sc.student_id,
+            sc.card_number,
+            sc.sequence_number,
+            ay.year AS academic_year_year,
+            sc.issued_at
+          FROM student_cards sc
+          INNER JOIN academic_years ay ON ay.id = sc.academic_year_id
+          WHERE sc.status = 'ACTIVE'::"StudentCardStatus"
+          ORDER BY sc.student_id, ay.year DESC, sc.issued_at DESC, sc.sequence_number ASC
+        )
+        SELECT fs.id
+        FROM filtered_students fs
+        INNER JOIN students s ON s.id = fs.id
+        INNER JOIN people p ON p.id = s.person_id
+        LEFT JOIN visible_cards vc ON vc.student_id = fs.id
+        ORDER BY
+          CASE WHEN vc.sequence_number IS NULL THEN 1 ELSE 0 END ASC,
+          vc.academic_year_year ${direction} NULLS LAST,
+          vc.sequence_number ${direction} NULLS LAST,
+          vc.card_number ${direction} NULLS LAST,
+          p.normalized_name ASC,
+          s.created_at DESC
+        LIMIT ${pagination.limit}
+        OFFSET ${pagination.skip}
+      `),
+      this.prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+        WITH filtered_students AS (
+          SELECT s.id
+          FROM students s
+          INNER JOIN people p ON p.id = s.person_id
+          WHERE ${where}
+        )
+        SELECT COUNT(*)::int AS total FROM filtered_students
+      `),
+    ]);
+
+    const ids = idRows.map((row) => row.id);
+    if (ids.length === 0) {
+      return [[], totalRows[0]?.total ?? 0];
+    }
+
+    const records = await this.prisma.student.findMany({
+      where: { id: { in: ids } },
+      include: this.studentSummaryInclude(),
+    });
+    const recordById = new Map(records.map((record) => [record.id, record]));
+    return [
+      ids.flatMap((id) => {
+        const record = recordById.get(id);
+        return record ? [record] : [];
+      }),
+      totalRows[0]?.total ?? 0,
+    ];
+  }
+
+  private buildStudentSqlWhere(query: ListStudentsDto) {
+    const conditions: Prisma.Sql[] = [];
+    if (query.status !== StudentStatusFilter.ALL) {
+      const status =
+        query.status === StudentStatusFilter.SUSPENDED
+          ? StudentStatus.SUSPENDED
+          : query.status === StudentStatusFilter.TERMINATED
+            ? StudentStatus.TERMINATED
+            : StudentStatus.ACTIVE;
+      conditions.push(Prisma.sql`s.status = ${status}::"StudentStatus"`);
+    }
+
+    if (query.search) {
+      const normalizedSearch = this.normalizeName(query.search);
+      const cpfSearch = normalizeCpf(query.search);
+      const cardSearch = `%${query.search.trim()}%`;
+      const searchConditions = [
+        Prisma.sql`p.normalized_name LIKE ${`%${normalizedSearch}%`}`,
+        Prisma.sql`EXISTS (
+          SELECT 1
+          FROM student_cards sc_search
+          WHERE sc_search.student_id = s.id
+            AND sc_search.card_number ILIKE ${cardSearch}
+        )`,
+        ...(cpfSearch ? [Prisma.sql`p.cpf LIKE ${`%${cpfSearch}%`}`] : []),
+      ];
+      conditions.push(Prisma.sql`(${Prisma.join(searchConditions, " OR ")})`);
+    }
+
+    const enrollmentConditions: Prisma.Sql[] = [];
+    if (query.academicYearId) {
+      enrollmentConditions.push(
+        Prisma.sql`e.academic_year_id = ${query.academicYearId}::uuid`,
+      );
+    }
+    if (query.institutionId) {
+      enrollmentConditions.push(
+        Prisma.sql`e.institution_id = ${query.institutionId}::uuid`,
+      );
+    }
+    if (query.shiftId) {
+      enrollmentConditions.push(Prisma.sql`e.shift_id = ${query.shiftId}::uuid`);
+    }
+    if (enrollmentConditions.length > 0) {
+      conditions.push(Prisma.sql`EXISTS (
+        SELECT 1
+        FROM enrollments e
+        WHERE e.student_id = s.id
+          AND ${Prisma.join(enrollmentConditions, " AND ")}
+      )`);
+    }
+
+    return conditions.length > 0
+      ? Prisma.sql`${Prisma.join(conditions, " AND ")}`
+      : Prisma.sql`TRUE`;
   }
 
   private resolvePagination(query: ListStudentsDto) {
@@ -1389,6 +1533,12 @@ export class StudentsService {
         where: { status: BoardMembershipStatus.ACTIVE },
         take: 1,
       },
+      studentCards: {
+        where: { status: StudentCardStatus.ACTIVE },
+        orderBy: [{ academicYear: { year: "desc" } }, { issuedAt: "desc" }],
+        take: 1,
+        include: { academicYear: true },
+      },
       enrollments: {
         orderBy: { academicYear: { year: "desc" } },
         take: 1,
@@ -1430,6 +1580,15 @@ export class StudentsService {
       updatedAt: student.updatedAt,
       canReceiveFutureInvoices: canReceiveFutureInvoices(student),
       activeBoardMembership: student.boardMemberships[0] ?? null,
+      currentStudentCard: student.studentCards[0]
+        ? {
+            id: student.studentCards[0].id,
+            cardType: student.studentCards[0].cardType,
+            sequenceNumber: student.studentCards[0].sequenceNumber,
+            cardNumber: student.studentCards[0].cardNumber,
+            academicYear: student.studentCards[0].academicYear,
+          }
+        : null,
       person: {
         id: student.person.id,
         fullName: student.person.fullName,

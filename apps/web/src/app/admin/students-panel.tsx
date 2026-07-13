@@ -464,7 +464,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
           <input
             className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por nome ou CPF"
+            placeholder="Buscar por carteirinha, nome ou CPF"
             type="search"
             value={search}
           />
@@ -553,6 +553,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
+                  <th className="px-4 py-3">Carteirinha</th>
                   <th className="px-4 py-3">Nome</th>
                   <th className="px-4 py-3">CPF</th>
                   <th className="px-4 py-3">Instituicao</th>
@@ -569,19 +570,22 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={11}>
+                    <td className="px-4 py-6 text-slate-500" colSpan={12}>
                       Carregando...
                     </td>
                   </tr>
                 ) : students.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={11}>
+                    <td className="px-4 py-6 text-slate-500" colSpan={12}>
                       Nenhum academico encontrado
                     </td>
                   </tr>
                 ) : (
                   students.map((student) => (
                     <tr key={student.id}>
+                      <td className="px-4 py-3 font-semibold text-slate-950">
+                        {student.currentStudentCard?.cardNumber ?? "-"}
+                      </td>
                       <td className="px-4 py-3 font-medium text-slate-950">
                         {student.person.fullName}
                       </td>

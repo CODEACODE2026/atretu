@@ -23,6 +23,7 @@ export enum StudentStatusFilter {
 }
 
 export enum StudentSort {
+  CARD_NUMBER = "cardNumber",
   NAME = "name",
   JOINED_AT = "joinedAt",
   CREATED_AT = "createdAt",
@@ -71,7 +72,7 @@ export class ListStudentsDto {
 
   @IsOptional()
   @IsEnum(StudentSort)
-  sort = StudentSort.NAME;
+  sort = StudentSort.CARD_NUMBER;
 
   @IsOptional()
   @IsEnum(SortOrder)

@@ -25,6 +25,7 @@ import {
 import { FileDisposition } from "../documents/dto/documents.dto.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import { RateLimitService } from "../security/rate-limit.service.js";
+import { StudentCardsService } from "../student-cards/student-cards.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "../students/cpf.js";
 import {
   ListPreRegistrationsDto,
@@ -56,6 +57,8 @@ export class PreRegistrationsService {
     @Inject(DocumentStorageService)
     private readonly storage: DocumentStorageService,
     @Inject(RateLimitService) private readonly rateLimit: RateLimitService,
+    @Inject(StudentCardsService)
+    private readonly studentCards: StudentCardsService,
   ) {}
 
   async getPublicOptions() {
@@ -350,6 +353,16 @@ export class PreRegistrationsService {
             },
           },
           include: { enrollments: { take: 1 } },
+        });
+        const enrollment = student.enrollments[0];
+        if (!enrollment) {
+          throw new BadRequestException("Matricula inicial obrigatoria");
+        }
+        await this.studentCards.issueAutomaticStudentCardTx(tx, {
+          studentId: student.id,
+          enrollmentId: enrollment.id,
+          userId,
+          note: "Emitida automaticamente na aprovacao do pre-cadastro",
         });
 
         for (const document of record.documents.filter(

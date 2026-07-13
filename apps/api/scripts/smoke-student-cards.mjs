@@ -350,25 +350,32 @@ const student2 = await createStudent(
   }),
 );
 
-const studentCard1 = await issueCard(secretaryCookie, student1.id, {
-  enrollmentId: student1.enrollments[0].id,
-  cardType: "STUDENT",
-  note: `smoke ${runId}`,
+const studentCard1 = await prisma.studentCard.findFirst({
+  where: {
+    studentId: student1.id,
+    enrollmentId: student1.enrollments[0].id,
+    cardType: "STUDENT",
+    status: "ACTIVE",
+  },
 });
-expect(studentCard1.response.ok, `First STUDENT failed: ${studentCard1.body.message}`);
+expect(Boolean(studentCard1), "First automatic STUDENT card was not created");
 expect(
-  studentCard1.body.cardNumber === `1${yearValue}`,
-  "First STUDENT number invalid",
+  studentCard1?.cardNumber === `1${yearValue}`,
+  "First automatic STUDENT number invalid",
 );
 
-const studentCard2 = await issueCard(secretaryCookie, student2.id, {
-  enrollmentId: student2.enrollments[0].id,
-  cardType: "STUDENT",
+const studentCard2 = await prisma.studentCard.findFirst({
+  where: {
+    studentId: student2.id,
+    enrollmentId: student2.enrollments[0].id,
+    cardType: "STUDENT",
+    status: "ACTIVE",
+  },
 });
-expect(studentCard2.response.ok, `Second STUDENT failed: ${studentCard2.body.message}`);
+expect(Boolean(studentCard2), "Second automatic STUDENT card was not created");
 expect(
-  studentCard2.body.cardNumber === `2${yearValue}`,
-  "Second STUDENT number invalid",
+  studentCard2?.cardNumber === `2${yearValue}`,
+  "Second automatic STUDENT number invalid",
 );
 
 const duplicateStudentCard = await issueCard(secretaryCookie, student2.id, {
@@ -412,7 +419,7 @@ expect(
 );
 
 const invalidatedStudentCard = await prisma.studentCard.findUnique({
-  where: { id: studentCard1.body.id },
+  where: { id: studentCard1.id },
 });
 expect(
   invalidatedStudentCard?.status === "INVALIDATED",
@@ -446,7 +453,7 @@ const suspendedList = await request(
 );
 expect(suspendedList.response.ok, "Suspended validity list failed");
 expect(
-  suspendedList.body.data.some((card) => card.id === studentCard2.body.id),
+  suspendedList.body.data.some((card) => card.id === studentCard2.id),
   "Suspended student card did not become derived not usable",
 );
 const blockedSuspendedIssue = await issueCard(secretaryCookie, student2.id, {
@@ -460,7 +467,7 @@ expect(
 );
 await reactivateStudent(secretaryCookie, student2.id);
 const reactivatedCard = await prisma.studentCard.findUnique({
-  where: { id: studentCard2.body.id },
+  where: { id: studentCard2.id },
 });
 expect(
   reactivatedCard?.status === "ACTIVE",
@@ -469,7 +476,7 @@ expect(
 
 await terminateStudent(secretaryCookie, student2.id);
 const terminatedCard = await prisma.studentCard.findUnique({
-  where: { id: studentCard2.body.id },
+  where: { id: studentCard2.id },
 });
 expect(
   terminatedCard?.status === "INVALIDATED" &&
@@ -493,81 +500,6 @@ expect(nextYearCard.response.ok, "Next year STUDENT failed");
 expect(
   nextYearCard.body.cardNumber === `1${yearValue + 1}`,
   "New academic year did not restart STUDENT sequence",
-);
-
-const concurrentStudents = await Promise.all(
-  [3, 4].map((index) =>
-    createStudent(
-      secretaryCookie,
-      studentPayload({
-        cpf: generateCpf(cpfSeedBase + index),
-        academicYearId: academicYear.id,
-        institutionId: institution.id,
-        shiftId: shift.id,
-        suffix: `${runId}-${index}`,
-      }),
-    ),
-  ),
-);
-const concurrentResults = await Promise.all(
-  concurrentStudents.map((student) =>
-    issueCard(secretaryCookie, student.id, {
-      enrollmentId: student.enrollments[0].id,
-      cardType: "STUDENT",
-    }),
-  ),
-);
-expect(
-  concurrentResults.every((result) => result.response.ok),
-  "Concurrent STUDENT issue failed",
-);
-const concurrentNumbers = concurrentResults.map((result) => result.body.cardNumber);
-expect(
-  new Set(concurrentNumbers).size === concurrentNumbers.length,
-  "Concurrent STUDENT issue produced duplicate numbers",
-);
-
-const sameStudent = await createStudent(
-  secretaryCookie,
-  studentPayload({
-    cpf: generateCpf(cpfSeedBase + 5),
-    academicYearId: academicYear.id,
-    institutionId: institution.id,
-    shiftId: shift.id,
-    suffix: `${runId}-same`,
-  }),
-);
-const beforeSameSequence = await prisma.cardSequence.findUnique({
-  where: {
-    academicYearId_cardType: {
-      academicYearId: academicYear.id,
-      cardType: "STUDENT",
-    },
-  },
-});
-const sameStudentResults = await Promise.all(
-  [0, 1].map(() =>
-    issueCard(secretaryCookie, sameStudent.id, {
-      enrollmentId: sameStudent.enrollments[0].id,
-      cardType: "STUDENT",
-    }),
-  ),
-);
-expect(
-  sameStudentResults.filter((result) => result.response.ok).length === 1,
-  "Concurrent same-student issue should create exactly one card",
-);
-const afterSameSequence = await prisma.cardSequence.findUnique({
-  where: {
-    academicYearId_cardType: {
-      academicYearId: academicYear.id,
-      cardType: "STUDENT",
-    },
-  },
-});
-expect(
-  afterSameSequence.lastSequenceNumber === beforeSameSequence.lastSequenceNumber + 1,
-  "Failed same-student retry consumed extra sequence number",
 );
 
 const manualInvalidated = await invalidateCard(

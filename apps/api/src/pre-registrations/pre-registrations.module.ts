@@ -5,6 +5,7 @@ import { AppConfigModule } from "../config/app-config.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { DocumentsModule } from "../documents/documents.module.js";
 import { SecurityModule } from "../security/security.module.js";
+import { StudentCardsModule } from "../student-cards/student-cards.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { PreRegistrationsController } from "./pre-registrations.controller.js";
 import { PreRegistrationsService } from "./pre-registrations.service.js";
@@ -17,6 +18,7 @@ import { PreRegistrationsService } from "./pre-registrations.service.js";
     DatabaseModule,
     DocumentsModule,
     SecurityModule,
+    StudentCardsModule,
     UsersModule,
   ],
   controllers: [PreRegistrationsController],

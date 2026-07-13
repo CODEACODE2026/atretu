@@ -89,6 +89,13 @@ export type StudentSummary = {
   updatedAt: string;
   canReceiveFutureInvoices: boolean;
   activeBoardMembership?: BoardMembershipRecord | null;
+  currentStudentCard?: {
+    id: string;
+    cardType: StudentCardType;
+    sequenceNumber: number;
+    cardNumber: string;
+    academicYear: AcademicYear;
+  } | null;
   person: {
     id: string;
     fullName: string;
@@ -359,7 +366,7 @@ export type ListStudentsParams = {
   institutionId?: string;
   shiftId?: string;
   status?: "active" | "suspended" | "terminated" | "all";
-  sort?: "name" | "joinedAt" | "createdAt";
+  sort?: "cardNumber" | "name" | "joinedAt" | "createdAt";
   order?: "asc" | "desc";
 };
 

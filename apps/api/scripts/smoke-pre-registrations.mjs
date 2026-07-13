@@ -596,6 +596,19 @@ try {
     throw new Error("Approval did not create exactly one Person/Student/Enrollment");
   }
 
+  const approvedCards = await prisma.studentCard.findMany({
+    where: { studentId: afterApproval.studentId, status: "ACTIVE" },
+  });
+  if (
+    approvedCards.length !== 1 ||
+    approvedCards[0].cardType !== "STUDENT" ||
+    approvedCards[0].enrollmentId !== afterApproval.enrollmentIds[0] ||
+    approvedCards[0].cardNumber !==
+      `${approvedCards[0].sequenceNumber}${academicYear.body.year}`
+  ) {
+    throw new Error("Approval did not issue one active automatic student card");
+  }
+
   const busAssignments = await prisma.busAssignment.count({
     where: { enrollmentId: { in: afterApproval.enrollmentIds } },
   });
