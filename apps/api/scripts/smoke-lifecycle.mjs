@@ -106,6 +106,39 @@ async function createBaseRecord(cookie, path, body) {
   return created.body;
 }
 
+async function createAcademicYear(cookie, { start, isCurrent = false, label }) {
+  let year = start;
+  while (year >= 2000) {
+    const existing = await prisma.academicYear.findUnique({
+      where: { year },
+      select: { id: true },
+    });
+    if (existing) {
+      year -= 1;
+      continue;
+    }
+
+    const created = await request("/academic-years", {
+      method: "POST",
+      headers: json(cookie),
+      body: JSON.stringify({ year, isCurrent }),
+    });
+    if (created.response.ok) {
+      return created;
+    }
+
+    const message = String(created.body.message ?? "");
+    if (created.response.status === 409 || message.includes("ja cadastrado")) {
+      year -= 1;
+      continue;
+    }
+
+    throw new Error(`${label} create failed: ${message}`);
+  }
+
+  throw new Error(`${label} create failed: no available year`);
+}
+
 async function createStudent(cookie, payload) {
   const created = await request("/students", {
     method: "POST",
@@ -224,24 +257,12 @@ if (anonymous.response.status !== 401) {
 
 const { adminCookie, secretaryCookie } = await ensureUsers();
 
-const usedYears = new Set(
-  (await prisma.academicYear.findMany({ select: { year: true } })).map(
-    (item) => item.year,
-  ),
-);
-let smokeYear = 2097;
-while (usedYears.has(smokeYear)) {
-  smokeYear -= 1;
-}
-
-const academicYear = await request("/academic-years", {
-  method: "POST",
-  headers: json(adminCookie),
-  body: JSON.stringify({ year: smokeYear, isCurrent: true }),
+const academicYear = await createAcademicYear(adminCookie, {
+  start: 2097,
+  isCurrent: true,
+  label: "Academic year",
 });
-if (!academicYear.response.ok) {
-  throw new Error(`Academic year create failed: ${academicYear.body.message}`);
-}
+const smokeYear = academicYear.body.year;
 
 const institution = await createBaseRecord(adminCookie, "/institutions", {
   name: `Instituicao ${runId}`,
@@ -577,18 +598,18 @@ if (activeBlocked.response.status !== 400) {
   throw new Error("Active student reinstatement was not blocked");
 }
 
-let reinstatementYearValue = smokeYear - 1;
-while (usedYears.has(reinstatementYearValue)) {
-  reinstatementYearValue -= 1;
-}
-const reinstatementYear = await request("/academic-years", {
-  method: "POST",
-  headers: json(adminCookie),
-  body: JSON.stringify({ year: reinstatementYearValue, isCurrent: false }),
+const reinstatementYear = await createAcademicYear(adminCookie, {
+  start: smokeYear - 1,
+  label: "Reinstatement year",
 });
-if (!reinstatementYear.response.ok) {
-  throw new Error(`Reinstatement year create failed: ${reinstatementYear.body.message}`);
-}
+const archivedReinstatementYear = await createAcademicYear(adminCookie, {
+  start: reinstatementYear.body.year - 1,
+  label: "Archived reinstatement year",
+});
+await request(`/academic-years/${archivedReinstatementYear.body.id}/archive`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+});
 
 const newYearStudent = await createStudent(
   secretaryCookie,
@@ -608,6 +629,17 @@ await request(`/students/${newYearStudent.id}/terminate`, {
     justification: "Desligamento antes do religamento",
   }),
 });
+const archivedYearReinstate = await reinstate(secretaryCookie, newYearStudent.id, {
+  academicYearId: archivedReinstatementYear.body.id,
+  institutionId: institution.id,
+  shiftId: shift.id,
+  course: "Tecnico em Contabilidade",
+  grade: "2o",
+  reason: "Retorno em ano arquivado",
+});
+if (archivedYearReinstate.response.status !== 400) {
+  throw new Error("Archived academic year was allowed in reinstatement");
+}
 const newYearReinstate = await reinstate(secretaryCookie, newYearStudent.id, {
   academicYearId: reinstatementYear.body.id,
   institutionId: institution.id,

@@ -29,6 +29,11 @@ enum RecordStatus {
   INACTIVE
 }
 
+enum AcademicYearStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 enum AdministrativeAuditEventType {
   BASE_RECORD_CREATED
   BASE_RECORD_UPDATED
@@ -469,6 +474,8 @@ model AcademicYear {
   id               String                  @id @default(uuid()) @db.Uuid
   year             Int                     @unique
   isCurrent        Boolean                 @default(false) @map("is_current")
+  status           AcademicYearStatus      @default(ACTIVE)
+  archivedAt       DateTime?               @map("archived_at") @db.Timestamptz(6)
   createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
   enrollments      Enrollment[]
@@ -477,6 +484,7 @@ model AcademicYear {
   studentCards     StudentCard[]
 
   @@index([isCurrent])
+  @@index([status])
   @@index([createdAt])
   @@map("academic_years")
 }

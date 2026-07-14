@@ -244,7 +244,7 @@ function BaseRecordsPanel() {
 
   async function loadYears() {
     try {
-      const response = await api.listAcademicYears();
+      const response = await api.listAcademicYears({ status: "all" });
       setYears(response.data);
       const current = response.data.find((year) => year.isCurrent);
       if (current) {

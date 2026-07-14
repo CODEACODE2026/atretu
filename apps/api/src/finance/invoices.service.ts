@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  AcademicYearStatus,
   BoardMembershipStatus,
   InvoiceStatus,
   Prisma,
@@ -259,7 +260,10 @@ export class InvoicesService {
     return {
       student,
       enrollment,
-      blockingReason: getFutureInvoiceBlockingReason(student),
+      blockingReason:
+        enrollment.academicYear.status === AcademicYearStatus.ACTIVE
+          ? getFutureInvoiceBlockingReason(student)
+          : "ACADEMIC_YEAR_NOT_ACTIVE: Ano Letivo ativo obrigatorio",
     };
   }
 

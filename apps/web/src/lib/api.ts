@@ -54,6 +54,19 @@ export type AcademicYear = {
   id: string;
   year: number;
   isCurrent: boolean;
+  status: "ACTIVE" | "ARCHIVED";
+  archivedAt?: string | null;
+  dependencyCounts?: {
+    enrollments: number;
+    preRegistrations: number;
+    cardSequences: number;
+    studentCards: number;
+  };
+  canEditYear?: boolean;
+  canDelete?: boolean;
+  canArchive?: boolean;
+  canReactivate?: boolean;
+  canSetCurrent?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -739,8 +752,8 @@ export const api = {
     });
   },
 
-  listAcademicYears() {
-    return request<{ data: AcademicYear[] }>("/academic-years");
+  listAcademicYears(params?: { status?: "active" | "archived" | "all" }) {
+    return request<{ data: AcademicYear[] }>(withParams("/academic-years", params));
   },
 
   createAcademicYear(body: { year: number; isCurrent?: boolean }) {
@@ -760,6 +773,24 @@ export const api = {
   setCurrentAcademicYear(id: string) {
     return request<AcademicYear>(`/academic-years/${id}/set-current`, {
       method: "PATCH",
+    });
+  },
+
+  archiveAcademicYear(id: string) {
+    return request<AcademicYear>(`/academic-years/${id}/archive`, {
+      method: "PATCH",
+    });
+  },
+
+  reactivateAcademicYear(id: string) {
+    return request<AcademicYear>(`/academic-years/${id}/reactivate`, {
+      method: "PATCH",
+    });
+  },
+
+  deleteAcademicYear(id: string) {
+    return request<{ deleted: boolean; id: string }>(`/academic-years/${id}`, {
+      method: "DELETE",
     });
   },
 

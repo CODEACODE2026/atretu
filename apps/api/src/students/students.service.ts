@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  AcademicYearStatus,
   BoardMembershipStatus,
   BusAssignmentEndReason,
   BusAssignmentEventType,
@@ -38,6 +39,8 @@ import {
   EndBoardMembershipDto,
   EnrollmentInputDto,
   GuardianInputDto,
+  AcademicYearStatusFilter,
+  ListAcademicYearsDto,
   ListStudentsDto,
   ReactivateStudentDto,
   ReinstateStudentDto,
@@ -55,6 +58,12 @@ import {
 } from "./dto/students.dto.js";
 
 type PrismaTx = Prisma.TransactionClient | PrismaService;
+type AcademicYearDependencyCounts = {
+  enrollments: number;
+  preRegistrations: number;
+  cardSequences: number;
+  studentCards: number;
+};
 
 @Injectable()
 export class StudentsService {
@@ -68,11 +77,31 @@ export class StudentsService {
     private readonly studentCards: StudentCardsService,
   ) {}
 
-  async listAcademicYears() {
-    const data = await this.prisma.academicYear.findMany({
+  async listAcademicYears(query: ListAcademicYearsDto = new ListAcademicYearsDto()) {
+    const where: Prisma.AcademicYearWhereInput =
+      query.status === AcademicYearStatusFilter.ALL
+        ? {}
+        : {
+            status:
+              query.status === AcademicYearStatusFilter.ARCHIVED
+                ? AcademicYearStatus.ARCHIVED
+                : AcademicYearStatus.ACTIVE,
+          };
+    const records = await this.prisma.academicYear.findMany({
+      where,
       orderBy: [{ year: "desc" }],
+      include: {
+        _count: {
+          select: {
+            enrollments: true,
+            preRegistrations: true,
+            cardSequences: true,
+            studentCards: true,
+          },
+        },
+      },
     });
-    return { data };
+    return { data: records.map((record) => this.toAcademicYear(record)) };
   }
 
   async createAcademicYear(body: CreateAcademicYearDto, userId: string) {
@@ -86,7 +115,11 @@ export class StudentsService {
         }
 
         return tx.academicYear.create({
-          data: { year: body.year, isCurrent: body.isCurrent ?? false },
+          data: {
+            year: body.year,
+            isCurrent: body.isCurrent ?? false,
+            status: AcademicYearStatus.ACTIVE,
+          },
         });
       });
 
@@ -108,11 +141,17 @@ export class StudentsService {
     body: UpdateAcademicYearDto,
     userId: string,
   ) {
-    await this.ensureAcademicYear(id);
     try {
-      const record = await this.prisma.academicYear.update({
-        where: { id },
-        data: body,
+      const record = await this.prisma.$transaction(async (tx) => {
+        await this.lockAcademicYear(tx, id);
+        const current = await this.ensureAcademicYear(id, tx);
+        if (body.year !== undefined) {
+          await this.ensureAcademicYearHasNoDependencies(tx, id, "edit");
+        }
+        return tx.academicYear.update({
+          where: { id },
+          data: { year: body.year ?? current.year },
+        });
       });
       await this.recordAudit(
         AdministrativeAuditEventType.ACADEMIC_YEAR_UPDATED,
@@ -128,8 +167,14 @@ export class StudentsService {
   }
 
   async setCurrentAcademicYear(id: string, userId: string) {
-    await this.ensureAcademicYear(id);
     const record = await this.prisma.$transaction(async (tx) => {
+      await this.lockAcademicYear(tx, id);
+      const current = await this.ensureAcademicYear(id, tx);
+      if (current.status !== AcademicYearStatus.ACTIVE) {
+        throw new BadRequestException(
+          "ACADEMIC_YEAR_NOT_ACTIVE: Ano Letivo arquivado nao pode ser definido como atual",
+        );
+      }
       await tx.academicYear.updateMany({
         where: { isCurrent: true },
         data: { isCurrent: false },
@@ -148,6 +193,86 @@ export class StudentsService {
       { academicYearId: record.id },
     );
     return record;
+  }
+
+  async archiveAcademicYear(id: string, userId: string) {
+    const record = await this.prisma.$transaction(async (tx) => {
+      await this.lockAcademicYear(tx, id);
+      const current = await this.ensureAcademicYear(id, tx);
+      if (current.status === AcademicYearStatus.ARCHIVED) {
+        throw new BadRequestException(
+          "ACADEMIC_YEAR_ALREADY_ARCHIVED: Ano Letivo ja esta arquivado",
+        );
+      }
+      if (current.isCurrent) {
+        throw new BadRequestException(
+          "ACADEMIC_YEAR_CURRENT_CANNOT_ARCHIVE: Ano Letivo atual nao pode ser arquivado",
+        );
+      }
+      return tx.academicYear.update({
+        where: { id },
+        data: {
+          status: AcademicYearStatus.ARCHIVED,
+          archivedAt: new Date(),
+          isCurrent: false,
+        },
+      });
+    });
+    await this.recordAudit(
+      AdministrativeAuditEventType.ACADEMIC_YEAR_UPDATED,
+      "academic_years",
+      record.id,
+      userId,
+      { academicYearId: record.id, action: "archived" },
+    );
+    return this.toAcademicYearWithoutCounts(record);
+  }
+
+  async reactivateAcademicYear(id: string, userId: string) {
+    const record = await this.prisma.$transaction(async (tx) => {
+      await this.lockAcademicYear(tx, id);
+      const current = await this.ensureAcademicYear(id, tx);
+      if (current.status === AcademicYearStatus.ACTIVE) {
+        throw new BadRequestException(
+          "ACADEMIC_YEAR_ALREADY_ACTIVE: Ano Letivo ja esta ativo",
+        );
+      }
+      return tx.academicYear.update({
+        where: { id },
+        data: { status: AcademicYearStatus.ACTIVE, archivedAt: null },
+      });
+    });
+    await this.recordAudit(
+      AdministrativeAuditEventType.ACADEMIC_YEAR_UPDATED,
+      "academic_years",
+      record.id,
+      userId,
+      { academicYearId: record.id, action: "reactivated" },
+    );
+    return this.toAcademicYearWithoutCounts(record);
+  }
+
+  async deleteAcademicYear(id: string, userId: string) {
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      await this.lockAcademicYear(tx, id);
+      const current = await this.ensureAcademicYear(id, tx);
+      if (current.isCurrent) {
+        throw new BadRequestException(
+          "ACADEMIC_YEAR_CANNOT_DELETE: Ano Letivo atual nao pode ser excluido",
+        );
+      }
+      await this.ensureAcademicYearHasNoDependencies(tx, id, "delete");
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.ACADEMIC_YEAR_UPDATED,
+        domain: "academic_years",
+        recordId: id,
+        userId,
+        metadata: { academicYearId: id, year: current.year, action: "deleted" },
+      });
+      await tx.academicYear.delete({ where: { id } });
+      return current;
+    });
+    return { deleted: true, id: deleted.id };
   }
 
   async listStudents(query: ListStudentsDto) {
@@ -442,7 +567,7 @@ export class StudentsService {
 
     const data: Prisma.EnrollmentUncheckedUpdateInput = {};
     if (body.academicYearId) {
-      await this.ensureAcademicYear(body.academicYearId);
+      await this.ensureActiveAcademicYear(body.academicYearId);
       data.academicYearId = body.academicYearId;
     }
     if (body.institutionId) {
@@ -816,7 +941,10 @@ export class StudentsService {
         throw new BadRequestException("Somente academico desligado pode ser religado");
       }
 
-      const academicYear = await this.ensureAcademicYear(body.academicYearId, tx);
+      const academicYear = await this.ensureActiveAcademicYear(
+        body.academicYearId,
+        tx,
+      );
       let enrollment = await tx.enrollment.findUnique({
         where: {
           studentId_academicYearId: {
@@ -1384,7 +1512,7 @@ export class StudentsService {
 
   private async ensureEnrollmentReferences(tx: PrismaTx, input: EnrollmentInputDto) {
     await Promise.all([
-      this.ensureAcademicYear(input.academicYearId, tx),
+      this.ensureActiveAcademicYear(input.academicYearId, tx),
       this.ensureActiveInstitution(input.institutionId, tx),
       this.ensureActiveShift(input.shiftId, tx),
     ]);
@@ -1398,21 +1526,85 @@ export class StudentsService {
     return record;
   }
 
+  private async ensureActiveAcademicYear(
+    id: string,
+    tx: PrismaTx = this.prisma,
+  ) {
+    const record = await this.ensureAcademicYear(id, tx);
+    if (record.status !== AcademicYearStatus.ACTIVE) {
+      throw new BadRequestException(
+        "ACADEMIC_YEAR_NOT_ACTIVE: Ano Letivo arquivado nao pode ser usado em novo fluxo",
+      );
+    }
+    return record;
+  }
+
   private async resolveTargetAcademicYear(
     academicYearId?: string,
     tx: PrismaTx = this.prisma,
   ) {
     if (academicYearId) {
-      return this.ensureAcademicYear(academicYearId, tx);
+      return this.ensureActiveAcademicYear(academicYearId, tx);
     }
 
     const record = await tx.academicYear.findFirst({
-      where: { isCurrent: true },
+      where: { isCurrent: true, status: AcademicYearStatus.ACTIVE },
     });
     if (!record) {
       throw new BadRequestException("Ano Letivo atual nao configurado");
     }
     return record;
+  }
+
+  private async lockAcademicYear(tx: Prisma.TransactionClient, id: string) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM academic_years WHERE id = ${id}::uuid FOR UPDATE
+    `;
+    if (rows.length === 0) {
+      throw new BadRequestException("Ano Letivo invalido");
+    }
+  }
+
+  private async countAcademicYearDependencies(
+    tx: PrismaTx,
+    academicYearId: string,
+  ): Promise<AcademicYearDependencyCounts> {
+    const [enrollments, preRegistrations, cardSequences, studentCards] =
+      await Promise.all([
+        tx.enrollment.count({ where: { academicYearId } }),
+        tx.publicPreRegistration.count({ where: { academicYearId } }),
+        tx.cardSequence.count({ where: { academicYearId } }),
+        tx.studentCard.count({ where: { academicYearId } }),
+      ]);
+    return { enrollments, preRegistrations, cardSequences, studentCards };
+  }
+
+  private dependencyTotal(counts: AcademicYearDependencyCounts) {
+    return (
+      counts.enrollments +
+      counts.preRegistrations +
+      counts.cardSequences +
+      counts.studentCards
+    );
+  }
+
+  private async ensureAcademicYearHasNoDependencies(
+    tx: PrismaTx,
+    academicYearId: string,
+    action: "edit" | "delete",
+  ) {
+    const counts = await this.countAcademicYearDependencies(tx, academicYearId);
+    if (this.dependencyTotal(counts) > 0) {
+      const code =
+        action === "edit"
+          ? "ACADEMIC_YEAR_CANNOT_EDIT"
+          : "ACADEMIC_YEAR_CANNOT_DELETE";
+      throw new ConflictException(
+        `${code}: Ano Letivo possui dependencias e nao pode ser ${
+          action === "edit" ? "editado" : "excluido"
+        }`,
+      );
+    }
   }
 
   private async ensureActiveInstitution(id: string, tx: PrismaTx = this.prisma) {
@@ -1726,6 +1918,59 @@ export class StudentsService {
       institution: true,
       shift: true,
     } satisfies Prisma.EnrollmentInclude;
+  }
+
+  private toAcademicYear(
+    record: Prisma.AcademicYearGetPayload<{
+      include: {
+        _count: {
+          select: {
+            enrollments: true;
+            preRegistrations: true;
+            cardSequences: true;
+            studentCards: true;
+          };
+        };
+      };
+    }>,
+  ) {
+    const dependencyCounts = {
+      enrollments: record._count.enrollments,
+      preRegistrations: record._count.preRegistrations,
+      cardSequences: record._count.cardSequences,
+      studentCards: record._count.studentCards,
+    };
+    const dependencyTotal = this.dependencyTotal(dependencyCounts);
+    return {
+      ...this.toAcademicYearWithoutCounts(record),
+      dependencyCounts,
+      canEditYear: dependencyTotal === 0,
+      canDelete: dependencyTotal === 0 && !record.isCurrent,
+      canArchive:
+        record.status === AcademicYearStatus.ACTIVE && !record.isCurrent,
+      canReactivate: record.status === AcademicYearStatus.ARCHIVED,
+      canSetCurrent: record.status === AcademicYearStatus.ACTIVE && !record.isCurrent,
+    };
+  }
+
+  private toAcademicYearWithoutCounts(record: {
+    id: string;
+    year: number;
+    isCurrent: boolean;
+    status: AcademicYearStatus;
+    archivedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: record.id,
+      year: record.year,
+      isCurrent: record.isCurrent,
+      status: record.status,
+      archivedAt: record.archivedAt,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
   }
 
   private toStudentSummary(student: StudentWithSummary) {

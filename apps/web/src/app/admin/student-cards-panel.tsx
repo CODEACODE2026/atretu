@@ -45,7 +45,7 @@ export function StudentCardsPanel() {
 
   async function loadReferences() {
     try {
-      const response = await api.listAcademicYears();
+      const response = await api.listAcademicYears({ status: "all" });
       setYears(response.data);
       const current = response.data.find((year) => year.isCurrent);
       setAcademicYearId(current?.id ?? "");

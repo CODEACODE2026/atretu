@@ -184,14 +184,21 @@ const usedYears = new Set(
     (item) => item.year,
   ),
 );
-let smokeYear = 2099;
-while (usedYears.has(smokeYear)) {
-  smokeYear -= 1;
+let nextYear = 2099;
+function takeYear() {
+  while (usedYears.has(nextYear)) {
+    nextYear -= 1;
+  }
+  if (nextYear < 2000) {
+    throw new Error("No available academic year for students smoke");
+  }
+  const year = nextYear;
+  usedYears.add(year);
+  nextYear -= 1;
+  return year;
 }
-let rollbackYear = smokeYear - 1;
-while (usedYears.has(rollbackYear) || rollbackYear === smokeYear) {
-  rollbackYear -= 1;
-}
+const smokeYear = takeYear();
+const rollbackYear = takeYear();
 
 const academicYear = await request("/academic-years", {
   method: "POST",
@@ -225,8 +232,127 @@ if (secretaryBlocked.response.status !== 403) {
 const yearList = await request("/academic-years", {
   headers: json(secretaryCookie),
 });
-if (!yearList.response.ok || yearList.body.data.length < 1) {
+if (
+  !yearList.response.ok ||
+  yearList.body.data.length < 1 ||
+  !yearList.body.data.every((item) => item.status === "ACTIVE")
+) {
   throw new Error("Secretaria academic year list failed");
+}
+
+const anonymousYears = await request("/academic-years");
+if (anonymousYears.response.status !== 401) {
+  throw new Error("Anonymous academic year list was not blocked");
+}
+
+const editYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: takeYear() }),
+});
+if (!editYear.response.ok) {
+  throw new Error(`Editable academic year create failed: ${editYear.body.message}`);
+}
+const editedYearValue = takeYear();
+const editedYear = await request(`/academic-years/${editYear.body.id}`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: editedYearValue }),
+});
+if (!editedYear.response.ok || editedYear.body.year !== editedYearValue) {
+  throw new Error(`Empty academic year edit failed: ${editedYear.body.message}`);
+}
+
+const archiveYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: takeYear() }),
+});
+if (!archiveYear.response.ok) {
+  throw new Error(`Archive academic year create failed: ${archiveYear.body.message}`);
+}
+const archived = await request(`/academic-years/${archiveYear.body.id}/archive`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+});
+if (
+  !archived.response.ok ||
+  archived.body.status !== "ARCHIVED" ||
+  !archived.body.archivedAt
+) {
+  throw new Error(`Academic year archive failed: ${archived.body.message}`);
+}
+const activeYears = await request("/academic-years", { headers: json(secretaryCookie) });
+if (activeYears.body.data.some((item) => item.id === archiveYear.body.id)) {
+  throw new Error("Archived academic year appeared in active list");
+}
+const archivedYears = await request("/academic-years?status=archived", {
+  headers: json(secretaryCookie),
+});
+if (!archivedYears.body.data.some((item) => item.id === archiveYear.body.id)) {
+  throw new Error("Archived academic year did not appear in archived list");
+}
+const allYears = await request("/academic-years?status=all", {
+  headers: json(secretaryCookie),
+});
+if (!allYears.body.data.some((item) => item.id === archiveYear.body.id)) {
+  throw new Error("Archived academic year did not appear in all list");
+}
+const setArchivedCurrent = await request(
+  `/academic-years/${archiveYear.body.id}/set-current`,
+  {
+    method: "PATCH",
+    headers: json(adminCookie),
+  },
+);
+if (setArchivedCurrent.response.status !== 400) {
+  throw new Error("Archived academic year was allowed as current");
+}
+const reactivated = await request(
+  `/academic-years/${archiveYear.body.id}/reactivate`,
+  {
+    method: "PATCH",
+    headers: json(adminCookie),
+  },
+);
+if (!reactivated.response.ok || reactivated.body.status !== "ACTIVE") {
+  throw new Error(`Academic year reactivate failed: ${reactivated.body.message}`);
+}
+const deleteYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: takeYear() }),
+});
+if (!deleteYear.response.ok) {
+  throw new Error(`Delete academic year create failed: ${deleteYear.body.message}`);
+}
+const deletedYear = await request(`/academic-years/${deleteYear.body.id}`, {
+  method: "DELETE",
+  headers: json(adminCookie),
+});
+if (!deletedYear.response.ok || deletedYear.body.deleted !== true) {
+  throw new Error(`Empty academic year delete failed: ${deletedYear.body.message}`);
+}
+const archiveCurrent = await request(`/academic-years/${academicYear.body.id}/archive`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+});
+if (archiveCurrent.response.status !== 400) {
+  throw new Error("Current academic year archive was not blocked");
+}
+const deleteCurrent = await request(`/academic-years/${academicYear.body.id}`, {
+  method: "DELETE",
+  headers: json(adminCookie),
+});
+if (deleteCurrent.response.status !== 400) {
+  throw new Error("Current academic year delete was not blocked");
+}
+const secretaryArchive = await request(`/academic-years/${archiveYear.body.id}/archive`, {
+  method: "PATCH",
+  headers: json(secretaryCookie),
+});
+if (secretaryArchive.response.status !== 403) {
+  throw new Error("Secretaria was not blocked from archiving academic year");
 }
 
 const institution = await createBaseRecord(adminCookie, "/institutions", {
@@ -270,6 +396,37 @@ await request(`/buses/${inactiveBus.id}/inactivate`, {
   headers: json(adminCookie),
 });
 
+const blockedArchivedYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: takeYear() }),
+});
+if (!blockedArchivedYear.response.ok) {
+  throw new Error(
+    `Blocked archived year create failed: ${blockedArchivedYear.body.message}`,
+  );
+}
+await request(`/academic-years/${blockedArchivedYear.body.id}/archive`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+});
+const archivedYearStudent = await request("/students", {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify(
+    studentPayload({
+      cpf: generateCpf(300000000 + ((runSeed + 80) % 600000000)),
+      academicYearId: blockedArchivedYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-archived-year`,
+    }),
+  ),
+});
+if (archivedYearStudent.response.status !== 400) {
+  throw new Error("Archived academic year was allowed in student create");
+}
+
 const rollbackAcademicYear = await request("/academic-years", {
   method: "POST",
   headers: json(adminCookie),
@@ -287,6 +444,27 @@ await prisma.cardSequence.create({
     lastSequenceNumber: 2147483647,
   },
 });
+const cardSequenceYearEdit = await request(
+  `/academic-years/${rollbackAcademicYear.body.id}`,
+  {
+    method: "PATCH",
+    headers: json(adminCookie),
+    body: JSON.stringify({ year: takeYear() }),
+  },
+);
+if (cardSequenceYearEdit.response.status !== 409) {
+  throw new Error("Academic year edit with CardSequence dependency was not blocked");
+}
+const cardSequenceYearDelete = await request(
+  `/academic-years/${rollbackAcademicYear.body.id}`,
+  {
+    method: "DELETE",
+    headers: json(adminCookie),
+  },
+);
+if (cardSequenceYearDelete.response.status !== 409) {
+  throw new Error("Academic year delete with CardSequence dependency was not blocked");
+}
 const rollbackCpf = generateCpf(300000000 + ((runSeed + 30) % 600000000));
 const rollbackCreate = await request("/students", {
   method: "POST",
@@ -343,6 +521,86 @@ if (
   throw new Error("Automatic student card was not issued on student create");
 }
 const createdCardNumber = createdCards.body.data[0].cardNumber;
+
+const dependentYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: takeYear() }),
+});
+if (!dependentYear.response.ok) {
+  throw new Error(`Dependent year create failed: ${dependentYear.body.message}`);
+}
+const dependentStudent = await request("/students", {
+  method: "POST",
+  headers: json(secretaryCookie),
+  body: JSON.stringify(
+    studentPayload({
+      cpf: generateCpf(300000000 + ((runSeed + 81) % 600000000)),
+      academicYearId: dependentYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-dep-year`,
+    }),
+  ),
+});
+if (!dependentStudent.response.ok) {
+  throw new Error(`Dependent student create failed: ${dependentStudent.body.message}`);
+}
+const dependentYearEdit = await request(`/academic-years/${dependentYear.body.id}`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: takeYear() }),
+});
+if (dependentYearEdit.response.status !== 409) {
+  throw new Error("Academic year edit with Enrollment/StudentCard was not blocked");
+}
+const dependentYearDelete = await request(`/academic-years/${dependentYear.body.id}`, {
+  method: "DELETE",
+  headers: json(adminCookie),
+});
+if (dependentYearDelete.response.status !== 409) {
+  throw new Error("Academic year delete with Enrollment/StudentCard was not blocked");
+}
+
+const preRegistrationDepYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: takeYear() }),
+});
+if (!preRegistrationDepYear.response.ok) {
+  throw new Error(
+    `Pre-registration dependency year create failed: ${preRegistrationDepYear.body.message}`,
+  );
+}
+await prisma.publicPreRegistration.create({
+  data: {
+    publicCode: `DEP${runId}`.replace(/\W/g, "").slice(0, 32),
+    fullName: `Pre Cadastro ${runId}`,
+    normalizedName: `pre cadastro ${runId}`,
+    cpf: generateCpf(300000000 + ((runSeed + 82) % 600000000)),
+    birthDate: new Date("2001-05-12T00:00:00.000Z"),
+    addressStreet: "Rua Pre",
+    addressNumber: "123",
+    addressNeighborhood: "Centro",
+    addressCity: "Terra Rica",
+    academicYearId: preRegistrationDepYear.body.id,
+    institutionId: institution.id,
+    shiftId: shift.id,
+    course: "Tecnico em Administracao",
+    grade: "1o",
+  },
+});
+const preRegistrationYearEdit = await request(
+  `/academic-years/${preRegistrationDepYear.body.id}`,
+  {
+    method: "PATCH",
+    headers: json(adminCookie),
+    body: JSON.stringify({ year: takeYear() }),
+  },
+);
+if (preRegistrationYearEdit.response.status !== 409) {
+  throw new Error("Academic year edit with PublicPreRegistration was not blocked");
+}
 
 const busCpf = generateCpf(300000000 + ((runSeed + 31) % 600000000));
 const createWithBus = await request("/students", {

@@ -258,6 +258,31 @@ const targetYear = await request("/academic-years", {
 if (!targetYear.response.ok) {
   throw new Error(`Target academic year create failed: ${targetYear.body.message}`);
 }
+let archivedYearValue = oldYearValue + 2;
+while (archivedYearValue <= 2100 && usedYears.has(archivedYearValue)) {
+  archivedYearValue += 1;
+}
+if (archivedYearValue > 2100) {
+  archivedYearValue = oldYearValue - 1;
+  while (archivedYearValue >= 2000 && usedYears.has(archivedYearValue)) {
+    archivedYearValue -= 1;
+  }
+}
+if (archivedYearValue < 2000 || archivedYearValue > 2100) {
+  throw new Error("No available archived academic year for reenrollment smoke");
+}
+const archivedYear = await request("/academic-years", {
+  method: "POST",
+  headers: json(adminCookie),
+  body: JSON.stringify({ year: archivedYearValue, isCurrent: false }),
+});
+if (!archivedYear.response.ok) {
+  throw new Error(`Archived academic year create failed: ${archivedYear.body.message}`);
+}
+await request(`/academic-years/${archivedYear.body.id}/archive`, {
+  method: "PATCH",
+  headers: json(adminCookie),
+});
 
 const institution = await createBaseRecord(adminCookie, "/institutions", {
   name: `Instituicao ${runId}`,
@@ -336,6 +361,25 @@ if (
   !candidates.body.data.some((item) => item.id === noBusStudent.id)
 ) {
   throw new Error("Reenrollment candidates did not include eligible student");
+}
+const archivedCandidates = await request(
+  `/students/reenrollment-candidates?academicYearId=${archivedYear.body.id}`,
+  { headers: json(secretaryCookie) },
+);
+if (archivedCandidates.response.status !== 400) {
+  throw new Error("Archived academic year was allowed in reenrollment candidates");
+}
+const archivedReenrollment = await reenroll(
+  secretaryCookie,
+  noBusStudent.id,
+  reenrollmentPayload({
+    academicYearId: archivedYear.body.id,
+    institutionId: institution.id,
+    shiftId: shift.id,
+  }),
+);
+if (archivedReenrollment.response.status !== 400) {
+  throw new Error("Archived academic year was allowed in reenrollment");
 }
 
 const noBusReenrollment = await reenroll(

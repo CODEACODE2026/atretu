@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  AcademicYearStatus,
   PreRegistrationDocumentStatus,
   PreRegistrationStatus,
   Prisma,
@@ -68,8 +69,9 @@ export class PreRegistrationsService {
   async getPublicOptions() {
     const [academicYears, institutions, shifts] = await Promise.all([
       this.prisma.academicYear.findMany({
+        where: { status: AcademicYearStatus.ACTIVE },
         orderBy: [{ isCurrent: "desc" }, { year: "desc" }],
-        select: { id: true, year: true, isCurrent: true },
+        select: { id: true, year: true, isCurrent: true, status: true, archivedAt: true },
       }),
       this.prisma.institution.findMany({
         where: { status: RecordStatus.ACTIVE },
@@ -584,8 +586,10 @@ export class PreRegistrationsService {
       this.prisma.shift.findUnique({ where: { id: body.shiftId } }),
     ]);
 
-    if (!academicYear) {
-      throw new BadRequestException("Ano Letivo invalido");
+    if (!academicYear || academicYear.status !== AcademicYearStatus.ACTIVE) {
+      throw new BadRequestException(
+        "ACADEMIC_YEAR_NOT_ACTIVE: Ano Letivo ativo obrigatorio",
+      );
     }
     if (!institution || institution.status !== RecordStatus.ACTIVE) {
       throw new BadRequestException("Instituicao ativa obrigatoria");
@@ -617,8 +621,10 @@ export class PreRegistrationsService {
       tx.institution.findUnique({ where: { id: record.institutionId } }),
       tx.shift.findUnique({ where: { id: record.shiftId } }),
     ]);
-    if (!academicYear) {
-      throw new BadRequestException("Ano Letivo invalido");
+    if (!academicYear || academicYear.status !== AcademicYearStatus.ACTIVE) {
+      throw new BadRequestException(
+        "ACADEMIC_YEAR_NOT_ACTIVE: Ano Letivo ativo obrigatorio",
+      );
     }
     if (!institution || institution.status !== RecordStatus.ACTIVE) {
       throw new BadRequestException("Instituicao ativa obrigatoria");

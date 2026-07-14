@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   Param,
@@ -20,6 +21,7 @@ import {
   CreateEnrollmentDto,
   CreateStudentDto,
   EndBoardMembershipDto,
+  ListAcademicYearsDto,
   ListStudentsDto,
   ReactivateStudentDto,
   ReinstateStudentDto,
@@ -43,8 +45,8 @@ export class StudentsController {
 
   @Get("academic-years")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listAcademicYears() {
-    return this.students.listAcademicYears();
+  listAcademicYears(@Query() query: ListAcademicYearsDto) {
+    return this.students.listAcademicYears(query);
   }
 
   @Post("academic-years")
@@ -73,6 +75,33 @@ export class StudentsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.students.setCurrentAcademicYear(id, user.id);
+  }
+
+  @Patch("academic-years/:id/archive")
+  @Roles(RoleCode.SUPER_ADMIN)
+  archiveAcademicYear(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.archiveAcademicYear(id, user.id);
+  }
+
+  @Patch("academic-years/:id/reactivate")
+  @Roles(RoleCode.SUPER_ADMIN)
+  reactivateAcademicYear(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.reactivateAcademicYear(id, user.id);
+  }
+
+  @Delete("academic-years/:id")
+  @Roles(RoleCode.SUPER_ADMIN)
+  deleteAcademicYear(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.deleteAcademicYear(id, user.id);
   }
 
   @Get("students")

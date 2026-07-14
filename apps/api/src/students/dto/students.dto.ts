@@ -34,6 +34,18 @@ export enum SortOrder {
   DESC = "desc",
 }
 
+export enum AcademicYearStatusFilter {
+  ACTIVE = "active",
+  ARCHIVED = "archived",
+  ALL = "all",
+}
+
+export class ListAcademicYearsDto {
+  @IsOptional()
+  @IsEnum(AcademicYearStatusFilter)
+  status: AcademicYearStatusFilter = AcademicYearStatusFilter.ACTIVE;
+}
+
 export class ListStudentsDto {
   @IsOptional()
   @Type(() => Number)

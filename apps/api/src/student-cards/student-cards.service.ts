@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  AcademicYearStatus,
   BoardMembershipStatus,
   Prisma,
   StudentCardInvalidationReason,
@@ -234,6 +235,8 @@ export class StudentCardsService {
       )
     ) {
       blockingReason = "Matricula ja possui carteirinha ativa";
+    } else if (enrollment.academicYear.status !== AcademicYearStatus.ACTIVE) {
+      blockingReason = "ACADEMIC_YEAR_NOT_ACTIVE: Ano Letivo ativo obrigatorio";
     }
 
     return {

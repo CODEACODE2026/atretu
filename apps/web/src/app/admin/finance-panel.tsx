@@ -71,7 +71,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     setError("");
     try {
       const [yearsResponse, institutionsResponse] = await Promise.all([
-        api.listAcademicYears(),
+        api.listAcademicYears({ status: "all" }),
         api.listInstitutions({ status: "active", limit: 100, sort: "name" }),
       ]);
       setYears(yearsResponse.data);

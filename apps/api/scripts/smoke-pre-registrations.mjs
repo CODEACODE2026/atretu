@@ -291,6 +291,22 @@ try {
     method: "PATCH",
     headers: json(adminCookie),
   });
+  let archivedYearValue = smokeYear - 1;
+  while (usedYears.has(archivedYearValue)) {
+    archivedYearValue -= 1;
+  }
+  const archivedYear = await request("/academic-years", {
+    method: "POST",
+    headers: json(adminCookie),
+    body: JSON.stringify({ year: archivedYearValue }),
+  });
+  if (!archivedYear.response.ok) {
+    throw new Error(`Archived year create failed: ${archivedYear.body.message}`);
+  }
+  await request(`/academic-years/${archivedYear.body.id}/archive`, {
+    method: "PATCH",
+    headers: json(adminCookie),
+  });
 
   const options = await request("/public/pre-registration/options");
   if (
@@ -303,9 +319,10 @@ try {
   }
   if (
     options.body.institutions.some((item) => item.id === inactiveInstitution.id) ||
-    options.body.shifts.some((item) => item.id === inactiveShift.id)
+    options.body.shifts.some((item) => item.id === inactiveShift.id) ||
+    options.body.academicYears.some((item) => item.id === archivedYear.body.id)
   ) {
-    throw new Error("Public options exposed inactive references");
+    throw new Error("Public options exposed inactive or archived references");
   }
 
   const anonymousAdmin = await request("/pre-registrations");
@@ -364,6 +381,48 @@ try {
   );
   if (inactiveReference.response.status !== 400) {
     throw new Error("Inactive institution/shift were not blocked");
+  }
+
+  const archivedYearReference = await publicSubmit(
+    preRegistrationPayload({
+      cpf: generateRunCpf(31),
+      academicYearId: archivedYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-archived-year`,
+    }),
+  );
+  if (archivedYearReference.response.status !== 400) {
+    throw new Error("Archived academic year was not blocked in public pre-registration");
+  }
+  const archivedApproval = await prisma.publicPreRegistration.create({
+    data: {
+      publicCode: `ARCH${runId}`.replace(/\W/g, "").slice(0, 32),
+      fullName: `Arquivado ${runId}`,
+      normalizedName: `arquivado ${runId}`,
+      cpf: generateRunCpf(32),
+      birthDate: new Date("2001-05-12T00:00:00.000Z"),
+      addressStreet: "Rua Arquivada",
+      addressNumber: "123",
+      addressNeighborhood: "Centro",
+      addressCity: "Terra Rica",
+      academicYearId: archivedYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      course: "Tecnico em Administracao",
+      grade: "1o",
+    },
+  });
+  const archivedApprovalResponse = await request(
+    `/pre-registrations/${archivedApproval.id}/approve`,
+    {
+      method: "POST",
+      headers: json(secretaryCookie),
+      body: JSON.stringify({}),
+    },
+  );
+  if (archivedApprovalResponse.response.status !== 400) {
+    throw new Error("Archived academic year approval was not blocked");
   }
 
   const honeypotCpf = generateRunCpf(4);
