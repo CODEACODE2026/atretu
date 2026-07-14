@@ -89,6 +89,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [photoRefreshKey, setPhotoRefreshKey] = useState(0);
 
   useEffect(() => {
     void loadReferences();
@@ -1212,9 +1213,17 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
                   await loadStudents();
                 }}
               />
-              <StudentPhoto studentId={selected.id} />
+              <StudentPhoto
+                onChanged={async () => {
+                  setPhotoRefreshKey((current) => current + 1);
+                  await refreshSelected(selected.id);
+                }}
+                studentId={selected.id}
+              />
               <StudentCardsForStudent
+                photoRefreshKey={photoRefreshKey}
                 student={selected}
+                user={user}
                 onChanged={async () => {
                   await refreshSelected(selected.id);
                 }}
@@ -1917,7 +1926,13 @@ const documentTypes: Array<{ label: string; value: StudentDocumentType }> = [
   { label: "Comprovante de matricula", value: "PROOF_OF_ENROLLMENT" },
 ];
 
-function StudentPhoto({ studentId }: { studentId: string }) {
+function StudentPhoto({
+  studentId,
+  onChanged,
+}: {
+  studentId: string;
+  onChanged?: () => Promise<void>;
+}) {
   const [photo, setPhoto] = useState<StudentDocumentRecord | null>(null);
   const [photoUrl, setPhotoUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
@@ -1953,7 +1968,16 @@ function StudentPhoto({ studentId }: { studentId: string }) {
       setPhotoUrl("");
       if (response.photo) {
         const { blob } = await api.downloadStudentPhoto(studentId, "inline");
-        setPhotoUrl(URL.createObjectURL(blob));
+        const nextPhotoUrl = URL.createObjectURL(blob);
+        const canPreview = await canRenderImage(nextPhotoUrl);
+        if (!canPreview) {
+          revokeObjectUrl(nextPhotoUrl);
+          setError(
+            "A foto oficial ativa nao pode ser exibida. Remova e envie novamente um arquivo JPG ou PNG valido.",
+          );
+          return;
+        }
+        setPhotoUrl(nextPhotoUrl);
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar foto");
@@ -1962,7 +1986,7 @@ function StudentPhoto({ studentId }: { studentId: string }) {
     }
   }
 
-  function handleSelect(file: File | undefined) {
+  async function handleSelect(file: File | undefined) {
     setError("");
     setMessage("");
     revokeObjectUrl(previewUrl);
@@ -1979,8 +2003,15 @@ function StudentPhoto({ studentId }: { studentId: string }) {
       setError("A foto deve ter no maximo 8 MB.");
       return;
     }
+    const nextPreviewUrl = URL.createObjectURL(file);
+    const canPreview = await canRenderImage(nextPreviewUrl);
+    if (!canPreview) {
+      revokeObjectUrl(nextPreviewUrl);
+      setError("O arquivo selecionado nao pode ser exibido como foto valida.");
+      return;
+    }
     setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewUrl(nextPreviewUrl);
   }
 
   async function handleSave() {
@@ -2004,6 +2035,7 @@ function StudentPhoto({ studentId }: { studentId: string }) {
       revokeObjectUrl(previewUrl);
       setPreviewUrl("");
       await loadPhoto();
+      await onChanged?.();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao enviar foto");
     } finally {
@@ -2028,6 +2060,7 @@ function StudentPhoto({ studentId }: { studentId: string }) {
       setPhoto(null);
       revokeObjectUrl(photoUrl);
       setPhotoUrl("");
+      await onChanged?.();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao remover foto");
     } finally {
@@ -2090,7 +2123,7 @@ function StudentPhoto({ studentId }: { studentId: string }) {
             accept=".jpg,.jpeg,.png,image/jpeg,image/png"
             className="block w-full text-xs text-slate-700 file:mr-3 file:rounded file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white"
             disabled={saving}
-            onChange={(event) => handleSelect(event.target.files?.[0])}
+            onChange={(event) => void handleSelect(event.target.files?.[0])}
             type="file"
           />
           <div className="flex flex-wrap gap-2">
@@ -2575,6 +2608,26 @@ function revokeObjectUrl(value: string) {
   if (value) {
     URL.revokeObjectURL(value);
   }
+}
+
+function canRenderImage(url: string) {
+  return new Promise<boolean>((resolve) => {
+    const image = new Image();
+    const timeout = window.setTimeout(() => {
+      image.onload = null;
+      image.onerror = null;
+      resolve(false);
+    }, 5000);
+    image.onload = () => {
+      window.clearTimeout(timeout);
+      resolve(true);
+    };
+    image.onerror = () => {
+      window.clearTimeout(timeout);
+      resolve(false);
+    };
+    image.src = url;
+  });
 }
 
 function formatDateTime(value: string) {

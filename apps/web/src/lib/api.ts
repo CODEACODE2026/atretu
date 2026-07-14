@@ -496,6 +496,8 @@ export type ListStudentCardsParams = {
   order?: "asc" | "desc";
 };
 
+export type StudentCardPdfDisposition = "inline" | "attachment";
+
 export type InvoiceStatus = "OPEN" | "PAID" | "CANCELLED";
 export type InvoiceCancellationReason = "MANUAL_CORRECTION" | "DUPLICATE" | "OTHER";
 export type BankSlipStatus =
@@ -906,6 +908,17 @@ export const api = {
 
   listStudentCardsForStudent(studentId: string) {
     return request<{ data: StudentCardRecord[] }>(`/students/${studentId}/cards`);
+  },
+
+  downloadStudentCardPdf(
+    cardId: string,
+    disposition: StudentCardPdfDisposition = "inline",
+  ) {
+    return requestBlob(
+      withParams(`/student-cards/${cardId}/pdf`, {
+        disposition,
+      }),
+    );
   },
 
   previewStudentCard(
