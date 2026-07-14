@@ -18,14 +18,14 @@ import { FileDisposition } from "../documents/dto/documents.dto.js";
 import { PrismaService } from "../database/prisma.service.js";
 
 const A4 = { width: 595.28, height: 841.89 };
-// PDFKit uses points. Product-approved visual card size: 360 x 230 pt.
+// PDFKit uses points. 360 x 230 px at 96 DPI equals 270 x 172.5 pt.
 const CARD = {
-  width: 360,
-  height: 230,
+  width: 270,
+  height: 172.5,
 };
 const PHOTO = {
-  width: 78,
-  height: 104,
+  width: 58.5,
+  height: 78,
 };
 export const STUDENT_CARD_PDF_LAYOUT = {
   card: CARD,
@@ -132,9 +132,9 @@ export class StudentCardPdfService {
 
     doc
       .font("Helvetica")
-      .fontSize(8)
+      .fontSize(7)
       .fillColor(COLORS.muted)
-      .text("Carteirinha individual preparada para impressao e recorte.", 0, y + CARD.height + 26, {
+      .text("Carteirinha individual preparada para impressao e recorte.", 0, y + CARD.height + 20, {
         align: "center",
         width: A4.width,
       });
@@ -149,72 +149,72 @@ export class StudentCardPdfService {
     logoBuffer: Buffer,
   ) {
     doc
-      .roundedRect(x, y, CARD.width, CARD.height, 8)
+      .roundedRect(x, y, CARD.width, CARD.height, 6)
       .fillAndStroke("#FFFFFF", COLORS.line);
     doc
-      .roundedRect(x + 6, y + 6, CARD.width - 12, CARD.height - 12, 6)
+      .roundedRect(x + 4.5, y + 4.5, CARD.width - 9, CARD.height - 9, 4.5)
       .strokeColor("#EDF2F7")
       .stroke();
-    doc.rect(x, y, CARD.width, 42).fill(COLORS.blue);
-    doc.rect(x, y + 42, CARD.width, 5).fill(COLORS.red);
+    doc.rect(x, y, CARD.width, 31.5).fill(COLORS.blue);
+    doc.rect(x, y + 31.5, CARD.width, 3.75).fill(COLORS.red);
 
-    this.drawLogo(doc, x + 12, y + 8, logoBuffer);
+    this.drawLogo(doc, x + 9, y + 6, logoBuffer);
     doc
       .font("Helvetica-Bold")
-      .fontSize(10)
+      .fontSize(7.5)
       .fillColor("#FFFFFF")
-      .text("CARTEIRINHA DO ACADEMICO", x + 116, y + 11, {
-        width: CARD.width - 130,
+      .text("CARTEIRINHA DO ACADEMICO", x + 87, y + 8.25, {
+        width: CARD.width - 97.5,
         align: "right",
       });
     doc
       .font("Helvetica")
-      .fontSize(7)
+      .fontSize(5.25)
       .fillColor("#DDEBFA")
-      .text(`Ano letivo ${card.academicYear.year}`, x + 116, y + 27, {
-        width: CARD.width - 130,
+      .text(`Ano letivo ${card.academicYear.year}`, x + 87, y + 20.25, {
+        width: CARD.width - 97.5,
         align: "right",
       });
 
-    const contentTop = y + 58;
-    const photoX = x + 16;
+    const contentTop = y + 43.5;
+    const photoX = x + 12;
     const photoY = contentTop;
     doc
-      .roundedRect(photoX - 2, photoY - 2, PHOTO.width + 4, PHOTO.height + 4, 4)
+      .roundedRect(photoX - 1.5, photoY - 1.5, PHOTO.width + 3, PHOTO.height + 3, 3)
       .fill("#FFFFFF")
       .strokeColor(COLORS.line)
       .stroke();
     this.drawPhoto(doc, photoBuffer, photoX, photoY);
 
-    const infoX = photoX + PHOTO.width + 16;
-    const infoWidth = CARD.width - (infoX - x) - 18;
+    const infoX = photoX + PHOTO.width + 12;
+    const infoWidth = CARD.width - (infoX - x) - 13.5;
     this.drawFitText(doc, card.student.person.fullName, infoX, contentTop, infoWidth, {
-      maxFontSize: 13,
-      minFontSize: 8.5,
+      maxFontSize: 9.75,
+      minFontSize: 6.5,
       font: "Helvetica-Bold",
       color: COLORS.ink,
     });
     doc
       .font("Helvetica-Bold")
-      .fontSize(6.5)
+      .fontSize(4.9)
       .fillColor(COLORS.muted)
-      .text("NUMERO", infoX, contentTop + 24);
+      .text("NUMERO", infoX, contentTop + 18);
     doc
       .font("Helvetica-Bold")
-      .fontSize(17)
+      .fontSize(12.75)
       .fillColor(COLORS.blueDark)
-      .text(card.cardNumber, infoX, contentTop + 32, {
+      .text(card.cardNumber, infoX, contentTop + 24, {
         width: infoWidth,
       });
 
-    const detailY = contentTop + 63;
+    const detailY = contentTop + 47.25;
     this.drawLabelValue(doc, "Instituicao", card.enrollment.institution.name, infoX, detailY, infoWidth, 2);
-    this.drawLabelValue(doc, "Curso", card.enrollment.course, infoX, detailY + 31, infoWidth, 2);
+    this.drawLabelValue(doc, "Curso", card.enrollment.course, infoX, detailY + 23.25, infoWidth, 2);
 
-    const bottomY = y + CARD.height - 31;
-    const bottomX = x + 16;
-    const bottomGap = 10;
-    const bottomWidth = CARD.width - 32;
+    const bottomY = y + CARD.height - 23.25;
+    const bottomX = x + 12;
+    const bottomGap = 7.5;
+    const bottomWidth = CARD.width - 24;
     const bottomCol = (bottomWidth - bottomGap * 2) / 3;
     this.drawLabelValue(doc, "Turno", card.enrollment.shift.name, bottomX, bottomY, bottomCol, 1);
     this.drawLabelValue(
@@ -244,7 +244,7 @@ export class StudentCardPdfService {
     logoBuffer: Buffer,
   ) {
     doc.image(logoBuffer, x, y, {
-      fit: [76, 26],
+      fit: [57, 19.5],
       valign: "center",
     });
   }
@@ -256,7 +256,7 @@ export class StudentCardPdfService {
     y: number,
   ) {
     doc.save();
-    doc.roundedRect(x, y, PHOTO.width, PHOTO.height, 3).clip();
+    doc.roundedRect(x, y, PHOTO.width, PHOTO.height, 2.25).clip();
     if (photoBuffer) {
       doc.image(photoBuffer, x, y, {
         cover: [PHOTO.width, PHOTO.height],
@@ -266,16 +266,16 @@ export class StudentCardPdfService {
     } else {
       doc.rect(x, y, PHOTO.width, PHOTO.height).fill("#EEF3F8");
       doc
-        .circle(x + PHOTO.width / 2, y + 35, 16)
+        .circle(x + PHOTO.width / 2, y + 26.25, 12)
         .fill("#CBD5E1");
       doc
-        .roundedRect(x + 18, y + 58, PHOTO.width - 36, 28, 12)
+        .roundedRect(x + 13.5, y + 43.5, PHOTO.width - 27, 21, 9)
         .fill("#CBD5E1");
       doc
         .font("Helvetica-Bold")
-        .fontSize(7)
+        .fontSize(5.25)
         .fillColor(COLORS.muted)
-        .text(STUDENT_CARD_PDF_LAYOUT.placeholderLabel, x, y + PHOTO.height - 17, {
+        .text(STUDENT_CARD_PDF_LAYOUT.placeholderLabel, x, y + PHOTO.height - 12.75, {
           align: "center",
           width: PHOTO.width,
           lineBreak: false,
@@ -291,8 +291,8 @@ export class StudentCardPdfService {
     width: number,
     height: number,
   ) {
-    const size = 8;
-    const gap = 3;
+    const size = 6;
+    const gap = 2.25;
     doc.strokeColor("#94A3B8").lineWidth(0.5);
     const marks: Array<[number, number, number, number]> = [
       [x - gap - size, y, x - gap, y],
@@ -318,12 +318,12 @@ export class StudentCardPdfService {
     width: number,
     maxLines: number,
   ) {
-    doc.font("Helvetica-Bold").fontSize(5.4).fillColor(COLORS.muted).text(label.toUpperCase(), x, y, {
+    doc.font("Helvetica-Bold").fontSize(4.5).fillColor(COLORS.muted).text(label.toUpperCase(), x, y, {
       width,
     });
-    this.drawWrappedText(doc, value, x, y + 7, width, {
+    this.drawWrappedText(doc, value, x, y + 5.25, width, {
       font: "Helvetica",
-      fontSize: 7.2,
+      fontSize: 5.7,
       color: COLORS.ink,
       maxLines,
     });
@@ -396,7 +396,7 @@ export class StudentCardPdfService {
       );
     }
     limited.forEach((line, index) => {
-      doc.text(line, x, y + index * (options.fontSize + 1.8), {
+      doc.text(line, x, y + index * (options.fontSize + 1.35), {
         width,
         lineBreak: false,
       });

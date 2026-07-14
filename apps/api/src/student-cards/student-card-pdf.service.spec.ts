@@ -146,8 +146,14 @@ assert.equal(result.disposition, FileDisposition.INLINE);
 assert.equal(result.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.ok(result.sizeBytes > 1000);
 assert.equal(withPhoto.storageReads, 1);
-assert.equal(STUDENT_CARD_PDF_LAYOUT.card.width, 360);
-assert.equal(STUDENT_CARD_PDF_LAYOUT.card.height, 230);
+assert.equal(STUDENT_CARD_PDF_LAYOUT.card.width, 270);
+assert.equal(STUDENT_CARD_PDF_LAYOUT.card.height, 172.5);
+assert.ok(
+  Math.abs(
+    STUDENT_CARD_PDF_LAYOUT.card.width / STUDENT_CARD_PDF_LAYOUT.card.height -
+      360 / 230,
+  ) < 0.0001,
+);
 assert.equal(STUDENT_CARD_PDF_LAYOUT.placeholderLabel, "Sem foto");
 
 const withoutPhoto = makeService({ photo: null });
