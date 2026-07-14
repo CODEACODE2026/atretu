@@ -89,7 +89,6 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [photoRefreshKey, setPhotoRefreshKey] = useState(0);
 
   useEffect(() => {
     void loadReferences();
@@ -1215,13 +1214,11 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
               />
               <StudentPhoto
                 onChanged={async () => {
-                  setPhotoRefreshKey((current) => current + 1);
                   await refreshSelected(selected.id);
                 }}
                 studentId={selected.id}
               />
               <StudentCardsForStudent
-                photoRefreshKey={photoRefreshKey}
                 student={selected}
                 user={user}
                 onChanged={async () => {
@@ -2108,8 +2105,8 @@ function StudentPhoto({
         <div className="grid content-start gap-2">
           {!photo ? (
             <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Adicione uma foto oficial do academico para visualizar, baixar ou
-              imprimir a carteirinha.
+              A foto e opcional. Quando nao houver foto, a carteirinha sera
+              gerada com uma area padrao.
             </p>
           ) : null}
           {photo ? (

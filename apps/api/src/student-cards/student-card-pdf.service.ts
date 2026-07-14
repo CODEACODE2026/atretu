@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -18,17 +17,21 @@ import { DocumentStorageService } from "../documents/document-storage.service.js
 import { FileDisposition } from "../documents/dto/documents.dto.js";
 import { PrismaService } from "../database/prisma.service.js";
 
-const MM_TO_PT = 72 / 25.4;
-const CARD_SCALE = 1.55;
 const A4 = { width: 595.28, height: 841.89 };
+// PDFKit uses points. Product-approved visual card size: 360 x 230 pt.
 const CARD = {
-  width: 85.6 * MM_TO_PT * CARD_SCALE,
-  height: 53.98 * MM_TO_PT * CARD_SCALE,
+  width: 360,
+  height: 230,
 };
 const PHOTO = {
-  width: 24 * MM_TO_PT * CARD_SCALE,
-  height: 32 * MM_TO_PT * CARD_SCALE,
+  width: 78,
+  height: 104,
 };
+export const STUDENT_CARD_PDF_LAYOUT = {
+  card: CARD,
+  photo: PHOTO,
+  placeholderLabel: "Sem foto",
+} as const;
 const COLORS = {
   blue: "#174A7C",
   blueDark: "#0F2E4D",
@@ -63,13 +66,7 @@ export class StudentCardPdfService {
         status: StudentDocumentStatus.ACTIVE,
       },
     });
-    if (!photo) {
-      throw new BadRequestException(
-        "Adicione uma foto oficial do academico para gerar o PDF da carteirinha",
-      );
-    }
-
-    const photoBuffer = await this.storage.read(photo.storageKey);
+    const photoBuffer = photo ? await this.storage.read(photo.storageKey) : null;
     const logoBuffer = this.loadOfficialLogo();
     const buffer = await this.renderPdf(card, photoBuffer, logoBuffer);
     return {
@@ -96,7 +93,7 @@ export class StudentCardPdfService {
 
   private renderPdf(
     card: StudentCardPdfRecord,
-    photoBuffer: Buffer,
+    photoBuffer: Buffer | null,
     logoBuffer: Buffer,
   ) {
     return new Promise<Buffer>((resolve, reject) => {
@@ -125,7 +122,7 @@ export class StudentCardPdfService {
   private drawPage(
     doc: PDFKit.PDFDocument,
     card: StudentCardPdfRecord,
-    photoBuffer: Buffer,
+    photoBuffer: Buffer | null,
     logoBuffer: Buffer,
   ) {
     const x = (A4.width - CARD.width) / 2;
@@ -148,7 +145,7 @@ export class StudentCardPdfService {
     x: number,
     y: number,
     card: StudentCardPdfRecord,
-    photoBuffer: Buffer,
+    photoBuffer: Buffer | null,
     logoBuffer: Buffer,
   ) {
     doc
@@ -179,7 +176,7 @@ export class StudentCardPdfService {
         align: "right",
       });
 
-    const contentTop = y + 60;
+    const contentTop = y + 58;
     const photoX = x + 16;
     const photoY = contentTop;
     doc
@@ -187,16 +184,12 @@ export class StudentCardPdfService {
       .fill("#FFFFFF")
       .strokeColor(COLORS.line)
       .stroke();
-    doc.image(photoBuffer, photoX, photoY, {
-      cover: [PHOTO.width, PHOTO.height],
-      align: "center",
-      valign: "center",
-    });
+    this.drawPhoto(doc, photoBuffer, photoX, photoY);
 
     const infoX = photoX + PHOTO.width + 16;
     const infoWidth = CARD.width - (infoX - x) - 18;
     this.drawFitText(doc, card.student.person.fullName, infoX, contentTop, infoWidth, {
-      maxFontSize: 14,
+      maxFontSize: 13,
       minFontSize: 8.5,
       font: "Helvetica-Bold",
       color: COLORS.ink,
@@ -208,17 +201,17 @@ export class StudentCardPdfService {
       .text("NUMERO", infoX, contentTop + 24);
     doc
       .font("Helvetica-Bold")
-      .fontSize(18)
+      .fontSize(17)
       .fillColor(COLORS.blueDark)
       .text(card.cardNumber, infoX, contentTop + 32, {
         width: infoWidth,
       });
 
-    const detailY = contentTop + 67;
+    const detailY = contentTop + 63;
     this.drawLabelValue(doc, "Instituicao", card.enrollment.institution.name, infoX, detailY, infoWidth, 2);
-    this.drawLabelValue(doc, "Curso", card.enrollment.course, infoX, detailY + 32, infoWidth, 2);
+    this.drawLabelValue(doc, "Curso", card.enrollment.course, infoX, detailY + 31, infoWidth, 2);
 
-    const bottomY = y + CARD.height - 33;
+    const bottomY = y + CARD.height - 31;
     const bottomX = x + 16;
     const bottomGap = 10;
     const bottomWidth = CARD.width - 32;
@@ -254,6 +247,41 @@ export class StudentCardPdfService {
       fit: [76, 26],
       valign: "center",
     });
+  }
+
+  private drawPhoto(
+    doc: PDFKit.PDFDocument,
+    photoBuffer: Buffer | null,
+    x: number,
+    y: number,
+  ) {
+    doc.save();
+    doc.roundedRect(x, y, PHOTO.width, PHOTO.height, 3).clip();
+    if (photoBuffer) {
+      doc.image(photoBuffer, x, y, {
+        cover: [PHOTO.width, PHOTO.height],
+        align: "center",
+        valign: "center",
+      });
+    } else {
+      doc.rect(x, y, PHOTO.width, PHOTO.height).fill("#EEF3F8");
+      doc
+        .circle(x + PHOTO.width / 2, y + 35, 16)
+        .fill("#CBD5E1");
+      doc
+        .roundedRect(x + 18, y + 58, PHOTO.width - 36, 28, 12)
+        .fill("#CBD5E1");
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .fillColor(COLORS.muted)
+        .text(STUDENT_CARD_PDF_LAYOUT.placeholderLabel, x, y + PHOTO.height - 17, {
+          align: "center",
+          width: PHOTO.width,
+          lineBreak: false,
+        });
+    }
+    doc.restore();
   }
 
   private drawCutMarks(

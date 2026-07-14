@@ -570,17 +570,13 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
 export function StudentCardsForStudent({
   student,
   user,
-  photoRefreshKey,
   onChanged,
 }: {
   student: StudentDetail;
   user: ApiUser;
-  photoRefreshKey: number;
   onChanged: () => Promise<void>;
 }) {
   const [cards, setCards] = useState<StudentCardRecord[]>([]);
-  const [hasPhoto, setHasPhoto] = useState(false);
-  const [photoLoading, setPhotoLoading] = useState(true);
   const [preview, setPreview] = useState<StudentCardPreview | null>(null);
   const [enrollmentId, setEnrollmentId] = useState(student.enrollments[0]?.id ?? "");
   const [cardType, setCardType] = useState<StudentCardType>(
@@ -598,10 +594,6 @@ export function StudentCardsForStudent({
     void loadCards();
   }, [student.id]);
 
-  useEffect(() => {
-    void loadPhotoState();
-  }, [student.id, photoRefreshKey]);
-
   async function loadCards() {
     setError("");
     try {
@@ -611,18 +603,6 @@ export function StudentCardsForStudent({
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar carteirinhas",
       );
-    }
-  }
-
-  async function loadPhotoState() {
-    setPhotoLoading(true);
-    try {
-      const response = await api.getStudentPhoto(student.id);
-      setHasPhoto(Boolean(response.photo));
-    } catch {
-      setHasPhoto(false);
-    } finally {
-      setPhotoLoading(false);
     }
   }
 
@@ -703,12 +683,6 @@ export function StudentCardsForStudent({
   }
 
   async function handlePdf(card: StudentCardRecord, action: PdfAction) {
-    if (!hasPhoto) {
-      setError(
-        "Adicione uma foto oficial do academico para visualizar, baixar ou imprimir a carteirinha.",
-      );
-      return;
-    }
     setMessage("");
     setError("");
     setPdfBusyId(`${card.id}:${action}`);
@@ -730,12 +704,10 @@ export function StudentCardsForStudent({
           visualizar, baixar ou imprimir o PDF.
         </p>
       ) : null}
-      {!photoLoading && !hasPhoto ? (
-        <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Adicione uma foto oficial do academico para visualizar, baixar ou
-          imprimir a carteirinha.
-        </p>
-      ) : null}
+      <p className="mt-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        A foto e opcional. Quando nao houver foto, o PDF sera gerado com uma
+        area padrao no lugar da imagem.
+      </p>
       <div className="mt-3 grid gap-2">
         {cards.length === 0 ? (
           <p className="rounded border border-slate-200 p-3 text-sm text-slate-500">
@@ -766,7 +738,7 @@ export function StudentCardsForStudent({
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-                  disabled={Boolean(pdfBusyId) || !hasPhoto}
+                  disabled={Boolean(pdfBusyId)}
                   onClick={() => void handlePdf(card, "view")}
                   type="button"
                 >
@@ -778,7 +750,7 @@ export function StudentCardsForStudent({
                 </button>
                 <button
                   className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-                  disabled={Boolean(pdfBusyId) || !hasPhoto}
+                  disabled={Boolean(pdfBusyId)}
                   onClick={() => void handlePdf(card, "download")}
                   type="button"
                 >
@@ -786,7 +758,7 @@ export function StudentCardsForStudent({
                 </button>
                 <button
                   className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-                  disabled={Boolean(pdfBusyId) || !hasPhoto || card.status !== "ACTIVE"}
+                  disabled={Boolean(pdfBusyId) || card.status !== "ACTIVE"}
                   onClick={() => void handlePdf(card, "print")}
                   type="button"
                   title={card.status === "ACTIVE" ? undefined : "Carteirinha invalidada"}
@@ -978,7 +950,7 @@ function pdfErrorMessage(caught: unknown) {
   }
   const message = mapApiErrorMessage(caught.message);
   if (message.includes("foto oficial")) {
-    return "Adicione uma foto oficial do academico para visualizar, baixar ou imprimir a carteirinha.";
+    return "Nao foi possivel usar a foto oficial. A carteirinha tambem pode ser gerada sem foto; tente novamente ou remova a foto invalida.";
   }
   if (message.includes("Nao foi possivel concluir a operacao")) {
     return "Nao foi possivel gerar o PDF da carteirinha. Confira se a foto oficial e um JPG ou PNG valido e tente novamente.";

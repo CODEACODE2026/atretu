@@ -337,9 +337,10 @@ const photoFiles = {
   jpg: {
     name: "foto.jpg",
     mimeType: "image/jpeg",
-    buffer: Buffer.from([
-      0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0xff, 0xd9,
-    ]),
+    buffer: Buffer.from(
+      "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EFBABAQAAAAAAAAAAAAAAAAAAARD/2gAIAQEAAT8QH//Z",
+      "base64",
+    ),
   },
   png: {
     name: "foto.png",
@@ -452,12 +453,21 @@ expect(
   "First automatic STUDENT number invalid",
 );
 
-const missingPhotoPdf = await requestBinary(`/student-cards/${studentCard1.id}/pdf`, {
+const beforePdfCard = await prisma.studentCard.findUnique({
+  where: { id: studentCard1.id },
+});
+const beforePdfCardCount = await prisma.studentCard.count();
+const noPhotoPdf = await requestBinary(`/student-cards/${studentCard1.id}/pdf`, {
   headers: json(secretaryCookie),
 });
 expect(
-  missingPhotoPdf.response.status === 400,
-  "Student card PDF without official photo was not blocked",
+  noPhotoPdf.response.ok,
+  `Student card PDF without official photo failed: ${noPhotoPdf.body.message}`,
+);
+expect(
+  Buffer.isBuffer(noPhotoPdf.body) &&
+    noPhotoPdf.body.subarray(0, 5).toString("ascii") === "%PDF-",
+  "Student card PDF without official photo signature invalid",
 );
 
 const invalidDisposition = await requestBinary(
@@ -469,9 +479,6 @@ expect(
   "Invalid PDF disposition was not rejected",
 );
 
-const beforePdfCard = await prisma.studentCard.findUnique({
-  where: { id: studentCard1.id },
-});
 const photoUpload = await uploadPhoto(secretaryCookie, student1.id, photoFiles.png);
 expect(photoUpload.response.ok, `Official photo upload failed: ${photoUpload.body.message}`);
 
@@ -556,6 +563,22 @@ expect(Boolean(studentCard2), "Second automatic STUDENT card was not created");
 expect(
   studentCard2?.cardNumber === `${studentSequenceStart + 2}${yearValue}`,
   "Second automatic STUDENT number invalid",
+);
+
+const jpgPdf = await requestBinary(
+  `/student-cards/${studentCard2.id}/pdf?disposition=inline`,
+  { headers: json(adminCookie) },
+);
+expect(jpgPdf.response.ok, `JPG photo PDF failed: ${jpgPdf.body.message}`);
+expect(
+  Buffer.isBuffer(jpgPdf.body) &&
+    jpgPdf.body.subarray(0, 5).toString("ascii") === "%PDF-",
+  "JPG photo PDF signature invalid",
+);
+const afterPdfCardCount = await prisma.studentCard.count();
+expect(
+  afterPdfCardCount === beforePdfCardCount,
+  "PDF generation created unexpected StudentCard records",
 );
 
 const duplicateStudentCard = await issueCard(secretaryCookie, student2.id, {
