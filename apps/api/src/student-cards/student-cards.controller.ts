@@ -6,9 +6,11 @@ import {
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from "@nestjs/common";
 import { RoleCode } from "@prisma/client";
+import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { Roles } from "../auth/roles.decorator.js";
@@ -18,8 +20,10 @@ import {
   InvalidateStudentCardDto,
   IssueStudentCardDto,
   ListStudentCardsDto,
+  StudentCardPdfDto,
   StudentCardPreviewDto,
 } from "./dto/student-cards.dto.js";
+import { StudentCardPdfService } from "./student-card-pdf.service.js";
 import { StudentCardsService } from "./student-cards.service.js";
 
 @UseGuards(AuthGuard, RolesGuard)
@@ -28,6 +32,8 @@ export class StudentCardsController {
   constructor(
     @Inject(StudentCardsService)
     private readonly studentCards: StudentCardsService,
+    @Inject(StudentCardPdfService)
+    private readonly studentCardPdf: StudentCardPdfService,
   ) {}
 
   @Get("student-cards")
@@ -40,6 +46,27 @@ export class StudentCardsController {
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   listStudentCardsForStudent(@Param("studentId") studentId: string) {
     return this.studentCards.listStudentCardsForStudent(studentId);
+  }
+
+  @Get("student-cards/:cardId/pdf")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  async getStudentCardPdf(
+    @Param("cardId") cardId: string,
+    @Query() query: StudentCardPdfDto,
+    @Res() response: Response,
+  ) {
+    const pdf = await this.studentCardPdf.generate(cardId, query.disposition);
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Length", String(pdf.sizeBytes));
+    response.setHeader(
+      "Content-Disposition",
+      `${pdf.disposition}; filename=\"${pdf.filename}\"`,
+    );
+    response.setHeader("Cache-Control", "no-store, private");
+    response.setHeader("Pragma", "no-cache");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.send(pdf.bytes);
   }
 
   @Get("students/:studentId/card-preview")

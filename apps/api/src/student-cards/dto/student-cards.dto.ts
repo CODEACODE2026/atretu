@@ -14,6 +14,7 @@ import {
   StudentCardStatus,
   StudentCardType,
 } from "@prisma/client";
+import { FileDisposition } from "../../documents/dto/documents.dto.js";
 
 export enum StudentCardValidityFilter {
   ALL = "all",
@@ -105,4 +106,11 @@ export class InvalidateStudentCardDto {
   @MaxLength(300)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   note?: string;
+}
+
+export class StudentCardPdfDto {
+  @IsOptional()
+  @IsEnum(FileDisposition)
+  @Transform(({ value }) => (value === "" ? undefined : value))
+  disposition: FileDisposition = FileDisposition.INLINE;
 }

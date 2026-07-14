@@ -34,6 +34,19 @@ async function request(path, options = {}) {
   };
 }
 
+async function requestBinary(path, options = {}) {
+  const response = await fetch(`${apiUrl}${path}`, options);
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("application/json")
+    ? await response.json()
+    : Buffer.from(await response.arrayBuffer());
+  return {
+    response,
+    body,
+    cookie: response.headers.get("set-cookie"),
+  };
+}
+
 function json(cookie) {
   return {
     "Content-Type": "application/json",
@@ -117,6 +130,18 @@ async function createYear(cookie, year, isCurrent = false) {
   return created.body;
 }
 
+async function getCardSequenceValue(academicYearId, cardType) {
+  const sequence = await prisma.cardSequence.findUnique({
+    where: {
+      academicYearId_cardType: {
+        academicYearId,
+        cardType,
+      },
+    },
+  });
+  return sequence?.lastSequenceNumber ?? 0;
+}
+
 async function createStudent(cookie, payload) {
   const created = await request("/students", {
     method: "POST",
@@ -134,6 +159,16 @@ async function issueCard(cookie, studentId, body) {
     method: "POST",
     headers: json(cookie),
     body: JSON.stringify(body),
+  });
+}
+
+async function uploadPhoto(cookie, studentId, file) {
+  const form = new FormData();
+  form.set("file", new Blob([file.buffer], { type: file.mimeType }), file.name);
+  return request(`/students/${studentId}/photo`, {
+    method: "POST",
+    headers: cookie ? { cookie } : {},
+    body: form,
   });
 }
 
@@ -298,26 +333,79 @@ function expect(condition, message) {
   }
 }
 
+const photoFiles = {
+  jpg: {
+    name: "foto.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from([
+      0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0xff, 0xd9,
+    ]),
+  },
+  png: {
+    name: "foto.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  },
+};
+
 const anonymous = await request("/student-cards", { headers: json() });
 expect(anonymous.response.status === 401, "Anonymous student card access allowed");
+const anonymousPdf = await requestBinary(
+  "/student-cards/00000000-0000-0000-0000-000000000000/pdf",
+);
+expect(anonymousPdf.response.status === 401, "Anonymous PDF access allowed");
 
 const { adminCookie, secretaryCookie } = await ensureUsers();
 
-const usedYears = new Set(
-  (await prisma.academicYear.findMany({ select: { year: true } })).map(
-    (item) => item.year,
-  ),
-);
-let yearValue = 2098;
-while (usedYears.has(yearValue) || usedYears.has(yearValue + 1)) {
-  yearValue -= 2;
+const allExistingYears = await prisma.academicYear.findMany({
+  where: { year: { gte: 2000, lte: 2100 } },
+  select: { id: true, year: true },
+  orderBy: { year: "desc" },
+});
+const existingYears = await prisma.academicYear.findMany({
+  where: { year: { gte: 2000, lte: 2100 }, status: "ACTIVE" },
+  select: { id: true, year: true },
+  orderBy: { year: "desc" },
+});
+const usedYears = new Set(allExistingYears.map((item) => item.year));
+let yearValue = 0;
+let academicYear = null;
+let nextAcademicYear = null;
+for (let candidate = 2099; candidate >= 2000; candidate -= 1) {
+  if (!usedYears.has(candidate) && !usedYears.has(candidate + 1)) {
+    yearValue = candidate;
+    academicYear = await createYear(adminCookie, yearValue, false);
+    nextAcademicYear = await createYear(adminCookie, yearValue + 1, true);
+    break;
+  }
 }
-if (yearValue < 2000) {
+if (!academicYear || !nextAcademicYear) {
+  for (const candidate of existingYears) {
+    const next = existingYears.find((item) => item.year === candidate.year + 1);
+    if (next) {
+      yearValue = candidate.year;
+      academicYear = candidate;
+      nextAcademicYear = next;
+      break;
+    }
+  }
+}
+if (!academicYear || !nextAcademicYear) {
   throw new Error("No available academic year pair for student card smoke");
 }
+const studentSequenceStart = await getCardSequenceValue(academicYear.id, "STUDENT");
+const boardSequenceStart = await getCardSequenceValue(
+  academicYear.id,
+  "BOARD_MEMBER",
+);
+const nextYearStudentSequenceStart = await getCardSequenceValue(
+  nextAcademicYear.id,
+  "STUDENT",
+);
 
-const academicYear = await createYear(adminCookie, yearValue, false);
-const nextAcademicYear = await createYear(adminCookie, yearValue + 1, true);
 const institution = await createBaseRecord(adminCookie, "/institutions", {
   name: `Instituicao ${runId}`,
 });
@@ -360,9 +448,101 @@ const studentCard1 = await prisma.studentCard.findFirst({
 });
 expect(Boolean(studentCard1), "First automatic STUDENT card was not created");
 expect(
-  studentCard1?.cardNumber === `1${yearValue}`,
+  studentCard1?.cardNumber === `${studentSequenceStart + 1}${yearValue}`,
   "First automatic STUDENT number invalid",
 );
+
+const missingPhotoPdf = await requestBinary(`/student-cards/${studentCard1.id}/pdf`, {
+  headers: json(secretaryCookie),
+});
+expect(
+  missingPhotoPdf.response.status === 400,
+  "Student card PDF without official photo was not blocked",
+);
+
+const invalidDisposition = await requestBinary(
+  `/student-cards/${studentCard1.id}/pdf?disposition=download`,
+  { headers: json(secretaryCookie) },
+);
+expect(
+  invalidDisposition.response.status === 400,
+  "Invalid PDF disposition was not rejected",
+);
+
+const beforePdfCard = await prisma.studentCard.findUnique({
+  where: { id: studentCard1.id },
+});
+const photoUpload = await uploadPhoto(secretaryCookie, student1.id, photoFiles.png);
+expect(photoUpload.response.ok, `Official photo upload failed: ${photoUpload.body.message}`);
+
+const pdfInline = await requestBinary(
+  `/student-cards/${studentCard1.id}/pdf?disposition=inline`,
+  { headers: json(secretaryCookie) },
+);
+expect(pdfInline.response.ok, `Inline PDF failed: ${pdfInline.body.message}`);
+expect(
+  Buffer.isBuffer(pdfInline.body) &&
+    pdfInline.body.subarray(0, 5).toString("ascii") === "%PDF-",
+  "Inline PDF signature invalid",
+);
+expect(
+  pdfInline.response.headers.get("content-type") === "application/pdf",
+  "PDF content-type invalid",
+);
+expect(
+  pdfInline.response.headers.get("cache-control") === "no-store, private",
+  "PDF cache header missing",
+);
+expect(
+  pdfInline.response.headers.get("x-content-type-options") === "nosniff",
+  "PDF nosniff header missing",
+);
+expect(
+  pdfInline.response.headers.get("referrer-policy") === "no-referrer",
+  "PDF referrer policy header missing",
+);
+expect(
+  (pdfInline.response.headers.get("content-disposition") ?? "").includes("inline"),
+  "Inline PDF disposition header invalid",
+);
+
+const pdfAttachment = await requestBinary(
+  `/student-cards/${studentCard1.id}/pdf?disposition=attachment`,
+  { headers: json(adminCookie) },
+);
+expect(pdfAttachment.response.ok, `Attachment PDF failed: ${pdfAttachment.body.message}`);
+expect(
+  (pdfAttachment.response.headers.get("content-disposition") ?? "").includes(
+    "attachment",
+  ),
+  "Attachment PDF disposition header invalid",
+);
+
+const missingCardPdf = await requestBinary(
+  "/student-cards/00000000-0000-0000-0000-000000000000/pdf",
+  { headers: json(secretaryCookie) },
+);
+expect(missingCardPdf.response.status === 404, "Missing student card PDF was not 404");
+
+const afterPdfCard = await prisma.studentCard.findUnique({
+  where: { id: studentCard1.id },
+});
+expect(afterPdfCard?.id === beforePdfCard?.id, "PDF changed StudentCard id");
+expect(
+  afterPdfCard?.cardNumber === beforePdfCard?.cardNumber,
+  "PDF changed cardNumber",
+);
+expect(
+  afterPdfCard?.sequenceNumber === beforePdfCard?.sequenceNumber,
+  "PDF changed sequenceNumber",
+);
+expect(
+  afterPdfCard?.enrollmentId === beforePdfCard?.enrollmentId,
+  "PDF changed Enrollment",
+);
+
+const secondPhoto = await uploadPhoto(adminCookie, student2.id, photoFiles.jpg);
+expect(secondPhoto.response.ok, `JPG official photo upload failed: ${secondPhoto.body.message}`);
 
 const studentCard2 = await prisma.studentCard.findFirst({
   where: {
@@ -374,7 +554,7 @@ const studentCard2 = await prisma.studentCard.findFirst({
 });
 expect(Boolean(studentCard2), "Second automatic STUDENT card was not created");
 expect(
-  studentCard2?.cardNumber === `2${yearValue}`,
+  studentCard2?.cardNumber === `${studentSequenceStart + 2}${yearValue}`,
   "Second automatic STUDENT number invalid",
 );
 
@@ -414,7 +594,7 @@ const boardCard = await issueCard(secretaryCookie, student1.id, {
 });
 expect(boardCard.response.ok, `BOARD_MEMBER failed: ${boardCard.body.message}`);
 expect(
-  boardCard.body.cardNumber === `1${yearValue}`,
+  boardCard.body.cardNumber === `${boardSequenceStart + 1}${yearValue}`,
   "First BOARD_MEMBER number invalid",
 );
 
@@ -441,7 +621,7 @@ const manualStudentCard = await issueCard(secretaryCookie, student1.id, {
 });
 expect(manualStudentCard.response.ok, "Manual STUDENT after board end failed");
 expect(
-  manualStudentCard.body.cardNumber === `3${yearValue}`,
+  manualStudentCard.body.cardNumber === `${studentSequenceStart + 3}${yearValue}`,
   "Manual STUDENT did not use next STUDENT sequence",
 );
 
@@ -498,7 +678,7 @@ const nextYearCard = await issueCard(secretaryCookie, student1.id, {
 });
 expect(nextYearCard.response.ok, "Next year STUDENT failed");
 expect(
-  nextYearCard.body.cardNumber === `1${yearValue + 1}`,
+  nextYearCard.body.cardNumber === `${nextYearStudentSequenceStart + 1}${yearValue + 1}`,
   "New academic year did not restart STUDENT sequence",
 );
 

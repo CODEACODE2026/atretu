@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --loader ts-node/esm --no-warnings src/main.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('node:fs');const path=require('node:path');const from=path.join('src','student-cards','assets','atretu-logo.png');const to=path.join('dist','student-cards','assets','atretu-logo.png');if(!fs.existsSync(from)){throw new Error('Missing official ATRETU logo asset: '+from);}fs.mkdirSync(path.dirname(to),{recursive:true});fs.copyFileSync(from,to);\"",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "npm run typecheck",
-    "test": "npm run check:metadata && tsx src/auth/auth.service.spec.ts && tsx src/base-records/base-records.service.spec.ts && tsx src/students/cpf.spec.ts && tsx src/students/lifecycle.spec.ts && tsx src/student-cards/card-number.spec.ts && tsx src/finance/money.spec.ts && tsx src/finance/due-date.spec.ts && tsx src/finance/bank-slip-status.spec.ts && tsx src/finance/sicredi-config.spec.ts && tsx src/finance/sicredi-client.spec.ts && tsx src/finance/bank-slips.service.spec.ts && tsx src/bus-assignments/capacity.spec.ts && tsx src/documents/document-file.spec.ts && tsx src/pre-registrations/pre-registration-public.dto.spec.ts && tsx src/config/env.spec.ts",
+    "test": "npm run check:metadata && tsx src/auth/auth.service.spec.ts && tsx src/base-records/base-records.service.spec.ts && tsx src/students/cpf.spec.ts && tsx src/students/lifecycle.spec.ts && tsx src/student-cards/card-number.spec.ts && tsx src/student-cards/student-card-pdf.service.spec.ts && tsx src/finance/money.spec.ts && tsx src/finance/due-date.spec.ts && tsx src/finance/bank-slip-status.spec.ts && tsx src/finance/sicredi-config.spec.ts && tsx src/finance/sicredi-client.spec.ts && tsx src/finance/bank-slips.service.spec.ts && tsx src/bus-assignments/capacity.spec.ts && tsx src/documents/document-file.spec.ts && tsx src/pre-registrations/pre-registration-public.dto.spec.ts && tsx src/config/env.spec.ts",
     "check:metadata": "node --loader ts-node/esm --no-warnings scripts/check-controller-metadata.mjs",
     "smoke:auth": "node scripts/smoke-auth.mjs",
     "smoke:base-records": "node scripts/smoke-base-records.mjs",
@@ -43,6 +43,7 @@
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
     "multer": "^2.2.0",
+    "pdfkit": "^0.19.1",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
@@ -50,6 +51,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.20.0",
     "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
