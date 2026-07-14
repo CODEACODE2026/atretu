@@ -201,6 +201,7 @@ enum StudentDocumentType {
   RG
   PROOF_OF_ADDRESS
   PROOF_OF_ENROLLMENT
+  PHOTO
 }
 
 enum StudentDocumentStatus {

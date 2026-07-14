@@ -10,6 +10,10 @@ export const DOCUMENT_TYPES = [
   StudentDocumentType.PROOF_OF_ENROLLMENT,
 ] as const;
 
+export const PHOTO_DOCUMENT_TYPES: ReadonlySet<StudentDocumentType> = new Set([
+  StudentDocumentType.PHOTO,
+]);
+
 const MIME_BY_EXTENSION = new Map([
   [".pdf", "application/pdf"],
   [".jpg", "image/jpeg"],
@@ -36,6 +40,7 @@ export type UploadedDocumentFile = {
 export function validateDocumentFile(
   file: UploadedDocumentFile | undefined,
   maxSizeBytes: number,
+  options?: { allowedMimeTypes?: readonly string[] },
 ): ValidatedDocumentFile {
   if (!file?.buffer) {
     throw new BadRequestException("Arquivo obrigatorio");
@@ -58,6 +63,13 @@ export function validateDocumentFile(
   const extension = path.extname(originalFileName).toLowerCase();
   const expectedMime = MIME_BY_EXTENSION.get(extension);
   if (!expectedMime) {
+    throw new BadRequestException("Formato de arquivo nao permitido");
+  }
+
+  if (
+    options?.allowedMimeTypes &&
+    !options.allowedMimeTypes.includes(expectedMime)
+  ) {
     throw new BadRequestException("Formato de arquivo nao permitido");
   }
 

@@ -187,6 +187,16 @@ async function replaceDocument(cookie, studentId, documentId, file) {
   });
 }
 
+async function uploadPhoto(cookie, studentId, file) {
+  const form = new FormData();
+  form.set("file", new Blob([file.buffer], { type: file.mimeType }), file.name);
+  return request(`/students/${studentId}/photo`, {
+    method: "POST",
+    headers: cookie ? { cookie } : {},
+    body: form,
+  });
+}
+
 async function cleanupStorage() {
   const storageDir = process.env.DOCUMENT_STORAGE_DIR ?? "";
   if (storageDir.includes("atretu-documents-smoke")) {
@@ -222,6 +232,31 @@ const files = {
     mimeType: "image/svg+xml",
     buffer: Buffer.from("<svg><script>alert(1)</script></svg>"),
   },
+  fakeJpeg: {
+    name: "foto.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from("%PDF-1.4\n%%EOF\n"),
+  },
+  falseMime: {
+    name: "foto.jpg",
+    mimeType: "image/png",
+    buffer: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff, 0xd9]),
+  },
+  emptyJpeg: {
+    name: "foto.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.alloc(0),
+  },
+  oversizedPhoto: {
+    name: "foto-grande.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc((8 * 1024 * 1024) + 1, 0x31)]),
+  },
+  photoTraversal: {
+    name: "..foto.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff, 0xd9]),
+  },
   oversized: {
     name: "grande.pdf",
     mimeType: "application/pdf",
@@ -240,6 +275,12 @@ try {
   );
   if (anonymous.response.status !== 401) {
     throw new Error("Anonymous document access was not blocked");
+  }
+  const anonymousPhoto = await request(
+    "/students/00000000-0000-0000-0000-000000000000/photo",
+  );
+  if (anonymousPhoto.response.status !== 401) {
+    throw new Error("Anonymous photo access was not blocked");
   }
 
   const { adminCookie, secretaryCookie } = await ensureUsers();
@@ -281,6 +322,10 @@ try {
       suffix: runId,
     }),
   );
+  const initialStudent = await request(`/students/${student.id}`, {
+    headers: json(secretaryCookie),
+  });
+  const initialCard = initialStudent.body.currentStudentCard;
 
   const pdf = await uploadDocument(secretaryCookie, student.id, "CPF", files.pdf);
   if (!pdf.response.ok || pdf.body.documentType !== "CPF") {
@@ -412,6 +457,150 @@ try {
     throw new Error("Path traversal filename was not blocked");
   }
 
+  const missingPhoto = await request(`/students/${student.id}/photo`, {
+    headers: json(secretaryCookie),
+  });
+  if (!missingPhoto.response.ok || missingPhoto.body.photo !== null) {
+    throw new Error("Missing student photo metadata was not reported");
+  }
+
+  const photoPdf = await uploadPhoto(secretaryCookie, student.id, files.pdf);
+  if (photoPdf.response.status !== 400) {
+    throw new Error("PDF upload was not blocked for PHOTO");
+  }
+
+  const photoSvg = await uploadPhoto(secretaryCookie, student.id, files.svg);
+  if (photoSvg.response.status !== 400) {
+    throw new Error("SVG upload was not blocked for PHOTO");
+  }
+
+  const photoFalseMime = await uploadPhoto(secretaryCookie, student.id, files.falseMime);
+  if (photoFalseMime.response.status !== 400) {
+    throw new Error("False MIME upload was not blocked for PHOTO");
+  }
+
+  const photoFakeJpeg = await uploadPhoto(secretaryCookie, student.id, files.fakeJpeg);
+  if (photoFakeJpeg.response.status !== 400) {
+    throw new Error("Invalid magic bytes were not blocked for PHOTO");
+  }
+
+  const photoEmpty = await uploadPhoto(secretaryCookie, student.id, files.emptyJpeg);
+  if (photoEmpty.response.status !== 400) {
+    throw new Error("Empty photo upload was not blocked");
+  }
+
+  const photoOversized = await uploadPhoto(
+    secretaryCookie,
+    student.id,
+    files.oversizedPhoto,
+  );
+  if (photoOversized.response.status !== 400) {
+    throw new Error("Oversized photo upload was not blocked");
+  }
+
+  const photoTraversal = await uploadPhoto(
+    secretaryCookie,
+    student.id,
+    files.photoTraversal,
+  );
+  if (photoTraversal.response.status !== 400) {
+    throw new Error("Photo path traversal filename was not blocked");
+  }
+
+  const photoJpeg = await uploadPhoto(secretaryCookie, student.id, files.jpeg);
+  if (
+    !photoJpeg.response.ok ||
+    photoJpeg.body.documentType !== "PHOTO" ||
+    photoJpeg.body.mimeType !== "image/jpeg"
+  ) {
+    throw new Error(`JPEG photo upload failed: ${photoJpeg.body.message}`);
+  }
+
+  const photoPng = await uploadPhoto(adminCookie, student.id, files.png);
+  if (
+    !photoPng.response.ok ||
+    photoPng.body.documentType !== "PHOTO" ||
+    photoPng.body.mimeType !== "image/png" ||
+    photoPng.body.id === photoJpeg.body.id
+  ) {
+    throw new Error(`PNG photo replacement failed: ${photoPng.body.message}`);
+  }
+
+  const photoMetadata = await request(`/students/${student.id}/photo`, {
+    headers: json(secretaryCookie),
+  });
+  if (!photoMetadata.response.ok || photoMetadata.body.photo?.id !== photoPng.body.id) {
+    throw new Error("Active student photo metadata failed");
+  }
+  if (JSON.stringify(photoMetadata.body).includes("storageKey")) {
+    throw new Error("Photo metadata exposed storageKey");
+  }
+
+  const photoFile = await request(
+    `/students/${student.id}/photo/file?disposition=inline`,
+    { headers: json(secretaryCookie) },
+  );
+  if (!photoFile.response.ok) {
+    throw new Error("Protected photo file access failed");
+  }
+  if (photoFile.response.headers.get("x-content-type-options") !== "nosniff") {
+    throw new Error("Photo nosniff header missing");
+  }
+  if (photoFile.response.headers.get("cache-control") !== "no-store, private") {
+    throw new Error("Photo cache header missing");
+  }
+
+  const photoHistory = await request(`/students/${student.id}/documents?status=all`, {
+    headers: json(secretaryCookie),
+  });
+  const previousPhoto = photoHistory.body.data.find(
+    (item) => item.id === photoJpeg.body.id,
+  );
+  const activePhotos = photoHistory.body.data.filter(
+    (item) => item.documentType === "PHOTO" && item.status === "ACTIVE",
+  );
+  if (previousPhoto?.status !== "REPLACED" || activePhotos.length !== 1) {
+    throw new Error("Photo replacement history or active constraint failed");
+  }
+
+  const afterPhotoStudent = await request(`/students/${student.id}`, {
+    headers: json(secretaryCookie),
+  });
+  const afterPhotoCard = afterPhotoStudent.body.currentStudentCard;
+  if (
+    initialCard?.id !== afterPhotoCard?.id ||
+    initialCard?.cardNumber !== afterPhotoCard?.cardNumber ||
+    initialCard?.sequenceNumber !== afterPhotoCard?.sequenceNumber
+  ) {
+    throw new Error("StudentCard changed after photo upload/replacement");
+  }
+
+  const removedPhoto = await request(`/students/${student.id}/photo`, {
+    method: "DELETE",
+    headers: json(secretaryCookie),
+  });
+  if (!removedPhoto.response.ok || removedPhoto.body.status !== "REMOVED") {
+    throw new Error("Logical student photo removal failed");
+  }
+  const removedPhotoFile = await request(`/students/${student.id}/photo/file`, {
+    headers: json(secretaryCookie),
+  });
+  if (removedPhotoFile.response.status !== 404) {
+    throw new Error("Removed photo file was not blocked");
+  }
+
+  const afterRemoveStudent = await request(`/students/${student.id}`, {
+    headers: json(secretaryCookie),
+  });
+  const afterRemoveCard = afterRemoveStudent.body.currentStudentCard;
+  if (
+    initialCard?.id !== afterRemoveCard?.id ||
+    initialCard?.cardNumber !== afterRemoveCard?.cardNumber ||
+    initialCard?.sequenceNumber !== afterRemoveCard?.sequenceNumber
+  ) {
+    throw new Error("StudentCard changed after photo removal");
+  }
+
   const wrongStudent = await request(
     `/students/00000000-0000-0000-0000-000000000000/documents/${jpeg.body.id}`,
     { headers: json(secretaryCookie) },
@@ -423,7 +612,17 @@ try {
   const auditCount = await prisma.administrativeAuditLog.count({
     where: {
       domain: "student_documents",
-      recordId: { in: [pdf.body.id, replaced.body.id, jpeg.body.id, png.body.id] },
+      recordId: {
+        in: [
+          pdf.body.id,
+          replaced.body.id,
+          jpeg.body.id,
+          png.body.id,
+          photoJpeg.body.id,
+          photoPng.body.id,
+          removedPhoto.body.id,
+        ],
+      },
     },
   });
   if (auditCount < 5) {

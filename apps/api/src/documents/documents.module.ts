@@ -7,6 +7,7 @@ import { UsersModule } from "../users/users.module.js";
 import { DocumentStorageService } from "./document-storage.service.js";
 import { DocumentsController } from "./documents.controller.js";
 import { DocumentsService } from "./documents.service.js";
+import { StudentPhotosController } from "./student-photos.controller.js";
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { DocumentsService } from "./documents.service.js";
     DatabaseModule,
     UsersModule,
   ],
-  controllers: [DocumentsController],
+  controllers: [DocumentsController, StudentPhotosController],
   providers: [DocumentStorageService, DocumentsService],
   exports: [DocumentStorageService],
 })

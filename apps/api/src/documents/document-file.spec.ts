@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { BadRequestException } from "@nestjs/common";
 import { StudentDocumentType } from "@prisma/client";
 import {
+  PHOTO_DOCUMENT_TYPES,
   buildStorageKey,
   sanitizeOriginalFileName,
   validateDocumentFile,
@@ -34,12 +35,30 @@ assert.equal(
   ).extension,
   "png",
 );
+assert.equal(PHOTO_DOCUMENT_TYPES.has(StudentDocumentType.PHOTO), true);
+assert.equal(
+  validateDocumentFile(
+    { originalname: "foto.jpeg", mimetype: "image/jpeg", buffer: jpeg },
+    1024,
+    { allowedMimeTypes: ["image/jpeg", "image/png"] },
+  ).extension,
+  "jpeg",
+);
 
 assert.throws(
   () =>
     validateDocumentFile(
       { originalname: "doc.svg", mimetype: "image/svg+xml", buffer: pdf },
       1024,
+    ),
+  BadRequestException,
+);
+assert.throws(
+  () =>
+    validateDocumentFile(
+      { originalname: "foto.pdf", mimetype: "application/pdf", buffer: pdf },
+      1024,
+      { allowedMimeTypes: ["image/jpeg", "image/png"] },
     ),
   BadRequestException,
 );

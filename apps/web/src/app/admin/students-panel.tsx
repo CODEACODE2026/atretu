@@ -1212,6 +1212,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
                   await loadStudents();
                 }}
               />
+              <StudentPhoto studentId={selected.id} />
               <StudentCardsForStudent
                 student={selected}
                 onChanged={async () => {
@@ -1916,6 +1917,211 @@ const documentTypes: Array<{ label: string; value: StudentDocumentType }> = [
   { label: "Comprovante de matricula", value: "PROOF_OF_ENROLLMENT" },
 ];
 
+function StudentPhoto({ studentId }: { studentId: string }) {
+  const [photo, setPhoto] = useState<StudentDocumentRecord | null>(null);
+  const [photoUrl, setPhotoUrl] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void loadPhoto();
+  }, [studentId]);
+
+  useEffect(() => {
+    return () => {
+      revokeObjectUrl(photoUrl);
+    };
+  }, [photoUrl]);
+
+  useEffect(() => {
+    return () => {
+      revokeObjectUrl(previewUrl);
+    };
+  }, [previewUrl]);
+
+  async function loadPhoto() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.getStudentPhoto(studentId);
+      setPhoto(response.photo);
+      revokeObjectUrl(photoUrl);
+      setPhotoUrl("");
+      if (response.photo) {
+        const { blob } = await api.downloadStudentPhoto(studentId, "inline");
+        setPhotoUrl(URL.createObjectURL(blob));
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao carregar foto");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleSelect(file: File | undefined) {
+    setError("");
+    setMessage("");
+    revokeObjectUrl(previewUrl);
+    setPreviewUrl("");
+    setSelectedFile(null);
+    if (!file) {
+      return;
+    }
+    if (!["image/jpeg", "image/png"].includes(file.type)) {
+      setError("Selecione uma foto JPG, JPEG ou PNG.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError("A foto deve ter no maximo 8 MB.");
+      return;
+    }
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  }
+
+  async function handleSave() {
+    if (!selectedFile) {
+      setError("Selecione uma foto oficial para enviar.");
+      return;
+    }
+    const confirmed = photo
+      ? window.confirm("Substituir a foto oficial atual?")
+      : true;
+    if (!confirmed) {
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.uploadOrReplaceStudentPhoto(studentId, selectedFile);
+      setMessage(photo ? "Foto oficial substituida" : "Foto oficial adicionada");
+      setSelectedFile(null);
+      revokeObjectUrl(previewUrl);
+      setPreviewUrl("");
+      await loadPhoto();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao enviar foto");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    if (!photo) {
+      return;
+    }
+    const confirmed = window.confirm("Remover logicamente a foto oficial?");
+    if (!confirmed) {
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await api.removeStudentPhoto(studentId);
+      setMessage("Foto oficial removida");
+      setPhoto(null);
+      revokeObjectUrl(photoUrl);
+      setPhotoUrl("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao remover foto");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const displayUrl = previewUrl || photoUrl;
+
+  return (
+    <div className="mt-5 border-t border-slate-200 pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Foto oficial</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Formatos permitidos: JPG, JPEG e PNG. Tamanho maximo: 8 MB.
+            Recomendamos uma foto no formato 3x4.
+          </p>
+        </div>
+        <button
+          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+          disabled={loading || saving}
+          onClick={() => void loadPhoto()}
+          type="button"
+        >
+          Atualizar
+        </button>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-[120px_1fr]">
+        <div className="flex h-40 w-28 items-center justify-center overflow-hidden rounded border border-slate-200 bg-slate-50">
+          {displayUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt="Foto oficial do academico"
+              className="h-full w-full object-cover"
+              src={displayUrl}
+            />
+          ) : (
+            <span className="px-3 text-center text-xs text-slate-500">
+              Sem foto oficial
+            </span>
+          )}
+        </div>
+        <div className="grid content-start gap-2">
+          {!photo ? (
+            <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Adicione uma foto oficial do academico para visualizar, baixar ou
+              imprimir a carteirinha.
+            </p>
+          ) : null}
+          {photo ? (
+            <p className="text-xs text-slate-600">
+              Foto ativa: {photo.extension.toUpperCase()} -{" "}
+              {formatBytes(photo.sizeBytes)} - enviada em{" "}
+              {formatDateTime(photo.createdAt)}
+            </p>
+          ) : null}
+          <input
+            accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+            className="block w-full text-xs text-slate-700 file:mr-3 file:rounded file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white"
+            disabled={saving}
+            onChange={(event) => handleSelect(event.target.files?.[0])}
+            type="file"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded bg-slate-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
+              disabled={saving || !selectedFile}
+              onClick={() => void handleSave()}
+              type="button"
+            >
+              {photo ? "Substituir foto" : "Adicionar foto"}
+            </button>
+            {photo ? (
+              <button
+                className="rounded border border-red-200 px-3 py-2 text-xs font-medium text-red-700 disabled:opacity-60"
+                disabled={saving}
+                onClick={() => void handleRemove()}
+                type="button"
+              >
+                Remover
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}
+      {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
+    </div>
+  );
+}
+
 function StudentDocuments({ studentId }: { studentId: string }) {
   const [documents, setDocuments] = useState<StudentDocumentRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2363,6 +2569,12 @@ function formatBytes(value: number) {
     return `${(value / 1024).toFixed(1)} KiB`;
   }
   return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function revokeObjectUrl(value: string) {
+  if (value) {
+    URL.revokeObjectURL(value);
+  }
 }
 
 function formatDateTime(value: string) {

@@ -18,12 +18,15 @@ import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import {
   DOCUMENT_TYPES,
+  PHOTO_DOCUMENT_TYPES,
   buildStorageKey,
   validateDocumentFile,
   type UploadedDocumentFile,
 } from "./document-file.js";
 import { DocumentStorageService } from "./document-storage.service.js";
 import { FileDisposition } from "./dto/documents.dto.js";
+
+const PHOTO_ALLOWED_MIME_TYPES = ["image/jpeg", "image/png"] as const;
 
 @Injectable()
 export class DocumentsService {
@@ -116,6 +119,52 @@ export class DocumentsService {
       await this.storage.removeIfExists(prepared.storageKey);
       this.handleWriteError(error);
     }
+  }
+
+  async getStudentPhoto(studentId: string) {
+    await this.ensureStudent(studentId);
+    const photo = await this.findActiveStudentPhoto(studentId);
+    return { photo: photo ? this.toMetadata(photo) : null };
+  }
+
+  async uploadOrReplaceStudentPhoto(
+    studentId: string,
+    file: UploadedDocumentFile | undefined,
+    userId: string,
+  ) {
+    await this.ensureStudent(studentId);
+    const active = await this.findActiveStudentPhoto(studentId);
+    if (active) {
+      return this.replaceStudentDocument(studentId, active.id, file, userId);
+    }
+    return this.uploadStudentDocument(
+      studentId,
+      StudentDocumentType.PHOTO,
+      file,
+      userId,
+    );
+  }
+
+  async removeStudentPhoto(studentId: string, userId: string) {
+    await this.ensureStudent(studentId);
+    const active = await this.findActiveStudentPhoto(studentId);
+    if (!active) {
+      throw new NotFoundException("Foto oficial nao encontrada");
+    }
+    return this.removeStudentDocument(studentId, active.id, userId);
+  }
+
+  async getStudentPhotoFile(
+    studentId: string,
+    userId: string,
+    disposition: FileDisposition,
+  ) {
+    await this.ensureStudent(studentId);
+    const active = await this.findActiveStudentPhoto(studentId);
+    if (!active) {
+      throw new NotFoundException("Foto oficial nao encontrada");
+    }
+    return this.getDocumentFile(studentId, active.id, userId, disposition);
   }
 
   async getStudentDocument(studentId: string, documentId: string) {
@@ -279,6 +328,9 @@ export class DocumentsService {
     const validated = validateDocumentFile(
       file,
       this.config.values.documentMaxSizeBytes,
+      PHOTO_DOCUMENT_TYPES.has(documentType)
+        ? { allowedMimeTypes: PHOTO_ALLOWED_MIME_TYPES }
+        : undefined,
     );
     return {
       ...validated,
@@ -310,6 +362,16 @@ export class DocumentsService {
     return document;
   }
 
+  private findActiveStudentPhoto(studentId: string) {
+    return this.prisma.studentDocument.findFirst({
+      where: {
+        studentId,
+        documentType: StudentDocumentType.PHOTO,
+        status: StudentDocumentStatus.ACTIVE,
+      },
+    });
+  }
+
   private toMetadata(document: StudentDocumentRecord) {
     return {
       id: document.id,
@@ -331,6 +393,9 @@ export class DocumentsService {
 
   private downloadFileName(document: StudentDocumentRecord): string {
     const date = document.createdAt.toISOString().slice(0, 10);
+    if (document.documentType === StudentDocumentType.PHOTO) {
+      return `atretu-foto-oficial-${date}.${document.extension}`;
+    }
     return `atretu-${document.documentType.toLowerCase()}-${date}.${document.extension}`;
   }
 

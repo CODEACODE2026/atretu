@@ -205,7 +205,8 @@ export type StudentDocumentType =
   | "CPF"
   | "RG"
   | "PROOF_OF_ADDRESS"
-  | "PROOF_OF_ENROLLMENT";
+  | "PROOF_OF_ENROLLMENT"
+  | "PHOTO";
 
 export type StudentDocumentStatus = "ACTIVE" | "REPLACED" | "REMOVED";
 
@@ -230,6 +231,10 @@ export type StudentDocumentRecord = {
 export type StudentDocumentsResponse = {
   data: StudentDocumentRecord[];
   missingTypes: StudentDocumentType[];
+};
+
+export type StudentPhotoResponse = {
+  photo: StudentDocumentRecord | null;
 };
 
 export type PreRegistrationStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -1177,6 +1182,36 @@ export const api = {
   ) {
     return requestBlob(
       withParams(`/students/${studentId}/documents/${documentId}/file`, {
+        disposition,
+      }),
+    );
+  },
+
+  getStudentPhoto(studentId: string) {
+    return request<StudentPhotoResponse>(`/students/${studentId}/photo`);
+  },
+
+  uploadOrReplaceStudentPhoto(studentId: string, file: File) {
+    const form = new FormData();
+    form.set("file", file);
+    return request<StudentDocumentRecord>(`/students/${studentId}/photo`, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  removeStudentPhoto(studentId: string) {
+    return request<StudentDocumentRecord>(`/students/${studentId}/photo`, {
+      method: "DELETE",
+    });
+  },
+
+  async downloadStudentPhoto(
+    studentId: string,
+    disposition: "attachment" | "inline" = "inline",
+  ) {
+    return requestBlob(
+      withParams(`/students/${studentId}/photo/file`, {
         disposition,
       }),
     );
