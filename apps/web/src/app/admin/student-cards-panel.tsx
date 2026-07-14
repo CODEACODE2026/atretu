@@ -12,6 +12,7 @@ import {
   type StudentDetail,
   type StudentSummary,
 } from "../../lib/api";
+import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
 
 export function StudentCardsPanel() {
   const [cards, setCards] = useState<StudentCardRecord[]>([]);
@@ -150,16 +151,17 @@ export function StudentCardsPanel() {
   }
 
   async function handleInvalidate(card: StudentCardRecord) {
-    const reason = window.prompt(
-      "Motivo: MANUAL_CORRECTION, OTHER, BOARD_MEMBERSHIP_ENDED ou STUDENT_TERMINATED",
-    ) as StudentCardInvalidationReason | null;
-    if (
-      reason !== "MANUAL_CORRECTION" &&
-      reason !== "OTHER" &&
-      reason !== "BOARD_MEMBERSHIP_ENDED" &&
-      reason !== "STUDENT_TERMINATED"
-    ) {
-      setError("Motivo de invalidacao invalido");
+    const reason = promptOption<StudentCardInvalidationReason>(
+      "Selecione o motivo da invalidacao da carteirinha:",
+      [
+        { label: "Correcao administrativa", value: "MANUAL_CORRECTION" },
+        { label: "Outro motivo", value: "OTHER" },
+        { label: "Fim de participacao na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
+        { label: "Academico desligado", value: "STUDENT_TERMINATED" },
+      ],
+    );
+    if (!reason) {
+      setError("Selecione um motivo valido para invalidar a carteirinha.");
       return;
     }
     const invalidationNote = window.prompt("Observacao opcional") ?? undefined;
@@ -568,16 +570,17 @@ export function StudentCardsForStudent({
   }
 
   async function handleInvalidate(card: StudentCardRecord) {
-    const reason = window.prompt(
-      "Motivo: MANUAL_CORRECTION, OTHER, BOARD_MEMBERSHIP_ENDED ou STUDENT_TERMINATED",
-    ) as StudentCardInvalidationReason | null;
-    if (
-      reason !== "MANUAL_CORRECTION" &&
-      reason !== "OTHER" &&
-      reason !== "BOARD_MEMBERSHIP_ENDED" &&
-      reason !== "STUDENT_TERMINATED"
-    ) {
-      setError("Motivo de invalidacao invalido");
+    const reason = promptOption<StudentCardInvalidationReason>(
+      "Selecione o motivo da invalidacao da carteirinha:",
+      [
+        { label: "Correcao administrativa", value: "MANUAL_CORRECTION" },
+        { label: "Outro motivo", value: "OTHER" },
+        { label: "Fim de participacao na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
+        { label: "Academico desligado", value: "STUDENT_TERMINATED" },
+      ],
+    );
+    if (!reason) {
+      setError("Selecione um motivo valido para invalidar a carteirinha.");
       return;
     }
     const invalidationNote = window.prompt("Observacao opcional") ?? undefined;
@@ -706,7 +709,9 @@ function StudentCardPreviewBox({ preview }: { preview: StudentCardPreview }) {
       <p className="font-medium text-slate-950">
         {preview.eligible ? "Elegivel para emissao" : "Bloqueado"}
       </p>
-      {preview.blockingReason ? <p>Motivo: {preview.blockingReason}</p> : null}
+      {preview.blockingReason ? (
+        <p>Motivo: {mapApiErrorMessage(preview.blockingReason)}</p>
+      ) : null}
       <p>Ano Letivo: {preview.academicYear.year}</p>
       <p>Instituicao: {preview.enrollment.institution.name}</p>
       <p>

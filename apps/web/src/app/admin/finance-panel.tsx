@@ -16,6 +16,16 @@ import {
   type StudentSummary,
 } from "../../lib/api";
 import { canAccessRestrictedAdmin } from "../../lib/auth";
+import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
+
+const invoiceCancellationOptions: Array<{
+  label: string;
+  value: InvoiceCancellationReason;
+}> = [
+  { label: "Correcao administrativa", value: "MANUAL_CORRECTION" },
+  { label: "Fatura duplicada", value: "DUPLICATE" },
+  { label: "Outro motivo", value: "OTHER" },
+];
 
 export function FinancePanel({ user }: { user: ApiUser }) {
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -208,15 +218,12 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   }
 
   async function handleCancel(invoice: InvoiceRecord) {
-    const reason = window.prompt(
-      "Motivo: MANUAL_CORRECTION, DUPLICATE ou OTHER",
-    ) as InvoiceCancellationReason | null;
-    if (
-      reason !== "MANUAL_CORRECTION" &&
-      reason !== "DUPLICATE" &&
-      reason !== "OTHER"
-    ) {
-      setError("Motivo de cancelamento invalido");
+    const reason = promptOption(
+      "Selecione o motivo do cancelamento da fatura:",
+      invoiceCancellationOptions,
+    );
+    if (!reason) {
+      setError("Selecione um motivo valido para cancelar a fatura.");
       return;
     }
     const note = window.prompt("Observacao opcional") ?? undefined;
@@ -285,20 +292,17 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   }
 
   async function handleCancelBankSlip(invoice: InvoiceRecord) {
-    const reason = window.prompt(
-      "Motivo obrigatorio: MANUAL_CORRECTION, DUPLICATE ou OTHER",
-    ) as InvoiceCancellationReason | null;
-    if (
-      reason !== "MANUAL_CORRECTION" &&
-      reason !== "DUPLICATE" &&
-      reason !== "OTHER"
-    ) {
-      setError("Motivo da baixa invalido ou nao informado");
+    const reason = promptOption(
+      "Selecione o motivo da solicitacao de baixa do boleto:",
+      invoiceCancellationOptions,
+    );
+    if (!reason) {
+      setError("Selecione um motivo valido para solicitar a baixa do boleto.");
       return;
     }
     const note = window.prompt("Observacao opcional") ?? undefined;
     const confirmed = window.confirm(
-      "O pedido sera enviado ao Sicredi. A baixa nao e imediata; o boleto ficara pendente de confirmacao e a fatura so sera cancelada apos confirmacao bancaria.",
+      "Solicitar baixa do boleto?\n\nO pedido sera registrado para o Sicredi, a baixa nao e imediata e a fatura so sera cancelada apos confirmacao bancaria.",
     );
     if (!confirmed) {
       return;
@@ -847,15 +851,12 @@ export function StudentInvoicesForStudent({
   }
 
   async function handleCancel(invoice: InvoiceRecord) {
-    const reason = window.prompt(
-      "Motivo: MANUAL_CORRECTION, DUPLICATE ou OTHER",
-    ) as InvoiceCancellationReason | null;
-    if (
-      reason !== "MANUAL_CORRECTION" &&
-      reason !== "DUPLICATE" &&
-      reason !== "OTHER"
-    ) {
-      setError("Motivo de cancelamento invalido");
+    const reason = promptOption(
+      "Selecione o motivo do cancelamento da fatura:",
+      invoiceCancellationOptions,
+    );
+    if (!reason) {
+      setError("Selecione um motivo valido para cancelar a fatura.");
       return;
     }
     const note = window.prompt("Observacao opcional") ?? undefined;
@@ -928,21 +929,18 @@ export function StudentInvoicesForStudent({
   }
 
   async function handleCancelBankSlip(invoice: InvoiceRecord) {
-    const reason = window.prompt(
-      "Motivo obrigatorio: MANUAL_CORRECTION, DUPLICATE ou OTHER",
-    ) as InvoiceCancellationReason | null;
-    if (
-      reason !== "MANUAL_CORRECTION" &&
-      reason !== "DUPLICATE" &&
-      reason !== "OTHER"
-    ) {
-      setError("Motivo da baixa invalido ou nao informado");
+    const reason = promptOption(
+      "Selecione o motivo da solicitacao de baixa do boleto:",
+      invoiceCancellationOptions,
+    );
+    if (!reason) {
+      setError("Selecione um motivo valido para solicitar a baixa do boleto.");
       return;
     }
     const note = window.prompt("Observacao opcional") ?? undefined;
     if (
       !window.confirm(
-        "O pedido sera enviado ao Sicredi. A baixa nao e imediata; a fatura so sera cancelada apos confirmacao bancaria.",
+        "Solicitar baixa do boleto?\n\nO pedido sera registrado para o Sicredi, a baixa nao e imediata e a fatura so sera cancelada apos confirmacao bancaria.",
       )
     ) {
       return;
@@ -1130,7 +1128,9 @@ function InvoicePreviewBox({ preview }: { preview: InvoicePreview }) {
       <p className="font-medium text-slate-950">
         {preview.eligible ? "Elegivel para fatura" : "Bloqueado"}
       </p>
-      {preview.blockingReason ? <p>Motivo: {preview.blockingReason}</p> : null}
+      {preview.blockingReason ? (
+        <p>Motivo: {mapApiErrorMessage(preview.blockingReason)}</p>
+      ) : null}
       <p>Ano Letivo: {preview.enrollment.academicYear.year}</p>
       <p>Instituicao: {preview.enrollment.institution.name}</p>
       <p>

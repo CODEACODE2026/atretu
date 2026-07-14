@@ -8,6 +8,7 @@ import {
   type PublicPreRegistrationFiles,
   type PublicPreRegistrationPayload,
 } from "../../lib/api";
+import { maskCpf, maskPhone, onlyDigits } from "../../lib/formatters";
 
 const emptyForm: PublicPreRegistrationPayload = {
   fullName: "",
@@ -94,7 +95,13 @@ export default function PreCadastroPage() {
   }, []);
 
   function update(key: keyof PublicPreRegistrationPayload, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
+    const masked =
+      key === "cpf" || key === "guardianCpf"
+        ? maskCpf(value)
+        : key === "phone"
+          ? maskPhone(value)
+          : value;
+    setForm((current) => ({ ...current, [key]: masked }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -161,6 +168,7 @@ export default function PreCadastroPage() {
             <Field
               label="CPF"
               onChange={(value) => update("cpf", value)}
+              placeholder="000.000.000-00"
               required
               value={form.cpf}
             />
@@ -181,6 +189,7 @@ export default function PreCadastroPage() {
             <Field
               label="Telefone"
               onChange={(value) => update("phone", value)}
+              placeholder="(00) 00000-0000"
               value={form.phone ?? ""}
             />
           </div>
@@ -231,6 +240,7 @@ export default function PreCadastroPage() {
             <Field
               label="CPF"
               onChange={(value) => update("guardianCpf", value)}
+              placeholder="000.000.000-00"
               value={form.guardianCpf ?? ""}
             />
             <Field
@@ -355,12 +365,14 @@ function Section({
 function Field({
   label,
   onChange,
+  placeholder,
   required,
   type = "text",
   value,
 }: {
   label: string;
   onChange: (value: string) => void;
+  placeholder?: string;
   required?: boolean;
   type?: string;
   value: string;
@@ -371,6 +383,7 @@ function Field({
       <input
         className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
         required={required}
         type={type}
         value={value}
@@ -418,7 +431,13 @@ function Select({
 function cleanPayload(
   form: PublicPreRegistrationPayload,
 ): PublicPreRegistrationPayload {
-  return Object.fromEntries(
+  const cleaned = Object.fromEntries(
     Object.entries(form).map(([key, value]) => [key, value.trim()]),
   ) as PublicPreRegistrationPayload;
+  return {
+    ...cleaned,
+    cpf: onlyDigits(cleaned.cpf),
+    guardianCpf: cleaned.guardianCpf ? onlyDigits(cleaned.guardianCpf) : undefined,
+    phone: cleaned.phone ? onlyDigits(cleaned.phone) : undefined,
+  };
 }

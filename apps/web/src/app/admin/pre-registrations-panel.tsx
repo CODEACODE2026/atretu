@@ -9,6 +9,7 @@ import {
   type PreRegistrationStatus,
   type PreRegistrationSummary,
 } from "../../lib/api";
+import { maskCpf, maskPhone } from "../../lib/formatters";
 
 const statuses: Array<{ label: string; value: PreRegistrationStatus }> = [
   { label: "Pendentes", value: "PENDING" },
@@ -125,7 +126,7 @@ export function PreRegistrationsPanel() {
       return;
     }
     const confirmed = window.confirm(
-      "Aprovar este pre-cadastro e criar academico, pessoa e matricula?",
+      "Aprovar este pre-cadastro?\n\nO sistema criara pessoa, academico e matricula. Se um onibus foi selecionado, o vinculo sera criado na mesma operacao.",
     );
     if (!confirmed) {
       return;
@@ -153,7 +154,9 @@ export function PreRegistrationsPanel() {
     if (!selected) {
       return;
     }
-    const confirmed = window.confirm("Rejeitar este pre-cadastro?");
+    const confirmed = window.confirm(
+      "Rejeitar este pre-cadastro?\n\nA solicitacao ficara registrada como rejeitada e nao criara academico ou matricula.",
+    );
     if (!confirmed) {
       return;
     }
@@ -369,10 +372,10 @@ export function PreRegistrationsPanel() {
 
               <InfoGroup
                 rows={[
-                  ["CPF", selected.cpf],
+                  ["CPF", maskCpf(selected.cpf)],
                   ["RG", selected.rg ?? "-"],
                   ["Nascimento", formatDate(selected.birthDate)],
-                  ["Telefone", selected.phone ?? "-"],
+                  ["Telefone", selected.phone ? maskPhone(selected.phone) : "-"],
                   ["E-mail", selected.email ?? "-"],
                 ]}
                 title="Identificacao"
@@ -389,7 +392,7 @@ export function PreRegistrationsPanel() {
               <InfoGroup
                 rows={[
                   ["Responsavel", selected.guardian?.fullName ?? "-"],
-                  ["CPF", selected.guardian?.cpf ?? "-"],
+                  ["CPF", selected.guardian?.cpf ? maskCpf(selected.guardian.cpf) : "-"],
                   ["RG", selected.guardian?.rg ?? "-"],
                 ]}
                 title="Responsavel"

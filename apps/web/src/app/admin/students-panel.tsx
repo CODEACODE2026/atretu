@@ -18,6 +18,13 @@ import {
   type ReenrollmentPreview,
   type StudentSummary,
 } from "../../lib/api";
+import {
+  maskCep,
+  maskCpf,
+  maskPhone,
+  onlyDigits,
+  promptOption,
+} from "../../lib/formatters";
 import { StudentInvoicesForStudent } from "./finance-panel";
 import { StudentCardsForStudent } from "./student-cards-panel";
 
@@ -212,16 +219,16 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
       setHistory(historyResponse.data);
       setPerson({
         fullName: detail.person.fullName,
-        cpf: detail.person.cpf,
+        cpf: maskCpf(detail.person.cpf),
         rg: detail.person.rg ?? "",
         birthDate: formatDateInput(detail.person.birthDate),
-        phone: detail.person.phone ?? "",
+        phone: maskPhone(detail.person.phone ?? ""),
         email: detail.person.email ?? "",
         addressStreet: detail.person.addressStreet,
         addressNumber: detail.person.addressNumber,
         addressNeighborhood: detail.person.addressNeighborhood,
         addressCity: detail.person.addressCity,
-        addressZipCode: detail.person.addressZipCode ?? "",
+        addressZipCode: maskCep(detail.person.addressZipCode ?? ""),
         addressState: detail.person.addressState ?? "",
         addressComplement: detail.person.addressComplement ?? "",
       });
@@ -229,7 +236,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
         detail.guardian
           ? {
               fullName: detail.guardian.fullName,
-              cpf: detail.guardian.cpf ?? "",
+              cpf: maskCpf(detail.guardian.cpf ?? ""),
               rg: detail.guardian.rg ?? "",
             }
           : undefined,
@@ -296,7 +303,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     try {
       await api.createStudent({
         person: cleanPerson(person),
-        guardian: guardian?.fullName ? guardian : undefined,
+        guardian: cleanGuardian(guardian),
         enrollment,
         busId: emptyToUndefined(createBusId),
       });
@@ -340,7 +347,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
       const detail = await api.updateStudentGuardian(
         selected.id,
         guardian?.fullName
-          ? { guardian }
+          ? { guardian: cleanGuardian(guardian)! }
           : { clear: true },
       );
       setSelected(detail);
@@ -390,13 +397,13 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     if (!selected) {
       return;
     }
-    const reason = window.prompt("Motivo: NON_PAYMENT, INFRACTION ou OTHER");
-    if (
-      reason !== "NON_PAYMENT" &&
-      reason !== "INFRACTION" &&
-      reason !== "OTHER"
-    ) {
-      setError("Motivo de suspensao invalido");
+    const reason = promptOption("Selecione o motivo da suspensao:", [
+      { label: "Inadimplencia", value: "NON_PAYMENT" },
+      { label: "Infracao", value: "INFRACTION" },
+      { label: "Outro motivo", value: "OTHER" },
+    ]);
+    if (!reason) {
+      setError("Selecione um motivo valido para suspender o academico.");
       return;
     }
     const justification = window.prompt("Justificativa obrigatoria");
@@ -405,7 +412,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
       return;
     }
     const releaseBusSeat = window.confirm(
-      "Deseja liberar a vaga do onibus deste academico? OK libera; Cancelar mantem a vaga ocupada.",
+      "Suspender este academico?\n\nConfirmar libera a vaga do onibus, se houver. Cancelar mantem a vaga ocupada durante a suspensao.",
     );
     setSaving(true);
     setMessage("");
@@ -447,7 +454,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
       });
       const available = busesResponse.data.filter((bus) => !bus.isFull);
       const choice = window.prompt(
-        `Informe o numero do onibus para reativar:\n${available
+        `Selecione o onibus para reativar o academico. A capacidade sera validada novamente no backend:\n${available
           .map(
             (bus, index) =>
               `${index + 1}. ${bus.name} (${bus.availableSeats ?? bus.capacity} vagas)`,
@@ -461,7 +468,9 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
         return;
       }
     } else if (
-      !window.confirm("Reativar academico mantendo o vinculo atual de onibus?")
+      !window.confirm(
+        "Reativar academico mantendo o vinculo atual de onibus?\n\nO historico sera preservado.",
+      )
     ) {
       return;
     }
@@ -487,9 +496,12 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     if (!selected) {
       return;
     }
-    const terminationReason = window.prompt("Tipo: WITHDRAWAL ou NON_PAYMENT");
-    if (terminationReason !== "WITHDRAWAL" && terminationReason !== "NON_PAYMENT") {
-      setError("Tipo de desligamento invalido");
+    const terminationReason = promptOption("Selecione o motivo do desligamento:", [
+      { label: "Desistencia", value: "WITHDRAWAL" },
+      { label: "Inadimplencia", value: "NON_PAYMENT" },
+    ]);
+    if (!terminationReason) {
+      setError("Selecione um motivo valido para desligar o academico.");
       return;
     }
     const justification = window.prompt("Justificativa obrigatoria");
@@ -498,7 +510,7 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
       return;
     }
     const confirmed = window.confirm(
-      "O desligamento preserva o historico, libera a vaga e encerra diretoria ativa se existir. Confirmar?",
+      "Confirmar desligamento?\n\nO historico sera preservado, a vaga de onibus sera liberada, a carteirinha ativa sera invalidada e a diretoria ativa sera encerrada se existir. Esta acao nao altera faturas ou boletos.",
     );
     if (!confirmed) {
       return;
@@ -1577,7 +1589,15 @@ function PersonFields({
   setPerson: (person: StudentPayload["person"]) => void;
 }) {
   function update(key: keyof StudentPayload["person"], value: string) {
-    setPerson({ ...person, [key]: value });
+    const masked =
+      key === "cpf"
+        ? maskCpf(value)
+        : key === "phone"
+          ? maskPhone(value)
+          : key === "addressZipCode"
+            ? maskCep(value)
+            : value;
+    setPerson({ ...person, [key]: masked });
   }
 
   return (
@@ -1585,12 +1605,12 @@ function PersonFields({
       <h3 className="text-sm font-semibold text-slate-950">Dados pessoais</h3>
       <Field label="Nome completo" onChange={(value) => update("fullName", value)} required value={person.fullName} />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="CPF" onChange={(value) => update("cpf", value)} required value={person.cpf} />
+        <Field label="CPF" onChange={(value) => update("cpf", value)} placeholder="000.000.000-00" required value={person.cpf} />
         <Field label="RG" onChange={(value) => update("rg", value)} value={person.rg ?? ""} />
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Nascimento" onChange={(value) => update("birthDate", value)} required type="date" value={person.birthDate} />
-        <Field label="Telefone" onChange={(value) => update("phone", value)} value={person.phone ?? ""} />
+        <Field label="Telefone" onChange={(value) => update("phone", value)} placeholder="(00) 00000-0000" value={person.phone ?? ""} />
       </div>
       <Field label="E-mail" onChange={(value) => update("email", value)} type="email" value={person.email ?? ""} />
       <h3 className="pt-2 text-sm font-semibold text-slate-950">Endereco</h3>
@@ -1604,7 +1624,7 @@ function PersonFields({
         <Field label="UF" maxLength={2} onChange={(value) => update("addressState", value)} value={person.addressState ?? ""} />
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="CEP" onChange={(value) => update("addressZipCode", value)} value={person.addressZipCode ?? ""} />
+        <Field label="CEP" onChange={(value) => update("addressZipCode", value)} placeholder="00000-000" value={person.addressZipCode ?? ""} />
         <Field label="Complemento" onChange={(value) => update("addressComplement", value)} value={person.addressComplement ?? ""} />
       </div>
     </div>
@@ -1620,7 +1640,7 @@ function GuardianFields({
 }) {
   const current = guardian ?? { fullName: "", cpf: "", rg: "" };
   function update(key: keyof NonNullable<StudentPayload["guardian"]>, value: string) {
-    setGuardian({ ...current, [key]: value });
+    setGuardian({ ...current, [key]: key === "cpf" ? maskCpf(value) : value });
   }
 
   return (
@@ -1637,7 +1657,7 @@ function GuardianFields({
       </div>
       <Field label="Nome completo" onChange={(value) => update("fullName", value)} value={current.fullName} />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="CPF" onChange={(value) => update("cpf", value)} value={current.cpf ?? ""} />
+        <Field label="CPF" onChange={(value) => update("cpf", value)} placeholder="000.000.000-00" value={current.cpf ?? ""} />
         <Field label="RG" onChange={(value) => update("rg", value)} value={current.rg ?? ""} />
       </div>
     </div>
@@ -1780,7 +1800,7 @@ function BusAssignmentControls({
           throw new Error("Selecione um onibus diferente para troca");
         }
         const confirmed = window.confirm(
-          "Esta troca vai liberar a vaga no onibus anterior e ocupar uma vaga no novo onibus.",
+          "Confirmar troca de onibus?\n\nA vaga do onibus anterior sera liberada e uma vaga sera ocupada no novo onibus. A capacidade sera validada novamente.",
         );
         if (!confirmed) {
           return;
@@ -1811,7 +1831,9 @@ function BusAssignmentControls({
     if (!assignment) {
       return;
     }
-    const confirmed = window.confirm("Liberar a vaga deste onibus?");
+    const confirmed = window.confirm(
+      "Liberar a vaga deste onibus?\n\nO vinculo ativo sera encerrado e a vaga ficara disponivel para outro academico.",
+    );
     if (!confirmed) {
       return;
     }
@@ -2199,6 +2221,7 @@ function Field({
   label,
   maxLength,
   onChange,
+  placeholder,
   required,
   type = "text",
   value,
@@ -2206,6 +2229,7 @@ function Field({
   label: string;
   maxLength?: number;
   onChange: (value: string) => void;
+  placeholder?: string;
   required?: boolean;
   type?: string;
   value: string;
@@ -2217,6 +2241,7 @@ function Field({
         className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
         required={required}
         type={type}
         value={value}
@@ -2303,12 +2328,26 @@ function formatDateInput(value: string) {
 function cleanPerson(person: StudentPayload["person"]): StudentPayload["person"] {
   return {
     ...person,
+    cpf: onlyDigits(person.cpf),
     rg: emptyToUndefined(person.rg),
-    phone: emptyToUndefined(person.phone),
+    phone: emptyToUndefined(onlyDigits(person.phone ?? "")),
     email: emptyToUndefined(person.email),
-    addressZipCode: emptyToUndefined(person.addressZipCode),
+    addressZipCode: emptyToUndefined(onlyDigits(person.addressZipCode ?? "")),
     addressState: emptyToUndefined(person.addressState),
     addressComplement: emptyToUndefined(person.addressComplement),
+  };
+}
+
+function cleanGuardian(
+  guardian?: StudentPayload["guardian"],
+): StudentPayload["guardian"] | undefined {
+  if (!guardian?.fullName) {
+    return undefined;
+  }
+  return {
+    ...guardian,
+    cpf: emptyToUndefined(onlyDigits(guardian.cpf ?? "")),
+    rg: emptyToUndefined(guardian.rg),
   };
 }
 

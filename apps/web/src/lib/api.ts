@@ -1,3 +1,5 @@
+import { mapApiErrorMessage } from "./formatters";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333";
 
 export type ApiUser = {
@@ -607,7 +609,7 @@ async function request<T>(
     const body = (await response.json().catch(() => null)) as
       | { message?: string }
       | null;
-    throw new Error(body?.message ?? "Nao foi possivel concluir a operacao");
+    throw new Error(mapApiErrorMessage(body?.message));
   }
 
   return response.json() as Promise<T>;
@@ -623,7 +625,7 @@ async function requestBlob(path: string, options: RequestInit = {}) {
     const body = (await response.json().catch(() => null)) as
       | { message?: string }
       | null;
-    throw new Error(body?.message ?? "Nao foi possivel concluir a operacao");
+    throw new Error(mapApiErrorMessage(body?.message));
   }
 
   return {
