@@ -14,7 +14,6 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import { RoleCode } from "@prisma/client";
 import type { Response } from "express";
-import { memoryStorage } from "multer";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { Roles } from "../auth/roles.decorator.js";
@@ -22,10 +21,9 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { DocumentsService } from "./documents.service.js";
 import { DownloadStudentDocumentDto } from "./dto/documents.dto.js";
+import { singleDocumentUploadOptions } from "./multipart-upload.js";
 
-const uploadInterceptor = FileInterceptor("file", {
-  storage: memoryStorage(),
-});
+const uploadInterceptor = FileInterceptor("file", singleDocumentUploadOptions);
 
 @UseGuards(AuthGuard, RolesGuard)
 @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)

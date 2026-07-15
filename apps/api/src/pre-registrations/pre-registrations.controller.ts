@@ -15,12 +15,12 @@ import {
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
 import { RoleCode } from "@prisma/client";
 import type { Request, Response } from "express";
-import { memoryStorage } from "multer";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { DownloadStudentDocumentDto } from "../documents/dto/documents.dto.js";
+import { publicPreRegistrationUploadOptions } from "../documents/multipart-upload.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   ApprovePreRegistrationDto,
@@ -37,7 +37,7 @@ const publicUploadInterceptor = FileFieldsInterceptor(
     { name: "proofOfAddressDocument", maxCount: 1 },
     { name: "proofOfEnrollmentDocument", maxCount: 1 },
   ],
-  { storage: memoryStorage() },
+  publicPreRegistrationUploadOptions,
 );
 
 @Controller()

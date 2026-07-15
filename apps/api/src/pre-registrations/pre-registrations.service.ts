@@ -22,6 +22,7 @@ import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import {
   validateDocumentFile,
+  validateDocumentFileStructure,
   type UploadedDocumentFile,
 } from "../documents/document-file.js";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
@@ -107,7 +108,7 @@ export class PreRegistrationsService {
     );
 
     const prepared = await this.preparePreRegistration(input.body, cpf);
-    const documentInputs = this.prepareDocuments(
+    const documentInputs = await this.prepareDocuments(
       prepared.id,
       input.files,
     );
@@ -548,35 +549,39 @@ export class PreRegistrationsService {
     };
   }
 
-  private prepareDocuments(
+  private async prepareDocuments(
     preRegistrationId: string,
     files: PublicDocumentFiles,
   ) {
-    return Object.entries(DOCUMENT_FIELD_TYPES).flatMap(([field, documentType]) => {
+    const documents = [];
+    for (const [field, documentType] of Object.entries(DOCUMENT_FIELD_TYPES)) {
       const file = files[field as PublicDocumentField];
       if (!file) {
-        return [];
+        continue;
       }
       const id = randomUUID();
       const validated = validateDocumentFile(
         file as UploadedDocumentFile,
         this.config.values.documentMaxSizeBytes,
       );
-      return [
-        {
-          ...validated,
-          id,
+      await validateDocumentFileStructure(
+        file as UploadedDocumentFile,
+        validated.mimeType,
+      );
+      documents.push({
+        ...validated,
+        id,
+        documentType,
+        storageKey: this.buildPreRegistrationStorageKey({
+          preRegistrationId,
           documentType,
-          storageKey: this.buildPreRegistrationStorageKey({
-            preRegistrationId,
-            documentType,
-            documentId: id,
-            storedFileName: validated.storedFileName,
-          }),
-          buffer: file.buffer,
-        },
-      ];
-    });
+          documentId: id,
+          storedFileName: validated.storedFileName,
+        }),
+        buffer: file.buffer,
+      });
+    }
+    return documents;
   }
 
   private async ensurePublicReferences(body: CreatePublicPreRegistrationDto) {

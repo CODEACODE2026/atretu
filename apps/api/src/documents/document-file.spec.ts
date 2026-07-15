@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { BadRequestException } from "@nestjs/common";
 import { StudentDocumentType } from "@prisma/client";
+import sharp from "sharp";
 import {
   PHOTO_DOCUMENT_TYPES,
   buildStorageKey,
   sanitizeOriginalFileName,
   validateDocumentFile,
+  validateDocumentFileStructure,
 } from "./document-file.js";
 
 const pdf = Buffer.from("%PDF-1.4\ncontent");
@@ -105,4 +107,63 @@ assert.equal(
     storedFileName: "stored.pdf",
   }),
   "students/student-id/CPF/document-id/stored.pdf",
+);
+
+const validPng = await sharp({
+  create: {
+    width: 2,
+    height: 2,
+    channels: 3,
+    background: { r: 255, g: 255, b: 255 },
+  },
+})
+  .png()
+  .toBuffer();
+await validateDocumentFileStructure(
+  { originalname: "foto.png", mimetype: "image/png", buffer: validPng },
+  "image/png",
+);
+
+const validJpeg = await sharp({
+  create: {
+    width: 2,
+    height: 2,
+    channels: 3,
+    background: { r: 255, g: 255, b: 255 },
+  },
+})
+  .jpeg()
+  .toBuffer();
+await validateDocumentFileStructure(
+  { originalname: "foto.jpg", mimetype: "image/jpeg", buffer: validJpeg },
+  "image/jpeg",
+);
+
+await assert.rejects(
+  () =>
+    validateDocumentFileStructure(
+      {
+        originalname: "foto.png",
+        mimetype: "image/png",
+        buffer: validPng.subarray(0, 12),
+      },
+      "image/png",
+    ),
+  BadRequestException,
+);
+await assert.rejects(
+  () =>
+    validateDocumentFileStructure(
+      {
+        originalname: "foto.jpg",
+        mimetype: "image/jpeg",
+        buffer: validJpeg.subarray(0, 12),
+      },
+      "image/jpeg",
+    ),
+  BadRequestException,
+);
+await validateDocumentFileStructure(
+  { originalname: "doc.pdf", mimetype: "application/pdf", buffer: pdf },
+  "application/pdf",
 );

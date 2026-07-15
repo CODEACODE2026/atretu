@@ -21,6 +21,7 @@ import {
   PHOTO_DOCUMENT_TYPES,
   buildStorageKey,
   validateDocumentFile,
+  validateDocumentFileStructure,
   type UploadedDocumentFile,
 } from "./document-file.js";
 import { DocumentStorageService } from "./document-storage.service.js";
@@ -78,6 +79,7 @@ export class DocumentsService {
     }
 
     const prepared = this.prepareFile(studentId, documentType, file);
+    await validateDocumentFileStructure(file, prepared.mimeType);
     await this.storage.write(prepared.storageKey, file!.buffer!);
 
     try {
@@ -184,6 +186,7 @@ export class DocumentsService {
     }
 
     const prepared = this.prepareFile(studentId, current.documentType, file);
+    await validateDocumentFileStructure(file, prepared.mimeType);
     await this.storage.write(prepared.storageKey, file!.buffer!);
 
     try {

@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { rm } from "node:fs/promises";
+import sharp from "sharp";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:3333";
 const setupToken = process.env.ADMIN_SETUP_TOKEN;
@@ -11,6 +12,7 @@ const secretaryEmail =
 const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte123";
 const runId = `s6-${Date.now()}`;
 const runSeed = Number(runId.replace(/\D/g, "").slice(-6));
+const documentMaxSizeBytes = Number(process.env.DOCUMENT_MAX_SIZE_BYTES ?? 8 * 1024 * 1024);
 
 if (!setupToken) {
   throw new Error("ADMIN_SETUP_TOKEN is required for Sprint 6 smoke");
@@ -199,6 +201,27 @@ async function countAcademicRecordsByCpf(cpf) {
   };
 }
 
+const validJpeg = await sharp({
+  create: {
+    width: 4,
+    height: 6,
+    channels: 3,
+    background: { r: 240, g: 240, b: 240 },
+  },
+})
+  .jpeg()
+  .toBuffer();
+const validPng = await sharp({
+  create: {
+    width: 4,
+    height: 6,
+    channels: 3,
+    background: { r: 240, g: 240, b: 240 },
+  },
+})
+  .png()
+  .toBuffer();
+
 const files = {
   pdf: {
     name: "documento.pdf",
@@ -208,14 +231,22 @@ const files = {
   jpeg: {
     name: "documento.jpg",
     mimeType: "image/jpeg",
-    buffer: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff, 0xd9]),
+    buffer: validJpeg,
   },
   png: {
     name: "documento.png",
     mimeType: "image/png",
-    buffer: Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-    ]),
+    buffer: validPng,
+  },
+  truncatedJpeg: {
+    name: "truncado.jpg",
+    mimeType: "image/jpeg",
+    buffer: validJpeg.subarray(0, 12),
+  },
+  truncatedPng: {
+    name: "truncado.png",
+    mimeType: "image/png",
+    buffer: validPng.subarray(0, 12),
   },
   svg: {
     name: "documento.svg",
@@ -227,7 +258,7 @@ const files = {
     mimeType: "application/pdf",
     buffer: Buffer.concat([
       Buffer.from("%PDF-1.4\n"),
-      Buffer.alloc(8 * 1024 * 1024 + 1, 0x31),
+      Buffer.alloc(documentMaxSizeBytes + 1, 0x31),
     ]),
   },
   traversal: {
@@ -240,23 +271,29 @@ const files = {
 try {
   const { adminCookie, secretaryCookie } = await ensureUsers();
 
-  const usedYears = new Set(
-    (await prisma.academicYear.findMany({ select: { year: true } })).map(
-      (item) => item.year,
-    ),
-  );
+  const existingAcademicYears = await prisma.academicYear.findMany({
+    select: { id: true, year: true, status: true, isCurrent: true },
+    orderBy: { year: "desc" },
+  });
+  const usedYears = new Set(existingAcademicYears.map((item) => item.year));
   let smokeYear = 2088;
   while (usedYears.has(smokeYear)) {
     smokeYear -= 1;
   }
 
-  const academicYear = await request("/academic-years", {
-    method: "POST",
-    headers: json(adminCookie),
-    body: JSON.stringify({ year: smokeYear, isCurrent: true }),
-  });
-  if (!academicYear.response.ok) {
-    throw new Error(`Academic year create failed: ${academicYear.body.message}`);
+  const academicYear =
+    smokeYear >= 2000
+      ? await request("/academic-years", {
+          method: "POST",
+          headers: json(adminCookie),
+          body: JSON.stringify({ year: smokeYear, isCurrent: true }),
+        })
+      : {
+          response: { ok: true },
+          body: existingAcademicYears.find((item) => item.status === "ACTIVE"),
+        };
+  if (!academicYear.response.ok || !academicYear.body?.id) {
+    throw new Error(`Academic year create failed: ${academicYear.body?.message}`);
   }
 
   const institution = await createBaseRecord(adminCookie, "/institutions", {
@@ -295,18 +332,26 @@ try {
   while (usedYears.has(archivedYearValue)) {
     archivedYearValue -= 1;
   }
-  const archivedYear = await request("/academic-years", {
-    method: "POST",
-    headers: json(adminCookie),
-    body: JSON.stringify({ year: archivedYearValue }),
-  });
-  if (!archivedYear.response.ok) {
-    throw new Error(`Archived year create failed: ${archivedYear.body.message}`);
+  const archivedYear =
+    archivedYearValue >= 2000
+      ? await request("/academic-years", {
+          method: "POST",
+          headers: json(adminCookie),
+          body: JSON.stringify({ year: archivedYearValue }),
+        })
+      : {
+          response: { ok: true },
+          body: existingAcademicYears.find((item) => item.status === "ARCHIVED"),
+        };
+  if (!archivedYear.response.ok || !archivedYear.body?.id) {
+    throw new Error(`Archived year create failed: ${archivedYear.body?.message}`);
   }
-  await request(`/academic-years/${archivedYear.body.id}/archive`, {
-    method: "PATCH",
-    headers: json(adminCookie),
-  });
+  if (archivedYear.body.status !== "ARCHIVED") {
+    await request(`/academic-years/${archivedYear.body.id}/archive`, {
+      method: "PATCH",
+      headers: json(adminCookie),
+    });
+  }
 
   const options = await request("/public/pre-registration/options");
   if (
@@ -613,6 +658,45 @@ try {
   if (invalidSvg.response.status !== 400) {
     throw new Error("Invalid public SVG upload was not blocked");
   }
+  const truncatedJpeg = await publicSubmit(
+    preRegistrationPayload({
+      cpf: generateRunCpf(27),
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-truncated-jpg`,
+    }),
+    { cpfDocument: files.truncatedJpeg },
+  );
+  if (truncatedJpeg.response.status !== 400) {
+    throw new Error("Truncated public JPG upload was not blocked");
+  }
+  const truncatedPng = await publicSubmit(
+    preRegistrationPayload({
+      cpf: generateRunCpf(28),
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-truncated-png`,
+    }),
+    { cpfDocument: files.truncatedPng },
+  );
+  if (truncatedPng.response.status !== 400) {
+    throw new Error("Truncated public PNG upload was not blocked");
+  }
+  const unexpectedFile = await publicSubmit(
+    preRegistrationPayload({
+      cpf: generateRunCpf(29),
+      academicYearId: academicYear.body.id,
+      institutionId: institution.id,
+      shiftId: shift.id,
+      suffix: `${runId}-unexpected-file`,
+    }),
+    { unexpectedDocument: files.pdf },
+  );
+  if (unexpectedFile.response.status !== 400) {
+    throw new Error("Unexpected public file field was not blocked");
+  }
   const oversized = await publicSubmit(
     preRegistrationPayload({
       cpf: generateRunCpf(8),
@@ -623,7 +707,7 @@ try {
     }),
     { cpfDocument: files.oversized },
   );
-  if (oversized.response.status !== 400) {
+  if (oversized.response.status !== 413) {
     throw new Error("Oversized public upload was not blocked");
   }
   const traversal = await publicSubmit(

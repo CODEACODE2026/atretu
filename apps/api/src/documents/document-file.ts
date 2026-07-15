@@ -2,6 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import { randomUUID, createHash } from "node:crypto";
 import path from "node:path";
 import { StudentDocumentType } from "@prisma/client";
+import sharp from "sharp";
 
 export const DOCUMENT_TYPES = [
   StudentDocumentType.CPF,
@@ -20,6 +21,8 @@ const MIME_BY_EXTENSION = new Map([
   [".jpeg", "image/jpeg"],
   [".png", "image/png"],
 ]);
+const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png"]);
+const IMAGE_MAX_INPUT_PIXELS = 25_000_000;
 
 export type ValidatedDocumentFile = {
   originalFileName: string;
@@ -89,6 +92,37 @@ export function validateDocumentFile(
     sizeBytes,
     checksumSha256: createHash("sha256").update(file.buffer).digest("hex"),
   };
+}
+
+export async function validateDocumentFileStructure(
+  file: UploadedDocumentFile | undefined,
+  mimeType: string,
+): Promise<void> {
+  if (!IMAGE_MIME_TYPES.has(mimeType)) {
+    return;
+  }
+  if (!file?.buffer) {
+    throw new BadRequestException("Arquivo obrigatorio");
+  }
+  try {
+    const expectedFormat = mimeType === "image/png" ? "png" : "jpeg";
+    const image = sharp(file.buffer, {
+      failOn: "error",
+      limitInputPixels: IMAGE_MAX_INPUT_PIXELS,
+    });
+    const metadata = await image.metadata();
+    if (metadata.format !== expectedFormat || !metadata.width || !metadata.height) {
+      throw new Error("Invalid image metadata");
+    }
+    await sharp(file.buffer, {
+      failOn: "error",
+      limitInputPixels: IMAGE_MAX_INPUT_PIXELS,
+    })
+      .raw()
+      .toBuffer();
+  } catch {
+    throw new BadRequestException("Arquivo de imagem corrompido ou invalido");
+  }
 }
 
 export function sanitizeOriginalFileName(fileName: string): string {

@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { rm } from "node:fs/promises";
+import sharp from "sharp";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:3333";
 const setupToken = process.env.ADMIN_SETUP_TOKEN;
@@ -10,6 +11,7 @@ const secretaryEmail =
   process.env.SMOKE_SECRETARIA_EMAIL ?? "secretaria@atretu.local";
 const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte123";
 const runId = `s5-${Date.now()}`;
+const documentMaxSizeBytes = Number(process.env.DOCUMENT_MAX_SIZE_BYTES ?? 8 * 1024 * 1024);
 
 if (!setupToken) {
   throw new Error("ADMIN_SETUP_TOKEN is required for Sprint 5 smoke");
@@ -204,6 +206,27 @@ async function cleanupStorage() {
   }
 }
 
+const validJpeg = await sharp({
+  create: {
+    width: 4,
+    height: 6,
+    channels: 3,
+    background: { r: 240, g: 240, b: 240 },
+  },
+})
+  .jpeg()
+  .toBuffer();
+const validPng = await sharp({
+  create: {
+    width: 4,
+    height: 6,
+    channels: 3,
+    background: { r: 240, g: 240, b: 240 },
+  },
+})
+  .png()
+  .toBuffer();
+
 const files = {
   pdf: {
     name: "documento.pdf",
@@ -218,14 +241,12 @@ const files = {
   jpeg: {
     name: "documento.jpg",
     mimeType: "image/jpeg",
-    buffer: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff, 0xd9]),
+    buffer: validJpeg,
   },
   png: {
     name: "documento.png",
     mimeType: "image/png",
-    buffer: Buffer.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-    ]),
+    buffer: validPng,
   },
   svg: {
     name: "documento.svg",
@@ -240,7 +261,17 @@ const files = {
   falseMime: {
     name: "foto.jpg",
     mimeType: "image/png",
-    buffer: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff, 0xd9]),
+    buffer: validJpeg,
+  },
+  truncatedJpeg: {
+    name: "foto-truncada.jpg",
+    mimeType: "image/jpeg",
+    buffer: validJpeg.subarray(0, 12),
+  },
+  truncatedPng: {
+    name: "foto-truncada.png",
+    mimeType: "image/png",
+    buffer: validPng.subarray(0, 12),
   },
   emptyJpeg: {
     name: "foto.jpg",
@@ -250,17 +281,23 @@ const files = {
   oversizedPhoto: {
     name: "foto-grande.jpg",
     mimeType: "image/jpeg",
-    buffer: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc((8 * 1024 * 1024) + 1, 0x31)]),
+    buffer: Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff]),
+      Buffer.alloc(documentMaxSizeBytes + 1, 0x31),
+    ]),
   },
   photoTraversal: {
     name: "..foto.jpg",
     mimeType: "image/jpeg",
-    buffer: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0xff, 0xd9]),
+    buffer: validJpeg,
   },
   oversized: {
     name: "grande.pdf",
     mimeType: "application/pdf",
-    buffer: Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(2048, 0x31)]),
+    buffer: Buffer.concat([
+      Buffer.from("%PDF-1.4\n"),
+      Buffer.alloc(documentMaxSizeBytes + 1, 0x31),
+    ]),
   },
   traversal: {
     name: "..evil.pdf",
@@ -285,23 +322,28 @@ try {
 
   const { adminCookie, secretaryCookie } = await ensureUsers();
 
-  const usedYears = new Set(
-    (await prisma.academicYear.findMany({ select: { year: true } })).map(
-      (item) => item.year,
-    ),
-  );
+  const existingAcademicYears = await prisma.academicYear.findMany({
+    select: { id: true, year: true, status: true },
+    orderBy: { year: "desc" },
+  });
+  const usedYears = new Set(existingAcademicYears.map((item) => item.year));
   let smokeYear = 2097;
   while (usedYears.has(smokeYear)) {
     smokeYear -= 1;
   }
 
-  const academicYear = await request("/academic-years", {
-    method: "POST",
-    headers: json(adminCookie),
-    body: JSON.stringify({ year: smokeYear, isCurrent: true }),
-  });
-  if (!academicYear.response.ok) {
-    throw new Error(`Academic year create failed: ${academicYear.body.message}`);
+  const academicYear =
+    smokeYear >= 2000
+      ? (
+          await request("/academic-years", {
+            method: "POST",
+            headers: json(adminCookie),
+            body: JSON.stringify({ year: smokeYear, isCurrent: true }),
+          })
+        ).body
+      : existingAcademicYears.find((item) => item.status === "ACTIVE");
+  if (!academicYear?.id) {
+    throw new Error("No active academic year available for documents smoke");
   }
 
   const institution = await createBaseRecord(adminCookie, "/institutions", {
@@ -316,7 +358,7 @@ try {
     secretaryCookie,
     studentPayload({
       cpf: generateCpf(seed),
-      academicYearId: academicYear.body.id,
+      academicYearId: academicYear.id,
       institutionId: institution.id,
       shiftId: shift.id,
       suffix: runId,
@@ -443,7 +485,7 @@ try {
     "PROOF_OF_ENROLLMENT",
     files.oversized,
   );
-  if (oversized.response.status !== 400) {
+  if (oversized.response.status !== 413) {
     throw new Error("Oversized upload was not blocked");
   }
 
@@ -483,6 +525,22 @@ try {
   if (photoFakeJpeg.response.status !== 400) {
     throw new Error("Invalid magic bytes were not blocked for PHOTO");
   }
+  const photoTruncatedJpeg = await uploadPhoto(
+    secretaryCookie,
+    student.id,
+    files.truncatedJpeg,
+  );
+  if (photoTruncatedJpeg.response.status !== 400) {
+    throw new Error("Truncated JPG was not blocked for PHOTO");
+  }
+  const photoTruncatedPng = await uploadPhoto(
+    secretaryCookie,
+    student.id,
+    files.truncatedPng,
+  );
+  if (photoTruncatedPng.response.status !== 400) {
+    throw new Error("Truncated PNG was not blocked for PHOTO");
+  }
 
   const photoEmpty = await uploadPhoto(secretaryCookie, student.id, files.emptyJpeg);
   if (photoEmpty.response.status !== 400) {
@@ -494,7 +552,7 @@ try {
     student.id,
     files.oversizedPhoto,
   );
-  if (photoOversized.response.status !== 400) {
+  if (photoOversized.response.status !== 413) {
     throw new Error("Oversized photo upload was not blocked");
   }
 
