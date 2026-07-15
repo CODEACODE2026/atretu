@@ -264,11 +264,19 @@ let yearValue = 2100;
 while (usedYears.has(yearValue)) {
   yearValue -= 1;
 }
-if (yearValue < 2000) {
-  throw new Error("No available academic year for invoice smoke");
+let academicYear;
+if (yearValue >= 2000) {
+  academicYear = await createYear(adminCookie, yearValue, true);
+} else {
+  academicYear = await prisma.academicYear.findFirst({
+    where: { status: "ACTIVE" },
+    orderBy: [{ isCurrent: "desc" }, { year: "desc" }],
+  });
+  if (!academicYear) {
+    throw new Error("No available active academic year for invoice smoke");
+  }
+  yearValue = academicYear.year;
 }
-
-const academicYear = await createYear(adminCookie, yearValue, true);
 const institution = await createBaseRecord(adminCookie, "/institutions", {
   name: `Instituicao ${runId}`,
 });
@@ -458,6 +466,61 @@ expect(todayInvoice.response.ok, "Today invoice failed");
 expect(todayInvoice.body.overdue === false, "Today invoice should not be overdue");
 expect(!todayInvoice.body.description, "Empty description should not be stored");
 
+const futureInvoice = await createInvoice(secretaryCookie, todayStudent.id, {
+  enrollmentId: todayStudent.enrollments[0].id,
+  amountCents: 2600,
+  dueDate: futureDueDate,
+  description: `Fatura futura ${runId}`,
+  idempotencyKey: `${runId}-future-page`,
+});
+expect(futureInvoice.response.ok, "Future invoice failed");
+expect(futureInvoice.body.overdue === false, "Future invoice should not be overdue");
+
+const overduePage = await request(
+  `/finance/invoices?academicYearId=${academicYear.id}&institutionId=${institution.id}&overdue=overdue&limit=1&page=1&sort=dueDate&order=asc`,
+  { headers: json(secretaryCookie) },
+);
+expect(overduePage.response.ok, "Overdue filtered invoice page failed");
+expect(overduePage.body.pagination.total === 1, "Overdue filtered total is wrong");
+expect(overduePage.body.pagination.totalPages === 1, "Overdue totalPages is wrong");
+expect(overduePage.body.data.length === 1, "Overdue page returned wrong size");
+expect(
+  overduePage.body.data[0].id === createdInvoice.body.id &&
+    overduePage.body.data[0].overdue === true,
+  "Overdue page returned wrong invoice",
+);
+
+const notOverduePage1 = await request(
+  `/finance/invoices?academicYearId=${academicYear.id}&institutionId=${institution.id}&overdue=notOverdue&limit=1&page=1&sort=dueDate&order=asc`,
+  { headers: json(secretaryCookie) },
+);
+const notOverduePage2 = await request(
+  `/finance/invoices?academicYearId=${academicYear.id}&institutionId=${institution.id}&overdue=notOverdue&limit=1&page=2&sort=dueDate&order=asc`,
+  { headers: json(secretaryCookie) },
+);
+expect(
+  notOverduePage1.response.ok && notOverduePage2.response.ok,
+  "Not-overdue filtered invoice pages failed",
+);
+expect(
+  notOverduePage1.body.pagination.total >= 2 &&
+    notOverduePage1.body.pagination.total === notOverduePage2.body.pagination.total,
+  "Not-overdue filtered total is inconsistent",
+);
+expect(
+  notOverduePage1.body.data.length === 1 && notOverduePage2.body.data.length === 1,
+  "Not-overdue filtered pages have holes",
+);
+expect(
+  notOverduePage1.body.data.every((invoice) => invoice.overdue === false) &&
+    notOverduePage2.body.data.every((invoice) => invoice.overdue === false),
+  "Not-overdue filtered page returned overdue invoice",
+);
+expect(
+  notOverduePage1.body.data[0].id !== notOverduePage2.body.data[0].id,
+  "Not-overdue pagination repeated the same invoice",
+);
+
 const invalidAmount = await createInvoice(secretaryCookie, todayStudent.id, {
   enrollmentId: todayStudent.enrollments[0].id,
   amountCents: 0,
@@ -490,6 +553,16 @@ expect(
 
 const cancelAgain = await cancelInvoice(secretaryCookie, createdInvoice.body.id);
 expect(cancelAgain.response.status === 400, "Second cancellation was not blocked");
+
+const cancelledNotOverdue = await request(
+  `/finance/invoices?academicYearId=${academicYear.id}&institutionId=${institution.id}&status=CANCELLED&overdue=notOverdue&search=${encodeURIComponent(activeStudent.person.cpf)}`,
+  { headers: json(secretaryCookie) },
+);
+expect(cancelledNotOverdue.response.ok, "Cancelled not-overdue filter failed");
+expect(
+  cancelledNotOverdue.body.data.some((invoice) => invoice.id === createdInvoice.body.id),
+  "Cancelled past-due invoice should be filtered as not overdue",
+);
 
 const historyCount = await prisma.studentHistoryEvent.count({
   where: {

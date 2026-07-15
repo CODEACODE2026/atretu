@@ -726,6 +726,50 @@ const manualInvalidated = await invalidateCard(
 );
 expect(manualInvalidated.status === "INVALIDATED", "Manual invalidation failed");
 
+const notUsablePage1 = await request(
+  `/student-cards?academicYearId=${academicYear.id}&validity=notUsable&limit=1&page=1&sort=cardNumber&order=asc`,
+  { headers: json(secretaryCookie) },
+);
+const notUsablePage2 = await request(
+  `/student-cards?academicYearId=${academicYear.id}&validity=notUsable&limit=1&page=2&sort=cardNumber&order=asc`,
+  { headers: json(secretaryCookie) },
+);
+expect(
+  notUsablePage1.response.ok && notUsablePage2.response.ok,
+  "Not-usable student card pagination failed",
+);
+expect(
+  notUsablePage1.body.pagination.total >= 2 &&
+    notUsablePage1.body.pagination.total === notUsablePage2.body.pagination.total,
+  "Not-usable student card total is inconsistent",
+);
+expect(
+  notUsablePage1.body.data.length === 1 && notUsablePage2.body.data.length === 1,
+  "Not-usable student card pages have holes",
+);
+expect(
+  notUsablePage1.body.data.every((card) => card.validity.usable === false) &&
+    notUsablePage2.body.data.every((card) => card.validity.usable === false),
+  "Not-usable filter returned usable card",
+);
+expect(
+  notUsablePage1.body.data[0].id !== notUsablePage2.body.data[0].id,
+  "Not-usable pagination repeated the same card",
+);
+
+const usableNextYear = await request(
+  `/student-cards?academicYearId=${nextAcademicYear.id}&cardType=STUDENT&status=ACTIVE&validity=usable&search=${encodeURIComponent(student1.person.cpf)}&limit=1&page=1`,
+  { headers: json(secretaryCookie) },
+);
+expect(usableNextYear.response.ok, "Usable student card combined filter failed");
+expect(usableNextYear.body.pagination.total === 1, "Usable combined total is wrong");
+expect(
+  usableNextYear.body.data.length === 1 &&
+    usableNextYear.body.data[0].id === nextYearCard.body.id &&
+    usableNextYear.body.data[0].validity.usable === true,
+  "Usable combined filter returned wrong card",
+);
+
 const historyCount = await prisma.studentHistoryEvent.count({
   where: {
     studentId: student1.id,

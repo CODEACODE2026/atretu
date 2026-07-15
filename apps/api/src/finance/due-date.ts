@@ -14,7 +14,7 @@ export function isInvoiceOverdue(input: { dueDate: Date; today?: Date }) {
   return toUtcDateOnly(input.dueDate).getTime() < toUtcDateOnly(today).getTime();
 }
 
-function toUtcDateOnly(value: Date) {
+export function toUtcDateOnly(value: Date) {
   return new Date(
     Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
   );

@@ -18,7 +18,11 @@ import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { maskCpf, normalizeCpf } from "../students/cpf.js";
 import { getFutureInvoiceBlockingReason } from "../students/lifecycle.js";
-import { isInvoiceOverdue, parseInvoiceDueDate } from "./due-date.js";
+import {
+  isInvoiceOverdue,
+  parseInvoiceDueDate,
+  toUtcDateOnly,
+} from "./due-date.js";
 import {
   CancelInvoiceDto,
   CreateInvoiceDto,
@@ -32,12 +36,44 @@ import { assertValidInvoiceAmountCents, formatInvoiceAmount } from "./money.js";
 
 type PrismaTx = Prisma.TransactionClient | PrismaService;
 
+export function buildInvoiceOverdueWhere(
+  filter: InvoiceOverdueFilter,
+  today = new Date(),
+): Prisma.InvoiceWhereInput | null {
+  if (filter === InvoiceOverdueFilter.ALL) {
+    return null;
+  }
+  const overdueWhere: Prisma.InvoiceWhereInput = {
+    status: InvoiceStatus.OPEN,
+    dueDate: { lt: toUtcDateOnly(today) },
+  };
+  return filter === InvoiceOverdueFilter.OVERDUE
+    ? overdueWhere
+    : { NOT: overdueWhere };
+}
+
+function combineInvoiceWhere(
+  base: Prisma.InvoiceWhereInput,
+  derived: Prisma.InvoiceWhereInput | null,
+): Prisma.InvoiceWhereInput {
+  if (!derived) {
+    return base;
+  }
+  if (Object.keys(base).length === 0) {
+    return derived;
+  }
+  return { AND: [base, derived] };
+}
+
 @Injectable()
 export class InvoicesService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async listInvoices(query: ListInvoicesDto) {
-    const where = this.buildInvoiceWhere(query);
+    const where = combineInvoiceWhere(
+      this.buildInvoiceWhere(query),
+      buildInvoiceOverdueWhere(query.overdue),
+    );
     const pagination = this.resolvePagination(query);
     const orderBy = this.buildOrderBy(query);
     const [records, total] = await Promise.all([
@@ -50,9 +86,7 @@ export class InvoicesService {
       }),
       this.prisma.invoice.count({ where }),
     ]);
-    const data = records
-      .map((record) => this.toInvoiceSummary(record))
-      .filter((record) => this.matchesOverdue(record, query.overdue));
+    const data = records.map((record) => this.toInvoiceSummary(record));
 
     return {
       data,
@@ -383,34 +417,23 @@ export class InvoicesService {
   ): Prisma.InvoiceOrderByWithRelationInput[] {
     const direction = query.order === SortOrder.DESC ? "desc" : "asc";
     if (query.sort === InvoiceSort.CREATED_AT) {
-      return [{ createdAt: direction }, { dueDate: "asc" }];
+      return [{ createdAt: direction }, { dueDate: "asc" }, { id: "asc" }];
     }
     if (query.sort === InvoiceSort.AMOUNT) {
-      return [{ amountCents: direction }, { dueDate: "asc" }];
+      return [{ amountCents: direction }, { dueDate: "asc" }, { id: "asc" }];
     }
     if (query.sort === InvoiceSort.STUDENT_NAME) {
       return [
         { student: { person: { normalizedName: direction } } },
         { dueDate: "asc" },
+        { id: "asc" },
       ];
     }
-    return [{ dueDate: direction }, { createdAt: "desc" }];
+    return [{ dueDate: direction }, { createdAt: "desc" }, { id: "asc" }];
   }
 
   private resolvePagination(query: ListInvoicesDto) {
     return resolvePagination(query);
-  }
-
-  private matchesOverdue(
-    invoice: ReturnType<InvoicesService["toInvoiceSummary"]>,
-    filter: InvoiceOverdueFilter,
-  ) {
-    if (filter === InvoiceOverdueFilter.ALL) {
-      return true;
-    }
-    return filter === InvoiceOverdueFilter.OVERDUE
-      ? invoice.overdue
-      : !invoice.overdue;
   }
 
   private invoiceInclude() {

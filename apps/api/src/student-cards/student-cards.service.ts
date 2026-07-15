@@ -33,6 +33,56 @@ import {
 
 type PrismaTx = Prisma.TransactionClient | PrismaService;
 
+export function buildStudentCardValidityWhere(
+  filter: StudentCardValidityFilter,
+): Prisma.StudentCardWhereInput | null {
+  if (filter === StudentCardValidityFilter.ALL) {
+    return null;
+  }
+  const usableWhere: Prisma.StudentCardWhereInput = {
+    status: { not: StudentCardStatus.INVALIDATED },
+    student: {
+      status: { notIn: [StudentStatus.SUSPENDED, StudentStatus.TERMINATED] },
+    },
+    AND: [
+      {
+        OR: [
+          { cardType: { not: StudentCardType.BOARD_MEMBER } },
+          { boardMembership: { is: { status: BoardMembershipStatus.ACTIVE } } },
+        ],
+      },
+      {
+        OR: [
+          { cardType: { not: StudentCardType.STUDENT } },
+          {
+            student: {
+              boardMemberships: {
+                none: { status: BoardMembershipStatus.ACTIVE },
+              },
+            },
+          },
+        ],
+      },
+    ],
+  };
+  return filter === StudentCardValidityFilter.USABLE
+    ? usableWhere
+    : { NOT: usableWhere };
+}
+
+function combineStudentCardWhere(
+  base: Prisma.StudentCardWhereInput,
+  derived: Prisma.StudentCardWhereInput | null,
+): Prisma.StudentCardWhereInput {
+  if (!derived) {
+    return base;
+  }
+  if (Object.keys(base).length === 0) {
+    return derived;
+  }
+  return { AND: [base, derived] };
+}
+
 @Injectable()
 export class StudentCardsService {
   constructor(
@@ -42,7 +92,10 @@ export class StudentCardsService {
   ) {}
 
   async listStudentCards(query: ListStudentCardsDto) {
-    const where = this.buildCardWhere(query);
+    const where = combineStudentCardWhere(
+      this.buildCardWhere(query),
+      buildStudentCardValidityWhere(query.validity),
+    );
     const pagination = this.resolvePagination(query);
     const orderBy = this.buildOrderBy(query);
     const [records, total] = await Promise.all([
@@ -55,9 +108,7 @@ export class StudentCardsService {
       }),
       this.prisma.studentCard.count({ where }),
     ]);
-    const data = records
-      .map((record) => this.toCardSummary(record))
-      .filter((record) => this.matchesValidity(record, query.validity));
+    const data = records.map((record) => this.toCardSummary(record));
 
     return {
       data,
@@ -435,25 +486,13 @@ export class StudentCardsService {
   ): Prisma.StudentCardOrderByWithRelationInput[] {
     const direction = query.order === SortOrder.ASC ? "asc" : "desc";
     if (query.sort === StudentCardSort.CARD_NUMBER) {
-      return [{ sequenceNumber: direction }, { issuedAt: "desc" }];
+      return [{ sequenceNumber: direction }, { issuedAt: "desc" }, { id: "asc" }];
     }
-    return [{ issuedAt: direction }, { sequenceNumber: "desc" }];
+    return [{ issuedAt: direction }, { sequenceNumber: "desc" }, { id: "asc" }];
   }
 
   private resolvePagination(query: ListStudentCardsDto) {
     return resolvePagination(query);
-  }
-
-  private matchesValidity(
-    card: ReturnType<StudentCardsService["toCardSummary"]>,
-    filter: StudentCardValidityFilter,
-  ) {
-    if (filter === StudentCardValidityFilter.ALL) {
-      return true;
-    }
-    return filter === StudentCardValidityFilter.USABLE
-      ? card.validity.usable
-      : !card.validity.usable;
   }
 
   private deriveValidity(card: StudentCardWithRelations) {
