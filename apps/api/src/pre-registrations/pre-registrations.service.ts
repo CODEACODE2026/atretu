@@ -102,6 +102,8 @@ export class PreRegistrationsService {
       };
     }
 
+    this.assertRequiredPublicFields(input.body);
+
     const cpf = normalizeCpf(input.body.cpf);
     this.rateLimit.assertAllowed(
       `pre-registration:${this.hash(`${input.ip ?? "unknown"}:${cpf}`)}`,
@@ -462,6 +464,10 @@ export class PreRegistrationsService {
   }
 
   async rejectPreRegistration(id: string, reason: string, userId: string) {
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < 3) {
+      throw new BadRequestException("Motivo da rejeicao obrigatorio");
+    }
     const rejectedId = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "public_pre_registrations" WHERE "id" = ${id}::uuid FOR UPDATE`;
       const record = await tx.publicPreRegistration.findUnique({ where: { id } });
@@ -478,7 +484,7 @@ export class PreRegistrationsService {
           status: PreRegistrationStatus.REJECTED,
           reviewedByUserId: userId,
           reviewedAt: new Date(),
-          rejectionReason: reason,
+          rejectionReason: trimmedReason,
         },
       });
 
@@ -809,6 +815,26 @@ export class PreRegistrationsService {
 
   private optional(value?: string) {
     return value && value.length > 0 ? value : undefined;
+  }
+
+  private assertRequiredPublicFields(body: CreatePublicPreRegistrationDto) {
+    const required: Array<keyof CreatePublicPreRegistrationDto> = [
+      "fullName",
+      "cpf",
+      "birthDate",
+      "addressStreet",
+      "addressNumber",
+      "addressNeighborhood",
+      "addressCity",
+      "academicYearId",
+      "institutionId",
+      "shiftId",
+      "course",
+      "grade",
+    ];
+    if (required.some((field) => !String(body[field] ?? "").trim())) {
+      throw new BadRequestException("Campos obrigatorios ausentes");
+    }
   }
 
   private hasHoneypot(body: CreatePublicPreRegistrationDto) {

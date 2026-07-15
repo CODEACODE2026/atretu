@@ -11,6 +11,8 @@ export type EnvConfig = {
   adminSetupToken: string;
   authRateLimitTtlMs: number;
   authRateLimitMax: number;
+  rateLimitMaxBuckets: number;
+  trustedProxyHops: number;
   documentStorageDir: string;
   documentMaxSizeBytes: number;
 };
@@ -44,6 +46,20 @@ function readNumberEnv(name: string, fallback: number): number {
   return value;
 }
 
+function readNonNegativeNumberEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid numeric environment variable: ${name}`);
+  }
+
+  return value;
+}
+
 function readAppEnv(): AppEnv {
   const value = process.env.NODE_ENV ?? "development";
   if (value === "development" || value === "test" || value === "production") {
@@ -54,10 +70,21 @@ function readAppEnv(): AppEnv {
 }
 
 function readCorsOrigins(): string[] {
-  return readRequiredEnv("CORS_ORIGINS")
+  const origins = readRequiredEnv("CORS_ORIGINS")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+  if (origins.includes("*")) {
+    throw new Error("CORS_ORIGINS cannot include * when credentials are enabled");
+  }
+  for (const origin of origins) {
+    try {
+      new URL(origin);
+    } catch {
+      throw new Error(`Invalid CORS origin: ${origin}`);
+    }
+  }
+  return origins;
 }
 
 function assertStrongSecret(name: string, value: string, nodeEnv: AppEnv): void {
@@ -89,6 +116,8 @@ export function loadEnvConfig(): EnvConfig {
     adminSetupToken,
     authRateLimitTtlMs: readNumberEnv("AUTH_RATE_LIMIT_TTL_MS", 60_000),
     authRateLimitMax: readNumberEnv("AUTH_RATE_LIMIT_MAX", 5),
+    rateLimitMaxBuckets: readNumberEnv("RATE_LIMIT_MAX_BUCKETS", 10_000),
+    trustedProxyHops: readNonNegativeNumberEnv("TRUSTED_PROXY_HOPS", 0),
     documentStorageDir:
       process.env.DOCUMENT_STORAGE_DIR?.trim() ||
       "/opt/codeacode/storage/atretu/private-documents",

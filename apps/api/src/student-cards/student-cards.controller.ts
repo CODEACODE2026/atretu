@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -55,7 +56,11 @@ export class StudentCardsController {
     @Query() query: StudentCardPdfDto,
     @Res() response: Response,
   ) {
-    const pdf = await this.studentCardPdf.generate(cardId, query.disposition);
+    const disposition = query.disposition ?? "inline";
+    if (disposition !== "inline" && disposition !== "attachment") {
+      throw new BadRequestException("Disposicao do PDF invalida");
+    }
+    const pdf = await this.studentCardPdf.generate(cardId, disposition);
     response.setHeader("Content-Type", "application/pdf");
     response.setHeader("Content-Length", String(pdf.sizeBytes));
     response.setHeader(

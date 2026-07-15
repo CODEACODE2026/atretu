@@ -16,9 +16,11 @@ export class RateLimitService {
     const now = Date.now();
     const ttl = this.config.values.authRateLimitTtlMs;
     const max = this.config.values.authRateLimitMax;
+    this.pruneExpired(now);
     const current = this.buckets.get(key);
 
     if (!current || current.resetAt <= now) {
+      this.pruneOldestIfNeeded();
       this.buckets.set(key, { count: 1, resetAt: now + ttl });
       return;
     }
@@ -35,5 +37,28 @@ export class RateLimitService {
 
   reset(key: string): void {
     this.buckets.delete(key);
+  }
+
+  get size(): number {
+    return this.buckets.size;
+  }
+
+  private pruneExpired(now: number): void {
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetAt <= now) {
+        this.buckets.delete(key);
+      }
+    }
+  }
+
+  private pruneOldestIfNeeded(): void {
+    const maxBuckets = this.config.values.rateLimitMaxBuckets;
+    while (this.buckets.size >= maxBuckets) {
+      const oldestKey = this.buckets.keys().next().value as string | undefined;
+      if (!oldestKey) {
+        return;
+      }
+      this.buckets.delete(oldestKey);
+    }
   }
 }

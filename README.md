@@ -41,6 +41,24 @@ A Sprint 1 usa cookie `HttpOnly` para transportar o token administrativo entre
 frontend e API. O frontend deve chamar a API com `credentials: include` e nao
 armazenar o token em `localStorage`.
 
+Hardening operacional:
+
+- Configure `CORS_ORIGINS` com origins explicitas separadas por virgula. Nao use
+  `*` com cookies/credentials.
+- Requisicoes mutaveis (`POST`, `PUT`, `PATCH`, `DELETE`) feitas por navegador
+  precisam ter `Origin` ou `Referer` em uma origin permitida. Ferramentas
+  internas e smokes sem cabecalhos de navegador continuam permitidos.
+- O cookie de autenticacao usa `HttpOnly`, `SameSite=Lax`, `Path=/`, expiracao
+  por `Max-Age` e `Secure` somente em `NODE_ENV=production`.
+- Helmet e aplicado globalmente com CSP desativada para a API JSON. HSTS e
+  habilitado somente em producao.
+- `TRUSTED_PROXY_HOPS=0` e o padrao local. Em VPS atras de Nginx confiavel,
+  configure o numero exato de hops de proxy para que `request.ip` use
+  `X-Forwarded-For` apenas nesse cenario.
+- O rate limit atual e em memoria e vale para instancia unica. Ajuste
+  `AUTH_RATE_LIMIT_TTL_MS`, `AUTH_RATE_LIMIT_MAX` e `RATE_LIMIT_MAX_BUCKETS`
+  conforme o ambiente.
+
 Rotas iniciais:
 
 - `POST /auth/bootstrap/super-admin`

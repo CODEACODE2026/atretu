@@ -21,6 +21,8 @@ function resetEnv(overrides: NodeJS.ProcessEnv): void {
 resetEnv({});
 assert.equal(loadEnvConfig().apiPort, 3333);
 assert.equal(loadEnvConfig().documentMaxSizeBytes, 8388608);
+assert.equal(loadEnvConfig().trustedProxyHops, 0);
+assert.equal(loadEnvConfig().rateLimitMaxBuckets, 10000);
 
 resetEnv({ NODE_ENV: "production", JWT_SECRET: "change-me-in-local-env" });
 assert.throws(() => loadEnvConfig(), /JWT_SECRET/);
@@ -30,5 +32,11 @@ assert.throws(() => loadEnvConfig(), /ADMIN_SETUP_TOKEN/);
 
 resetEnv({ DOCUMENT_MAX_SIZE_BYTES: "0" });
 assert.throws(() => loadEnvConfig(), /DOCUMENT_MAX_SIZE_BYTES/);
+
+resetEnv({ CORS_ORIGINS: "*" });
+assert.throws(() => loadEnvConfig(), /CORS_ORIGINS/);
+
+resetEnv({ TRUSTED_PROXY_HOPS: "-1" });
+assert.throws(() => loadEnvConfig(), /TRUSTED_PROXY_HOPS/);
 
 process.env = originalEnv;

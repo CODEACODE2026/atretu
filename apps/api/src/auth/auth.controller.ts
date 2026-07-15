@@ -26,6 +26,7 @@ import { CreateAdminUserDto } from "./dto/create-admin-user.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
 import { Roles } from "./roles.decorator.js";
 import { RolesGuard } from "./roles.guard.js";
+import { timingSafeStringEqual } from "./timing-safe-token.js";
 
 @Controller("auth")
 export class AuthController {
@@ -120,7 +121,7 @@ export class AuthController {
     const rateLimitKey = `setup:${request.ip}`;
     this.rateLimit.assertAllowed(rateLimitKey);
 
-    if (setupToken !== this.config.values.adminSetupToken) {
+    if (!timingSafeStringEqual(setupToken, this.config.values.adminSetupToken)) {
       throw new ForbiddenException("Token de setup invalido");
     }
 
