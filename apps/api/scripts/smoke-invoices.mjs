@@ -591,7 +591,15 @@ const finalList = await request(`/finance/invoices?academicYearId=${academicYear
 });
 expect(finalList.response.ok, "Final invoice list failed");
 const finalText = JSON.stringify(finalList.body.data);
-expect(!finalText.includes("bankSlip"), "Invoice response exposed BankSlip data");
+expect(
+  finalList.body.data.every((invoice) =>
+    Object.prototype.hasOwnProperty.call(invoice, "bankSlipSummary"),
+  ),
+  "Invoice response did not include aggregated bank slip summary",
+);
+expect(!finalText.includes("linhaDigitavel"), "Invoice response exposed digitable line");
+expect(!finalText.includes("codigoBarras"), "Invoice response exposed barcode");
+expect(!finalText.includes("providerError"), "Invoice response exposed provider error");
 expect(!finalText.includes("sicredi"), "Invoice response exposed Sicredi data");
 expect(!finalText.includes("pdfUrl"), "Invoice response exposed PDF data");
 

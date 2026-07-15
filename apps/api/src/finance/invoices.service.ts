@@ -450,6 +450,17 @@ export class InvoicesService {
       enrollment: { include: this.enrollmentInclude() },
       createdBy: { select: { id: true, name: true, email: true } },
       cancelledBy: { select: { id: true, name: true, email: true } },
+      bankSlip: {
+        select: {
+          id: true,
+          status: true,
+          nossoNumero: true,
+          issuedAt: true,
+          paidAt: true,
+          cancelledAt: true,
+          lastCheckedAt: true,
+        },
+      },
     } satisfies Prisma.InvoiceInclude;
   }
 
@@ -479,6 +490,17 @@ export class InvoicesService {
       enrollment: this.toEnrollment(invoice.enrollment),
       createdByUser: invoice.createdBy,
       cancelledByUser: invoice.cancelledBy,
+      bankSlipSummary: invoice.bankSlip
+        ? {
+            id: invoice.bankSlip.id,
+            status: invoice.bankSlip.status,
+            nossoNumeroMasked: this.maskNossoNumero(invoice.bankSlip.nossoNumero),
+            issuedAt: invoice.bankSlip.issuedAt,
+            paidAt: invoice.bankSlip.paidAt,
+            cancelledAt: invoice.bankSlip.cancelledAt,
+            lastCheckedAt: invoice.bankSlip.lastCheckedAt,
+          }
+        : null,
     };
   }
 
@@ -578,6 +600,15 @@ export class InvoicesService {
 
   private toDateOnly(value: Date) {
     return value.toISOString().slice(0, 10);
+  }
+
+  private maskNossoNumero(value: string | null) {
+    if (!value) {
+      return null;
+    }
+    return value.length <= 3
+      ? value
+      : `${"*".repeat(Math.max(value.length - 3, 0))}${value.slice(-3)}`;
   }
 }
 

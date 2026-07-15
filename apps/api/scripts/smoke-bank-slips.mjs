@@ -69,6 +69,7 @@ try {
     amountCents: 12050,
     dueDate: futureDate(30),
   });
+  await assertInvoiceListBankSlipSummary(secretaryCookie, success.invoice, null);
   const anonymousPdf = await request(
     `/finance/invoices/${success.invoice.id}/bank-slip/pdf`,
     { headers: json() },
@@ -89,6 +90,10 @@ try {
   });
   expect(issuedRecord?.status === "ISSUED", "Database BankSlip is not ISSUED");
   expect(issuedRecord?.seuNumero === issued.seuNumero, "Seu Numero mismatch");
+  await assertInvoiceListBankSlipSummary(secretaryCookie, success.invoice, {
+    status: "ISSUED",
+    nossoNumero: issued.nossoNumero,
+  });
 
   const duplicateIssue = await request(
     `/finance/invoices/${success.invoice.id}/bank-slip/issue`,
@@ -145,6 +150,10 @@ try {
   });
   expect(paidInvoice?.status === "PAID", "Invoice was not marked PAID");
   expect(Boolean(paid.paidAt), "paidAt was not stored");
+  await assertInvoiceListBankSlipSummary(secretaryCookie, success.invoice, {
+    status: "PAID",
+    nossoNumero: paid.nossoNumero,
+  });
   const paymentHistoryOnce = await historyCount(success.invoice.id, [
     "BANK_SLIP_PAYMENT_CONFIRMED",
   ]);
@@ -222,6 +231,10 @@ try {
   });
   expect(unknownSlip?.status === "UNKNOWN", "Uncertain issue did not mark UNKNOWN");
   expect(unknownSlip.providerErrorCode === "TIMEOUT", "Uncertain error code was not sanitized");
+  await assertInvoiceListBankSlipSummary(secretaryCookie, uncertain.invoice, {
+    status: "UNKNOWN",
+    nossoNumero: null,
+  });
   expect(mock.issueCalls === issueCallsBeforeTimeout + 1, "Issue timeout was retried");
   const unknownRetry = await request(
     `/finance/invoices/${uncertain.invoice.id}/bank-slip/issue`,
@@ -359,6 +372,10 @@ try {
   mock.setQueryStatus(cancellationSlip.nossoNumero, "BAIXADO POR SOLICITACAO");
   const cancellationConfirmed = await syncBankSlip(adminCookie, cancellation.invoice.id);
   expect(cancellationConfirmed.status === "CANCELLED", "Cancellation sync did not mark CANCELLED");
+  await assertInvoiceListBankSlipSummary(secretaryCookie, cancellation.invoice, {
+    status: "CANCELLED",
+    nossoNumero: cancellationConfirmed.nossoNumero,
+  });
   const cancelledInvoice = await prisma.invoice.findUnique({
     where: { id: cancellation.invoice.id },
   });
@@ -652,6 +669,36 @@ async function createStudentAndInvoice(cookie, base, input) {
   return { student, invoice: invoiceResponse.body };
 }
 
+async function assertInvoiceListBankSlipSummary(cookie, invoice, expected) {
+  const list = await request(
+    `/finance/invoices?search=${encodeURIComponent(invoice.student.person.fullName)}&limit=10`,
+    { headers: json(cookie) },
+  );
+  expect(list.response.ok, `Invoice list with bankSlipSummary failed: ${list.body.message}`);
+  const listedInvoice = list.body.data.find((item) => item.id === invoice.id);
+  expect(Boolean(listedInvoice), "Invoice list did not return expected invoice");
+  if (expected === null) {
+    expect(
+      listedInvoice.bankSlipSummary === null,
+      "Invoice without BankSlip did not return null bankSlipSummary",
+    );
+    return;
+  }
+  expect(
+    listedInvoice.bankSlipSummary?.status === expected.status,
+    `BankSlip summary status mismatch: ${JSON.stringify(listedInvoice.bankSlipSummary)}`,
+  );
+  expect(
+    listedInvoice.bankSlipSummary?.nossoNumeroMasked === maskNossoNumero(expected.nossoNumero),
+    "BankSlip summary did not mask Nosso Numero",
+  );
+  const summaryText = JSON.stringify(listedInvoice.bankSlipSummary);
+  expect(!summaryText.includes("linhaDigitavel"), "Summary exposed digitable line");
+  expect(!summaryText.includes("codigoBarras"), "Summary exposed barcode");
+  expect(!summaryText.includes("providerError"), "Summary exposed provider error");
+  expect(!summaryText.includes("sicredi"), "Summary exposed provider payload");
+}
+
 async function createRecord(cookie, path, body) {
   const response = await request(path, {
     method: "POST",
@@ -660,6 +707,13 @@ async function createRecord(cookie, path, body) {
   });
   expect(response.response.ok, `${path} failed: ${response.body.message}`);
   return response.body;
+}
+
+function maskNossoNumero(value) {
+  if (!value) {
+    return null;
+  }
+  return value.length <= 3 ? value : `${"*".repeat(value.length - 3)}${value.slice(-3)}`;
 }
 
 async function issueBankSlip(cookie, invoiceId) {

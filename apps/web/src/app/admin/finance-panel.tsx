@@ -7,6 +7,7 @@ import {
   type ApiUser,
   type BaseRecord,
   type BankSlipRecord,
+  type BankSlipSummary,
   type BankSlipStatus,
   type InvoiceCancellationReason,
   type InvoicePreview,
@@ -17,6 +18,8 @@ import {
 } from "../../lib/api";
 import { canAccessRestrictedAdmin } from "../../lib/auth";
 import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
+
+type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
 
 const invoiceCancellationOptions: Array<{
   label: string;
@@ -29,9 +32,9 @@ const invoiceCancellationOptions: Array<{
 
 export function FinancePanel({ user }: { user: ApiUser }) {
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
-  const [bankSlips, setBankSlips] = useState<Record<string, BankSlipRecord | null>>(
-    {},
-  );
+  const [bankSlips, setBankSlips] = useState<
+    Record<string, BankSlipListRecord | null | undefined>
+  >({});
   const [expandedInvoiceId, setExpandedInvoiceId] = useState("");
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
@@ -113,7 +116,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
         order: "asc",
       });
       setInvoices(response.data);
-      void loadBankSlips(response.data);
+      setBankSlips((current) => mergeBankSlipSummaries(response.data, current));
       setTotalPages(Math.max(response.pagination.totalPages, 1));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar");
@@ -122,21 +125,35 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     }
   }
 
-  async function loadBankSlips(records: InvoiceRecord[]) {
-    const entries = await Promise.all(
-      records.map(async (invoice) => {
-        try {
-          return [invoice.id, await api.getInvoiceBankSlip(invoice.id)] as const;
-        } catch {
-          return [invoice.id, null] as const;
-        }
-      }),
-    );
-    setBankSlips(Object.fromEntries(entries));
+  function updateBankSlip(
+    invoiceId: string,
+    bankSlip: BankSlipListRecord | null | undefined,
+  ) {
+    setBankSlips((current) => ({ ...current, [invoiceId]: bankSlip }));
   }
 
-  function updateBankSlip(invoiceId: string, bankSlip: BankSlipRecord | null) {
-    setBankSlips((current) => ({ ...current, [invoiceId]: bankSlip }));
+  async function loadFullBankSlip(invoice: InvoiceRecord) {
+    const current = bankSlips[invoice.id];
+    if (!current || isFullBankSlip(current)) {
+      return;
+    }
+    updateBankSlip(invoice.id, undefined);
+    try {
+      updateBankSlip(invoice.id, await api.getInvoiceBankSlip(invoice.id));
+    } catch (caught) {
+      updateBankSlip(invoice.id, invoice.bankSlipSummary);
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao carregar detalhe do boleto",
+      );
+    }
+  }
+
+  async function toggleBankSlipDetails(invoice: InvoiceRecord) {
+    const willExpand = expandedInvoiceId !== invoice.id;
+    setExpandedInvoiceId(willExpand ? invoice.id : "");
+    if (willExpand) {
+      await loadFullBankSlip(invoice);
+    }
   }
 
   async function searchStudents(nextSearch = studentSearch) {
@@ -267,7 +284,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
           ? "O sistema não conseguiu confirmar se o boleto foi criado no Sicredi. Não tente emitir novamente. Use a consulta de situação ou procure o administrador."
           : text,
       );
-      await loadBankSlips([invoice]);
+      await loadFullBankSlip(invoice);
     } finally {
       setBankSlipAction("");
     }
@@ -346,7 +363,8 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   }
 
   async function handleCopyLinhaDigitavel(invoiceId: string) {
-    const line = bankSlips[invoiceId]?.linhaDigitavel;
+    const bankSlip = bankSlips[invoiceId];
+    const line = isFullBankSlip(bankSlip) ? bankSlip.linhaDigitavel : undefined;
     if (!line) {
       return;
     }
@@ -598,11 +616,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                             onIssue={() => void handleIssueBankSlip(invoice)}
                             onPdf={() => void handleDownloadPdf(invoice)}
                             onSync={() => void handleSyncBankSlip(invoice)}
-                            onToggleDetails={() =>
-                              setExpandedInvoiceId((current) =>
-                                current === invoice.id ? "" : invoice.id,
-                              )
-                            }
+                            onToggleDetails={() => void toggleBankSlipDetails(invoice)}
                           />
                         </td>
                       </tr>
@@ -759,9 +773,9 @@ export function StudentInvoicesForStudent({
   onChanged: () => Promise<void>;
 }) {
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
-  const [bankSlips, setBankSlips] = useState<Record<string, BankSlipRecord | null>>(
-    {},
-  );
+  const [bankSlips, setBankSlips] = useState<
+    Record<string, BankSlipListRecord | null | undefined>
+  >({});
   const [expandedInvoiceId, setExpandedInvoiceId] = useState("");
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [enrollmentId, setEnrollmentId] = useState(student.enrollments[0]?.id ?? "");
@@ -781,23 +795,41 @@ export function StudentInvoicesForStudent({
     try {
       const response = await api.listInvoicesForStudent(student.id);
       setInvoices(response.data);
-      const entries = await Promise.all(
-        response.data.map(async (invoice) => {
-          try {
-            return [invoice.id, await api.getInvoiceBankSlip(invoice.id)] as const;
-          } catch {
-            return [invoice.id, null] as const;
-          }
-        }),
-      );
-      setBankSlips(Object.fromEntries(entries));
+      setBankSlips((current) => mergeBankSlipSummaries(response.data, current));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar faturas");
     }
   }
 
-  function updateBankSlip(invoiceId: string, bankSlip: BankSlipRecord | null) {
+  function updateBankSlip(
+    invoiceId: string,
+    bankSlip: BankSlipListRecord | null | undefined,
+  ) {
     setBankSlips((current) => ({ ...current, [invoiceId]: bankSlip }));
+  }
+
+  async function loadFullBankSlip(invoice: InvoiceRecord) {
+    const current = bankSlips[invoice.id];
+    if (!current || isFullBankSlip(current)) {
+      return;
+    }
+    updateBankSlip(invoice.id, undefined);
+    try {
+      updateBankSlip(invoice.id, await api.getInvoiceBankSlip(invoice.id));
+    } catch (caught) {
+      updateBankSlip(invoice.id, invoice.bankSlipSummary);
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao carregar detalhe do boleto",
+      );
+    }
+  }
+
+  async function toggleBankSlipDetails(invoice: InvoiceRecord) {
+    const willExpand = expandedInvoiceId !== invoice.id;
+    setExpandedInvoiceId(willExpand ? invoice.id : "");
+    if (willExpand) {
+      await loadFullBankSlip(invoice);
+    }
   }
 
   async function handlePreview() {
@@ -984,7 +1016,8 @@ export function StudentInvoicesForStudent({
   }
 
   async function handleCopyLinhaDigitavel(invoiceId: string) {
-    const line = bankSlips[invoiceId]?.linhaDigitavel;
+    const bankSlip = bankSlips[invoiceId];
+    const line = isFullBankSlip(bankSlip) ? bankSlip.linhaDigitavel : undefined;
     if (!line) {
       return;
     }
@@ -1037,11 +1070,7 @@ export function StudentInvoicesForStudent({
                 onIssue={() => void handleIssueBankSlip(invoice)}
                 onPdf={() => void handleDownloadPdf(invoice)}
                 onSync={() => void handleSyncBankSlip(invoice)}
-                onToggleDetails={() =>
-                  setExpandedInvoiceId((current) =>
-                    current === invoice.id ? "" : invoice.id,
-                  )
-                }
+                onToggleDetails={() => void toggleBankSlipDetails(invoice)}
               />
               {invoice.status === "OPEN" ? (
                 <button
@@ -1142,7 +1171,11 @@ function InvoicePreviewBox({ preview }: { preview: InvoicePreview }) {
   );
 }
 
-function BankSlipCompact({ bankSlip }: { bankSlip: BankSlipRecord | null | undefined }) {
+function BankSlipCompact({
+  bankSlip,
+}: {
+  bankSlip: BankSlipListRecord | null | undefined;
+}) {
   if (bankSlip === undefined) {
     return <span className="text-xs text-slate-500">Carregando boleto...</span>;
   }
@@ -1154,9 +1187,8 @@ function BankSlipCompact({ bankSlip }: { bankSlip: BankSlipRecord | null | undef
       <span className={bankSlipStatusClass(bankSlip.status)}>
         {bankSlipStatusLabel(bankSlip.status)}
       </span>
-      <span>Seu Numero: {bankSlip.seuNumero}</span>
-      {bankSlip.nossoNumero ? (
-        <span>Nosso Numero: {maskNossoNumero(bankSlip.nossoNumero)}</span>
+      {bankSlipNossoNumero(bankSlip) ? (
+        <span>Nosso Numero: {bankSlipNossoNumero(bankSlip)}</span>
       ) : null}
       {bankSlip.lastCheckedAt ? (
         <span>Ultima consulta: {formatDateTime(bankSlip.lastCheckedAt)}</span>
@@ -1169,7 +1201,7 @@ function BankSlipDetails({
   bankSlip,
   invoice,
 }: {
-  bankSlip: BankSlipRecord | null | undefined;
+  bankSlip: BankSlipListRecord | null | undefined;
   invoice: InvoiceRecord;
 }) {
   if (bankSlip === undefined) {
@@ -1185,26 +1217,39 @@ function BankSlipDetails({
   return (
     <div className="mt-2 grid gap-2 rounded border border-slate-200 bg-white p-3 text-sm text-slate-700 md:grid-cols-2">
       <p><strong>Estado:</strong> {bankSlipStatusLabel(bankSlip.status)}</p>
-      <p><strong>Ambiente:</strong> {bankSlip.environment}</p>
-      <p><strong>Seu Numero:</strong> {bankSlip.seuNumero}</p>
-      <p><strong>Nosso Numero:</strong> {bankSlip.nossoNumero ?? "-"}</p>
+      {isFullBankSlip(bankSlip) ? (
+        <>
+          <p><strong>Ambiente:</strong> {bankSlip.environment}</p>
+          <p><strong>Seu Numero:</strong> {bankSlip.seuNumero}</p>
+        </>
+      ) : null}
+      <p>
+        <strong>Nosso Numero:</strong>{" "}
+        {isFullBankSlip(bankSlip)
+          ? (bankSlip.nossoNumero ?? "-")
+          : (bankSlip.nossoNumeroMasked ?? "-")}
+      </p>
       <p><strong>Emissao:</strong> {formatOptionalDateTime(bankSlip.issuedAt)}</p>
       <p><strong>Ultima consulta:</strong> {formatOptionalDateTime(bankSlip.lastCheckedAt)}</p>
       <p><strong>Pagamento:</strong> {formatOptionalDateTime(bankSlip.paidAt)}</p>
-      <p><strong>Valor pago:</strong> {formatOptionalCents(bankSlip.paidAmountCents)}</p>
-      <p><strong>Baixa solicitada:</strong> {formatOptionalDateTime(bankSlip.cancellationRequestedAt)}</p>
+      {isFullBankSlip(bankSlip) ? (
+        <>
+          <p><strong>Valor pago:</strong> {formatOptionalCents(bankSlip.paidAmountCents)}</p>
+          <p><strong>Baixa solicitada:</strong> {formatOptionalDateTime(bankSlip.cancellationRequestedAt)}</p>
+        </>
+      ) : null}
       <p><strong>Baixa confirmada:</strong> {formatOptionalDateTime(bankSlip.cancelledAt)}</p>
-      {bankSlip.linhaDigitavel ? (
+      {isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
         <p className="md:col-span-2 break-all">
           <strong>Linha digitavel:</strong> {formatLinhaDigitavel(bankSlip.linhaDigitavel)}
         </p>
       ) : null}
-      {bankSlip.codigoBarras ? (
+      {isFullBankSlip(bankSlip) && bankSlip.codigoBarras ? (
         <p className="md:col-span-2 break-all">
           <strong>Codigo de barras:</strong> {bankSlip.codigoBarras}
         </p>
       ) : null}
-      {bankSlip.providerErrorMessage ? (
+      {isFullBankSlip(bankSlip) && bankSlip.providerErrorMessage ? (
         <p className="md:col-span-2 rounded border border-amber-200 bg-amber-50 p-2 text-amber-800">
           {bankSlip.providerErrorMessage}
         </p>
@@ -1235,7 +1280,7 @@ function InvoiceBankSlipActions({
   onSync,
   onToggleDetails,
 }: {
-  bankSlip: BankSlipRecord | null | undefined;
+  bankSlip: BankSlipListRecord | null | undefined;
   busy: boolean;
   invoice: InvoiceRecord;
   onCancelInvoice: () => void;
@@ -1276,7 +1321,7 @@ function InvoiceBankSlipActions({
           Consultar
         </button>
       ) : null}
-      {bankSlip?.linhaDigitavel ? (
+      {isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
         <button
           className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
           disabled={busy}
@@ -1364,6 +1409,34 @@ function invoiceStatusLabel(invoice: InvoiceRecord) {
   return invoice.overdue ? "Aberta vencida" : "Aberta";
 }
 
+function mergeBankSlipSummaries(
+  invoices: InvoiceRecord[],
+  current: Record<string, BankSlipListRecord | null | undefined>,
+) {
+  return Object.fromEntries(
+    invoices.map((invoice) => {
+      const existing = current[invoice.id];
+      return [
+        invoice.id,
+        existing && isFullBankSlip(existing) ? existing : invoice.bankSlipSummary,
+      ] as const;
+    }),
+  );
+}
+
+function isFullBankSlip(
+  bankSlip: BankSlipListRecord | null | undefined,
+): bankSlip is BankSlipRecord {
+  return Boolean(bankSlip && "linhaDigitavel" in bankSlip);
+}
+
+function bankSlipNossoNumero(bankSlip: BankSlipListRecord) {
+  return isFullBankSlip(bankSlip)
+    ? bankSlip.nossoNumeroMasked ??
+        (bankSlip.nossoNumero ? maskNossoNumero(bankSlip.nossoNumero) : null)
+    : bankSlip.nossoNumeroMasked;
+}
+
 export function bankSlipStatusLabel(status: BankSlipStatus) {
   const labels: Record<BankSlipStatus, string> = {
     PENDING_ISSUE: "Emitindo",
@@ -1384,21 +1457,21 @@ export function canSyncPaidDay(user: ApiUser) {
 
 export function canIssueBankSlip(
   invoice: InvoiceRecord,
-  bankSlip: BankSlipRecord | null | undefined,
+  bankSlip: BankSlipListRecord | null | undefined,
 ) {
   return invoice.status === "OPEN" && !invoice.overdue && bankSlip === null;
 }
 
 export function canRequestBankSlipCancellation(
   invoice: InvoiceRecord,
-  bankSlip: BankSlipRecord | null | undefined,
+  bankSlip: BankSlipListRecord | null | undefined,
 ) {
   return invoice.status === "OPEN" && bankSlip?.status === "ISSUED";
 }
 
 export function canCancelInvoiceDirectly(
   invoice: InvoiceRecord,
-  bankSlip: BankSlipRecord | null | undefined,
+  bankSlip: BankSlipListRecord | null | undefined,
 ) {
   if (invoice.status !== "OPEN") {
     return false;
@@ -1411,7 +1484,7 @@ export function canCancelInvoiceDirectly(
 }
 
 export function canDownloadBankSlipPdf(
-  bankSlip: BankSlipRecord | null | undefined,
+  bankSlip: BankSlipListRecord | null | undefined,
 ) {
   return (
     bankSlip?.status === "ISSUED" ||

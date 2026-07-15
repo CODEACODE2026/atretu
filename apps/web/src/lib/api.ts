@@ -518,6 +518,7 @@ export type BankSlipRecord = {
   status: BankSlipStatus;
   documentSpecies: string;
   nossoNumero?: string | null;
+  nossoNumeroMasked?: string | null;
   seuNumero: string;
   linhaDigitavel?: string | null;
   codigoBarras?: string | null;
@@ -535,6 +536,16 @@ export type BankSlipRecord = {
   providerErrorMessage?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BankSlipSummary = {
+  id: string;
+  status: BankSlipStatus;
+  nossoNumeroMasked?: string | null;
+  issuedAt?: string | null;
+  paidAt?: string | null;
+  cancelledAt?: string | null;
+  lastCheckedAt?: string | null;
 };
 
 export type SyncPaidBankSlipsDaySummary = {
@@ -574,6 +585,7 @@ export type InvoiceRecord = {
   enrollment: EnrollmentRecord;
   createdByUser?: Pick<ApiUser, "id" | "name" | "email"> | null;
   cancelledByUser?: Pick<ApiUser, "id" | "name" | "email"> | null;
+  bankSlipSummary: BankSlipSummary | null;
 };
 
 export type InvoicePreview = {
