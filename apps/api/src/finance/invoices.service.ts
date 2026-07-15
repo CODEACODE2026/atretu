@@ -8,6 +8,7 @@ import {
 import {
   AdministrativeAuditEventType,
   AcademicYearStatus,
+  BankSlipStatus,
   BoardMembershipStatus,
   InvoiceStatus,
   Prisma,
@@ -186,6 +187,7 @@ export class InvoicesService {
       if (invoice.status !== InvoiceStatus.OPEN) {
         throw new BadRequestException("Somente fatura aberta pode ser cancelada");
       }
+      await this.ensureInvoiceHasNoBlockingBankSlip(tx, id);
 
       const cancelled = await tx.invoice.update({
         where: { id },
@@ -228,6 +230,32 @@ export class InvoicesService {
     });
 
     return this.toInvoiceSummary(updated);
+  }
+
+  private async ensureInvoiceHasNoBlockingBankSlip(
+    tx: Prisma.TransactionClient,
+    invoiceId: string,
+  ) {
+    const bankSlip = await tx.bankSlip.findUnique({
+      where: { invoiceId },
+      select: { status: true },
+    });
+    if (!bankSlip || this.canCancelInvoiceDirectlyWithBankSlip(bankSlip.status)) {
+      return;
+    }
+    throw new ConflictException({
+      code: "INVOICE_HAS_ACTIVE_BANK_SLIP",
+      message:
+        "Fatura possui boleto ativo, pendente ou incerto. Solicite a baixa do boleto antes de cancelar a fatura.",
+      bankSlipStatus: bankSlip.status,
+    });
+  }
+
+  private canCancelInvoiceDirectlyWithBankSlip(status: BankSlipStatus) {
+    return (
+      status === BankSlipStatus.ISSUE_FAILED ||
+      status === BankSlipStatus.CANCELLED
+    );
   }
 
   private async evaluateEligibility(

@@ -95,6 +95,29 @@ try {
     { method: "POST", headers: json(secretaryCookie) },
   );
   expect(duplicateIssue.response.status === 409, "Duplicate issue was not blocked");
+  const directCancelIssued = await request(
+    `/finance/invoices/${success.invoice.id}/cancel`,
+    {
+      method: "POST",
+      headers: json(secretaryCookie),
+      body: JSON.stringify({
+        reason: "MANUAL_CORRECTION",
+        note: `direct cancel should be blocked ${runId}`,
+      }),
+    },
+  );
+  expect(
+    directCancelIssued.response.status === 409 &&
+      JSON.stringify(directCancelIssued.body).includes("Fatura possui boleto ativo"),
+    `Issued BankSlip allowed direct invoice cancellation: ${directCancelIssued.response.status} ${JSON.stringify(directCancelIssued.body)}`,
+  );
+  const issuedInvoiceAfterDirectCancel = await prisma.invoice.findUnique({
+    where: { id: success.invoice.id },
+  });
+  expect(
+    issuedInvoiceAfterDirectCancel?.status === "OPEN",
+    "Direct invoice cancellation changed invoice with issued BankSlip",
+  );
 
   const beforeSyncHistory = await historyCount(success.invoice.id, [
     "BANK_SLIP_ISSUED",
@@ -205,6 +228,29 @@ try {
     { method: "POST", headers: json(secretaryCookie) },
   );
   expect(unknownRetry.response.status === 409, "UNKNOWN BankSlip allowed reissue");
+  const directCancelUnknown = await request(
+    `/finance/invoices/${uncertain.invoice.id}/cancel`,
+    {
+      method: "POST",
+      headers: json(secretaryCookie),
+      body: JSON.stringify({
+        reason: "MANUAL_CORRECTION",
+        note: `unknown cancel should be blocked ${runId}`,
+      }),
+    },
+  );
+  expect(
+    directCancelUnknown.response.status === 409 &&
+      JSON.stringify(directCancelUnknown.body).includes("Fatura possui boleto ativo"),
+    `UNKNOWN BankSlip allowed direct invoice cancellation: ${directCancelUnknown.response.status} ${JSON.stringify(directCancelUnknown.body)}`,
+  );
+  const unknownInvoiceAfterDirectCancel = await prisma.invoice.findUnique({
+    where: { id: uncertain.invoice.id },
+  });
+  expect(
+    unknownInvoiceAfterDirectCancel?.status === "OPEN",
+    "Direct invoice cancellation changed invoice with UNKNOWN BankSlip",
+  );
 
   const rejected = await createStudentAndInvoice(secretaryCookie, base, {
     suffix: "rejected",

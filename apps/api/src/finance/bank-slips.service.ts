@@ -66,6 +66,8 @@ type CancellationPreparation = {
   reason: InvoiceCancellationReason;
 };
 
+const PENDING_ISSUE_STALE_MS = 15 * 60 * 1000;
+
 @Injectable()
 export class BankSlipsService {
   constructor(
@@ -420,10 +422,13 @@ export class BankSlipsService {
           message: "Vencimento da fatura deve ser hoje ou futuro",
         });
       }
-      if (invoice.bankSlip) {
+      const currentBankSlip = invoice.bankSlip
+        ? await this.resolveStalePendingIssueTx(tx, invoice, userId)
+        : null;
+      if (currentBankSlip) {
         throw new ConflictException({
           code:
-            invoice.bankSlip.status === BankSlipStatus.UNKNOWN
+            currentBankSlip.status === BankSlipStatus.UNKNOWN
               ? "BANK_SLIP_ISSUE_UNKNOWN"
               : "BANK_SLIP_ALREADY_EXISTS",
           message: "Fatura ja possui boleto vinculado",
@@ -475,6 +480,50 @@ export class BankSlipsService {
         },
       };
     });
+  }
+
+  private async resolveStalePendingIssueTx(
+    tx: Prisma.TransactionClient,
+    invoice: InvoiceWithRelations,
+    userId: string,
+  ) {
+    const bankSlip = invoice.bankSlip;
+    if (!bankSlip) {
+      return null;
+    }
+    if (
+      bankSlip.status !== BankSlipStatus.PENDING_ISSUE ||
+      Date.now() - bankSlip.updatedAt.getTime() < PENDING_ISSUE_STALE_MS
+    ) {
+      return bankSlip;
+    }
+
+    const updated = await tx.bankSlip.update({
+      where: { id: bankSlip.id },
+      data: {
+        status: BankSlipStatus.UNKNOWN,
+        providerErrorCode: "PENDING_ISSUE_STALE",
+        providerErrorMessage:
+          "Emissao de boleto ficou pendente por muito tempo; consulte o Sicredi antes de nova tentativa.",
+        lastCheckedAt: new Date(),
+      },
+      include: this.bankSlipInclude(),
+    });
+    await this.recordAuditTx(tx, {
+      eventType: AdministrativeAuditEventType.BANK_SLIP_ISSUE_FAILED,
+      recordId: updated.id,
+      userId,
+      metadata: {
+        invoiceId: invoice.id,
+        studentId: invoice.studentId,
+        bankSlipId: updated.id,
+        seuNumero: updated.seuNumero,
+        previousStatus: BankSlipStatus.PENDING_ISSUE,
+        status: updated.status,
+        code: "PENDING_ISSUE_STALE",
+      },
+    });
+    return updated;
   }
 
   private async prepareCancellation(

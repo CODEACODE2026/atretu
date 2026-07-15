@@ -1306,7 +1306,7 @@ function InvoiceBankSlipActions({
           Solicitar baixa
         </button>
       ) : null}
-      {invoice.status === "OPEN" ? (
+      {canCancelInvoiceDirectly(invoice, bankSlip) ? (
         <button
           className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
           disabled={busy}
@@ -1394,6 +1394,20 @@ export function canRequestBankSlipCancellation(
   bankSlip: BankSlipRecord | null | undefined,
 ) {
   return invoice.status === "OPEN" && bankSlip?.status === "ISSUED";
+}
+
+export function canCancelInvoiceDirectly(
+  invoice: InvoiceRecord,
+  bankSlip: BankSlipRecord | null | undefined,
+) {
+  if (invoice.status !== "OPEN") {
+    return false;
+  }
+  return (
+    !bankSlip ||
+    bankSlip.status === "ISSUE_FAILED" ||
+    bankSlip.status === "CANCELLED"
+  );
 }
 
 export function canDownloadBankSlipPdf(

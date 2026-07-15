@@ -92,6 +92,56 @@ async function testIssueUncertainMarksUnknown() {
   );
 }
 
+async function testStalePendingIssueBecomesUnknown() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.PENDING_ISSUE,
+    nossoNumero: null,
+    linhaDigitavel: null,
+    codigoBarras: null,
+    issuedAt: null,
+    updatedAt: new Date(Date.now() - 20 * 60 * 1000),
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof ConflictException,
+  );
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.UNKNOWN);
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, "PENDING_ISSUE_STALE");
+  assert.equal(
+    prisma.auditLogs.some(
+      (log) => log.eventType === AdministrativeAuditEventType.BANK_SLIP_ISSUE_FAILED,
+    ),
+    true,
+  );
+}
+
+async function testFreshPendingIssueStaysPending() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.PENDING_ISSUE,
+    nossoNumero: null,
+    linhaDigitavel: null,
+    codigoBarras: null,
+    issuedAt: null,
+    updatedAt: new Date(),
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof ConflictException,
+  );
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.PENDING_ISSUE);
+  assert.equal(prisma.auditLogs.length, 0);
+}
+
 async function testConcurrentSeuNumeroGeneration() {
   const prisma = new FakePrisma();
   prisma.addInvoice("invoice-2");
@@ -712,6 +762,8 @@ function createInvoice(id: string) {
 
 await testIssueBankSlipSuccess();
 await testIssueUncertainMarksUnknown();
+await testStalePendingIssueBecomesUnknown();
+await testFreshPendingIssueStaysPending();
 await testConcurrentSeuNumeroGeneration();
 await testSyncPaidMarksInvoicePaid();
 await testSyncPaidByDay();
