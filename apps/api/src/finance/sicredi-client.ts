@@ -620,7 +620,7 @@ export class SicrediClient {
     headers: Record<string, string>,
     response: Response,
   ) {
-    if (process.env.NODE_ENV !== "development" || options.operation !== "issueBankSlip") {
+    if (!isIssueDiagnosticEnabled() || options.operation !== "issueBankSlip") {
       return;
     }
     const responseBody = await this.readDiagnosticResponseBody(response);
@@ -834,6 +834,11 @@ function maskDigits(value: string) {
     last2: value.slice(-2),
     leadingZeros: value.startsWith("0"),
   };
+}
+
+function isIssueDiagnosticEnabled() {
+  const nodeEnv = process.env.NODE_ENV?.trim();
+  return !nodeEnv || nodeEnv === "development";
 }
 
 function readString(record: Record<string, unknown>, key: string, fallbackKey?: string): string {

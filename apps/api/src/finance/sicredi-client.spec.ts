@@ -7,6 +7,8 @@ import {
 } from "./sicredi-client.js";
 import type { SicrediConfig } from "./sicredi-config.js";
 
+process.env.NODE_ENV = "test";
+
 const config: SicrediConfig = {
   environment: "sandbox",
   authUrl: "https://sicredi.test/auth/openapi/token",
@@ -308,10 +310,28 @@ async function testIssueErrorsAreSanitized() {
 }
 
 async function testDevelopmentIssueDiagnosticsAreSanitized() {
+  const development = await runIssueDiagnosticScenario("development");
+  assertIssueDiagnosticLogIsSanitized(development.logs);
+
+  const absent = await runIssueDiagnosticScenario(undefined);
+  assertIssueDiagnosticLogIsSanitized(absent.logs);
+
+  const production = await runIssueDiagnosticScenario("production");
+  assert.equal(production.logs.length, 0);
+
+  const test = await runIssueDiagnosticScenario("test");
+  assert.equal(test.logs.length, 0);
+}
+
+async function runIssueDiagnosticScenario(nodeEnv: string | undefined) {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousInfo = console.info;
   const logs: string[] = [];
-  process.env.NODE_ENV = "development";
+  if (nodeEnv === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = nodeEnv;
+  }
   console.info = (...args: unknown[]) => {
     logs.push(args.map((arg) => String(arg)).join(" "));
   };
@@ -359,7 +379,10 @@ async function testDevelopmentIssueDiagnosticsAreSanitized() {
     }
     console.info = previousInfo;
   }
+  return { logs };
+}
 
+function assertIssueDiagnosticLogIsSanitized(logs: string[]) {
   assert.equal(logs.length, 1);
   const log = logs.join("\n");
   assert.match(log, /\[sicredi\.issueBankSlip\.diagnostic\]/);
