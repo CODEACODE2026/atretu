@@ -49,6 +49,7 @@ await testBeneficiaryCodePreservesLeadingZeros();
 await testIssueTimeoutIsUncertainAndNotRetried();
 await testIssueErrorsAreSanitized();
 await testDevelopmentIssueDiagnosticsAreSanitized();
+await testDevelopmentIssueFetchErrorsAreLoggedSafely();
 await testGetBankSlip();
 await testPaidDayPagination();
 await testPaidDayPaginationLimit();
@@ -383,10 +384,13 @@ async function runIssueDiagnosticScenario(nodeEnv: string | undefined) {
 }
 
 function assertIssueDiagnosticLogIsSanitized(logs: string[]) {
-  assert.equal(logs.length, 1);
+  assert.equal(logs.length, 3);
   const log = logs.join("\n");
   assert.match(log, /\[sicredi\.issueBankSlip\.diagnostic\]/);
   assert.match(log, /issueBankSlip/);
+  assert.match(log, /"etapa":"client-entered"/);
+  assert.match(log, /"etapa":"before-fetch"/);
+  assert.match(log, /"etapa":"after-fetch"/);
   assert.match(log, /https:\/\/sicredi\.test\/sb\/cobranca\/boleto\/v1\/boletos/);
   assert.match(log, /"providerStatus":404/);
   assert.match(log, /"environment":"sandbox"/);
@@ -405,6 +409,56 @@ function assertIssueDiagnosticLogIsSanitized(logs: string[]) {
   assert.doesNotMatch(log, /12345678901/);
   assert.doesNotMatch(log, /Aluno Teste/);
   assert.doesNotMatch(log, /Rua Teste/);
+  assert.doesNotMatch(log, /Authorization/i);
+  assert.doesNotMatch(log, /x-api-key/i);
+  assert.doesNotMatch(log, /Bearer/i);
+}
+
+async function testDevelopmentIssueFetchErrorsAreLoggedSafely() {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousInfo = console.info;
+  const logs: string[] = [];
+  process.env.NODE_ENV = "development";
+  console.info = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    async () => {
+      throw Object.assign(
+        new Error(
+          `Falha authorization Bearer access-1 x-api-key ${config.apiKey} senha ${config.password}`,
+        ),
+        { code: "ECONNRESET" },
+      );
+    },
+  ]);
+  const client = createClient(fetch);
+  try {
+    await assert.rejects(
+      () => client.issueBankSlip(issueInput),
+      (error) =>
+        error instanceof SicrediClientError &&
+        error.operation === "issueBankSlip" &&
+        error.code === "NETWORK_ERROR",
+    );
+  } finally {
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
+    console.info = previousInfo;
+  }
+  const log = logs.join("\n");
+  assert.match(log, /"etapa":"client-entered"/);
+  assert.match(log, /"etapa":"before-fetch"/);
+  assert.match(log, /"etapa":"fetch-error"/);
+  assert.match(log, /"errorName":"Error"/);
+  assert.match(log, /"errorCode":"ECONNRESET"/);
+  assert.doesNotMatch(log, /secret-api-key/);
+  assert.doesNotMatch(log, /secret-password/);
+  assert.doesNotMatch(log, /access-1/);
   assert.doesNotMatch(log, /Authorization/i);
   assert.doesNotMatch(log, /x-api-key/i);
   assert.doesNotMatch(log, /Bearer/i);

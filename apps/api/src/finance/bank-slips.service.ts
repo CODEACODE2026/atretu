@@ -77,8 +77,18 @@ export class BankSlipsService {
   ) {}
 
   async issueForInvoice(invoiceId: string, userId: string) {
+    logIssueDiagnostic({
+      etapa: "issue-start",
+      invoiceId,
+    });
     const prepared = await this.prepareIssue(invoiceId, userId);
     try {
+      logIssueDiagnostic({
+        etapa: "before-sicredi-client",
+        invoiceId: prepared.invoiceId,
+        bankSlipId: prepared.bankSlipId,
+        seuNumero: prepared.seuNumero,
+      });
       const response = await this.sicredi.issueBankSlip(prepared.input);
       const updated = await this.prisma.$transaction(async (tx) => {
         const bankSlip = await tx.bankSlip.update({
@@ -122,6 +132,19 @@ export class BankSlipsService {
       });
       return this.toBankSlipSummary(updated);
     } catch (error) {
+      logIssueDiagnostic({
+        etapa: "issue-catch",
+        invoiceId: prepared.invoiceId,
+        bankSlipId: prepared.bankSlipId,
+        errorType: error instanceof Error ? error.name : typeof error,
+        operation: error instanceof SicrediClientError ? error.operation : undefined,
+        providerStatus: error instanceof SicrediClientError ? error.providerStatus : undefined,
+        providerCode: error instanceof SicrediClientError ? error.providerCode : undefined,
+        providerMessage:
+          error instanceof SicrediClientError
+            ? sanitizeIssueDiagnosticText(error.providerMessage ?? error.message)
+            : undefined,
+      });
       if (!(error instanceof SicrediClientError)) {
         throw error;
       }
@@ -1159,6 +1182,27 @@ export class BankSlipsService {
   private hasEightDigitCep(value: string | null | undefined) {
     return /^\d{8}$/.test(value?.replace(/\D/g, "") ?? "");
   }
+}
+
+function logIssueDiagnostic(payload: Record<string, unknown>) {
+  if (!isIssueDiagnosticEnabled()) {
+    return;
+  }
+  console.info("[sicredi.issueBankSlip.diagnostic]", JSON.stringify(payload));
+}
+
+function isIssueDiagnosticEnabled() {
+  const nodeEnv = process.env.NODE_ENV?.trim();
+  return !nodeEnv || nodeEnv === "development";
+}
+
+function sanitizeIssueDiagnosticText(value: string) {
+  return value
+    .replace(/\b\d{11,14}\b/g, "[redacted-document]")
+    .replace(/\bBearer\s+\S+/gi, "[redacted-bearer]")
+    .replace(/\b(authorization|x-api-key)\b\s*[:=]?\s*[^,;}\]\s]+/gi, "[redacted-credential]")
+    .replace(/\b(token|api[-_ ]?key|senha|password)\b\s*[:=]?\s*[^,;}\]\s]+/gi, "[redacted-secret]")
+    .replace(/\b(nome|name|endereco|endereço|address)\b\s*[:=]?\s*[^,;}\]]+/gi, "[redacted-personal]");
 }
 
 type InvoiceWithRelations = Prisma.InvoiceGetPayload<{

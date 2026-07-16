@@ -20,6 +20,8 @@ import { BankSlipsService } from "./bank-slips.service.js";
 import { SicrediClientError } from "./sicredi-client.js";
 import type { SicrediConfig } from "./sicredi-config.js";
 
+process.env.NODE_ENV = "test";
+
 const config: SicrediConfig = {
   environment: "sandbox",
   authUrl: "https://sicredi.test/auth",
@@ -90,6 +92,65 @@ async function testIssueUncertainMarksUnknown() {
     ),
     false,
   );
+}
+
+async function testIssueDiagnosticsTrackServiceStagesSafely() {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousInfo = console.info;
+  const logs: string[] = [];
+  process.env.NODE_ENV = "development";
+  console.info = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  sicredi.issueError = new SicrediClientError({
+    operation: "issueBankSlip",
+    message:
+      `Boleto nao encontrado CPF 12345678909 nome Aluno Teste endereco Rua Teste ` +
+      `authorization Bearer access-1 x-api-key ${config.apiKey} senha ${config.password}`,
+    code: "NOT_FOUND",
+    statusCode: 404,
+    providerStatus: 404,
+    providerCode: "NOT_FOUND",
+    providerMessage:
+      `Boleto nao encontrado CPF 12345678909 nome Aluno Teste endereco Rua Teste ` +
+      `authorization Bearer access-1 x-api-key ${config.apiKey} senha ${config.password}`,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  try {
+    await assert.rejects(
+      () => service.issueForInvoice("invoice-1", "user-1"),
+      (error) => error instanceof BadRequestException,
+    );
+  } finally {
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
+    console.info = previousInfo;
+  }
+
+  const log = logs.join("\n");
+  assert.match(log, /"etapa":"issue-start"/);
+  assert.match(log, /"invoiceId":"invoice-1"/);
+  assert.match(log, /"etapa":"before-sicredi-client"/);
+  assert.match(log, /"bankSlipId":/);
+  assert.match(log, /"seuNumero":"A000000001"/);
+  assert.match(log, /"etapa":"issue-catch"/);
+  assert.match(log, /"operation":"issueBankSlip"/);
+  assert.match(log, /"providerStatus":404/);
+  assert.match(log, /"providerCode":"NOT_FOUND"/);
+  assert.doesNotMatch(log, /secret-api-key/);
+  assert.doesNotMatch(log, /secret-password/);
+  assert.doesNotMatch(log, /access-1/);
+  assert.doesNotMatch(log, /12345678909/);
+  assert.doesNotMatch(log, /Aluno Teste/);
+  assert.doesNotMatch(log, /Rua Teste/);
+  assert.doesNotMatch(log, /Authorization/i);
+  assert.doesNotMatch(log, /x-api-key/i);
+  assert.doesNotMatch(log, /Bearer/i);
 }
 
 async function testRetryIssueFailedReusesBankSlip() {
@@ -977,6 +1038,7 @@ function createInvoice(id: string) {
 
 await testIssueBankSlipSuccess();
 await testIssueUncertainMarksUnknown();
+await testIssueDiagnosticsTrackServiceStagesSafely();
 await testRetryIssueFailedReusesBankSlip();
 await testRetryCancelledReusesBankSlip();
 await testRetryIssueFailureCanFailAgain();

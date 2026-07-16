@@ -11,6 +11,8 @@ type SicrediToken = {
   refreshExpiresAt: number;
 };
 
+const ISSUE_BANK_SLIP_PATH = "/cobranca/boleto/v1/boletos";
+
 type RequestOptions = {
   operation: SicrediOperation;
   method: "GET" | "POST" | "PATCH";
@@ -182,10 +184,15 @@ export class SicrediClient {
   async issueBankSlip(
     input: SicrediIssueBankSlipInput,
   ): Promise<SicrediIssueBankSlipResponse> {
+    this.logIssueClientDiagnostic({
+      etapa: "client-entered",
+      operation: "issueBankSlip",
+      requestUrl: this.buildUrl(ISSUE_BANK_SLIP_PATH).toString(),
+    });
     const response = await this.requestJson<Record<string, unknown>>({
       operation: "issueBankSlip",
       method: "POST",
-      path: "/cobranca/boleto/v1/boletos",
+      path: ISSUE_BANK_SLIP_PATH,
       authenticated: true,
       safeToRetry: false,
       uncertainOnFailure: true,
@@ -423,6 +430,12 @@ export class SicrediClient {
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
     const url = this.buildUrl(options.path, options.query);
     try {
+      this.logIssueClientDiagnostic({
+        etapa: "before-fetch",
+        operation: options.operation,
+        method: options.method,
+        requestUrl: url.toString(),
+      });
       const response = await this.fetchImpl(url, {
         method: options.method,
         headers,
@@ -432,6 +445,7 @@ export class SicrediClient {
       await this.logIssueDiagnostic(options, url, headers, response.clone());
       return response;
     } catch (error) {
+      this.logIssueFetchError(options, url, error);
       throw this.toNetworkError(error, options);
     } finally {
       clearTimeout(timeout);
@@ -626,6 +640,7 @@ export class SicrediClient {
     const responseBody = await this.readDiagnosticResponseBody(response);
     const requestBody = isRecord(options.body) ? options.body : {};
     const diagnostic = {
+      etapa: "after-fetch",
       operation: options.operation,
       method: options.method,
       requestUrl: url.toString(),
@@ -643,6 +658,37 @@ export class SicrediClient {
       valor: readDiagnosticString(requestBody, "valor"),
       responseJsonKeys: responseBody.jsonKeys,
       errorBody: response.ok ? undefined : this.sanitizeDiagnosticValue(responseBody.value),
+    };
+    console.info("[sicredi.issueBankSlip.diagnostic]", JSON.stringify(diagnostic));
+  }
+
+  private logIssueClientDiagnostic(input: {
+    etapa: "client-entered" | "before-fetch";
+    operation: SicrediOperation;
+    method?: RequestOptions["method"];
+    requestUrl?: string;
+  }) {
+    if (!isIssueDiagnosticEnabled() || input.operation !== "issueBankSlip") {
+      return;
+    }
+    console.info("[sicredi.issueBankSlip.diagnostic]", JSON.stringify(input));
+  }
+
+  private logIssueFetchError(options: RequestOptions, url: URL, error: unknown) {
+    if (!isIssueDiagnosticEnabled() || options.operation !== "issueBankSlip") {
+      return;
+    }
+    const errorRecord = error as { code?: unknown };
+    const diagnostic = {
+      etapa: "fetch-error",
+      operation: options.operation,
+      method: options.method,
+      requestUrl: url.toString(),
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorCode: typeof errorRecord.code === "string" ? errorRecord.code : undefined,
+      message: this.sanitizeDiagnosticText(
+        error instanceof Error ? error.message : String(error),
+      ),
     };
     console.info("[sicredi.issueBankSlip.diagnostic]", JSON.stringify(diagnostic));
   }
