@@ -92,6 +92,221 @@ async function testIssueUncertainMarksUnknown() {
   );
 }
 
+async function testRetryIssueFailedReusesBankSlip() {
+  const prisma = new FakePrisma();
+  const createdAt = new Date("2099-01-01T00:00:00.000Z");
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.ISSUE_FAILED,
+    nossoNumero: "251000001",
+    seuNumero: "A000000001",
+    linhaDigitavel: "linha-antiga",
+    codigoBarras: "codigo-antigo",
+    paidAmountCents: 1,
+    issuedAt: new Date("2099-01-02T00:00:00.000Z"),
+    paidAt: new Date("2099-01-03T00:00:00.000Z"),
+    cancelledAt: new Date("2099-01-04T00:00:00.000Z"),
+    cancellationRequestedAt: new Date("2099-01-05T00:00:00.000Z"),
+    cancellationRequestedByUserId: "user-old",
+    cancellationReason: InvoiceCancellationReason.OTHER,
+    cancellationNote: "old cancellation",
+    lastCheckedAt: new Date("2099-01-06T00:00:00.000Z"),
+    providerStatus: "REJECTED",
+    providerErrorCode: "FORBIDDEN",
+    providerErrorMessage: "Access denied for this environment",
+    createdAt,
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.issueForInvoice("invoice-1", "user-1");
+
+  assert.equal(result.id, "bank-slip-1");
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(result.seuNumero, "A000000002");
+  assert.equal(result.nossoNumero, "251006142");
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.bankSlips[0]?.id, "bank-slip-1");
+  assert.equal(prisma.bankSlips[0]?.createdAt, createdAt);
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, null);
+  assert.equal(prisma.bankSlips[0]?.providerErrorMessage, null);
+  assert.equal(prisma.bankSlips[0]?.paidAmountCents, null);
+  assert.equal(prisma.bankSlips[0]?.paidAt, null);
+  assert.equal(prisma.bankSlips[0]?.cancelledAt, null);
+  assert.equal(prisma.bankSlips[0]?.cancellationRequestedAt, null);
+  assert.equal(prisma.bankSlips[0]?.cancellationRequestedByUserId, null);
+  assert.equal(prisma.bankSlips[0]?.cancellationReason, null);
+  assert.equal(prisma.bankSlips[0]?.cancellationNote, null);
+  assert.equal(
+    prisma.auditLogs.some(
+      (log) =>
+        log.eventType === AdministrativeAuditEventType.BANK_SLIP_ISSUE_REQUESTED &&
+        (log.metadata as Record<string, unknown>).previousStatus ===
+          BankSlipStatus.ISSUE_FAILED &&
+        (log.metadata as Record<string, unknown>).retry === true,
+    ),
+    true,
+  );
+}
+
+async function testRetryCancelledReusesBankSlip() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.CANCELLED,
+    nossoNumero: "251000001",
+    seuNumero: "A000000001",
+    linhaDigitavel: "linha-cancelada",
+    codigoBarras: "codigo-cancelado",
+    cancelledAt: new Date("2099-01-04T00:00:00.000Z"),
+    cancellationRequestedAt: new Date("2099-01-05T00:00:00.000Z"),
+    cancellationRequestedByUserId: "user-old",
+    cancellationReason: InvoiceCancellationReason.OTHER,
+    cancellationNote: "old cancellation",
+    providerStatus: "BAIXADO POR SOLICITACAO",
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.issueForInvoice("invoice-1", "user-1");
+
+  assert.equal(result.id, "bank-slip-1");
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(result.seuNumero, "A000000002");
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.bankSlips[0]?.cancelledAt, null);
+  assert.equal(prisma.bankSlips[0]?.cancellationRequestedAt, null);
+  assert.equal(prisma.bankSlips[0]?.providerErrorMessage, null);
+  assert.equal(
+    prisma.auditLogs.some(
+      (log) =>
+        log.eventType === AdministrativeAuditEventType.BANK_SLIP_ISSUE_REQUESTED &&
+        (log.metadata as Record<string, unknown>).previousStatus ===
+          BankSlipStatus.CANCELLED,
+    ),
+    true,
+  );
+}
+
+async function testRetryIssueFailureCanFailAgain() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.ISSUE_FAILED,
+    nossoNumero: "251000001",
+    seuNumero: "A000000001",
+    providerErrorCode: "OLD",
+    providerErrorMessage: "Old error",
+  });
+  const sicredi = new FakeSicrediClient();
+  sicredi.issueError = new SicrediClientError({
+    operation: "issueBankSlip",
+    message: "Access denied for this environment",
+    code: "FORBIDDEN",
+    statusCode: 403,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof BadRequestException,
+  );
+
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.bankSlips[0]?.id, "bank-slip-1");
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUE_FAILED);
+  assert.equal(prisma.bankSlips[0]?.seuNumero, "A000000002");
+  assert.equal(prisma.bankSlips[0]?.nossoNumero, null);
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, "FORBIDDEN");
+  assert.equal(
+    prisma.bankSlips[0]?.providerErrorMessage,
+    "Access denied for this environment",
+  );
+}
+
+async function testRetryIssueUncertainBecomesUnknown() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.ISSUE_FAILED,
+    nossoNumero: "251000001",
+    seuNumero: "A000000001",
+  });
+  const sicredi = new FakeSicrediClient();
+  sicredi.issueError = new SicrediClientError({
+    operation: "issueBankSlip",
+    message: "Sicredi request timed out",
+    code: "TIMEOUT",
+    transient: true,
+    uncertain: true,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-1", "user-1"),
+    (error) => error instanceof ConflictException,
+  );
+
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.UNKNOWN);
+  assert.equal(prisma.bankSlips[0]?.seuNumero, "A000000002");
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, "TIMEOUT");
+}
+
+async function testBlockingStatusesStillBlockIssue() {
+  for (const status of [
+    BankSlipStatus.ISSUED,
+    BankSlipStatus.PENDING_ISSUE,
+    BankSlipStatus.UNKNOWN,
+    BankSlipStatus.PENDING_CANCELLATION,
+    BankSlipStatus.PAID,
+  ]) {
+    const prisma = new FakePrisma();
+    prisma.seedIssuedBankSlip({ status });
+    const sicredi = new FakeSicrediClient();
+    const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+    await assert.rejects(
+      () => service.issueForInvoice("invoice-1", "user-1"),
+      (error) => error instanceof ConflictException,
+      String(status),
+    );
+    assert.equal(sicredi.issueCalls.length, 0, String(status));
+    assert.equal(prisma.bankSlips.length, 1, String(status));
+    assert.equal(prisma.bankSlips[0]?.status, status, String(status));
+  }
+}
+
+async function testConcurrentRetryDoesNotDuplicateIssue() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.ISSUE_FAILED,
+    nossoNumero: null,
+    linhaDigitavel: null,
+    codigoBarras: null,
+    issuedAt: null,
+    providerErrorCode: "OLD",
+    providerErrorMessage: "Old error",
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const results = await Promise.allSettled([
+    service.issueForInvoice("invoice-1", "user-1"),
+    service.issueForInvoice("invoice-1", "user-1"),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(
+    results.filter(
+      (result) =>
+        result.status === "rejected" && result.reason instanceof ConflictException,
+    ).length,
+    1,
+  );
+  assert.equal(sicredi.issueCalls.length, 1);
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.bankSlips[0]?.id, "bank-slip-1");
+  assert.equal(prisma.bankSlips[0]?.invoiceId, "invoice-1");
+  assert.equal(prisma.historyEvents.length, 1);
+}
+
 async function testStalePendingIssueBecomesUnknown() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip({
@@ -762,6 +977,12 @@ function createInvoice(id: string) {
 
 await testIssueBankSlipSuccess();
 await testIssueUncertainMarksUnknown();
+await testRetryIssueFailedReusesBankSlip();
+await testRetryCancelledReusesBankSlip();
+await testRetryIssueFailureCanFailAgain();
+await testRetryIssueUncertainBecomesUnknown();
+await testBlockingStatusesStillBlockIssue();
+await testConcurrentRetryDoesNotDuplicateIssue();
 await testStalePendingIssueBecomesUnknown();
 await testFreshPendingIssueStaysPending();
 await testConcurrentSeuNumeroGeneration();

@@ -280,10 +280,53 @@ try {
     where: { invoiceId: rejected.invoice.id },
   });
   expect(rejectedSlip?.status === "ISSUE_FAILED", "422 issue did not mark ISSUE_FAILED");
+  const rejectedAuditBeforeRetry = await bankSlipAuditCount(rejectedSlip.id, [
+    "BANK_SLIP_ISSUE_REQUESTED",
+    "BANK_SLIP_ISSUE_FAILED",
+    "BANK_SLIP_ISSUED",
+  ]);
   expect(
     !JSON.stringify(rejectedIssue.body).includes(rejected.student.person.cpf),
     "Rejected issue response leaked CPF",
   );
+  mock.queueIssue("success");
+  const retriedIssue = await issueBankSlip(secretaryCookie, rejected.invoice.id);
+  expect(
+    retriedIssue.id === rejectedSlip.id,
+    "Retry did not reuse the existing failed BankSlip",
+  );
+  expect(retriedIssue.status === "ISSUED", "Retry did not issue BankSlip");
+  expect(
+    retriedIssue.seuNumero !== rejectedSlip.seuNumero,
+    "Retry did not generate a new Seu Numero",
+  );
+  expect(!retriedIssue.providerErrorMessage, "Retry kept old provider error message");
+  const rejectedSlipCountAfterRetry = await prisma.bankSlip.count({
+    where: { invoiceId: rejected.invoice.id },
+  });
+  expect(rejectedSlipCountAfterRetry === 1, "Retry created a second BankSlip");
+  const rejectedRecordAfterRetry = await prisma.bankSlip.findUnique({
+    where: { invoiceId: rejected.invoice.id },
+  });
+  expect(
+    rejectedRecordAfterRetry?.id === rejectedSlip.id &&
+      rejectedRecordAfterRetry.providerErrorCode === null &&
+      rejectedRecordAfterRetry.providerErrorMessage === null,
+    "Retry did not clean failed issue fields",
+  );
+  const rejectedAuditAfterRetry = await bankSlipAuditCount(rejectedSlip.id, [
+    "BANK_SLIP_ISSUE_REQUESTED",
+    "BANK_SLIP_ISSUE_FAILED",
+    "BANK_SLIP_ISSUED",
+  ]);
+  expect(
+    rejectedAuditAfterRetry >= rejectedAuditBeforeRetry + 2,
+    "Retry did not preserve previous audit events and record new issue events",
+  );
+  await assertInvoiceListBankSlipSummary(secretaryCookie, rejected.invoice, {
+    status: "ISSUED",
+    nossoNumero: retriedIssue.nossoNumero,
+  });
 
   const dailyAlreadyPaid = issued;
   const dailyNew = await createStudentAndInvoice(secretaryCookie, base, {
@@ -764,6 +807,12 @@ async function assertBlocked(call, status, message) {
 async function historyCount(invoiceId, eventTypes) {
   return prisma.studentHistoryEvent.count({
     where: { invoiceId, eventType: { in: eventTypes } },
+  });
+}
+
+async function bankSlipAuditCount(bankSlipId, eventTypes) {
+  return prisma.administrativeAuditLog.count({
+    where: { recordId: bankSlipId, eventType: { in: eventTypes } },
   });
 }
 

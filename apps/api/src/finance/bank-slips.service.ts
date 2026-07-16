@@ -425,7 +425,7 @@ export class BankSlipsService {
       const currentBankSlip = invoice.bankSlip
         ? await this.resolveStalePendingIssueTx(tx, invoice, userId)
         : null;
-      if (currentBankSlip) {
+      if (currentBankSlip && !this.canRetryIssue(currentBankSlip.status)) {
         throw new ConflictException({
           code:
             currentBankSlip.status === BankSlipStatus.UNKNOWN
@@ -439,17 +439,20 @@ export class BankSlipsService {
       }
       const payer = this.buildPayer(invoice.student.person);
       const seuNumero = await this.nextSeuNumero(tx);
-      const bankSlip = await tx.bankSlip.create({
-        data: {
-          invoiceId: invoice.id,
-          provider: BankSlipProvider.SICREDI,
-          environment: this.environment(),
-          status: BankSlipStatus.PENDING_ISSUE,
-          documentSpecies: "RECIBO",
-          seuNumero,
-          originalAmountCents: invoice.amountCents,
-        },
-      });
+      const previousStatus = currentBankSlip?.status ?? null;
+      const bankSlip = currentBankSlip
+        ? await this.prepareRetryIssueTx(tx, currentBankSlip, invoice, seuNumero)
+        : await tx.bankSlip.create({
+            data: {
+              invoiceId: invoice.id,
+              provider: BankSlipProvider.SICREDI,
+              environment: this.environment(),
+              status: BankSlipStatus.PENDING_ISSUE,
+              documentSpecies: "RECIBO",
+              seuNumero,
+              originalAmountCents: invoice.amountCents,
+            },
+          });
       await this.recordAuditTx(tx, {
         eventType: AdministrativeAuditEventType.BANK_SLIP_ISSUE_REQUESTED,
         recordId: bankSlip.id,
@@ -461,6 +464,8 @@ export class BankSlipsService {
           seuNumero,
           amountCents: invoice.amountCents,
           dueDate: this.toDateOnly(invoice.dueDate),
+          retry: Boolean(previousStatus),
+          ...(previousStatus ? { previousStatus } : {}),
         },
       });
       return {
@@ -479,6 +484,48 @@ export class BankSlipsService {
           valor: formatCentsAsSicrediAmount(invoice.amountCents),
         },
       };
+    });
+  }
+
+  private canRetryIssue(status: BankSlipStatus) {
+    return (
+      status === BankSlipStatus.ISSUE_FAILED ||
+      status === BankSlipStatus.CANCELLED
+    );
+  }
+
+  private async prepareRetryIssueTx(
+    tx: Prisma.TransactionClient,
+    bankSlip: NonNullable<InvoiceWithRelations["bankSlip"]>,
+    invoice: InvoiceWithRelations,
+    seuNumero: string,
+  ) {
+    return tx.bankSlip.update({
+      where: { id: bankSlip.id },
+      data: {
+        provider: BankSlipProvider.SICREDI,
+        environment: this.environment(),
+        status: BankSlipStatus.PENDING_ISSUE,
+        documentSpecies: "RECIBO",
+        seuNumero,
+        originalAmountCents: invoice.amountCents,
+        nossoNumero: null,
+        linhaDigitavel: null,
+        codigoBarras: null,
+        paidAmountCents: null,
+        issuedAt: null,
+        paidAt: null,
+        cancelledAt: null,
+        cancellationRequestedAt: null,
+        cancellationRequestedByUserId: null,
+        cancellationReason: null,
+        cancellationNote: null,
+        lastCheckedAt: null,
+        providerStatus: null,
+        providerErrorCode: null,
+        providerErrorMessage: null,
+      },
+      include: this.bankSlipInclude(),
     });
   }
 
