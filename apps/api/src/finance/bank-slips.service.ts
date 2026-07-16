@@ -26,6 +26,7 @@ import {
   SicrediClientError,
   type SicrediBankSlipDetails,
   type SicrediIssueBankSlipInput,
+  type SicrediIssueBankSlipResponse,
   type SicrediPaidBankSlip,
 } from "./sicredi-client.js";
 import type { SicrediConfig } from "./sicredi-config.js";
@@ -35,7 +36,10 @@ import {
   translateSicrediClientError,
   type SicrediBusinessError,
 } from "./sicredi-business-errors.js";
-import type { RequestBankSlipCancellationDto } from "./dto/bank-slips.dto.js";
+import type {
+  RecoverIssuedBankSlipDto,
+  RequestBankSlipCancellationDto,
+} from "./dto/bank-slips.dto.js";
 
 export const SICREDI_CLIENT = Symbol("SICREDI_CLIENT");
 export const SICREDI_CONFIG = Symbol("SICREDI_CONFIG");
@@ -90,46 +94,7 @@ export class BankSlipsService {
         seuNumero: prepared.seuNumero,
       });
       const response = await this.sicredi.issueBankSlip(prepared.input);
-      const updated = await this.prisma.$transaction(async (tx) => {
-        const bankSlip = await tx.bankSlip.update({
-          where: { id: prepared.bankSlipId },
-          data: {
-            status: BankSlipStatus.ISSUED,
-            nossoNumero: response.nossoNumero,
-            linhaDigitavel: response.linhaDigitavel,
-            codigoBarras: response.codigoBarras,
-            providerStatus: "ISSUED",
-            providerErrorCode: null,
-            providerErrorMessage: null,
-            issuedAt: new Date(),
-            lastCheckedAt: new Date(),
-          },
-          include: this.bankSlipInclude(),
-        });
-        await tx.studentHistoryEvent.create({
-          data: {
-            studentId: prepared.studentId,
-            eventType: StudentHistoryEventType.BANK_SLIP_ISSUED,
-            invoiceId: prepared.invoiceId,
-            bankSlipId: bankSlip.id,
-            performedByUserId: userId,
-          },
-        });
-        await this.recordAuditTx(tx, {
-          eventType: AdministrativeAuditEventType.BANK_SLIP_ISSUED,
-          recordId: bankSlip.id,
-          userId,
-          metadata: {
-            invoiceId: prepared.invoiceId,
-            studentId: prepared.studentId,
-            bankSlipId: bankSlip.id,
-            seuNumero: bankSlip.seuNumero,
-            nossoNumero: this.maskNossoNumero(bankSlip.nossoNumero),
-            status: bankSlip.status,
-          },
-        });
-        return bankSlip;
-      });
+      const updated = await this.persistIssuedBankSlip(prepared, response, userId);
       return this.toBankSlipSummary(updated);
     } catch (error) {
       logIssueDiagnostic({
@@ -195,6 +160,181 @@ export class BankSlipsService {
         bankSlip: this.toBankSlipSummary(failed),
       });
     }
+  }
+
+  async recoverIssuedFromProviderResponse(
+    invoiceId: string,
+    userId: string,
+    body: RecoverIssuedBankSlipDto,
+  ) {
+    const bankSlip = await this.getBankSlipByInvoice(invoiceId);
+    if (body.bankSlipId && body.bankSlipId !== bankSlip.id) {
+      throw new BadRequestException({
+        code: "BANK_SLIP_RECOVERY_MISMATCH",
+        message: "BankSlip informado nao pertence a fatura",
+      });
+    }
+    if (body.seuNumero !== bankSlip.seuNumero) {
+      throw new BadRequestException({
+        code: "BANK_SLIP_RECOVERY_MISMATCH",
+        message: "Seu Numero informado nao corresponde ao boleto local",
+      });
+    }
+    if (bankSlip.status === BankSlipStatus.PAID || bankSlip.status === BankSlipStatus.PENDING_CANCELLATION) {
+      throw new ConflictException({
+        code: "BANK_SLIP_RECOVERY_BLOCKED",
+        message: "Estado atual do boleto nao permite recuperacao manual da emissao",
+      });
+    }
+    if (bankSlip.status === BankSlipStatus.ISSUED) {
+      return this.toBankSlipSummary(bankSlip);
+    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const recovered = await tx.bankSlip.update({
+        where: { id: bankSlip.id },
+        data: {
+          status: BankSlipStatus.ISSUED,
+          nossoNumero: body.nossoNumero,
+          linhaDigitavel: body.linhaDigitavel,
+          codigoBarras: body.codigoBarras,
+          txid: this.optional(body.txid) ?? null,
+          providerStatus: "ISSUED",
+          providerErrorCode: null,
+          providerErrorMessage: null,
+          issuedAt: bankSlip.issuedAt ?? new Date(),
+          lastCheckedAt: new Date(),
+        },
+        include: this.bankSlipInclude(),
+      });
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId: recovered.invoice.studentId,
+          eventType: StudentHistoryEventType.BANK_SLIP_ISSUED,
+          invoiceId: recovered.invoiceId,
+          bankSlipId: recovered.id,
+          performedByUserId: userId,
+        },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.BANK_SLIP_SYNCED,
+        recordId: recovered.id,
+        userId,
+        metadata: {
+          recovery: true,
+          invoiceId: recovered.invoiceId,
+          studentId: recovered.invoice.studentId,
+          bankSlipId: recovered.id,
+          seuNumero: recovered.seuNumero,
+          nossoNumero: this.maskNossoNumero(recovered.nossoNumero),
+          txidPresent: Boolean(recovered.txid),
+          status: recovered.status,
+        },
+      });
+      return recovered;
+    });
+    return this.toBankSlipSummary(updated);
+  }
+
+  private async persistIssuedBankSlip(
+    prepared: IssuePreparation,
+    response: SicrediIssueBankSlipResponse,
+    userId: string,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const bankSlip = await tx.bankSlip.update({
+          where: { id: prepared.bankSlipId },
+          data: {
+            status: BankSlipStatus.ISSUED,
+            nossoNumero: response.nossoNumero,
+            linhaDigitavel: response.linhaDigitavel,
+            codigoBarras: response.codigoBarras,
+            txid: response.txid ?? null,
+            providerStatus: "ISSUED",
+            providerErrorCode: null,
+            providerErrorMessage: null,
+            issuedAt: new Date(),
+            lastCheckedAt: new Date(),
+          },
+          include: this.bankSlipInclude(),
+        });
+        await tx.studentHistoryEvent.create({
+          data: {
+            studentId: prepared.studentId,
+            eventType: StudentHistoryEventType.BANK_SLIP_ISSUED,
+            invoiceId: prepared.invoiceId,
+            bankSlipId: bankSlip.id,
+            performedByUserId: userId,
+          },
+        });
+        await this.recordAuditTx(tx, {
+          eventType: AdministrativeAuditEventType.BANK_SLIP_ISSUED,
+          recordId: bankSlip.id,
+          userId,
+          metadata: {
+            invoiceId: prepared.invoiceId,
+            studentId: prepared.studentId,
+            bankSlipId: bankSlip.id,
+            seuNumero: bankSlip.seuNumero,
+            nossoNumero: this.maskNossoNumero(bankSlip.nossoNumero),
+            txidPresent: Boolean(bankSlip.txid),
+            status: bankSlip.status,
+          },
+        });
+        return bankSlip;
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) {
+        throw error;
+      }
+      await this.markIssuePersistenceConflict(prepared, response, userId, error);
+      throw new ConflictException({
+        code: "BANK_SLIP_ISSUE_PERSISTENCE_CONFLICT",
+        message:
+          "Sicredi confirmou a emissao, mas o retorno nao foi persistido localmente; recupere o boleto sem nova emissao",
+      });
+    }
+  }
+
+  private async markIssuePersistenceConflict(
+    prepared: IssuePreparation,
+    response: SicrediIssueBankSlipResponse,
+    userId: string,
+    error: unknown,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const bankSlip = await tx.bankSlip.update({
+        where: { id: prepared.bankSlipId },
+        data: {
+          status: BankSlipStatus.UNKNOWN,
+          txid: response.txid ?? null,
+          linhaDigitavel: response.linhaDigitavel,
+          codigoBarras: response.codigoBarras,
+          providerStatus: "ISSUED",
+          providerErrorCode: "BANK_SLIP_PERSISTENCE_CONFLICT",
+          providerErrorMessage:
+            "Sicredi retornou HTTP 201, mas houve conflito ao persistir o identificador bancario local.",
+          lastCheckedAt: new Date(),
+        },
+        include: this.bankSlipInclude(),
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.BANK_SLIP_ISSUE_FAILED,
+        recordId: bankSlip.id,
+        userId,
+        metadata: {
+          invoiceId: prepared.invoiceId,
+          studentId: prepared.studentId,
+          bankSlipId: bankSlip.id,
+          seuNumero: bankSlip.seuNumero,
+          nossoNumero: this.maskNossoNumero(response.nossoNumero),
+          txidPresent: Boolean(response.txid),
+          status: bankSlip.status,
+          code: "BANK_SLIP_PERSISTENCE_CONFLICT",
+          prismaCode: getPrismaErrorCode(error) ?? "",
+        },
+      });
+    });
   }
 
   async getByInvoice(invoiceId: string) {
@@ -533,6 +673,7 @@ export class BankSlipsService {
         seuNumero,
         originalAmountCents: invoice.amountCents,
         nossoNumero: null,
+        txid: null,
         linhaDigitavel: null,
         codigoBarras: null,
         paidAmountCents: null,
@@ -1008,6 +1149,7 @@ export class BankSlipsService {
       documentSpecies: bankSlip.documentSpecies,
       nossoNumero: bankSlip.nossoNumero,
       seuNumero: bankSlip.seuNumero,
+      txid: bankSlip.txid,
       linhaDigitavel: bankSlip.linhaDigitavel,
       codigoBarras: bankSlip.codigoBarras,
       originalAmountCents: bankSlip.originalAmountCents,
@@ -1203,6 +1345,18 @@ function sanitizeIssueDiagnosticText(value: string) {
     .replace(/\b(authorization|x-api-key)\b\s*[:=]?\s*[^,;}\]\s]+/gi, "[redacted-credential]")
     .replace(/\b(token|api[-_ ]?key|senha|password)\b\s*[:=]?\s*[^,;}\]\s]+/gi, "[redacted-secret]")
     .replace(/\b(nome|name|endereco|endereço|address)\b\s*[:=]?\s*[^,;}\]]+/gi, "[redacted-personal]");
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return getPrismaErrorCode(error) === "P2002";
+}
+
+function getPrismaErrorCode(error: unknown) {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
 }
 
 type InvoiceWithRelations = Prisma.InvoiceGetPayload<{

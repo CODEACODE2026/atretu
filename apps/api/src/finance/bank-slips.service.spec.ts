@@ -50,6 +50,7 @@ async function testIssueBankSlipSuccess() {
   assert.equal(sicredi.issueCalls[0]?.seuNumero, "A000000001");
   assert.equal((sicredi.issueCalls[0] as Record<string, unknown>).nossoNumero, undefined);
   assert.equal(prisma.bankSlips[0]?.originalAmountCents, 12050);
+  assert.equal(prisma.bankSlips[0]?.txid, "tx-issue-1");
   assert.equal(prisma.historyEvents[0]?.eventType, StudentHistoryEventType.BANK_SLIP_ISSUED);
   assert.equal(
     prisma.auditLogs.some(
@@ -153,12 +154,101 @@ async function testIssueDiagnosticsTrackServiceStagesSafely() {
   assert.doesNotMatch(log, /Bearer/i);
 }
 
+async function testSandboxAllowsDuplicateNossoNumero() {
+  const prisma = new FakePrisma();
+  prisma.addInvoice("invoice-2");
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const first = await service.issueForInvoice("invoice-1", "user-1");
+  const second = await service.issueForInvoice("invoice-2", "user-1");
+
+  assert.equal(first.status, BankSlipStatus.ISSUED);
+  assert.equal(second.status, BankSlipStatus.ISSUED);
+  assert.equal(first.nossoNumero, "251006142");
+  assert.equal(second.nossoNumero, "251006142");
+  assert.notEqual(first.seuNumero, second.seuNumero);
+  assert.equal(prisma.bankSlips.length, 2);
+}
+
+async function testProductionRejectsDuplicateNossoNumeroAfter201() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    environment: BankSlipEnvironment.PRODUCTION,
+    nossoNumero: "251006142",
+    seuNumero: "A000000001",
+  });
+  prisma.addInvoice("invoice-2");
+  const sicredi = new FakeSicrediClient();
+  const productionConfig = { ...config, environment: "production" as const };
+  const service = new BankSlipsService(prisma as never, sicredi as never, productionConfig);
+
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-2", "user-1"),
+    (error) => error instanceof ConflictException,
+  );
+  const failed = prisma.bankSlips.find((item) => item.invoiceId === "invoice-2");
+  assert.equal(failed?.status, BankSlipStatus.UNKNOWN);
+  assert.equal(failed?.providerStatus, "ISSUED");
+  assert.equal(failed?.providerErrorCode, "BANK_SLIP_PERSISTENCE_CONFLICT");
+  assert.equal(failed?.txid, "tx-issue-1");
+  assert.equal(failed?.linhaDigitavel, "74891125110061420512803153351030188640000009990");
+  assert.equal(failed?.codigoBarras, "74891886400000099901125100614205120315335103");
+  assert.equal(
+    prisma.auditLogs.some(
+      (log) =>
+        log.eventType === AdministrativeAuditEventType.BANK_SLIP_ISSUE_FAILED &&
+        (log.metadata as Record<string, unknown>).code === "BANK_SLIP_PERSISTENCE_CONFLICT",
+    ),
+    true,
+  );
+}
+
+async function testManualRecoveryDoesNotIssueAgain() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.UNKNOWN,
+    nossoNumero: null,
+    txid: "tx-issue-1",
+    seuNumero: "A000000001",
+    linhaDigitavel: "74891125110061420512803153351030188640000009990",
+    codigoBarras: "74891886400000099901125100614205120315335103",
+    providerStatus: "ISSUED",
+    providerErrorCode: "BANK_SLIP_PERSISTENCE_CONFLICT",
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.recoverIssuedFromProviderResponse("invoice-1", "user-1", {
+    bankSlipId: "bank-slip-1",
+    seuNumero: "A000000001",
+    nossoNumero: "251006142",
+    linhaDigitavel: "74891125110061420512803153351030188640000009990",
+    codigoBarras: "74891886400000099901125100614205120315335103",
+    txid: "tx-issue-1",
+  });
+
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(result.nossoNumero, "251006142");
+  assert.equal(result.txid, "tx-issue-1");
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(
+    prisma.auditLogs.some(
+      (log) =>
+        log.eventType === AdministrativeAuditEventType.BANK_SLIP_SYNCED &&
+        (log.metadata as Record<string, unknown>).recovery === true,
+    ),
+    true,
+  );
+}
+
 async function testRetryIssueFailedReusesBankSlip() {
   const prisma = new FakePrisma();
   const createdAt = new Date("2099-01-01T00:00:00.000Z");
   prisma.seedIssuedBankSlip({
     status: BankSlipStatus.ISSUE_FAILED,
     nossoNumero: "251000001",
+    txid: "old-txid",
     seuNumero: "A000000001",
     linhaDigitavel: "linha-antiga",
     codigoBarras: "codigo-antigo",
@@ -185,6 +275,7 @@ async function testRetryIssueFailedReusesBankSlip() {
   assert.equal(result.status, BankSlipStatus.ISSUED);
   assert.equal(result.seuNumero, "A000000002");
   assert.equal(result.nossoNumero, "251006142");
+  assert.equal(result.txid, "tx-issue-1");
   assert.equal(prisma.bankSlips.length, 1);
   assert.equal(prisma.bankSlips[0]?.id, "bank-slip-1");
   assert.equal(prisma.bankSlips[0]?.createdAt, createdAt);
@@ -764,6 +855,7 @@ class FakeSicrediClient {
       codigoBarras: "74891886400000099901125100614205120315335103",
       cooperativa: "6789",
       posto: "03",
+      txid: "tx-issue-1",
     };
   }
 
@@ -899,6 +991,7 @@ class FakePrisma {
         createdAt: new Date(),
         updatedAt: new Date(),
         nossoNumero: null,
+        txid: null,
         linhaDigitavel: null,
         codigoBarras: null,
         paidAmountCents: null,
@@ -927,6 +1020,22 @@ class FakePrisma {
     }) => {
       const record = this.bankSlips.find((item) => item.id === where.id);
       assert.ok(record);
+      const nextProvider = data.provider ?? record.provider;
+      const nextEnvironment = data.environment ?? record.environment;
+      const nextNossoNumero = data.nossoNumero ?? record.nossoNumero;
+      if (
+        nextEnvironment === BankSlipEnvironment.PRODUCTION &&
+        nextNossoNumero &&
+        this.bankSlips.some(
+          (item) =>
+            item.id !== where.id &&
+            item.provider === nextProvider &&
+            item.environment === nextEnvironment &&
+            item.nossoNumero === nextNossoNumero,
+        )
+      ) {
+        throw { code: "P2002", meta: { target: "bank_slips_provider_production_nosso_numero_key" } };
+      }
       Object.assign(record, data, { updatedAt: new Date() });
       return this.bankSlipWithInvoice(where.id);
     },
@@ -953,6 +1062,7 @@ class FakePrisma {
   }
 
   seedIssuedBankSlip(overrides: Record<string, unknown> = {}) {
+    this.bankSlipIdSequence = Math.max(this.bankSlipIdSequence, 1);
     this.bankSlips.push({
       id: "bank-slip-1",
       invoiceId: "invoice-1",
@@ -961,6 +1071,7 @@ class FakePrisma {
       status: BankSlipStatus.ISSUED,
       documentSpecies: "RECIBO",
       nossoNumero: "251006142",
+      txid: null,
       seuNumero: "A000000001",
       linhaDigitavel: "74891125110061420512803153351030188640000009990",
       codigoBarras: "74891886400000099901125100614205120315335103",
@@ -1039,6 +1150,9 @@ function createInvoice(id: string) {
 await testIssueBankSlipSuccess();
 await testIssueUncertainMarksUnknown();
 await testIssueDiagnosticsTrackServiceStagesSafely();
+await testSandboxAllowsDuplicateNossoNumero();
+await testProductionRejectsDuplicateNossoNumeroAfter201();
+await testManualRecoveryDoesNotIssueAgain();
 await testRetryIssueFailedReusesBankSlip();
 await testRetryCancelledReusesBankSlip();
 await testRetryIssueFailureCanFailAgain();

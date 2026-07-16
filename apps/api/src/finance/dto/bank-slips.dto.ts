@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Length,
   MaxLength,
 } from "class-validator";
 import { InvoiceCancellationReason } from "@prisma/client";
@@ -28,4 +29,36 @@ export class RequestBankSlipCancellationDto {
   @MaxLength(500)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   note?: string;
+}
+
+export class RecoverIssuedBankSlipDto {
+  @IsOptional()
+  @IsUUID()
+  bankSlipId?: string;
+
+  @IsString()
+  @Length(1, 10)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  seuNumero!: string;
+
+  @IsString()
+  @Length(1, 9)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  nossoNumero!: string;
+
+  @IsString()
+  @Length(1, 47)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  linhaDigitavel!: string;
+
+  @IsString()
+  @Length(1, 44)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  codigoBarras!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(35)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  txid?: string;
 }

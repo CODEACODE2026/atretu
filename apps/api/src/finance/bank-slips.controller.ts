@@ -19,6 +19,7 @@ import type { AuthUser } from "../users/users.service.js";
 import { BankSlipsService } from "./bank-slips.service.js";
 import {
   InvoiceBankSlipParamsDto,
+  RecoverIssuedBankSlipDto,
   RequestBankSlipCancellationDto,
   SyncPaidBankSlipsDayDto,
 } from "./dto/bank-slips.dto.js";
@@ -49,6 +50,16 @@ export class BankSlipsController {
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   syncByInvoice(@Param() params: InvoiceBankSlipParamsDto, @CurrentUser() user: AuthUser) {
     return this.bankSlips.syncByInvoice(params.invoiceId, user.id);
+  }
+
+  @Post("finance/invoices/:invoiceId/bank-slip/recover-issued")
+  @Roles(RoleCode.SUPER_ADMIN)
+  recoverIssuedFromProviderResponse(
+    @Param() params: InvoiceBankSlipParamsDto,
+    @Body() body: RecoverIssuedBankSlipDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.recoverIssuedFromProviderResponse(params.invoiceId, user.id, body);
   }
 
   @Post("finance/bank-slips/sync-paid-day")

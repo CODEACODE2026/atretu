@@ -607,6 +607,7 @@ model BankSlip {
   documentSpecies               String                     @default("RECIBO") @map("document_species") @db.VarChar(40)
   nossoNumero                   String?                    @map("nosso_numero") @db.VarChar(9)
   seuNumero                     String                     @map("seu_numero") @db.VarChar(10)
+  txid                          String?                    @db.VarChar(35)
   linhaDigitavel                String?                    @map("linha_digitavel") @db.VarChar(47)
   codigoBarras                  String?                    @map("codigo_barras") @db.VarChar(44)
   originalAmountCents           Int                        @map("original_amount_cents")
@@ -629,7 +630,8 @@ model BankSlip {
   studentHistoryEvents          StudentHistoryEvent[]
 
   @@unique([provider, environment, seuNumero])
-  @@unique([provider, environment, nossoNumero])
+  @@index([provider, environment, nossoNumero])
+  @@index([provider, environment, txid])
   @@index([status, updatedAt])
   @@index([lastCheckedAt])
   @@index([cancellationRequestedByUserId, cancellationRequestedAt])
