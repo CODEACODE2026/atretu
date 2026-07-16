@@ -40,7 +40,10 @@ await testRefreshToken();
 await testConcurrentAuthentication();
 await testSafe401Retry();
 await testAuthenticationHeadersKeepApiKeySeparateFromBearer();
+await testOperationalUrlsPreserveBasePath();
+await testAuthUrlIsUsedExactlyAsConfigured();
 await testIssueBankSlip();
+await testBeneficiaryCodePreservesLeadingZeros();
 await testIssueTimeoutIsUncertainAndNotRetried();
 await testIssueErrorsAreSanitized();
 await testGetBankSlip();
@@ -125,6 +128,79 @@ async function testAuthenticationHeadersKeepApiKeySeparateFromBearer() {
   assert.equal(apiHeaders.get("authorization"), "Bearer access-1");
 }
 
+async function testOperationalUrlsPreserveBasePath() {
+  const noTrailingSlashFetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      nossoNumero: "251006142",
+      linhaDigitavel: "74891125110061420512803153351030188640000009990",
+      codigoBarras: "74891886400000099901125100614205120315335103",
+      cooperativa: "6789",
+      posto: "03",
+    }, 201),
+  ]);
+  const noTrailingSlashClient = createClient(noTrailingSlashFetch, {
+    config: { ...config, baseUrl: "https://sicredi.test/sb" },
+  });
+  await noTrailingSlashClient.issueBankSlip(issueInput);
+  assert.equal(
+    noTrailingSlashFetch.calls[1]?.url,
+    "https://sicredi.test/sb/cobranca/boleto/v1/boletos",
+  );
+
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      nossoNumero: "251006142",
+      linhaDigitavel: "74891125110061420512803153351030188640000009990",
+      codigoBarras: "74891886400000099901125120315335103",
+      cooperativa: "6789",
+      posto: "03",
+    }, 201),
+    bankSlipResponse(),
+    jsonResponse({
+      transactionId: "tx-1",
+      dataMovimento: "2026-08-10",
+      codigoBeneficiario: "12345",
+      nossoNumero: "123456789",
+      cooperativa: "6789",
+      posto: "03",
+      statusComando: "MOVIMENTO_ENVIADO",
+    }, 202),
+    paidPageResponse(false),
+  ]);
+  const client = createClient(fetch, {
+    config: { ...config, baseUrl: "https://sicredi.test/sb/" },
+  });
+  await client.issueBankSlip(issueInput);
+  await client.getBankSlip("123456789");
+  await client.requestCancellation("123456789");
+  await client.listPaidBankSlipsByDay({ day: "10/08/2026" });
+  assert.equal(fetch.calls[1]?.url, "https://sicredi.test/sb/cobranca/boleto/v1/boletos");
+  assert.equal(
+    fetch.calls[2]?.url,
+    "https://sicredi.test/sb/cobranca/boleto/v1/boletos?codigoBeneficiario=12345&nossoNumero=123456789&data-movimento=true",
+  );
+  assert.equal(
+    fetch.calls[3]?.url,
+    "https://sicredi.test/sb/cobranca/boleto/v1/boletos/123456789/baixa",
+  );
+  assert.equal(
+    fetch.calls[4]?.url,
+    "https://sicredi.test/sb/cobranca/boleto/v1/boletos/liquidados/dia?codigoBeneficiario=12345&dia=10%2F08%2F2026&pagina=1",
+  );
+}
+
+async function testAuthUrlIsUsedExactlyAsConfigured() {
+  const authUrl = "https://sicredi.test/sb/auth/openapi/token";
+  const fetch = queueFetch([tokenResponse("access-1", "refresh-1", 300, 900), bankSlipResponse()]);
+  const client = createClient(fetch, {
+    config: { ...config, authUrl, baseUrl: "https://sicredi.test/sb" },
+  });
+  await client.getBankSlip("123456789");
+  assert.equal(fetch.calls[0]?.url, authUrl);
+}
+
 async function testConcurrentAuthentication() {
   const fetch = queueFetch([
     asyncJson({ access_token: "access-1", refresh_token: "refresh-1", expires_in: 300, refresh_expires_in: 900 }),
@@ -167,6 +243,26 @@ async function testIssueBankSlip() {
   assert.equal(body.tipoCobranca, "NORMAL");
   assert.equal(body.codigoBeneficiario, "12345");
   assert.equal(body.nossoNumero, undefined);
+}
+
+async function testBeneficiaryCodePreservesLeadingZeros() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      nossoNumero: "251006142",
+      linhaDigitavel: "74891125110061420512803153351030188640000009990",
+      codigoBarras: "74891886400000099901125100614205120315335103",
+      cooperativa: "6789",
+      posto: "03",
+    }, 201),
+  ]);
+  const client = createClient(fetch, {
+    config: { ...config, codigoBeneficiario: "00123" },
+  });
+  await client.issueBankSlip(issueInput);
+  const body = JSON.parse(String(fetch.calls[1]?.body)) as Record<string, unknown>;
+  assert.equal(body.codigoBeneficiario, "00123");
+  assert.equal(typeof body.codigoBeneficiario, "string");
 }
 
 async function testIssueTimeoutIsUncertainAndNotRetried() {
@@ -307,9 +403,9 @@ async function testPdfTooLarge() {
 
 function createClient(
   fetch: ReturnType<typeof queueFetch>,
-  options: { maxPdfBytes?: number } = {},
+  options: { config?: SicrediConfig; maxPdfBytes?: number } = {},
 ) {
-  return new SicrediClient(config, {
+  return new SicrediClient(options.config ?? config, {
     fetch,
     sleep: async () => {},
     maxAttempts: 2,

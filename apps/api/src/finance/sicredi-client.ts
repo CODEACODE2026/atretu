@@ -409,8 +409,9 @@ export class SicrediClient {
     }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    const url = this.buildUrl(options.path, options.query);
     try {
-      return await this.fetchImpl(this.buildUrl(options.path, options.query), {
+      return await this.fetchImpl(url, {
         method: options.method,
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -538,7 +539,7 @@ export class SicrediClient {
   }
 
   private buildUrl(path: string, query?: RequestOptions["query"]) {
-    const url = new URL(path, `${this.config.baseUrl}/`);
+    const url = joinBaseUrl(this.config.baseUrl, path);
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value !== undefined) {
         url.searchParams.set(key, String(value));
@@ -748,4 +749,12 @@ function readLiquidation(input: unknown): SicrediBankSlipDetails["dadosLiquidaca
 
 function sanitizeFileToken(value: string) {
   return value.replace(/[^0-9A-Za-z_-]/g, "").slice(0, 60) || "sicredi";
+}
+
+function joinBaseUrl(baseUrl: string, path: string) {
+  const url = new URL(baseUrl);
+  const basePath = url.pathname.replace(/\/+$/, "");
+  const requestPath = path.replace(/^\/+/, "");
+  url.pathname = `${basePath}/${requestPath}`.replace(/\/{2,}/g, "/");
+  return url;
 }
