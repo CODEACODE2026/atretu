@@ -123,6 +123,10 @@ export class SicrediClientError extends Error {
   readonly operation: SicrediOperation;
   readonly statusCode?: number;
   readonly code?: string;
+  readonly providerStatus?: number;
+  readonly providerCode?: string;
+  readonly providerMessage?: string;
+  readonly requestUrl?: string;
   readonly transient: boolean;
   readonly uncertain: boolean;
 
@@ -131,6 +135,10 @@ export class SicrediClientError extends Error {
     message: string;
     statusCode?: number;
     code?: string;
+    providerStatus?: number;
+    providerCode?: string;
+    providerMessage?: string;
+    requestUrl?: string;
     transient?: boolean;
     uncertain?: boolean;
   }) {
@@ -139,6 +147,10 @@ export class SicrediClientError extends Error {
     this.operation = input.operation;
     this.statusCode = input.statusCode;
     this.code = input.code;
+    this.providerStatus = input.providerStatus;
+    this.providerCode = input.providerCode;
+    this.providerMessage = input.providerMessage;
+    this.requestUrl = input.requestUrl;
     this.transient = input.transient ?? false;
     this.uncertain = input.uncertain ?? false;
   }
@@ -411,12 +423,14 @@ export class SicrediClient {
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
     const url = this.buildUrl(options.path, options.query);
     try {
-      return await this.fetchImpl(url, {
+      const response = await this.fetchImpl(url, {
         method: options.method,
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         signal: controller.signal,
       });
+      await this.logIssueDiagnostic(options, url, headers, response.clone());
+      return response;
     } catch (error) {
       throw this.toNetworkError(error, options);
     } finally {
@@ -555,6 +569,10 @@ export class SicrediClient {
       message: safe.message,
       statusCode: response.status,
       code: safe.code,
+      providerStatus: response.status,
+      providerCode: safe.code,
+      providerMessage: safe.message,
+      requestUrl: this.resolveRequestUrl(options).toString(),
       transient: isTransientStatus(response.status),
       uncertain: Boolean(options.uncertainOnFailure && isUncertainStatus(response.status)),
     });
@@ -580,10 +598,102 @@ export class SicrediClient {
         readOptionalString(parsed, "codigo") ??
         readOptionalString(parsed, "code") ??
         readOptionalString(parsed, "status");
-      return { message: this.redact(message), code: code ? this.redact(code) : undefined };
+      return {
+        message: this.sanitizeDiagnosticText(message),
+        code: code ? this.sanitizeDiagnosticText(code) : undefined,
+      };
     } catch {
-      return { message: this.redact(text || fallback) };
+      return { message: this.sanitizeDiagnosticText(text || fallback) };
     }
+  }
+
+  private resolveRequestUrl(options: RequestOptions) {
+    if (/^https?:\/\//i.test(options.path)) {
+      return new URL(options.path);
+    }
+    return this.buildUrl(options.path, options.query);
+  }
+
+  private async logIssueDiagnostic(
+    options: RequestOptions,
+    url: URL,
+    headers: Record<string, string>,
+    response: Response,
+  ) {
+    if (process.env.NODE_ENV !== "development" || options.operation !== "issueBankSlip") {
+      return;
+    }
+    const responseBody = await this.readDiagnosticResponseBody(response);
+    const requestBody = isRecord(options.body) ? options.body : {};
+    const diagnostic = {
+      operation: options.operation,
+      method: options.method,
+      requestUrl: url.toString(),
+      providerStatus: response.status,
+      headerNames: Object.keys(headers).filter((name) => !isCredentialHeader(name)),
+      sensitiveCredentialHeadersPresent: Object.keys(headers).some(isCredentialHeader),
+      environment: this.config.environment,
+      cooperativa: this.config.cooperativa,
+      posto: this.config.posto,
+      codigoBeneficiario: maskDigits(this.config.codigoBeneficiario),
+      seuNumero: readDiagnosticString(requestBody, "seuNumero"),
+      tipoCobranca: readDiagnosticString(requestBody, "tipoCobranca"),
+      especieDocumento: readDiagnosticString(requestBody, "especieDocumento"),
+      dataVencimento: readDiagnosticString(requestBody, "dataVencimento"),
+      valor: readDiagnosticString(requestBody, "valor"),
+      responseJsonKeys: responseBody.jsonKeys,
+      errorBody: response.ok ? undefined : this.sanitizeDiagnosticValue(responseBody.value),
+    };
+    console.info("[sicredi.issueBankSlip.diagnostic]", JSON.stringify(diagnostic));
+  }
+
+  private async readDiagnosticResponseBody(response: Response) {
+    let text = "";
+    try {
+      text = await response.text();
+    } catch {
+      return { jsonKeys: [] as string[], value: undefined };
+    }
+    if (!text) {
+      return { jsonKeys: [] as string[], value: undefined };
+    }
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      return {
+        jsonKeys: isRecord(parsed)
+          ? Object.keys(parsed).filter((key) => !isSensitiveDiagnosticKey(key))
+          : [],
+        value: parsed,
+      };
+    } catch {
+      return { jsonKeys: [] as string[], value: text.slice(0, 1000) };
+    }
+  }
+
+  private sanitizeDiagnosticValue(value: unknown): unknown {
+    if (typeof value === "string") {
+      return this.sanitizeDiagnosticText(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.sanitizeDiagnosticValue(item));
+    }
+    if (isRecord(value)) {
+      return Object.fromEntries(
+        Object.entries(value)
+          .filter(([key]) => !isSensitiveDiagnosticKey(key))
+          .map(([key, item]) => [key, this.sanitizeDiagnosticValue(item)]),
+      );
+    }
+    return value;
+  }
+
+  private sanitizeDiagnosticText(value: string) {
+    return this.redact(value)
+      .replace(/\b\d{11,14}\b/g, "[redacted-document]")
+      .replace(/\bBearer\s+\S+/gi, "[redacted-bearer]")
+      .replace(/\b(authorization|x-api-key)\b\s*[:=]?\s*[^,;}\]\s]+/gi, "[redacted-credential]")
+      .replace(/\b(token|api[-_ ]?key|senha|password)\b\s*[:=]?\s*[^,;}\]\s]+/gi, "[redacted-secret]")
+      .replace(/\b(nome|name|endereco|endereço|address)\b\s*[:=]?\s*[^,;}\]]+/gi, "[redacted-personal]");
   }
 
   private toNetworkError(error: unknown, options: RequestOptions) {
@@ -670,6 +780,60 @@ function assertRecord(input: unknown, label: string): Record<string, unknown> {
     });
   }
   return input as Record<string, unknown>;
+}
+
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+function isCredentialHeader(name: string) {
+  const normalized = name.toLowerCase();
+  return normalized === "authorization" || normalized === "x-api-key";
+}
+
+function isSensitiveDiagnosticKey(key: string) {
+  const normalized = key
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return [
+    "authorization",
+    "x-api-key",
+    "apikey",
+    "api_key",
+    "token",
+    "access_token",
+    "refresh_token",
+    "senha",
+    "password",
+    "documento",
+    "cpf",
+    "cnpj",
+    "cpfcnpj",
+    "nome",
+    "name",
+    "pagador",
+    "endereco",
+    "address",
+    "logradouro",
+    "rua",
+    "cep",
+    "telefone",
+    "email",
+  ].includes(normalized);
+}
+
+function readDiagnosticString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+}
+
+function maskDigits(value: string) {
+  return {
+    digits: value.length,
+    last2: value.slice(-2),
+    leadingZeros: value.startsWith("0"),
+  };
 }
 
 function readString(record: Record<string, unknown>, key: string, fallbackKey?: string): string {

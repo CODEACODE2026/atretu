@@ -46,6 +46,7 @@ await testIssueBankSlip();
 await testBeneficiaryCodePreservesLeadingZeros();
 await testIssueTimeoutIsUncertainAndNotRetried();
 await testIssueErrorsAreSanitized();
+await testDevelopmentIssueDiagnosticsAreSanitized();
 await testGetBankSlip();
 await testPaidDayPagination();
 await testPaidDayPaginationLimit();
@@ -304,6 +305,86 @@ async function testIssueErrorsAreSanitized() {
       !error.message.includes("access-1") &&
       error.statusCode === 422,
   );
+}
+
+async function testDevelopmentIssueDiagnosticsAreSanitized() {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousInfo = console.info;
+  const logs: string[] = [];
+  process.env.NODE_ENV = "development";
+  console.info = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      mensagem:
+        `Boleto nao encontrado CPF ${issueInput.pagador.documento} nome ${issueInput.pagador.nome} ` +
+        `endereco Rua Teste authorization Bearer access-1 x-api-key ${config.apiKey} senha ${config.password}`,
+      codigo: "NOT_FOUND",
+      authorization: "Bearer access-1",
+      "x-api-key": config.apiKey,
+      documento: issueInput.pagador.documento,
+      nome: issueInput.pagador.nome,
+      endereco: "Rua Teste",
+    }, 404),
+  ]);
+  const client = createClient(fetch);
+  try {
+    await assert.rejects(
+      () => client.issueBankSlip(issueInput),
+      (error) =>
+        error instanceof SicrediClientError &&
+        error.operation === "issueBankSlip" &&
+        error.statusCode === 404 &&
+        error.providerStatus === 404 &&
+        error.providerCode === "NOT_FOUND" &&
+        error.providerMessage !== undefined &&
+        !error.providerMessage.includes(config.password) &&
+        !error.providerMessage.includes(config.apiKey) &&
+        !error.providerMessage.includes("access-1") &&
+        !error.providerMessage.includes(issueInput.pagador.documento) &&
+        !error.providerMessage.includes(issueInput.pagador.nome) &&
+        !error.providerMessage.includes("Rua Teste") &&
+        !/Authorization/i.test(error.providerMessage) &&
+        !/x-api-key/i.test(error.providerMessage) &&
+        !/Bearer/i.test(error.providerMessage) &&
+        error.requestUrl === "https://sicredi.test/sb/cobranca/boleto/v1/boletos",
+    );
+  } finally {
+    if (previousNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
+    console.info = previousInfo;
+  }
+
+  assert.equal(logs.length, 1);
+  const log = logs.join("\n");
+  assert.match(log, /\[sicredi\.issueBankSlip\.diagnostic\]/);
+  assert.match(log, /issueBankSlip/);
+  assert.match(log, /https:\/\/sicredi\.test\/sb\/cobranca\/boleto\/v1\/boletos/);
+  assert.match(log, /"providerStatus":404/);
+  assert.match(log, /"environment":"sandbox"/);
+  assert.match(log, /"cooperativa":"6789"/);
+  assert.match(log, /"posto":"03"/);
+  assert.match(log, /"codigoBeneficiario":\{"digits":5,"last2":"45","leadingZeros":false\}/);
+  assert.match(log, /"seuNumero":"AT0000001"/);
+  assert.match(log, /"tipoCobranca":"NORMAL"/);
+  assert.match(log, /"especieDocumento":"RECIBO"/);
+  assert.match(log, /"dataVencimento":"2026-08-10"/);
+  assert.match(log, /"valor":"120.50"/);
+  assert.doesNotMatch(log, /secret-api-key/);
+  assert.doesNotMatch(log, /secret-password/);
+  assert.doesNotMatch(log, /access-1/);
+  assert.doesNotMatch(log, /refresh-1/);
+  assert.doesNotMatch(log, /12345678901/);
+  assert.doesNotMatch(log, /Aluno Teste/);
+  assert.doesNotMatch(log, /Rua Teste/);
+  assert.doesNotMatch(log, /Authorization/i);
+  assert.doesNotMatch(log, /x-api-key/i);
+  assert.doesNotMatch(log, /Bearer/i);
 }
 
 async function testGetBankSlip() {
