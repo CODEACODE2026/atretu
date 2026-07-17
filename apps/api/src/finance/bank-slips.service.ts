@@ -51,6 +51,7 @@ type SicrediClientPort = Pick<
 >;
 
 type IssuePreparation = {
+  kind: "issue";
   bankSlipId: string;
   invoiceId: string;
   studentId: string;
@@ -60,6 +61,13 @@ type IssuePreparation = {
   documentSpecies: string;
   input: SicrediIssueBankSlipInput;
 };
+
+type IssuePreparationResult =
+  | IssuePreparation
+  | {
+      kind: "already-issued";
+      bankSlip: BankSlipWithRelations;
+    };
 
 type CancellationPreparation = {
   bankSlipId: string;
@@ -86,6 +94,9 @@ export class BankSlipsService {
       invoiceId,
     });
     const prepared = await this.prepareIssue(invoiceId, userId);
+    if (prepared.kind === "already-issued") {
+      return this.toBankSlipSummary(prepared.bankSlip);
+    }
     try {
       logIssueDiagnostic({
         etapa: "before-sicredi-client",
@@ -567,7 +578,10 @@ export class BankSlipsService {
     }
   }
 
-  private async prepareIssue(invoiceId: string, userId: string): Promise<IssuePreparation> {
+  private async prepareIssue(
+    invoiceId: string,
+    userId: string,
+  ): Promise<IssuePreparationResult> {
     return this.prisma.$transaction(async (tx) => {
       const invoice = await this.lockInvoice(tx, invoiceId);
       if (invoice.status !== InvoiceStatus.OPEN) {
@@ -589,6 +603,22 @@ export class BankSlipsService {
         ? await this.resolveStalePendingIssueTx(tx, invoice, userId)
         : null;
       if (currentBankSlip && !this.canRetryIssue(currentBankSlip.status)) {
+        if (currentBankSlip.status === BankSlipStatus.ISSUED) {
+          const issuedBankSlip = await tx.bankSlip.findUnique({
+            where: { id: currentBankSlip.id },
+            include: this.bankSlipInclude(),
+          });
+          if (!issuedBankSlip) {
+            throw new NotFoundException("Boleto nao encontrado");
+          }
+          return { kind: "already-issued", bankSlip: issuedBankSlip };
+        }
+        if (currentBankSlip.status === BankSlipStatus.PENDING_ISSUE) {
+          throw new ConflictException({
+            code: "BANK_SLIP_ISSUE_IN_PROGRESS",
+            message: "Emissao de boleto em andamento para esta fatura",
+          });
+        }
         throw new ConflictException({
           code:
             currentBankSlip.status === BankSlipStatus.UNKNOWN
@@ -632,6 +662,7 @@ export class BankSlipsService {
         },
       });
       return {
+        kind: "issue",
         bankSlipId: bankSlip.id,
         invoiceId: invoice.id,
         studentId: invoice.studentId,

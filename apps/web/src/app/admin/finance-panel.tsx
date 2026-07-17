@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type AcademicYear,
@@ -59,6 +59,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [bankSlipAction, setBankSlipAction] = useState("");
+  const issueBankSlipInFlightRef = useRef("");
   const [syncPaidDate, setSyncPaidDate] = useState(todayDate());
   const [syncPaidSummary, setSyncPaidSummary] = useState("");
   const [message, setMessage] = useState("");
@@ -262,16 +263,20 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   }
 
   async function handleIssueBankSlip(invoice: InvoiceRecord) {
-    const confirmed = window.confirm(
-      `Emitir boleto NORMAL sem juros, multa, desconto, QR Code ou Pix?\nValor: ${invoice.amountFormatted}\nVencimento: ${formatDate(invoice.dueDate)}\nPagador: ${invoice.student.person.fullName}`,
-    );
-    if (!confirmed) {
+    if (issueBankSlipInFlightRef.current) {
       return;
     }
-    setBankSlipAction(invoice.id);
-    setMessage("");
-    setError("");
+    issueBankSlipInFlightRef.current = invoice.id;
     try {
+      const confirmed = window.confirm(
+        `Emitir boleto NORMAL sem juros, multa, desconto, QR Code ou Pix?\nValor: ${invoice.amountFormatted}\nVencimento: ${formatDate(invoice.dueDate)}\nPagador: ${invoice.student.person.fullName}`,
+      );
+      if (!confirmed) {
+        return;
+      }
+      setBankSlipAction(invoice.id);
+      setMessage("");
+      setError("");
       const bankSlip = await api.issueInvoiceBankSlip(invoice.id);
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
@@ -287,6 +292,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
       await loadFullBankSlip(invoice);
     } finally {
       setBankSlipAction("");
+      issueBankSlipInFlightRef.current = "";
     }
   }
 
@@ -783,6 +789,7 @@ export function StudentInvoicesForStudent({
   const [dueDate, setDueDate] = useState(todayDate());
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const issueBankSlipInFlightRef = useRef("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -911,17 +918,21 @@ export function StudentInvoicesForStudent({
   }
 
   async function handleIssueBankSlip(invoice: InvoiceRecord) {
-    if (
-      !window.confirm(
-        `Emitir boleto NORMAL sem juros, multa, desconto, QR Code ou Pix?\nValor: ${invoice.amountFormatted}\nVencimento: ${formatDate(invoice.dueDate)}\nPagador: ${invoice.student.person.fullName}`,
-      )
-    ) {
+    if (issueBankSlipInFlightRef.current) {
       return;
     }
-    setSaving(true);
-    setMessage("");
-    setError("");
+    issueBankSlipInFlightRef.current = invoice.id;
     try {
+      if (
+        !window.confirm(
+          `Emitir boleto NORMAL sem juros, multa, desconto, QR Code ou Pix?\nValor: ${invoice.amountFormatted}\nVencimento: ${formatDate(invoice.dueDate)}\nPagador: ${invoice.student.person.fullName}`,
+        )
+      ) {
+        return;
+      }
+      setSaving(true);
+      setMessage("");
+      setError("");
       const bankSlip = await api.issueInvoiceBankSlip(invoice.id);
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
@@ -938,6 +949,7 @@ export function StudentInvoicesForStudent({
       await loadInvoices();
     } finally {
       setSaving(false);
+      issueBankSlipInFlightRef.current = "";
     }
   }
 
@@ -1308,7 +1320,7 @@ function InvoiceBankSlipActions({
           onClick={onIssue}
           type="button"
         >
-          Emitir boleto
+          {busy ? "Emitindo..." : "Emitir boleto"}
         </button>
       ) : null}
       {bankSlip ? (

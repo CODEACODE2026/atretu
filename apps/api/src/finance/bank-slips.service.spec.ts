@@ -403,8 +403,6 @@ async function testRetryIssueUncertainBecomesUnknown() {
 
 async function testBlockingStatusesStillBlockIssue() {
   for (const status of [
-    BankSlipStatus.ISSUED,
-    BankSlipStatus.PENDING_ISSUE,
     BankSlipStatus.UNKNOWN,
     BankSlipStatus.PENDING_CANCELLATION,
     BankSlipStatus.PAID,
@@ -423,6 +421,24 @@ async function testBlockingStatusesStillBlockIssue() {
     assert.equal(prisma.bankSlips.length, 1, String(status));
     assert.equal(prisma.bankSlips[0]?.status, status, String(status));
   }
+}
+
+async function testIssuedBankSlipIssueReturnsExisting() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({ status: BankSlipStatus.ISSUED });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const first = await service.issueForInvoice("invoice-1", "user-1");
+  const second = await service.issueForInvoice("invoice-1", "user-1");
+
+  assert.equal(first.id, "bank-slip-1");
+  assert.equal(second.id, "bank-slip-1");
+  assert.equal(second.status, BankSlipStatus.ISSUED);
+  assert.equal(second.seuNumero, "A000000001");
+  assert.equal(second.nossoNumero, "251006142");
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(prisma.bankSlips.length, 1);
 }
 
 async function testConcurrentRetryDoesNotDuplicateIssue() {
@@ -457,6 +473,32 @@ async function testConcurrentRetryDoesNotDuplicateIssue() {
   assert.equal(prisma.bankSlips[0]?.id, "bank-slip-1");
   assert.equal(prisma.bankSlips[0]?.invoiceId, "invoice-1");
   assert.equal(prisma.historyEvents.length, 1);
+}
+
+async function testConcurrentFreshIssueDoesNotDuplicateSicrediCall() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const results = await Promise.allSettled([
+    service.issueForInvoice("invoice-1", "user-1"),
+    service.issueForInvoice("invoice-1", "user-1"),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(
+    results.filter(
+      (result) =>
+        result.status === "rejected" &&
+        result.reason instanceof ConflictException &&
+        (result.reason.getResponse() as Record<string, unknown>).code ===
+          "BANK_SLIP_ISSUE_IN_PROGRESS",
+    ).length,
+    1,
+  );
+  assert.equal(sicredi.issueCalls.length, 1);
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
 }
 
 async function testStalePendingIssueBecomesUnknown() {
@@ -502,7 +544,10 @@ async function testFreshPendingIssueStaysPending() {
 
   await assert.rejects(
     () => service.issueForInvoice("invoice-1", "user-1"),
-    (error) => error instanceof ConflictException,
+    (error) =>
+      error instanceof ConflictException &&
+      (error.getResponse() as Record<string, unknown>).code ===
+        "BANK_SLIP_ISSUE_IN_PROGRESS",
   );
   assert.equal(sicredi.issueCalls.length, 0);
   assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.PENDING_ISSUE);
@@ -1158,7 +1203,9 @@ await testRetryCancelledReusesBankSlip();
 await testRetryIssueFailureCanFailAgain();
 await testRetryIssueUncertainBecomesUnknown();
 await testBlockingStatusesStillBlockIssue();
+await testIssuedBankSlipIssueReturnsExisting();
 await testConcurrentRetryDoesNotDuplicateIssue();
+await testConcurrentFreshIssueDoesNotDuplicateSicrediCall();
 await testStalePendingIssueBecomesUnknown();
 await testFreshPendingIssueStaysPending();
 await testConcurrentSeuNumeroGeneration();
