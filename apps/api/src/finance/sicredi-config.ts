@@ -12,8 +12,10 @@ export type SicrediConfig = {
   codigoBeneficiario: string;
   timeoutMs: number;
   requirePayerAddress: boolean;
+  syncOpenIssuedEnabled: boolean;
   syncOpenIssuedIntervalMs: number;
   syncOpenIssuedLimit: number;
+  issueBatchEnabled: boolean;
   issueBatchIntervalMs: number;
   issueBatchConcurrency: number;
   issueBatchLimit: number;
@@ -41,6 +43,11 @@ export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): Sicredi
       env.SICREDI_REQUIRE_PAYER_ADDRESS,
       false,
     ),
+    syncOpenIssuedEnabled: readBoolean(
+      "SICREDI_SYNC_OPEN_ISSUED_ENABLED",
+      env.SICREDI_SYNC_OPEN_ISSUED_ENABLED,
+      false,
+    ),
     syncOpenIssuedIntervalMs: readPositiveInt(
       "SICREDI_SYNC_OPEN_ISSUED_INTERVAL_MS",
       env.SICREDI_SYNC_OPEN_ISSUED_INTERVAL_MS,
@@ -50,6 +57,11 @@ export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): Sicredi
       "SICREDI_SYNC_OPEN_ISSUED_LIMIT",
       env.SICREDI_SYNC_OPEN_ISSUED_LIMIT,
       50,
+    ),
+    issueBatchEnabled: readBoolean(
+      "SICREDI_ISSUE_BATCH_ENABLED",
+      env.SICREDI_ISSUE_BATCH_ENABLED,
+      false,
     ),
     issueBatchIntervalMs: readPositiveInt(
       "SICREDI_ISSUE_BATCH_INTERVAL_MS",

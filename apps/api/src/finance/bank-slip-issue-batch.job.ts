@@ -16,14 +16,22 @@ export class BankSlipIssueBatchJob implements OnModuleInit {
   ) {}
 
   onModuleInit() {
+    if (!this.sicrediConfig.issueBatchEnabled) {
+      this.logger.log({
+        event: "sicredi_bank_slip_issue_batch_disabled",
+        enabled: false,
+      });
+      return;
+    }
+
     const interval = setInterval(() => {
       void this.run();
     }, this.sicrediConfig.issueBatchIntervalMs);
     this.schedulerRegistry.addInterval(JOB_NAME, interval);
     this.logger.log({
       event: "sicredi_bank_slip_issue_batch_scheduled",
+      enabled: true,
       intervalMs: this.sicrediConfig.issueBatchIntervalMs,
-      concurrency: this.sicrediConfig.issueBatchConcurrency,
       limit: this.sicrediConfig.issueBatchLimit,
     });
   }

@@ -13,8 +13,10 @@ const baseEnv = {
   SICREDI_CODIGO_BENEFICIARIO: "12345",
   SICREDI_HTTP_TIMEOUT_MS: "15000",
   SICREDI_REQUIRE_PAYER_ADDRESS: "true",
+  SICREDI_SYNC_OPEN_ISSUED_ENABLED: "true",
   SICREDI_SYNC_OPEN_ISSUED_INTERVAL_MS: "600000",
   SICREDI_SYNC_OPEN_ISSUED_LIMIT: "25",
+  SICREDI_ISSUE_BATCH_ENABLED: "true",
   SICREDI_ISSUE_BATCH_INTERVAL_MS: "120000",
   SICREDI_ISSUE_BATCH_CONCURRENCY: "3",
   SICREDI_ISSUE_BATCH_LIMIT: "15",
@@ -25,11 +27,29 @@ assert.equal(config.environment, "sandbox");
 assert.equal(config.timeoutMs, 15000);
 assert.equal(config.requirePayerAddress, true);
 assert.equal(config.cooperativa, "6789");
+assert.equal(config.syncOpenIssuedEnabled, true);
 assert.equal(config.syncOpenIssuedIntervalMs, 600000);
 assert.equal(config.syncOpenIssuedLimit, 25);
+assert.equal(config.issueBatchEnabled, true);
 assert.equal(config.issueBatchIntervalMs, 120000);
 assert.equal(config.issueBatchConcurrency, 3);
 assert.equal(config.issueBatchLimit, 15);
+
+const disabledByDefaultConfig = loadSicrediConfig({
+  ...baseEnv,
+  SICREDI_SYNC_OPEN_ISSUED_ENABLED: undefined,
+  SICREDI_ISSUE_BATCH_ENABLED: undefined,
+});
+assert.equal(disabledByDefaultConfig.syncOpenIssuedEnabled, false);
+assert.equal(disabledByDefaultConfig.issueBatchEnabled, false);
+
+const explicitlyDisabledConfig = loadSicrediConfig({
+  ...baseEnv,
+  SICREDI_SYNC_OPEN_ISSUED_ENABLED: "false",
+  SICREDI_ISSUE_BATCH_ENABLED: "false",
+});
+assert.equal(explicitlyDisabledConfig.syncOpenIssuedEnabled, false);
+assert.equal(explicitlyDisabledConfig.issueBatchEnabled, false);
 
 assert.throws(
   () => loadSicrediConfig({ ...baseEnv, SICREDI_ENV: "homologation" }),
@@ -58,4 +78,12 @@ assert.throws(
 assert.throws(
   () => loadSicrediConfig({ ...baseEnv, SICREDI_ISSUE_BATCH_CONCURRENCY: "4" }),
   /SICREDI_ISSUE_BATCH_CONCURRENCY/,
+);
+assert.throws(
+  () => loadSicrediConfig({ ...baseEnv, SICREDI_SYNC_OPEN_ISSUED_ENABLED: "yes" }),
+  /SICREDI_SYNC_OPEN_ISSUED_ENABLED/,
+);
+assert.throws(
+  () => loadSicrediConfig({ ...baseEnv, SICREDI_ISSUE_BATCH_ENABLED: "yes" }),
+  /SICREDI_ISSUE_BATCH_ENABLED/,
 );
