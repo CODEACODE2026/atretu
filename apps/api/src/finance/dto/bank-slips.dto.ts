@@ -52,6 +52,12 @@ export class CreateBankSlipIssueBatchDto {
   competence?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  amountCents?: number;
+
+  @IsOptional()
   @IsUUID()
   shiftId?: string;
 
@@ -62,16 +68,20 @@ export class CreateBankSlipIssueBatchDto {
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === "true")
+  createMissingInvoices?: boolean;
 }
 
 export class PreviewBankSlipIssueBatchDto {
   @IsUUID()
   institutionId!: string;
 
-  @IsString()
-  @Length(7, 7)
-  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
-  competence!: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  amountCents!: number;
 
   @IsOptional()
   @IsUUID()
@@ -81,9 +91,8 @@ export class PreviewBankSlipIssueBatchDto {
   @IsUUID()
   classId?: string;
 
-  @IsOptional()
   @IsDateString()
-  dueDate?: string;
+  dueDate!: string;
 
   @IsOptional()
   @Type(() => Number)

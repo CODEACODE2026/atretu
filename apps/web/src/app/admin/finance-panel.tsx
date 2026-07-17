@@ -66,8 +66,8 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   const issueBatchInFlightRef = useRef(false);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
   const [issueBatchInstitutionId, setIssueBatchInstitutionId] = useState("");
-  const [issueBatchCompetence, setIssueBatchCompetence] = useState(currentMonthCompetence());
-  const [issueBatchDueDate, setIssueBatchDueDate] = useState("");
+  const [issueBatchAmount, setIssueBatchAmount] = useState("");
+  const [issueBatchDueDate, setIssueBatchDueDate] = useState(todayDate());
   const [issueBatchPreview, setIssueBatchPreview] = useState<BankSlipIssueBatchPreview | null>(null);
   const [issueBatch, setIssueBatch] = useState<BankSlipIssueBatch | null>(null);
   const [issueBatchItems, setIssueBatchItems] = useState<BankSlipIssueBatchItem[]>([]);
@@ -444,8 +444,15 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   }
 
   async function handlePreviewInstitutionIssueBatch() {
-    if (!issueBatchInstitutionId || !issueBatchCompetence) {
-      setError("Selecione instituicao e competencia para gerar a previa");
+    if (!issueBatchInstitutionId || !issueBatchDueDate) {
+      setError("Selecione instituicao e vencimento para gerar a previa");
+      return;
+    }
+    let amountCents: number;
+    try {
+      amountCents = parseMoneyToCents(issueBatchAmount);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Valor invalido");
       return;
     }
     setSaving(true);
@@ -454,8 +461,8 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     try {
       const previewResult = await api.previewBankSlipIssueBatch({
         institutionId: issueBatchInstitutionId,
-        competence: issueBatchCompetence,
-        dueDate: issueBatchDueDate || undefined,
+        amountCents,
+        dueDate: issueBatchDueDate,
         limit: 200,
       });
       setIssueBatchPreview(previewResult);
@@ -527,9 +534,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
       const batch = await api.createBankSlipIssueBatch({
         source: "INSTITUTION",
         institutionId: issueBatchPreview.institutionId,
-        competence: issueBatchPreview.competence,
+        amountCents: issueBatchPreview.unitAmountCents,
         shiftId: issueBatchPreview.shiftId || undefined,
-        dueDate: issueBatchPreview.dueDate || undefined,
+        dueDate: issueBatchPreview.dueDate ?? issueBatchDueDate,
+        createMissingInvoices: true,
       });
       setIssueBatch(batch);
       await refreshIssueBatch(batch.id);
@@ -743,11 +751,12 @@ export function FinancePanel({ user }: { user: ApiUser }) {
               <input
                 className="rounded border border-slate-300 px-3 py-2 text-sm"
                 onChange={(event) => {
-                  setIssueBatchCompetence(event.target.value);
+                  setIssueBatchAmount(formatMoneyInput(event.target.value));
                   setIssueBatchPreview(null);
                 }}
-                type="month"
-                value={issueBatchCompetence}
+                inputMode="decimal"
+                placeholder="R$ 150,00"
+                value={issueBatchAmount}
               />
               <input
                 className="rounded border border-slate-300 px-3 py-2 text-sm"
@@ -760,7 +769,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
               />
               <button
                 className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-                disabled={saving || !issueBatchInstitutionId || !issueBatchCompetence}
+                disabled={saving || !issueBatchInstitutionId || !issueBatchAmount || !issueBatchDueDate}
                 onClick={() => void handlePreviewInstitutionIssueBatch()}
                 type="button"
               >
@@ -772,25 +781,25 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                 onClick={() => void handleCreateInstitutionIssueBatch()}
                 type="button"
               >
-                Emitir boletos elegiveis
+                Gerar faturas e emitir boletos
               </button>
             </div>
             {issueBatchPreview ? (
               <div className="grid gap-2 rounded border border-slate-200 bg-white p-3 text-xs text-slate-700">
                 <div className="flex flex-wrap gap-2">
                   <span className="font-medium">{issueBatchPreview.institutionName}</span>
-                  <span>Competencia: {issueBatchPreview.competence}</span>
-                  <span>Matriculas: {issueBatchPreview.totalEnrollmentsFound}</span>
-                  <span>Faturas: {issueBatchPreview.totalInvoicesFound}</span>
-                  <span>Elegiveis: {issueBatchPreview.totalEligible}</span>
+                  <span>Alunos encontrados: {issueBatchPreview.totalStudentsFound}</span>
+                  <span>Faturas a criar: {issueBatchPreview.totalWillCreateInvoices}</span>
+                  <span>Faturas existentes elegiveis: {issueBatchPreview.totalExistingInvoiceEligible}</span>
                   <span>Bloqueadas: {issueBatchPreview.totalBlocked}</span>
-                  <span>Valor: {issueBatchPreview.eligibleAmountFormatted}</span>
+                  <span>Valor por aluno: {issueBatchPreview.unitAmountFormatted}</span>
+                  <span>Valor total previsto: {issueBatchPreview.eligibleAmountFormatted}</span>
                 </div>
                 <div className="flex flex-wrap gap-2 text-slate-500">
                   <span>Pagas: {issueBatchPreview.totalAlreadyPaid}</span>
                   <span>Boleto ativo: {issueBatchPreview.totalWithActiveBankSlip}</span>
+                  <span>Conflito de valor: {issueBatchPreview.totalInvoiceAmountConflict}</span>
                   <span>Cancelado reemitivel: {issueBatchPreview.totalWithCancelledBankSlipAllowsNewIssue}</span>
-                  <span>Sem fatura: {issueBatchPreview.totalMissingInvoice}</span>
                   <span>CPF invalido: {issueBatchPreview.totalInvalidOrMissingCpfCnpj}</span>
                   <span>Endereco incompleto: {issueBatchPreview.totalIncompleteRequiredAddress}</span>
                 </div>
@@ -799,7 +808,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                     <span className="font-medium">{item.studentName}</span>
                     <span>{item.amountFormatted ?? "Sem fatura"}</span>
                     <span>{item.dueDate ? formatDate(item.dueDate) : "-"}</span>
-                    <span>{item.eligible ? "Elegivel" : "Bloqueado"}</span>
+                    <span>{institutionIssueStatusLabel(item.institutionIssueStatus, item.eligible)}</span>
                     {!item.eligible ? (
                       <span className="text-slate-500">{item.eligibilityReason}</span>
                     ) : null}
@@ -843,9 +852,6 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                 <span>Origem: {issueBatch.source === "INSTITUTION" ? "Instituicao" : "Manual"}</span>
                 {issueBatch.institution?.name ? (
                   <span>Instituicao: {issueBatch.institution.name}</span>
-                ) : null}
-                {issueBatch.competence ? (
-                  <span>Competencia: {issueBatch.competence}</span>
                 ) : null}
                 {issueBatch.shift?.name ? (
                   <span>Turno: {issueBatch.shift.name}</span>
@@ -1903,6 +1909,21 @@ function issueBatchItemStatusLabel(status: BankSlipIssueBatchItem["status"]) {
   return labels[status];
 }
 
+function institutionIssueStatusLabel(
+  status: BankSlipIssueBatchPreview["items"][number]["institutionIssueStatus"],
+  eligible: boolean,
+) {
+  const labels: Record<NonNullable<typeof status>, string> = {
+    WILL_CREATE_INVOICE: "Criar fatura",
+    EXISTING_INVOICE_ELIGIBLE: "Reutilizar fatura",
+    ALREADY_PAID: "Ja pago",
+    ACTIVE_BANK_SLIP: "Boleto ativo",
+    INVOICE_AMOUNT_CONFLICT: "Conflito de valor",
+    BLOCKED: "Bloqueado",
+  };
+  return status ? labels[status] : eligible ? "Elegivel" : "Bloqueado";
+}
+
 export function canRequestBankSlipCancellation(
   invoice: InvoiceRecord,
   bankSlip: BankSlipListRecord | null | undefined,
@@ -1998,9 +2019,10 @@ function safeBankSlipFileName(fileName: string, invoiceId: string) {
 }
 
 function parseMoneyToCents(input: string) {
-  const normalized = input.trim().includes(",")
-    ? input.trim().replace(/\./g, "").replace(",", ".")
-    : input.trim();
+  const sanitized = input.trim().replace(/^R\$\s?/, "").replace(/\s/g, "");
+  const normalized = sanitized.includes(",")
+    ? sanitized.replace(/\./g, "").replace(",", ".")
+    : sanitized;
   if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
     throw new Error("Informe um valor monetario positivo");
   }
@@ -2015,6 +2037,18 @@ function parseMoneyToCents(input: string) {
     throw new Error("Valor excede o limite tecnico");
   }
   return amountCents;
+}
+
+function formatMoneyInput(input: string) {
+  const digits = input.replace(/\D/g, "");
+  if (!digits) {
+    return "";
+  }
+  const amount = Number.parseInt(digits, 10) / 100;
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(amount);
 }
 
 function createIdempotencyKey() {
@@ -2032,10 +2066,6 @@ function currentMonthRange() {
     from: from.toISOString().slice(0, 10),
     to: to.toISOString().slice(0, 10),
   };
-}
-
-function currentMonthCompetence() {
-  return todayDate().slice(0, 7);
 }
 
 function todayDate() {

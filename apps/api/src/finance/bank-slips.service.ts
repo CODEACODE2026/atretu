@@ -28,7 +28,12 @@ import {
 import { PrismaService } from "../database/prisma.service.js";
 import { isValidCpf, maskCpf } from "../students/cpf.js";
 import { isInvoiceOverdue, parseInvoiceDueDate } from "./due-date.js";
-import { formatCentsAsSicrediAmount, formatInvoiceAmount, parseSicrediAmountToCents } from "./money.js";
+import {
+  assertValidInvoiceAmountCents,
+  formatCentsAsSicrediAmount,
+  formatInvoiceAmount,
+  parseSicrediAmountToCents,
+} from "./money.js";
 import {
   SicrediClient,
   SicrediClientError,
@@ -705,19 +710,25 @@ export class BankSlipsService {
   }
 
   private async createInstitutionIssueBatch(body: CreateBankSlipIssueBatchDto, userId: string) {
+    if (!body.createMissingInvoices) {
+      throw new BadRequestException({
+        code: "CREATE_MISSING_INVOICES_REQUIRED",
+        message: "Confirme a criacao das faturas para gerar o lote institucional",
+      });
+    }
     const plan = await this.buildInstitutionIssueBatchPlan(body, {
       includeAllItems: true,
       resolveStalePendingIssue: true,
       userId,
     });
-    const invoiceItems = plan.items.filter(
-      (item): item is Record<string, unknown> & { invoiceId: string } =>
-        typeof item.invoiceId === "string",
+    const candidateItems = plan.items.filter((item) => item.eligible === true);
+    const blockedInvoiceItems = plan.items.filter(
+      (item) => item.eligible !== true && typeof item.invoiceId === "string",
     );
-    if (invoiceItems.length === 0) {
+    if (candidateItems.length === 0) {
       throw new BadRequestException({
         code: "NO_INVOICES_FOUND",
-        message: "Nenhuma fatura foi encontrada para os filtros informados",
+        message: "Nenhuma fatura elegivel foi encontrada para os filtros informados",
       });
     }
     const batch = await this.prisma.$transaction(async (tx) => {
@@ -730,31 +741,68 @@ export class BankSlipsService {
           dueDate: plan.summary.dueDate ? parseInvoiceDueDate(plan.summary.dueDate) : null,
           shiftId: plan.summary.shiftId,
           requestedByUserId: userId,
-          totalItems: invoiceItems.length,
+          totalItems: candidateItems.length + blockedInvoiceItems.length,
           totalStudents: plan.summary.totalStudentsFound,
           totalInvoices: plan.summary.totalInvoicesFound,
           totalEligible: plan.summary.totalEligible,
+          unitAmountCents: plan.summary.unitAmountCents,
           totalValueCents: plan.summary.eligibleAmountCents,
           metadata: {
             previewSummary: plan.summary,
           },
         },
       });
-      for (const item of invoiceItems) {
+      let createdInvoices = 0;
+      let reusedInvoices = 0;
+      for (const item of candidateItems) {
+        const invoiceId = await this.resolveInstitutionBatchInvoiceTx(tx, item, plan.summary, userId);
+        if (item.institutionIssueStatus === "WILL_CREATE_INVOICE") {
+          createdInvoices += 1;
+        } else {
+          reusedInvoices += 1;
+        }
         await tx.bankSlipIssueBatchItem.create({
           data: {
             batchId: created.id,
-            invoiceId: item.invoiceId,
+            invoiceId,
             bankSlipId: typeof item.bankSlipId === "string" ? item.bankSlipId : null,
-            status: item.eligible === true
-              ? BankSlipIssueBatchItemStatus.QUEUED
-              : BankSlipIssueBatchItemStatus.SKIPPED,
+            status: BankSlipIssueBatchItemStatus.QUEUED,
+          },
+        });
+      }
+      for (const item of blockedInvoiceItems) {
+        await tx.bankSlipIssueBatchItem.create({
+          data: {
+            batchId: created.id,
+            invoiceId: item.invoiceId as string,
+            bankSlipId: typeof item.bankSlipId === "string" ? item.bankSlipId : null,
+            status: BankSlipIssueBatchItemStatus.SKIPPED,
             skipReason: typeof item.eligibilityReason === "string" ? item.eligibilityReason : null,
             lastErrorCode: typeof item.eligibilityCode === "string" ? item.eligibilityCode : null,
             lastErrorMessage: typeof item.eligibilityReason === "string" ? item.eligibilityReason : null,
           },
         });
       }
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.BANK_SLIP_ISSUE_REQUESTED,
+        domain: "bank_slip_issue_batches",
+        recordId: created.id,
+        userId,
+        metadata: {
+          batchId: created.id,
+          source: BankSlipIssueBatchSource.INSTITUTION,
+          institutionId: plan.summary.institutionId,
+          institutionName: plan.summary.institutionName,
+          dueDate: plan.summary.dueDate,
+          competence: plan.summary.competence,
+          unitAmountCents: plan.summary.unitAmountCents,
+          totalStudents: plan.summary.totalStudentsFound,
+          invoicesCreated: createdInvoices,
+          invoicesReused: reusedInvoices,
+          blocked: plan.summary.totalBlocked,
+          conflicts: plan.summary.totalInvoiceAmountConflict,
+        },
+      });
       return created;
     });
     return this.recalculateIssueBatch(batch.id);
@@ -1688,30 +1736,36 @@ export class BankSlipsService {
     input: {
       institutionId?: string;
       competence?: string;
+      amountCents?: number;
       shiftId?: string;
       classId?: string;
       dueDate?: string;
     },
     options: { includeAllItems: boolean; resolveStalePendingIssue: boolean; userId?: string },
   ) {
-    if (!input.institutionId || !input.competence) {
+    if (!input.institutionId || !input.dueDate) {
       throw new BadRequestException({
         code: "INSTITUTION_BATCH_FILTERS_REQUIRED",
-        message: "Informe instituicao e competencia para criar lote por instituicao",
+        message: "Informe instituicao e vencimento para criar lote por instituicao",
       });
     }
-    const competence = this.parseCompetence(input.competence);
-    const dueDate = input.dueDate ? parseInvoiceDueDate(input.dueDate) : undefined;
-    if (
-      dueDate &&
-      (dueDate.getTime() < competence.from.getTime() ||
-        dueDate.getTime() >= competence.toExclusive.getTime())
-    ) {
+    if (typeof input.amountCents !== "number") {
       throw new BadRequestException({
-        code: "DUE_DATE_OUT_OF_COMPETENCE",
-        message: "Vencimento informado deve pertencer a competencia escolhida",
+        code: "AMOUNT_REQUIRED",
+        message: "Informe o valor por aluno",
       });
     }
+    try {
+      assertValidInvoiceAmountCents(input.amountCents);
+    } catch (error) {
+      throw new BadRequestException({
+        code: "INVALID_AMOUNT",
+        message: error instanceof Error ? error.message : "Valor por aluno invalido",
+      });
+    }
+    const dueDate = parseInvoiceDueDate(input.dueDate);
+    const competenceValue = this.deriveCompetenceFromDate(dueDate);
+    const competence = this.parseCompetence(competenceValue);
     const shiftId = input.shiftId ?? input.classId;
     const institution = await this.prisma.institution.findUnique({
       where: { id: input.institutionId },
@@ -1740,7 +1794,7 @@ export class BankSlipsService {
       ? await this.prisma.invoice.findMany({
           where: {
             enrollmentId: { in: enrollmentIds },
-            dueDate: dueDate ?? { gte: competence.from, lt: competence.toExclusive },
+            dueDate: { gte: competence.from, lt: competence.toExclusive },
           },
           include: this.invoiceInclude(),
           orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
@@ -1759,6 +1813,9 @@ export class BankSlipsService {
       activeBankSlip: 0,
       cancelledBankSlipAllowsNewIssue: 0,
       missingInvoice: 0,
+      willCreateInvoice: 0,
+      existingInvoiceEligible: 0,
+      invoiceAmountConflict: 0,
       missingFinancialResponsible: 0,
       invalidDocument: 0,
       incompleteRequiredAddress: 0,
@@ -1770,27 +1827,83 @@ export class BankSlipsService {
       const enrollmentInvoices = invoicesByEnrollment.get(enrollment.id) ?? [];
       if (enrollmentInvoices.length === 0) {
         counters.missingInvoice += 1;
-        counters.blocked += 1;
-        if (options.includeAllItems) {
+        const payerEligibility = this.issueBatchPayerEligibility(enrollment.student.person);
+        if (payerEligibility.eligible && !isInvoiceOverdue({ dueDate })) {
+          counters.eligible += 1;
+          counters.willCreateInvoice += 1;
+          counters.eligibleAmountCents += input.amountCents;
           items.push(this.toInstitutionPreviewItem({
             enrollment,
             institution,
-            code: "MISSING_INVOICE",
-            reason: "Nenhuma fatura encontrada para a competencia",
+            amountCents: input.amountCents,
+            dueDate,
+            issueStatus: "WILL_CREATE_INVOICE",
+            eligible: true,
+            code: "WILL_CREATE_INVOICE",
+            reason: "Fatura sera criada na confirmacao",
           }));
+        } else {
+          counters.blocked += 1;
+          this.accumulateInstitutionPayerCounters(counters, payerEligibility);
+          if (options.includeAllItems) {
+            items.push(this.toInstitutionPreviewItem({
+              enrollment,
+              institution,
+              amountCents: input.amountCents,
+              dueDate,
+              issueStatus: "BLOCKED",
+              eligible: false,
+              code: payerEligibility.code ?? "BLOCKED",
+              reason: payerEligibility.reason ?? "Aluno bloqueado para emissao",
+            }));
+          }
         }
         continue;
       }
       for (const invoice of enrollmentInvoices) {
-        const eligibility = await this.issueBatchEligibility(this.prisma, invoice, options.userId, {
-          resolveStalePendingIssue: options.resolveStalePendingIssue,
-        });
+        let eligibility: { eligible: boolean; code?: string; reason?: string };
+        let issueStatus = "BLOCKED";
+        if (invoice.status === InvoiceStatus.PAID) {
+          eligibility = { eligible: false, code: "ALREADY_PAID", reason: "Fatura ja esta paga" };
+          issueStatus = "ALREADY_PAID";
+        } else if (invoice.status === InvoiceStatus.OPEN && invoice.amountCents !== input.amountCents) {
+          eligibility = {
+            eligible: false,
+            code: "INVOICE_AMOUNT_CONFLICT",
+            reason: "Fatura aberta existente possui valor diferente",
+          };
+          issueStatus = "INVOICE_AMOUNT_CONFLICT";
+        } else {
+          eligibility = await this.issueBatchEligibility(this.prisma, invoice, options.userId, {
+            resolveStalePendingIssue: options.resolveStalePendingIssue,
+          });
+          issueStatus = eligibility.eligible ? "EXISTING_INVOICE_ELIGIBLE" : "BLOCKED";
+          if (
+            !eligibility.eligible &&
+            invoice.bankSlip &&
+            invoice.bankSlip.status !== BankSlipStatus.CANCELLED &&
+            invoice.bankSlip.status !== BankSlipStatus.PAID
+          ) {
+            issueStatus = "ACTIVE_BANK_SLIP";
+          }
+        }
         this.accumulateInstitutionPreviewCounters(counters, invoice, eligibility);
+        if (issueStatus === "EXISTING_INVOICE_ELIGIBLE") {
+          counters.existingInvoiceEligible += 1;
+        }
+        if (issueStatus === "INVOICE_AMOUNT_CONFLICT") {
+          counters.invoiceAmountConflict += 1;
+        }
         if (eligibility.eligible) {
           counters.eligibleAmountCents += invoice.amountCents;
         }
         if (options.includeAllItems || eligibility.eligible) {
-          items.push(this.toInstitutionPreviewItem({ invoice, institution, eligibility }));
+          items.push(this.toInstitutionPreviewItem({
+            invoice,
+            institution,
+            issueStatus,
+            eligibility,
+          }));
         }
       }
     }
@@ -1798,17 +1911,22 @@ export class BankSlipsService {
     const summary = {
       institutionId: institution.id,
       institutionName: institution.name,
-      competence: input.competence,
+      competence: competenceValue,
       shiftId: shiftId ?? null,
-      dueDate: input.dueDate ?? null,
+      dueDate: this.toDateOnly(dueDate),
+      unitAmountCents: input.amountCents,
+      unitAmountFormatted: this.formatBatchAmount(input.amountCents),
       totalEnrollmentsFound: enrollments.length,
       totalStudentsFound: new Set(enrollments.map((enrollment) => enrollment.studentId)).size,
       totalInvoicesFound: invoices.length,
       totalEligible: counters.eligible,
+      totalWillCreateInvoices: counters.willCreateInvoice,
+      totalExistingInvoiceEligible: counters.existingInvoiceEligible,
       totalAlreadyPaid: counters.alreadyPaid,
       totalWithActiveBankSlip: counters.activeBankSlip,
       totalWithCancelledBankSlipAllowsNewIssue: counters.cancelledBankSlipAllowsNewIssue,
       totalMissingInvoice: counters.missingInvoice,
+      totalInvoiceAmountConflict: counters.invoiceAmountConflict,
       totalMissingValidFinancialResponsible: counters.missingFinancialResponsible,
       totalInvalidOrMissingCpfCnpj: counters.invalidDocument,
       totalIncompleteRequiredAddress: counters.incompleteRequiredAddress,
@@ -1822,9 +1940,9 @@ export class BankSlipsService {
         source: BankSlipIssueBatchSource.INSTITUTION,
         institutionId: institution.id,
         institutionName: institution.name,
-        competence: input.competence,
+        competence: competenceValue,
         shiftId: shiftId ?? null,
-        dueDate: input.dueDate ?? null,
+        dueDate: this.toDateOnly(dueDate),
       },
       summary,
       items,
@@ -1932,6 +2050,9 @@ export class BankSlipsService {
       activeBankSlip: number;
       cancelledBankSlipAllowsNewIssue: number;
       missingInvoice: number;
+      willCreateInvoice: number;
+      existingInvoiceEligible: number;
+      invoiceAmountConflict: number;
       missingFinancialResponsible: number;
       invalidDocument: number;
       incompleteRequiredAddress: number;
@@ -1970,6 +2091,25 @@ export class BankSlipsService {
     }
   }
 
+  private accumulateInstitutionPayerCounters(
+    counters: {
+      missingFinancialResponsible: number;
+      invalidDocument: number;
+      incompleteRequiredAddress: number;
+    },
+    eligibility: { eligible: boolean; code?: string; reason?: string },
+  ) {
+    if (eligibility.code === "PAYER_ADDRESS_REQUIRED") {
+      counters.incompleteRequiredAddress += 1;
+    }
+    if (eligibility.code === "PAYER_DATA_INCOMPLETE" && /CPF/i.test(eligibility.reason ?? "")) {
+      counters.invalidDocument += 1;
+    }
+    if (eligibility.code === "PAYER_DATA_INCOMPLETE" && !/CPF/i.test(eligibility.reason ?? "")) {
+      counters.missingFinancialResponsible += 1;
+    }
+  }
+
   private toInstitutionPreviewItem(input: {
     enrollment?: {
       id: string;
@@ -1985,6 +2125,10 @@ export class BankSlipsService {
     institution: { id: string; name: string };
     invoice?: InvoiceWithRelations;
     eligibility?: { eligible: boolean; code?: string; reason?: string };
+    amountCents?: number;
+    dueDate?: Date;
+    issueStatus?: string;
+    eligible?: boolean;
     code?: string;
     reason?: string;
   }) {
@@ -2004,15 +2148,120 @@ export class BankSlipsService {
       course: enrollment?.course ?? null,
       grade: enrollment?.grade ?? null,
       invoiceStatus: input.invoice?.status ?? null,
-      dueDate: input.invoice ? this.toDateOnly(input.invoice.dueDate) : null,
-      amountCents: input.invoice?.amountCents ?? null,
-      amountFormatted: input.invoice ? formatInvoiceAmount(input.invoice.amountCents) : null,
+      dueDate: input.invoice
+        ? this.toDateOnly(input.invoice.dueDate)
+        : input.dueDate
+          ? this.toDateOnly(input.dueDate)
+          : null,
+      amountCents: input.invoice?.amountCents ?? input.amountCents ?? null,
+      amountFormatted: typeof (input.invoice?.amountCents ?? input.amountCents) === "number"
+        ? formatInvoiceAmount(input.invoice?.amountCents ?? input.amountCents ?? 0)
+        : null,
       bankSlipId: input.invoice?.bankSlip?.id ?? null,
       bankSlipStatus: input.invoice?.bankSlip?.status ?? null,
-      eligible: input.eligibility?.eligible ?? false,
+      institutionIssueStatus: input.issueStatus ?? null,
+      eligible: input.eligible ?? input.eligibility?.eligible ?? false,
       eligibilityCode: input.eligibility?.code ?? input.code ?? null,
       eligibilityReason: input.eligibility?.reason ?? input.reason ?? null,
     };
+  }
+
+  private deriveCompetenceFromDate(date: Date) {
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  }
+
+  private buildInstitutionInvoiceIdempotencyKey(input: {
+    institutionId: string;
+    enrollmentId: string;
+    competence: string;
+  }) {
+    return `institution:${input.institutionId}:enrollment:${input.enrollmentId}:competence:${input.competence}`;
+  }
+
+  private async resolveInstitutionBatchInvoiceTx(
+    tx: Prisma.TransactionClient,
+    item: Record<string, unknown>,
+    summary: {
+      institutionId: string;
+      competence: string;
+      dueDate: string | null;
+      unitAmountCents: number;
+    },
+    userId: string,
+  ) {
+    if (typeof item.invoiceId === "string") {
+      return item.invoiceId;
+    }
+    if (
+      item.institutionIssueStatus !== "WILL_CREATE_INVOICE" ||
+      typeof item.enrollmentId !== "string" ||
+      typeof item.studentId !== "string" ||
+      !summary.dueDate
+    ) {
+      throw new BadRequestException({
+        code: "INSTITUTION_BATCH_ITEM_INVALID",
+        message: "Item elegivel sem fatura nao possui dados suficientes para criacao",
+      });
+    }
+    const dueDate = parseInvoiceDueDate(summary.dueDate);
+    const idempotencyKey = this.buildInstitutionInvoiceIdempotencyKey({
+      institutionId: summary.institutionId,
+      enrollmentId: item.enrollmentId,
+      competence: summary.competence,
+    });
+    const invoice = await tx.invoice.upsert({
+      where: { idempotencyKey },
+      update: {},
+      create: {
+        studentId: item.studentId,
+        enrollmentId: item.enrollmentId,
+        amountCents: summary.unitAmountCents,
+        dueDate,
+        description: `Cobranca institucional ${summary.competence}`,
+        idempotencyKey,
+        createdByUserId: userId,
+      },
+      include: this.invoiceInclude(),
+    });
+    if (
+      invoice.studentId !== item.studentId ||
+      invoice.enrollmentId !== item.enrollmentId ||
+      invoice.amountCents !== summary.unitAmountCents ||
+      this.toDateOnly(invoice.dueDate) !== this.toDateOnly(dueDate)
+    ) {
+      throw new ConflictException({
+        code: "INSTITUTION_INVOICE_IDEMPOTENCY_CONFLICT",
+        message: "Fatura institucional existente diverge dos dados confirmados",
+      });
+    }
+    if (invoice.createdAt.getTime() === invoice.updatedAt.getTime()) {
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId: invoice.studentId,
+          eventType: StudentHistoryEventType.INVOICE_CREATED,
+          invoiceId: invoice.id,
+          justification: invoice.description,
+          performedByUserId: userId,
+        },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.INVOICE_CREATED,
+        domain: "invoices",
+        recordId: invoice.id,
+        userId,
+        metadata: {
+          source: "INSTITUTION_BATCH",
+          studentId: invoice.studentId,
+          invoiceId: invoice.id,
+          enrollmentId: invoice.enrollmentId,
+          amountCents: invoice.amountCents,
+          dueDate: this.toDateOnly(invoice.dueDate),
+          competence: summary.competence,
+          institutionId: summary.institutionId,
+        },
+      });
+    }
+    return invoice.id;
   }
 
   private parseCompetence(value: string) {
@@ -2519,6 +2768,7 @@ export class BankSlipsService {
     tx: Prisma.TransactionClient,
     input: {
       eventType: AdministrativeAuditEventType;
+      domain?: string;
       recordId: string;
       userId?: string;
       metadata: Record<string, string | number | boolean>;
@@ -2528,7 +2778,7 @@ export class BankSlipsService {
       data: {
         eventType: input.eventType,
         userId: input.userId,
-        domain: "bank_slips",
+        domain: input.domain ?? "bank_slips",
         recordId: input.recordId,
         metadata: input.metadata,
       },

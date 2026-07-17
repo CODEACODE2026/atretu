@@ -599,6 +599,7 @@ export type BankSlipIssueBatch = {
   totalStudents: number;
   totalInvoices: number;
   totalEligible: number;
+  unitAmountCents: number;
   totalValueCents: number;
   totalItems: number;
   queuedItems: number;
@@ -641,6 +642,14 @@ export type BankSlipIssueBatchPreviewItem = {
   dueDate?: string | null;
   amountCents?: number | null;
   amountFormatted?: string | null;
+  institutionIssueStatus?:
+    | "WILL_CREATE_INVOICE"
+    | "EXISTING_INVOICE_ELIGIBLE"
+    | "ALREADY_PAID"
+    | "ACTIVE_BANK_SLIP"
+    | "INVOICE_AMOUNT_CONFLICT"
+    | "BLOCKED"
+    | null;
   bankSlipId?: string | null;
   bankSlipStatus?: BankSlipStatus | null;
   eligible: boolean;
@@ -654,14 +663,19 @@ export type BankSlipIssueBatchPreview = {
   competence: string;
   shiftId?: string | null;
   dueDate?: string | null;
+  unitAmountCents: number;
+  unitAmountFormatted: string;
   totalEnrollmentsFound: number;
   totalStudentsFound: number;
   totalInvoicesFound: number;
   totalEligible: number;
+  totalWillCreateInvoices: number;
+  totalExistingInvoiceEligible: number;
   totalAlreadyPaid: number;
   totalWithActiveBankSlip: number;
   totalWithCancelledBankSlipAllowsNewIssue: number;
   totalMissingInvoice: number;
+  totalInvoiceAmountConflict: number;
   totalMissingValidFinancialResponsible: number;
   totalInvalidOrMissingCpfCnpj: number;
   totalIncompleteRequiredAddress: number;
@@ -675,9 +689,10 @@ export type BankSlipIssueBatchPreview = {
 export type BankSlipIssueBatchInstitutionPayload = {
   source: "INSTITUTION";
   institutionId: string;
-  competence: string;
+  amountCents: number;
   shiftId?: string;
-  dueDate?: string;
+  dueDate: string;
+  createMissingInvoices?: boolean;
 };
 
 export type BankSlipIssueBatchManualPayload = {
@@ -1062,7 +1077,7 @@ export const api = {
     });
   },
 
-  previewBankSlipIssueBatch(payload: Omit<BankSlipIssueBatchInstitutionPayload, "source"> & { page?: number; limit?: number }) {
+  previewBankSlipIssueBatch(payload: Omit<BankSlipIssueBatchInstitutionPayload, "source" | "createMissingInvoices"> & { page?: number; limit?: number }) {
     return request<BankSlipIssueBatchPreview>("/finance/bank-slip-issue-batches/preview", {
       method: "POST",
       body: JSON.stringify(payload),

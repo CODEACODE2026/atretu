@@ -761,6 +761,7 @@ model BankSlipIssueBatch {
   totalStudents   Int                        @default(0) @map("total_students")
   totalInvoices   Int                        @default(0) @map("total_invoices")
   totalEligible   Int                        @default(0) @map("total_eligible")
+  unitAmountCents Int                        @default(0) @map("unit_amount_cents")
   totalValueCents Int                        @default(0) @map("total_value_cents")
   queuedItems     Int                        @default(0) @map("queued_items")
   processingItems Int                        @default(0) @map("processing_items")

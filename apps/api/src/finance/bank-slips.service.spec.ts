@@ -1120,7 +1120,8 @@ async function testIssueBatchPreviewByInstitution() {
 
   const preview = await service.previewIssueBatch({
     institutionId: "institution-1",
-    competence: "2099-08",
+    amountCents: 12050,
+    dueDate: "2099-08-10",
     page: 1,
     limit: 20,
   });
@@ -1128,11 +1129,14 @@ async function testIssueBatchPreviewByInstitution() {
   assert.equal(preview.institutionId, "institution-1");
   assert.equal(preview.totalEnrollmentsFound, 3);
   assert.equal(preview.totalInvoicesFound, 2);
-  assert.equal(preview.totalEligible, 1);
+  assert.equal(preview.totalEligible, 2);
+  assert.equal(preview.totalWillCreateInvoices, 1);
+  assert.equal(preview.totalExistingInvoiceEligible, 1);
   assert.equal(preview.totalAlreadyPaid, 1);
   assert.equal(preview.totalMissingInvoice, 1);
-  assert.equal(preview.totalBlocked, 2);
-  assert.equal(preview.eligibleAmountCents, 12050);
+  assert.equal(preview.totalBlocked, 1);
+  assert.equal(preview.unitAmountCents, 12050);
+  assert.equal(preview.eligibleAmountCents, 24100);
   assert.equal(preview.items.length, 3);
   assert.equal(prisma.issueBatches.length, 0);
   assert.equal(sicredi.issueCalls.length, 0);
@@ -1152,7 +1156,9 @@ async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
     {
       source: BankSlipIssueBatchSource.INSTITUTION,
       institutionId: "institution-1",
-      competence: "2099-08",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
+      createMissingInvoices: true,
     },
     "user-1",
   );
@@ -1171,6 +1177,110 @@ async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
   assert.equal(prisma.issueBatches[0]?.totalValueCents, 12050);
 }
 
+async function testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput() {
+  const prisma = new FakePrisma();
+  prisma.addEnrollment("enrollment-2", "student-2");
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  await assert.rejects(
+    () => service.previewIssueBatch({
+      institutionId: "institution-1",
+      amountCents: 0,
+      dueDate: "2099-08-10",
+      page: 1,
+      limit: 20,
+    }),
+    /positive integer|Valor/,
+  );
+  await assert.rejects(
+    () => service.previewIssueBatch({
+      institutionId: "institution-1",
+      amountCents: -1,
+      dueDate: "2099-08-10",
+      page: 1,
+      limit: 20,
+    }),
+    /positive integer|Valor/,
+  );
+  await assert.rejects(
+    () => service.previewIssueBatch({
+      institutionId: "institution-1",
+      amountCents: 12050,
+      dueDate: "10\\/08\\/2099",
+      page: 1,
+      limit: 20,
+    }),
+    /YYYY-MM-DD/,
+  );
+
+  const beforeInvoices = prisma.invoices.size;
+  const preview = await service.previewIssueBatch({
+    institutionId: "institution-1",
+    amountCents: 12050,
+    dueDate: "2099-08-10",
+    page: 1,
+    limit: 20,
+  });
+  assert.equal(prisma.invoices.size, beforeInvoices);
+  assert.equal(preview.totalWillCreateInvoices, 1);
+
+  const batch = await service.createIssueBatch(
+    {
+      source: BankSlipIssueBatchSource.INSTITUTION,
+      institutionId: "institution-1",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
+      createMissingInvoices: true,
+    },
+    "user-1",
+  );
+
+  assert.equal(batch.totalItems, 2);
+  assert.equal(prisma.invoices.size, beforeInvoices + 1);
+  const created = [...prisma.invoices.values()].find((invoice) => invoice.enrollmentId === "enrollment-2");
+  assert.ok(created);
+  assert.equal(created.amountCents, 12050);
+  assert.equal(created.dueDate.toISOString(), "2099-08-10T00:00:00.000Z");
+  assert.equal(prisma.issueBatchItems.filter((item) => item.status === BankSlipIssueBatchItemStatus.QUEUED).length, 2);
+  assert.equal(prisma.historyEvents.some((event) => event.eventType === StudentHistoryEventType.INVOICE_CREATED), true);
+}
+
+async function testInstitutionIssueBatchConcurrentCreationDoesNotDuplicateInvoice() {
+  const prisma = new FakePrisma();
+  prisma.addEnrollment("enrollment-2", "student-2");
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+  const beforeInvoices = prisma.invoices.size;
+
+  await Promise.all([
+    service.createIssueBatch(
+      {
+        source: BankSlipIssueBatchSource.INSTITUTION,
+        institutionId: "institution-1",
+        amountCents: 12050,
+        dueDate: "2099-08-10",
+        createMissingInvoices: true,
+      },
+      "user-1",
+    ),
+    service.createIssueBatch(
+      {
+        source: BankSlipIssueBatchSource.INSTITUTION,
+        institutionId: "institution-1",
+        amountCents: 12050,
+        dueDate: "2099-08-10",
+        createMissingInvoices: true,
+      },
+      "user-1",
+    ),
+  ]);
+
+  assert.equal(prisma.invoices.size, beforeInvoices + 1);
+  assert.equal(
+    [...prisma.invoices.values()].filter((invoice) => invoice.enrollmentId === "enrollment-2").length,
+    1,
+  );
+}
+
 async function testInstitutionPreviewScopeAndBlockingRules() {
   const prisma = new FakePrisma();
   prisma.addInstitution("institution-2");
@@ -1179,35 +1289,45 @@ async function testInstitutionPreviewScopeAndBlockingRules() {
     enrollmentId: "foreign-enrollment",
     studentId: "student-foreign",
   });
+  prisma.addEnrollment("conflict-enrollment", "student-conflict");
+  prisma.addInvoice("conflict-invoice", {
+    enrollmentId: "conflict-enrollment",
+    studentId: "student-conflict",
+    amountCents: 9999,
+  });
   prisma.addInvoice("issued-invoice", { enrollmentId: "enrollment-1", studentId: "student-1" });
   prisma.seedIssuedBankSlip({ invoiceId: "issued-invoice" });
   const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
 
   const preview = await service.previewIssueBatch({
     institutionId: "institution-1",
-    competence: "2099-08",
+    amountCents: 12050,
+    dueDate: "2099-08-10",
     page: 1,
     limit: 20,
   });
 
-  assert.equal(preview.totalEnrollmentsFound, 1);
-  assert.equal(preview.totalInvoicesFound, 2);
+  assert.equal(preview.totalEnrollmentsFound, 2);
+  assert.equal(preview.totalInvoicesFound, 3);
   assert.equal(preview.totalWithActiveBankSlip, 1);
+  assert.equal(preview.totalInvoiceAmountConflict, 1);
   assert.equal(preview.items.some((item) => item.enrollmentId === "foreign-enrollment"), false);
 
   const emptyCompetence = await service.previewIssueBatch({
     institutionId: "institution-1",
-    competence: "2099-09",
+    amountCents: 12050,
+    dueDate: "2099-09-10",
     page: 1,
     limit: 20,
   });
   assert.equal(emptyCompetence.totalInvoicesFound, 0);
-  assert.equal(emptyCompetence.totalMissingInvoice, 1);
+  assert.equal(emptyCompetence.totalMissingInvoice, 2);
 
   await assert.rejects(
     () => service.previewIssueBatch({
       institutionId: "institution-missing",
-      competence: "2099-08",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
       page: 1,
       limit: 20,
     }),
@@ -1222,7 +1342,9 @@ async function testIssueBatchReportIncludesInstitutionSummary() {
     {
       source: BankSlipIssueBatchSource.INSTITUTION,
       institutionId: "institution-1",
-      competence: "2099-08",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
+      createMissingInvoices: true,
     },
     "user-1",
   );
@@ -1246,7 +1368,9 @@ async function testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible
     {
       source: BankSlipIssueBatchSource.INSTITUTION,
       institutionId: "institution-1",
-      competence: "2099-08",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
+      createMissingInvoices: true,
     },
     "user-1",
   );
@@ -1602,6 +1726,24 @@ class FakePrisma {
       Object.assign(invoice, data);
       return this.invoiceWithBankSlip(where.id);
     },
+    upsert: async ({
+      where,
+      create,
+    }: {
+      where: { idempotencyKey: string };
+      update: Record<string, unknown>;
+      create: Record<string, unknown>;
+    }) => {
+      const existing = [...this.invoices.values()].find(
+        (invoice) => invoice.idempotencyKey === where.idempotencyKey,
+      );
+      if (existing) {
+        return this.invoiceWithBankSlip(existing.id);
+      }
+      const id = `invoice-${this.invoices.size + 1}`;
+      this.invoices.set(id, createInvoice(id, create));
+      return this.invoiceWithBankSlip(id);
+    },
   };
 
   bankSlip = {
@@ -1774,6 +1916,7 @@ class FakePrisma {
         totalStudents: 0,
         totalInvoices: 0,
         totalEligible: 0,
+        unitAmountCents: 0,
         totalValueCents: 0,
         totalItems: 0,
         queuedItems: 0,
@@ -2072,6 +2215,14 @@ function createInvoice(id: string, overrides: Record<string, unknown> = {}) {
     amountCents: 12050,
     dueDate: new Date("2099-08-10T00:00:00.000Z"),
     status: InvoiceStatus.OPEN,
+    description: null,
+    idempotencyKey: `invoice-${id}`,
+    createdByUserId: null,
+    cancelledAt: null,
+    cancellationReason: null,
+    cancellationNote: null,
+    createdAt: new Date("2099-08-01T00:00:00.000Z"),
+    updatedAt: new Date("2099-08-01T00:00:00.000Z"),
     enrollment: createEnrollment(enrollmentId, studentId),
     student: {
       id: studentId,
@@ -2140,6 +2291,8 @@ await testPayerManualLimits();
 await testIssueBatchCreationDeduplicatesAndSkipsIneligible();
 await testIssueBatchPreviewByInstitution();
 await testIssueBatchCreationByInstitutionCreatesSkippedItems();
+await testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput();
+await testInstitutionIssueBatchConcurrentCreationDoesNotDuplicateInvoice();
 await testInstitutionPreviewScopeAndBlockingRules();
 await testIssueBatchReportIncludesInstitutionSummary();
 await testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible();
