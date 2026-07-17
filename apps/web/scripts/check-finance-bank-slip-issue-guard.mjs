@@ -22,8 +22,14 @@ assert.equal(
 
 assert.match(
   source,
-  /\{busy \? "Emitindo\.\.\." : "Emitir boleto"\}/,
+  /\{busy \? "Emitindo\.\.\." : issueBankSlipButtonLabel\(bankSlip\)\}/,
   "Issue button must show a busy indicator while disabled",
+);
+
+assert.match(
+  source,
+  /bankSlip\?\.status === "CANCELLED" \? "Emitir novo boleto" : "Emitir boleto"/,
+  "Issue button must label reissue after external cancellation",
 );
 
 console.log("Finance bank slip issue guard OK");

@@ -1320,7 +1320,7 @@ function InvoiceBankSlipActions({
           onClick={onIssue}
           type="button"
         >
-          {busy ? "Emitindo..." : "Emitir boleto"}
+          {busy ? "Emitindo..." : issueBankSlipButtonLabel(bankSlip)}
         </button>
       ) : null}
       {bankSlip ? (
@@ -1471,7 +1471,15 @@ export function canIssueBankSlip(
   invoice: InvoiceRecord,
   bankSlip: BankSlipListRecord | null | undefined,
 ) {
-  return invoice.status === "OPEN" && !invoice.overdue && bankSlip === null;
+  return (
+    invoice.status === "OPEN" &&
+    !invoice.overdue &&
+    (bankSlip === null || bankSlip?.status === "CANCELLED")
+  );
+}
+
+function issueBankSlipButtonLabel(bankSlip: BankSlipListRecord | null | undefined) {
+  return bankSlip?.status === "CANCELLED" ? "Emitir novo boleto" : "Emitir boleto";
 }
 
 export function canRequestBankSlipCancellation(

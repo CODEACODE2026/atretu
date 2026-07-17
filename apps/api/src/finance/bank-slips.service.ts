@@ -1061,6 +1061,11 @@ export class BankSlipsService {
       };
       if (mappedStatus === BankSlipStatus.CANCELLED && !current.cancelledAt) {
         update.cancelledAt = new Date();
+        if (!current.cancellationRequestedAt) {
+          update.providerErrorCode = "BAIXA_EXTERNA_REVIEW";
+          update.providerErrorMessage =
+            "Boleto baixado no Sicredi sem solicitacao de baixa registrada no ATRETU; fatura mantida aberta para revisao.";
+        }
       }
       const resolvedStatus = this.resolveSyncedStatus(current.status, mappedStatus);
       const updated = await tx.bankSlip.update({
@@ -1269,6 +1274,19 @@ export class BankSlipsService {
       updated.status === BankSlipStatus.CANCELLED &&
       previous.status !== BankSlipStatus.CANCELLED
     ) {
+      if (!updated.cancellationRequestedAt) {
+        await this.recordAuditTx(tx, {
+          eventType: AdministrativeAuditEventType.BANK_SLIP_SYNCED,
+          recordId: updated.id,
+          userId,
+          metadata: {
+            ...this.syncMetadata(updated),
+            reviewCode: "BAIXA_EXTERNA_REVIEW",
+            invoiceKeptOpen: true,
+          },
+        });
+        return;
+      }
       await tx.invoice.update({
         where: { id: updated.invoiceId },
         data: {

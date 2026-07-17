@@ -757,7 +757,7 @@ async function testOpenIssuedSyncVencidoKeepsInvoiceOpen() {
   assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
 }
 
-async function testOpenIssuedSyncBaixadoCancelsInvoice() {
+async function testOpenIssuedSyncBaixadoExternallyKeepsInvoiceOpen() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip();
   const sicredi = new FakeSicrediClient();
@@ -768,8 +768,38 @@ async function testOpenIssuedSyncBaixadoCancelsInvoice() {
 
   assert.equal(result.cancelledCount, 1);
   assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.CANCELLED);
-  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.CANCELLED);
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, "BAIXA_EXTERNA_REVIEW");
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
   assert.equal(prisma.syncRunItems[0]?.status, BankSlipSyncRunItemStatus.CANCELLED);
+  assert.equal(
+    prisma.auditLogs.some(
+      (log) =>
+        log.eventType === AdministrativeAuditEventType.BANK_SLIP_SYNCED &&
+        (log.metadata as Record<string, unknown>).reviewCode === "BAIXA_EXTERNA_REVIEW" &&
+        (log.metadata as Record<string, unknown>).invoiceKeptOpen === true,
+    ),
+    true,
+  );
+}
+
+async function testExternalCancellationByInvoiceKeepsInvoiceOpen() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextStatus = "BAIXADO POR SOLICITACAO";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncByInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.CANCELLED);
+  assert.equal(result.providerErrorCode, "BAIXA_EXTERNA_REVIEW");
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+  assert.equal(
+    prisma.historyEvents.some(
+      (event) => event.eventType === StudentHistoryEventType.BANK_SLIP_CANCELLED,
+    ),
+    false,
+  );
 }
 
 async function testSyncUnknownStatusPreservesCurrentState() {
@@ -1472,7 +1502,8 @@ await testOpenIssuedSyncRecordsProviderErrorsWithoutStoppingBatch();
 await testOpenIssuedSyncHandles4044295xxAndTimeoutSafely();
 await testOpenIssuedSyncPartialPaymentDoesNotQuitInvoice();
 await testOpenIssuedSyncVencidoKeepsInvoiceOpen();
-await testOpenIssuedSyncBaixadoCancelsInvoice();
+await testOpenIssuedSyncBaixadoExternallyKeepsInvoiceOpen();
+await testExternalCancellationByInvoiceKeepsInvoiceOpen();
 await testSyncUnknownStatusPreservesCurrentState();
 await testSyncRejectedStatusPreservesCurrentState();
 await testSyncPaidDoesNotRegress();
