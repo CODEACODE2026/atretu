@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
 import {
   BadRequestException,
   ConflictException,
@@ -10,6 +11,7 @@ import {
   AdministrativeAuditEventType,
   BankSlipEnvironment,
   BankSlipIssueBatchItemStatus,
+  BankSlipIssueBatchSource,
   BankSlipIssueBatchStatus,
   BankSlipProvider,
   BankSlipSyncRunItemStatus,
@@ -22,7 +24,6 @@ import {
   StudentHistoryEventType,
 } from "@prisma/client";
 import { BankSlipsService } from "./bank-slips.service.js";
-import { BankSlipIssueBatchSource } from "./dto/bank-slips.dto.js";
 import { SicrediClientError } from "./sicredi-client.js";
 import type { SicrediConfig } from "./sicredi-config.js";
 
@@ -1161,7 +1162,13 @@ async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
   assert.equal(batch.skippedItems, 1);
   assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
   assert.equal(prisma.issueBatchItems[1]?.status, BankSlipIssueBatchItemStatus.SKIPPED);
-  assert.equal((prisma.issueBatches[0]?.metadata as { source?: string }).source, "INSTITUTION");
+  assert.equal(prisma.issueBatches[0]?.source, BankSlipIssueBatchSource.INSTITUTION);
+  assert.equal(prisma.issueBatches[0]?.institutionId, "institution-1");
+  assert.equal(prisma.issueBatches[0]?.competence, "2099-08");
+  assert.equal(prisma.issueBatches[0]?.totalStudents, 2);
+  assert.equal(prisma.issueBatches[0]?.totalInvoices, 2);
+  assert.equal(prisma.issueBatches[0]?.totalEligible, 1);
+  assert.equal(prisma.issueBatches[0]?.totalValueCents, 12050);
 }
 
 async function testInstitutionPreviewScopeAndBlockingRules() {
@@ -1222,10 +1229,84 @@ async function testIssueBatchReportIncludesInstitutionSummary() {
   await service.processIssueBatchQueue();
   const updated = prisma.issueBatches.find((item) => item.id === batch.id);
   assert.ok(updated);
-  const metadata = updated.metadata as { filters?: { institutionId?: string; competence?: string }; report?: { issuedAmountCents?: number } };
-  assert.equal(metadata.filters?.institutionId, "institution-1");
-  assert.equal(metadata.filters?.competence, "2099-08");
+  assert.equal(updated.institutionId, "institution-1");
+  assert.equal(updated.competence, "2099-08");
+  assert.equal(updated.totalStudents, 1);
+  assert.equal(updated.totalInvoices, 1);
+  assert.equal(updated.totalEligible, 1);
+  assert.equal(updated.totalValueCents, 12050);
+  const metadata = updated.metadata as { report?: { issuedAmountCents?: number } };
   assert.equal(metadata.report?.issuedAmountCents, 12050);
+}
+
+async function testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible() {
+  const prisma = new FakePrisma();
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+  await service.createIssueBatch(
+    {
+      source: BankSlipIssueBatchSource.INSTITUTION,
+      institutionId: "institution-1",
+      competence: "2099-08",
+    },
+    "user-1",
+  );
+  prisma.issueBatches.push({
+    id: "old-manual-batch",
+    status: BankSlipIssueBatchStatus.COMPLETED,
+    source: BankSlipIssueBatchSource.MANUAL,
+    institutionId: null,
+    competence: null,
+    dueDate: null,
+    shiftId: null,
+    totalStudents: 0,
+    totalInvoices: 1,
+    totalEligible: 1,
+    totalValueCents: 0,
+    totalItems: 1,
+    queuedItems: 0,
+    processingItems: 0,
+    issuedItems: 1,
+    skippedItems: 0,
+    failedItems: 0,
+    unknownItems: 0,
+    cancelledItems: 0,
+    requestedByUserId: "user-1",
+    metadata: { report: { issuedAmountCents: 12050 } },
+    startedAt: null,
+    finishedAt: new Date(),
+    cancelledAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  const institutionBatches = await service.listIssueBatches({
+    page: 1,
+    limit: 20,
+    source: BankSlipIssueBatchSource.INSTITUTION,
+    institutionId: "institution-1",
+    competence: "2099-08",
+  });
+  assert.equal(institutionBatches.pagination.total, 1);
+  assert.equal(institutionBatches.data[0]?.source, BankSlipIssueBatchSource.INSTITUTION);
+  assert.equal(institutionBatches.data[0]?.institution?.name, "Instituicao Teste");
+
+  const allBatches = await service.listIssueBatches({ page: 1, limit: 20 });
+  assert.equal(allBatches.pagination.total, 2);
+  assert.equal(allBatches.data.some((batch) => batch.id === "old-manual-batch"), true);
+}
+
+function testIssueBatchMigrationBackfillsMetadata() {
+  const sql = readFileSync(
+    "prisma/migrations/20260717183500_normalize_bank_slip_issue_batches/migration.sql",
+    "utf8",
+  );
+  assert.match(sql, /CREATE TYPE "BankSlipIssueBatchSource"/);
+  assert.match(sql, /ADD COLUMN "institution_id" UUID/);
+  assert.match(sql, /ADD COLUMN "competence" VARCHAR\(7\)/);
+  assert.equal(sql.includes("\"metadata\"#>>'{filters,institutionId}'"), true);
+  assert.equal(sql.includes("\"metadata\"#>>'{previewSummary,totalEligible}'"), true);
+  assert.match(sql, /bank_slip_issue_batches_institution_id_competence_idx/);
+  assert.match(sql, /FOREIGN KEY \("institution_id"\) REFERENCES "institutions"\("id"\)/);
 }
 
 async function testIssueBatchProcessesSuccess() {
@@ -1685,6 +1766,15 @@ class FakePrisma {
       const record = {
         id: `issue-batch-${this.issueBatchIdSequence}`,
         status: BankSlipIssueBatchStatus.DRAFT,
+        source: BankSlipIssueBatchSource.MANUAL,
+        institutionId: null,
+        competence: null,
+        dueDate: null,
+        shiftId: null,
+        totalStudents: 0,
+        totalInvoices: 0,
+        totalEligible: 0,
+        totalValueCents: 0,
         totalItems: 0,
         queuedItems: 0,
         processingItems: 0,
@@ -1696,6 +1786,10 @@ class FakePrisma {
         startedAt: null,
         finishedAt: null,
         cancelledAt: null,
+        cancelledByUserId: null,
+        cancelReason: null,
+        requestedByUserId: null,
+        metadata: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...data,
@@ -1713,12 +1807,28 @@ class FakePrisma {
       const record = this.issueBatches.find((item) => item.id === where.id);
       assert.ok(record);
       Object.assign(record, data, { updatedAt: new Date() });
-      return record;
+      return this.withIssueBatchIncludes(record);
     },
-    findUnique: async ({ where }: { where: { id: string } }) =>
-      this.issueBatches.find((item) => item.id === where.id) ?? null,
-    findMany: async () => this.issueBatches,
-    count: async () => this.issueBatches.length,
+    findUnique: async ({ where }: { where: { id: string } }) => {
+      const record = this.issueBatches.find((item) => item.id === where.id);
+      return record ? this.withIssueBatchIncludes(record) : null;
+    },
+    findMany: async ({
+      where,
+      skip,
+      take,
+    }: {
+      where?: Record<string, unknown>;
+      skip?: number;
+      take?: number;
+    } = {}) => {
+      const records = this.issueBatches
+        .filter((item) => this.matchesWhere(item, where ?? {}))
+        .map((item) => this.withIssueBatchIncludes(item));
+      return records.slice(skip ?? 0, typeof take === "number" ? (skip ?? 0) + take : undefined);
+    },
+    count: async ({ where }: { where?: Record<string, unknown> } = {}) =>
+      this.issueBatches.filter((item) => this.matchesWhere(item, where ?? {})).length,
   };
 
   bankSlipIssueBatchItem = {
@@ -1822,6 +1932,16 @@ class FakePrisma {
     );
   }
 
+  private withIssueBatchIncludes(record: Record<string, unknown>) {
+    const institutionId = typeof record.institutionId === "string" ? record.institutionId : null;
+    const shiftId = typeof record.shiftId === "string" ? record.shiftId : null;
+    return {
+      ...record,
+      institution: institutionId ? this.institutions.get(institutionId) ?? null : null,
+      shift: shiftId ? { id: shiftId, name: "Manha" } : null,
+    };
+  }
+
   private matchesWhere(record: Record<string, unknown>, where: Record<string, unknown>) {
     return Object.entries(where).every(([key, value]) => {
       if (key === "batch" || key === "OR") {
@@ -1829,6 +1949,9 @@ class FakePrisma {
       }
       if (value && typeof value === "object" && "in" in value) {
         return (value as { in: unknown[] }).in.includes(record[key]);
+      }
+      if (value instanceof Date && record[key] instanceof Date) {
+        return (record[key] as Date).getTime() === value.getTime();
       }
       return record[key] === value;
     });
@@ -2019,6 +2142,8 @@ await testIssueBatchPreviewByInstitution();
 await testIssueBatchCreationByInstitutionCreatesSkippedItems();
 await testInstitutionPreviewScopeAndBlockingRules();
 await testIssueBatchReportIncludesInstitutionSummary();
+await testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible();
+testIssueBatchMigrationBackfillsMetadata();
 await testIssueBatchProcessesSuccess();
 await testIssueBatchProcessorLockPreventsDuplicateExecution();
 await testIssueBatchUnknownDoesNotRetry();

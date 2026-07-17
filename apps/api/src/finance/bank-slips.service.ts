@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  BankSlipIssueBatchSource,
   BankSlipEnvironment,
   BankSlipIssueBatchItemStatus,
   BankSlipIssueBatchStatus,
@@ -43,7 +44,6 @@ import {
   translateSicrediClientError,
   type SicrediBusinessError,
 } from "./sicredi-business-errors.js";
-import { BankSlipIssueBatchSource } from "./dto/bank-slips.dto.js";
 import type {
   CancelBankSlipIssueBatchDto,
   CreateBankSlipIssueBatchDto,
@@ -660,14 +660,16 @@ export class BankSlipsService {
       const created = await tx.bankSlipIssueBatch.create({
         data: {
           status: BankSlipIssueBatchStatus.DRAFT,
+          source: BankSlipIssueBatchSource.MANUAL,
           requestedByUserId: userId,
           totalItems: invoiceIds.length,
+          totalInvoices: invoiceIds.length,
           metadata: {
-            source: BankSlipIssueBatchSource.MANUAL,
             duplicatedInvoiceIds: (body.invoiceIds?.length ?? 0) - invoiceIds.length,
           },
         },
       });
+      let eligibleCount = 0;
       for (const invoiceId of invoiceIds) {
         const invoice = byId.get(invoiceId);
         if (!invoice) {
@@ -676,6 +678,9 @@ export class BankSlipsService {
         const eligibility = await this.issueBatchEligibility(tx, invoice, userId, {
           resolveStalePendingIssue: true,
         });
+        if (eligibility.eligible) {
+          eligibleCount += 1;
+        }
         await tx.bankSlipIssueBatchItem.create({
           data: {
             batchId: created.id,
@@ -690,6 +695,10 @@ export class BankSlipsService {
           },
         });
       }
+      await tx.bankSlipIssueBatch.update({
+        where: { id: created.id },
+        data: { totalEligible: eligibleCount },
+      });
       return created;
     });
     return this.recalculateIssueBatch(batch.id);
@@ -715,11 +724,18 @@ export class BankSlipsService {
       const created = await tx.bankSlipIssueBatch.create({
         data: {
           status: BankSlipIssueBatchStatus.DRAFT,
+          source: BankSlipIssueBatchSource.INSTITUTION,
+          institutionId: plan.summary.institutionId,
+          competence: plan.summary.competence,
+          dueDate: plan.summary.dueDate ? parseInvoiceDueDate(plan.summary.dueDate) : null,
+          shiftId: plan.summary.shiftId,
           requestedByUserId: userId,
           totalItems: invoiceItems.length,
+          totalStudents: plan.summary.totalStudentsFound,
+          totalInvoices: plan.summary.totalInvoicesFound,
+          totalEligible: plan.summary.totalEligible,
+          totalValueCents: plan.summary.eligibleAmountCents,
           metadata: {
-            source: BankSlipIssueBatchSource.INSTITUTION,
-            filters: plan.filters,
             previewSummary: plan.summary,
           },
         },
@@ -746,13 +762,16 @@ export class BankSlipsService {
 
   async listIssueBatches(query: ListBankSlipIssueBatchesDto) {
     const pagination = resolvePagination(query, { defaultLimit: 20, maxLimit: 100 });
+    const where = this.buildIssueBatchWhere(query);
     const [records, total] = await Promise.all([
       this.prisma.bankSlipIssueBatch.findMany({
+        where,
+        include: this.issueBatchInclude(),
         orderBy: [{ createdAt: "desc" }],
         skip: pagination.skip,
         take: pagination.limit,
       }),
-      this.prisma.bankSlipIssueBatch.count(),
+      this.prisma.bankSlipIssueBatch.count({ where }),
     ]);
     return {
       data: records,
@@ -766,11 +785,34 @@ export class BankSlipsService {
   }
 
   async getIssueBatch(id: string) {
-    const batch = await this.prisma.bankSlipIssueBatch.findUnique({ where: { id } });
+    const batch = await this.prisma.bankSlipIssueBatch.findUnique({
+      where: { id },
+      include: this.issueBatchInclude(),
+    });
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
     return batch;
+  }
+
+  private buildIssueBatchWhere(query: ListBankSlipIssueBatchesDto): Prisma.BankSlipIssueBatchWhereInput {
+    const where: Prisma.BankSlipIssueBatchWhereInput = {};
+    if (query.source) {
+      where.source = query.source;
+    }
+    if (query.institutionId) {
+      where.institutionId = query.institutionId;
+    }
+    if (query.competence) {
+      where.competence = query.competence;
+    }
+    if (query.shiftId) {
+      where.shiftId = query.shiftId;
+    }
+    if (query.dueDate) {
+      where.dueDate = parseInvoiceDueDate(query.dueDate);
+    }
+    return where;
   }
 
   async listIssueBatchItems(batchId: string, query: ListBankSlipIssueBatchItemsDto) {
@@ -2405,6 +2447,23 @@ export class BankSlipsService {
     return {
       invoice: { include: { student: { include: { person: true } } } },
     } satisfies Prisma.BankSlipInclude;
+  }
+
+  private issueBatchInclude() {
+    return {
+      institution: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      shift: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    } satisfies Prisma.BankSlipIssueBatchInclude;
   }
 
   private toBankSlipSummary(bankSlip: BankSlipWithRelations) {

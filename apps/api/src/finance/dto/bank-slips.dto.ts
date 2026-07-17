@@ -13,12 +13,7 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
-import { InvoiceCancellationReason } from "@prisma/client";
-
-export enum BankSlipIssueBatchSource {
-  MANUAL = "MANUAL",
-  INSTITUTION = "INSTITUTION",
-}
+import { BankSlipIssueBatchSource, InvoiceCancellationReason } from "@prisma/client";
 
 export class InvoiceBankSlipParamsDto {
   @IsUUID()
@@ -117,6 +112,28 @@ export class ListBankSlipIssueBatchesDto {
   @Min(1)
   @Max(100)
   limit = 20;
+
+  @IsOptional()
+  @IsEnum(BankSlipIssueBatchSource)
+  source?: BankSlipIssueBatchSource;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(7, 7)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  competence?: string;
+
+  @IsOptional()
+  @IsUUID()
+  shiftId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
 }
 
 export class ListBankSlipIssueBatchItemsDto {

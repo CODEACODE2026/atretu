@@ -840,11 +840,26 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                 <span>Falhas: {issueBatch.failedItems}</span>
                 <span>Incertos: {issueBatch.unknownItems}</span>
                 <span>Cancelados: {issueBatch.cancelledItems}</span>
-                {issueBatch.metadata?.filters?.institutionName ? (
-                  <span>Instituicao: {issueBatch.metadata.filters.institutionName}</span>
+                <span>Origem: {issueBatch.source === "INSTITUTION" ? "Instituicao" : "Manual"}</span>
+                {issueBatch.institution?.name ? (
+                  <span>Instituicao: {issueBatch.institution.name}</span>
                 ) : null}
-                {issueBatch.metadata?.filters?.competence ? (
-                  <span>Competencia: {issueBatch.metadata.filters.competence}</span>
+                {issueBatch.competence ? (
+                  <span>Competencia: {issueBatch.competence}</span>
+                ) : null}
+                {issueBatch.shift?.name ? (
+                  <span>Turno: {issueBatch.shift.name}</span>
+                ) : null}
+                {issueBatch.dueDate ? (
+                  <span>Vencimento: {formatDate(issueBatch.dueDate)}</span>
+                ) : null}
+                {issueBatch.source === "INSTITUTION" ? (
+                  <>
+                    <span>Alunos: {issueBatch.totalStudents}</span>
+                    <span>Faturas: {issueBatch.totalInvoices}</span>
+                    <span>Elegiveis: {issueBatch.totalEligible}</span>
+                    <span>Valor elegivel: {formatOptionalCents(issueBatch.totalValueCents)}</span>
+                  </>
                 ) : null}
                 {issueBatch.metadata?.report?.issuedAmountFormatted ? (
                   <span>Valor emitido: {issueBatch.metadata.report.issuedAmountFormatted}</span>

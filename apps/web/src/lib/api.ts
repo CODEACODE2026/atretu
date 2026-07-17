@@ -579,10 +579,27 @@ export type BankSlipIssueBatchItemStatus =
 
 export type BankSlipIssueBatch = {
   id: string;
+  source: "MANUAL" | "INSTITUTION";
+  institutionId?: string | null;
+  institution?: {
+    id: string;
+    name: string;
+  } | null;
+  competence?: string | null;
+  dueDate?: string | null;
+  shiftId?: string | null;
+  shift?: {
+    id: string;
+    name: string;
+  } | null;
   status: BankSlipIssueBatchStatus;
   requestedByUserId: string;
   cancelledByUserId?: string | null;
   cancelReason?: string | null;
+  totalStudents: number;
+  totalInvoices: number;
+  totalEligible: number;
+  totalValueCents: number;
   totalItems: number;
   queuedItems: number;
   processingItems: number;
@@ -595,14 +612,6 @@ export type BankSlipIssueBatch = {
   finishedAt?: string | null;
   cancelledAt?: string | null;
   metadata?: {
-    source?: "MANUAL" | "INSTITUTION";
-    filters?: {
-      institutionId?: string;
-      institutionName?: string;
-      competence?: string;
-      shiftId?: string | null;
-      dueDate?: string | null;
-    };
     previewSummary?: Partial<BankSlipIssueBatchPreview>;
     report?: {
       issuedAmountCents?: number;
@@ -1068,7 +1077,15 @@ export const api = {
     });
   },
 
-  listBankSlipIssueBatches(params?: { page?: number; limit?: number }) {
+  listBankSlipIssueBatches(params?: {
+    page?: number;
+    limit?: number;
+    source?: "MANUAL" | "INSTITUTION";
+    institutionId?: string;
+    competence?: string;
+    shiftId?: string;
+    dueDate?: string;
+  }) {
     return request<ListResponse<BankSlipIssueBatch>>(
       withParams("/finance/bank-slip-issue-batches", params),
     );

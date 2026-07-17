@@ -231,6 +231,11 @@ enum BankSlipIssueBatchStatus {
   CANCELLED
 }
 
+enum BankSlipIssueBatchSource {
+  MANUAL
+  INSTITUTION
+}
+
 enum BankSlipIssueBatchItemStatus {
   QUEUED
   PROCESSING
@@ -343,6 +348,7 @@ model Institution {
   updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
   enrollments      Enrollment[]
   preRegistrations PublicPreRegistration[]
+  bankSlipIssueBatches BankSlipIssueBatch[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -358,6 +364,7 @@ model Shift {
   updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
   enrollments      Enrollment[]
   preRegistrations PublicPreRegistration[]
+  bankSlipIssueBatches BankSlipIssueBatch[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -742,10 +749,19 @@ model BankSlipSyncRunItem {
 model BankSlipIssueBatch {
   id              String                     @id @default(uuid()) @db.Uuid
   status          BankSlipIssueBatchStatus   @default(DRAFT)
+  source          BankSlipIssueBatchSource   @default(MANUAL)
+  institutionId   String?                    @map("institution_id") @db.Uuid
+  competence      String?                    @db.VarChar(7)
+  dueDate         DateTime?                  @map("due_date") @db.Date
+  shiftId         String?                    @map("shift_id") @db.Uuid
   requestedByUserId String                   @map("requested_by_user_id") @db.Uuid
   cancelledByUserId String?                  @map("cancelled_by_user_id") @db.Uuid
   cancelReason    String?                    @map("cancel_reason") @db.VarChar(500)
   totalItems      Int                        @default(0) @map("total_items")
+  totalStudents   Int                        @default(0) @map("total_students")
+  totalInvoices   Int                        @default(0) @map("total_invoices")
+  totalEligible   Int                        @default(0) @map("total_eligible")
+  totalValueCents Int                        @default(0) @map("total_value_cents")
   queuedItems     Int                        @default(0) @map("queued_items")
   processingItems Int                        @default(0) @map("processing_items")
   issuedItems     Int                        @default(0) @map("issued_items")
@@ -759,11 +775,19 @@ model BankSlipIssueBatch {
   metadata        Json?
   createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  institution     Institution?               @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  shift           Shift?                     @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   requestedBy     User                       @relation("BankSlipIssueBatchRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
   cancelledBy     User?                      @relation("BankSlipIssueBatchCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   items           BankSlipIssueBatchItem[]
 
   @@index([status, createdAt])
+  @@index([source, createdAt])
+  @@index([institutionId, competence])
+  @@index([institutionId, createdAt])
+  @@index([competence, createdAt])
+  @@index([shiftId, competence])
+  @@index([dueDate])
   @@index([requestedByUserId, createdAt])
   @@index([cancelledByUserId, cancelledAt])
   @@map("bank_slip_issue_batches")
