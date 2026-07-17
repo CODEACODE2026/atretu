@@ -1180,6 +1180,10 @@ async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
 async function testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput() {
   const prisma = new FakePrisma();
   prisma.addEnrollment("enrollment-2", "student-2");
+  prisma.addEnrollment("blocked-enrollment", "student-blocked");
+  const blockedEnrollment = prisma.enrollments.get("blocked-enrollment");
+  assert.ok(blockedEnrollment);
+  (blockedEnrollment.student.person as Record<string, unknown>).cpf = "";
   const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
 
   await assert.rejects(
@@ -1223,6 +1227,8 @@ async function testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidIn
   });
   assert.equal(prisma.invoices.size, beforeInvoices);
   assert.equal(preview.totalWillCreateInvoices, 1);
+  assert.equal(preview.totalBlocked, 1);
+  assert.equal(preview.totalInvalidOrMissingCpfCnpj, 1);
 
   const batch = await service.createIssueBatch(
     {
@@ -1235,13 +1241,18 @@ async function testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidIn
     "user-1",
   );
 
-  assert.equal(batch.totalItems, 2);
+  assert.equal(batch.totalItems, 3);
   assert.equal(prisma.invoices.size, beforeInvoices + 1);
   const created = [...prisma.invoices.values()].find((invoice) => invoice.enrollmentId === "enrollment-2");
   assert.ok(created);
   assert.equal(created.amountCents, 12050);
   assert.equal(created.dueDate.toISOString(), "2099-08-10T00:00:00.000Z");
   assert.equal(prisma.issueBatchItems.filter((item) => item.status === BankSlipIssueBatchItemStatus.QUEUED).length, 2);
+  const blockedItem = prisma.issueBatchItems.find((item) => item.studentId === "student-blocked");
+  assert.ok(blockedItem);
+  assert.equal(blockedItem.invoiceId, null);
+  assert.equal(blockedItem.status, BankSlipIssueBatchItemStatus.SKIPPED);
+  assert.equal(blockedItem.lastErrorCode, "PAYER_DATA_INCOMPLETE");
   assert.equal(prisma.historyEvents.some((event) => event.eventType === StudentHistoryEventType.INVOICE_CREATED), true);
 }
 
@@ -2092,6 +2103,9 @@ class FakePrisma {
       }
       if (value && typeof value === "object" && "in" in value) {
         return (value as { in: unknown[] }).in.includes(record[key]);
+      }
+      if (value && typeof value === "object" && "not" in value) {
+        return record[key] !== (value as { not: unknown }).not;
       }
       if (value instanceof Date && record[key] instanceof Date) {
         return (record[key] as Date).getTime() === value.getTime();

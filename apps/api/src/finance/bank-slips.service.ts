@@ -690,6 +690,8 @@ export class BankSlipsService {
           data: {
             batchId: created.id,
             invoiceId,
+            studentId: invoice.studentId,
+            enrollmentId: invoice.enrollmentId,
             bankSlipId: invoice.bankSlip?.id,
             status: eligibility.eligible
               ? BankSlipIssueBatchItemStatus.QUEUED
@@ -722,9 +724,6 @@ export class BankSlipsService {
       userId,
     });
     const candidateItems = plan.items.filter((item) => item.eligible === true);
-    const blockedInvoiceItems = plan.items.filter(
-      (item) => item.eligible !== true && typeof item.invoiceId === "string",
-    );
     if (candidateItems.length === 0) {
       throw new BadRequestException({
         code: "NO_INVOICES_FOUND",
@@ -741,7 +740,7 @@ export class BankSlipsService {
           dueDate: plan.summary.dueDate ? parseInvoiceDueDate(plan.summary.dueDate) : null,
           shiftId: plan.summary.shiftId,
           requestedByUserId: userId,
-          totalItems: candidateItems.length + blockedInvoiceItems.length,
+          totalItems: plan.items.length,
           totalStudents: plan.summary.totalStudentsFound,
           totalInvoices: plan.summary.totalInvoicesFound,
           totalEligible: plan.summary.totalEligible,
@@ -765,16 +764,20 @@ export class BankSlipsService {
           data: {
             batchId: created.id,
             invoiceId,
+            studentId: typeof item.studentId === "string" ? item.studentId : null,
+            enrollmentId: typeof item.enrollmentId === "string" ? item.enrollmentId : null,
             bankSlipId: typeof item.bankSlipId === "string" ? item.bankSlipId : null,
             status: BankSlipIssueBatchItemStatus.QUEUED,
           },
         });
       }
-      for (const item of blockedInvoiceItems) {
+      for (const item of plan.items.filter((entry) => entry.eligible !== true)) {
         await tx.bankSlipIssueBatchItem.create({
           data: {
             batchId: created.id,
-            invoiceId: item.invoiceId as string,
+            invoiceId: typeof item.invoiceId === "string" ? item.invoiceId : null,
+            studentId: typeof item.studentId === "string" ? item.studentId : null,
+            enrollmentId: typeof item.enrollmentId === "string" ? item.enrollmentId : null,
             bankSlipId: typeof item.bankSlipId === "string" ? item.bankSlipId : null,
             status: BankSlipIssueBatchItemStatus.SKIPPED,
             skipReason: typeof item.eligibilityReason === "string" ? item.eligibilityReason : null,
@@ -2290,6 +2293,7 @@ export class BankSlipsService {
     const items = await this.prisma.bankSlipIssueBatchItem.findMany({
       where: {
         status: BankSlipIssueBatchItemStatus.QUEUED,
+        invoiceId: { not: null },
         batch: { status: { in: [BankSlipIssueBatchStatus.QUEUED, BankSlipIssueBatchStatus.PROCESSING] } },
         OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
       },
@@ -2324,6 +2328,19 @@ export class BankSlipsService {
       include: { batch: true },
     });
     if (!item || item.status !== BankSlipIssueBatchItemStatus.PROCESSING) {
+      return;
+    }
+    if (!item.invoiceId) {
+      await this.prisma.bankSlipIssueBatchItem.update({
+        where: { id: item.id },
+        data: {
+          status: BankSlipIssueBatchItemStatus.SKIPPED,
+          finishedAt: new Date(),
+          lockedAt: null,
+          lastErrorCode: "NO_INVOICE",
+          lastErrorMessage: "Item do lote nao possui fatura para emissao",
+        },
+      });
       return;
     }
     try {

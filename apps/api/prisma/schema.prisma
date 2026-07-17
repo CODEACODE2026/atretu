@@ -447,6 +447,7 @@ model Student {
   boardMemberships         BoardMembership[]
   studentCards             StudentCard[]
   invoices                 Invoice[]
+  bankSlipIssueBatchItems  BankSlipIssueBatchItem[]
 
   @@index([status, createdAt])
   @@index([joinedAt])
@@ -564,6 +565,7 @@ model Enrollment {
   busAssignmentEvents BusAssignmentEvent[]
   studentCards        StudentCard[]
   invoices            Invoice[]
+  bankSlipIssueBatchItems BankSlipIssueBatchItem[]
 
   @@unique([studentId, academicYearId])
   @@index([academicYearId, status])
@@ -797,7 +799,9 @@ model BankSlipIssueBatch {
 model BankSlipIssueBatchItem {
   id               String                       @id @default(uuid()) @db.Uuid
   batchId          String                       @map("batch_id") @db.Uuid
-  invoiceId        String                       @map("invoice_id") @db.Uuid
+  invoiceId        String?                      @map("invoice_id") @db.Uuid
+  studentId        String?                      @map("student_id") @db.Uuid
+  enrollmentId     String?                      @map("enrollment_id") @db.Uuid
   bankSlipId       String?                      @map("bank_slip_id") @db.Uuid
   status           BankSlipIssueBatchItemStatus @default(QUEUED)
   attempts         Int                          @default(0)
@@ -811,13 +815,17 @@ model BankSlipIssueBatchItem {
   createdAt        DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
   batch            BankSlipIssueBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  invoice          Invoice                      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  invoice          Invoice?                     @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  student          Student?                     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  enrollment       Enrollment?                  @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
   bankSlip         BankSlip?                    @relation(fields: [bankSlipId], references: [id], onDelete: SetNull)
 
   @@unique([batchId, invoiceId])
   @@index([batchId, status])
   @@index([status, nextAttemptAt])
   @@index([invoiceId])
+  @@index([studentId])
+  @@index([enrollmentId])
   @@index([bankSlipId])
   @@map("bank_slip_issue_batch_items")
 }

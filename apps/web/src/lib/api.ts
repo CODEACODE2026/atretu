@@ -703,7 +703,9 @@ export type BankSlipIssueBatchManualPayload = {
 export type BankSlipIssueBatchItem = {
   id: string;
   batchId: string;
-  invoiceId: string;
+  invoiceId?: string | null;
+  studentId?: string | null;
+  enrollmentId?: string | null;
   bankSlipId?: string | null;
   status: BankSlipIssueBatchItemStatus;
   attempts: number;

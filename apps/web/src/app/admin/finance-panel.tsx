@@ -911,7 +911,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                   {issueBatchItems.slice(0, 8).map((item) => (
                     <div className="flex flex-wrap gap-2" key={item.id}>
                       <span>{issueBatchItemStatusLabel(item.status)}</span>
-                      <span>{item.invoiceId.slice(0, 8)}</span>
+                      <span>{item.invoiceId ? item.invoiceId.slice(0, 8) : "Sem fatura"}</span>
                       {item.skipReason || item.lastErrorMessage ? (
                         <span className="text-slate-500">
                           {item.skipReason ?? item.lastErrorMessage}
