@@ -18,9 +18,11 @@ import {
   EnrollmentStatus,
   InvoiceCancellationReason,
   InvoiceStatus,
+  RecordStatus,
   StudentHistoryEventType,
 } from "@prisma/client";
 import { BankSlipsService } from "./bank-slips.service.js";
+import { BankSlipIssueBatchSource } from "./dto/bank-slips.dto.js";
 import { SicrediClientError } from "./sicredi-client.js";
 import type { SicrediConfig } from "./sicredi-config.js";
 
@@ -1103,6 +1105,62 @@ async function testIssueBatchCreationDeduplicatesAndSkipsIneligible() {
   assert.equal(prisma.issueBatchItems[1]?.lastErrorCode, "INVOICE_NOT_OPEN");
 }
 
+async function testIssueBatchPreviewByInstitution() {
+  const prisma = new FakePrisma();
+  prisma.addEnrollment("enrollment-2", "student-2");
+  prisma.addEnrollment("enrollment-3", "student-3");
+  prisma.addInvoice("invoice-paid", {
+    enrollmentId: "enrollment-3",
+    studentId: "student-3",
+    status: InvoiceStatus.PAID,
+  });
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  const preview = await service.previewIssueBatch({
+    institutionId: "institution-1",
+    competence: "2099-08",
+    page: 1,
+    limit: 20,
+  });
+
+  assert.equal(preview.institutionId, "institution-1");
+  assert.equal(preview.totalEnrollmentsFound, 3);
+  assert.equal(preview.totalInvoicesFound, 2);
+  assert.equal(preview.totalEligible, 1);
+  assert.equal(preview.totalAlreadyPaid, 1);
+  assert.equal(preview.totalMissingInvoice, 1);
+  assert.equal(preview.totalBlocked, 2);
+  assert.equal(preview.eligibleAmountCents, 12050);
+  assert.equal(preview.items.length, 3);
+}
+
+async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
+  const prisma = new FakePrisma();
+  prisma.addEnrollment("enrollment-2", "student-2");
+  prisma.addInvoice("invoice-paid", {
+    enrollmentId: "enrollment-2",
+    studentId: "student-2",
+    status: InvoiceStatus.PAID,
+  });
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  const batch = await service.createIssueBatch(
+    {
+      source: BankSlipIssueBatchSource.INSTITUTION,
+      institutionId: "institution-1",
+      competence: "2099-08",
+    },
+    "user-1",
+  );
+
+  assert.equal(batch.totalItems, 2);
+  assert.equal(batch.queuedItems, 1);
+  assert.equal(batch.skippedItems, 1);
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
+  assert.equal(prisma.issueBatchItems[1]?.status, BankSlipIssueBatchItemStatus.SKIPPED);
+  assert.equal((prisma.issueBatches[0]?.metadata as { source?: string }).source, "INSTITUTION");
+}
+
 async function testIssueBatchProcessesSuccess() {
   const prisma = new FakePrisma();
   const sicredi = new FakeSicrediClient();
@@ -1325,6 +1383,12 @@ class FakeSicrediClient {
 
 class FakePrisma {
   invoices = new Map([["invoice-1", createInvoice("invoice-1")]]);
+  institutions = new Map([
+    ["institution-1", { id: "institution-1", name: "Instituicao Teste", status: RecordStatus.ACTIVE }],
+  ]);
+  enrollments = new Map([
+    ["enrollment-1", createEnrollment("enrollment-1", "student-1")],
+  ]);
   bankSlips: Array<Record<string, unknown>> = [];
   issueBatches: Array<Record<string, unknown>> = [];
   issueBatchItems: Array<Record<string, unknown>> = [];
@@ -1369,10 +1433,13 @@ class FakePrisma {
   invoiceDelegate = {
     findUnique: async ({ where }: { where: { id: string } }) =>
       this.invoiceWithBankSlip(where.id),
-    findMany: async ({ where }: { where?: { id?: { in?: string[] } } } = {}) => {
+    findMany: async ({ where }: { where?: { id?: { in?: string[] }; enrollmentId?: { in?: string[] }; dueDate?: Date | { gte?: Date; lt?: Date } } } = {}) => {
       const ids = where?.id?.in;
+      const enrollmentIds = where?.enrollmentId?.in;
       const invoices = [...this.invoices.values()];
       return (ids ? invoices.filter((invoice) => ids.includes(invoice.id)) : invoices)
+        .filter((invoice) => !enrollmentIds || enrollmentIds.includes(invoice.enrollmentId))
+        .filter((invoice) => this.matchesDateWhere(invoice.dueDate, where?.dueDate))
         .map((invoice) => this.invoiceWithBankSlip(invoice.id));
     },
     update: async ({
@@ -1471,6 +1538,25 @@ class FakePrisma {
   };
 
   invoice = this.invoiceDelegate;
+
+  institution = {
+    findUnique: async ({ where }: { where: { id: string } }) =>
+      this.institutions.get(where.id) ?? null,
+  };
+
+  enrollment = {
+    findMany: async ({
+      where,
+    }: {
+      where?: { institutionId?: string; status?: EnrollmentStatus; shiftId?: string };
+    } = {}) =>
+      [...this.enrollments.values()].filter(
+        (enrollment) =>
+          (!where?.institutionId || enrollment.institutionId === where.institutionId) &&
+          (!where?.status || enrollment.status === where.status) &&
+          (!where?.shiftId || enrollment.shiftId === where.shiftId),
+      ),
+  };
 
   bankSlipSyncRun = {
     create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -1709,8 +1795,12 @@ class FakePrisma {
     (this.invoiceRecord as Record<string, unknown>).bankSlip = this.bankSlips[0];
   }
 
-  addInvoice(id: string) {
-    this.invoices.set(id, createInvoice(id));
+  addEnrollment(id: string, studentId: string) {
+    this.enrollments.set(id, createEnrollment(id, studentId));
+  }
+
+  addInvoice(id: string, overrides: Record<string, unknown> = {}) {
+    this.invoices.set(id, createInvoice(id, overrides));
   }
 
   private invoiceWithBankSlip(id: string) {
@@ -1732,32 +1822,70 @@ class FakePrisma {
     const record = this.bankSlips.find((item) => item.invoiceId === invoiceId);
     return record ? { ...record, invoice: this.invoiceWithBankSlip(invoiceId) } : null;
   }
+
+  private matchesDateWhere(date: Date, where: Date | { gte?: Date; lt?: Date } | undefined) {
+    if (!where) {
+      return true;
+    }
+    if (where instanceof Date) {
+      return date.getTime() === where.getTime();
+    }
+    return (!where.gte || date.getTime() >= where.gte.getTime()) &&
+      (!where.lt || date.getTime() < where.lt.getTime());
+  }
 }
 
-function createInvoice(id: string) {
+function createEnrollment(id: string, studentId: string) {
   return {
     id,
-    studentId: "student-1",
-    enrollmentId: "enrollment-1",
+    studentId,
+    academicYearId: "academic-year-1",
+    institutionId: "institution-1",
+    shiftId: "shift-1",
+    course: "Ensino Medio",
+    grade: "1",
+    status: EnrollmentStatus.ACTIVE,
+    institution: { id: "institution-1", name: "Instituicao Teste", status: RecordStatus.ACTIVE },
+    shift: { id: "shift-1", name: "Manha", status: RecordStatus.ACTIVE },
+    student: {
+      id: studentId,
+      person: createPerson(studentId),
+      guardian: null,
+    },
+  };
+}
+
+function createInvoice(id: string, overrides: Record<string, unknown> = {}) {
+  const enrollmentId = String(overrides.enrollmentId ?? "enrollment-1");
+  const studentId = String(overrides.studentId ?? "student-1");
+  return {
+    id,
+    studentId,
+    enrollmentId,
     amountCents: 12050,
     dueDate: new Date("2099-08-10T00:00:00.000Z"),
     status: InvoiceStatus.OPEN,
-    enrollment: { id: "enrollment-1", status: EnrollmentStatus.ACTIVE },
+    enrollment: createEnrollment(enrollmentId, studentId),
     student: {
-      id: "student-1",
-      person: {
-        id: "person-1",
-        fullName: "Aluno Teste",
-        cpf: "12345678909",
-        addressStreet: "Rua Teste",
-        addressCity: "Curitiba",
-        addressZipCode: "80000-000",
-        addressState: "PR",
-        phone: null,
-        email: null,
-      },
+      id: studentId,
+      person: createPerson(studentId),
     },
     bankSlip: null,
+    ...overrides,
+  };
+}
+
+function createPerson(studentId: string) {
+  return {
+    id: `person-${studentId}`,
+    fullName: `Aluno ${studentId}`,
+    cpf: "12345678909",
+    addressStreet: "Rua Teste",
+    addressCity: "Curitiba",
+    addressZipCode: "80000-000",
+    addressState: "PR",
+    phone: null,
+    email: null,
   };
 }
 
@@ -1803,6 +1931,8 @@ await testPdfUsesStoredLinhaDigitavel();
 await testPdfErrorsAreMappedSafely();
 await testPayerManualLimits();
 await testIssueBatchCreationDeduplicatesAndSkipsIneligible();
+await testIssueBatchPreviewByInstitution();
+await testIssueBatchCreationByInstitutionCreatesSkippedItems();
 await testIssueBatchProcessesSuccess();
 await testIssueBatchProcessorLockPreventsDuplicateExecution();
 await testIssueBatchUnknownDoesNotRetry();

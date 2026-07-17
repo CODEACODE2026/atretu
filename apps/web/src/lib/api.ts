@@ -598,6 +598,66 @@ export type BankSlipIssueBatch = {
   updatedAt: string;
 };
 
+export type BankSlipIssueBatchPreviewItem = {
+  invoiceId?: string | null;
+  enrollmentId?: string | null;
+  studentId?: string | null;
+  studentName: string;
+  studentCpfMasked: string;
+  institutionId: string;
+  institutionName: string;
+  shiftId?: string | null;
+  shiftName?: string | null;
+  course?: string | null;
+  grade?: string | null;
+  invoiceStatus?: InvoiceStatus | null;
+  dueDate?: string | null;
+  amountCents?: number | null;
+  amountFormatted?: string | null;
+  bankSlipId?: string | null;
+  bankSlipStatus?: BankSlipStatus | null;
+  eligible: boolean;
+  eligibilityCode?: string | null;
+  eligibilityReason?: string | null;
+};
+
+export type BankSlipIssueBatchPreview = {
+  institutionId: string;
+  institutionName: string;
+  competence: string;
+  shiftId?: string | null;
+  dueDate?: string | null;
+  totalEnrollmentsFound: number;
+  totalStudentsFound: number;
+  totalInvoicesFound: number;
+  totalEligible: number;
+  totalAlreadyPaid: number;
+  totalWithActiveBankSlip: number;
+  totalWithCancelledBankSlipAllowsNewIssue: number;
+  totalMissingInvoice: number;
+  totalMissingValidFinancialResponsible: number;
+  totalInvalidOrMissingCpfCnpj: number;
+  totalIncompleteRequiredAddress: number;
+  totalBlocked: number;
+  eligibleAmountCents: number;
+  eligibleAmountFormatted: string;
+  items: BankSlipIssueBatchPreviewItem[];
+  pagination: ListResponse<BankSlipIssueBatchPreviewItem>["pagination"];
+};
+
+export type BankSlipIssueBatchInstitutionPayload = {
+  source: "INSTITUTION";
+  institutionId: string;
+  competence: string;
+  shiftId?: string;
+  dueDate?: string;
+};
+
+export type BankSlipIssueBatchManualPayload = {
+  source?: "MANUAL";
+  invoiceIds: string[];
+};
+
 export type BankSlipIssueBatchItem = {
   id: string;
   batchId: string;
@@ -975,10 +1035,18 @@ export const api = {
     });
   },
 
-  createBankSlipIssueBatch(invoiceIds: string[]) {
+  previewBankSlipIssueBatch(payload: Omit<BankSlipIssueBatchInstitutionPayload, "source"> & { page?: number; limit?: number }) {
+    return request<BankSlipIssueBatchPreview>("/finance/bank-slip-issue-batches/preview", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  createBankSlipIssueBatch(payload: BankSlipIssueBatchManualPayload | BankSlipIssueBatchInstitutionPayload | string[]) {
+    const body = Array.isArray(payload) ? { source: "MANUAL", invoiceIds: payload } : payload;
     return request<BankSlipIssueBatch>("/finance/bank-slip-issue-batches", {
       method: "POST",
-      body: JSON.stringify({ invoiceIds }),
+      body: JSON.stringify(body),
     });
   },
 

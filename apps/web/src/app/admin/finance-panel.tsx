@@ -9,6 +9,7 @@ import {
   type BankSlipRecord,
   type BankSlipIssueBatch,
   type BankSlipIssueBatchItem,
+  type BankSlipIssueBatchPreview,
   type BankSlipSummary,
   type BankSlipStatus,
   type InvoiceCancellationReason,
@@ -64,6 +65,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   const issueBankSlipInFlightRef = useRef("");
   const issueBatchInFlightRef = useRef(false);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [issueBatchInstitutionId, setIssueBatchInstitutionId] = useState("");
+  const [issueBatchCompetence, setIssueBatchCompetence] = useState(currentMonthCompetence());
+  const [issueBatchDueDate, setIssueBatchDueDate] = useState("");
+  const [issueBatchPreview, setIssueBatchPreview] = useState<BankSlipIssueBatchPreview | null>(null);
   const [issueBatch, setIssueBatch] = useState<BankSlipIssueBatch | null>(null);
   const [issueBatchItems, setIssueBatchItems] = useState<BankSlipIssueBatchItem[]>([]);
   const [syncPaidDate, setSyncPaidDate] = useState(todayDate());
@@ -438,6 +443,30 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     setSelectedInvoiceIds(eligible);
   }
 
+  async function handlePreviewInstitutionIssueBatch() {
+    if (!issueBatchInstitutionId || !issueBatchCompetence) {
+      setError("Selecione instituicao e competencia para gerar a previa");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const previewResult = await api.previewBankSlipIssueBatch({
+        institutionId: issueBatchInstitutionId,
+        competence: issueBatchCompetence,
+        dueDate: issueBatchDueDate || undefined,
+        limit: 200,
+      });
+      setIssueBatchPreview(previewResult);
+      setMessage("Previa de emissao gerada");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao gerar previa");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function refreshIssueBatch(batchId: string) {
     try {
       const [batch, items] = await Promise.all([
@@ -474,6 +503,39 @@ export function FinancePanel({ user }: { user: ApiUser }) {
       setMessage("Lote de emissao criado");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao criar lote");
+    } finally {
+      setSaving(false);
+      issueBatchInFlightRef.current = false;
+    }
+  }
+
+  async function handleCreateInstitutionIssueBatch() {
+    if (issueBatchInFlightRef.current || !issueBatchPreview || issueBatchPreview.totalEligible === 0) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Emitir ${issueBatchPreview.totalEligible} boleto(s) elegivel(is) no valor total de ${issueBatchPreview.eligibleAmountFormatted}?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    issueBatchInFlightRef.current = true;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const batch = await api.createBankSlipIssueBatch({
+        source: "INSTITUTION",
+        institutionId: issueBatchPreview.institutionId,
+        competence: issueBatchPreview.competence,
+        shiftId: issueBatchPreview.shiftId || undefined,
+        dueDate: issueBatchPreview.dueDate || undefined,
+      });
+      setIssueBatch(batch);
+      await refreshIssueBatch(batch.id);
+      setMessage("Lote institucional de emissao criado");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao criar lote institucional");
     } finally {
       setSaving(false);
       issueBatchInFlightRef.current = false;
@@ -658,10 +720,97 @@ export function FinancePanel({ user }: { user: ApiUser }) {
         ) : null}
 
         <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid gap-3">
             <span className="text-xs font-medium uppercase text-slate-500">
-              Emissao em lote
+              Emissao em lote por instituicao
             </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                onChange={(event) => {
+                  setIssueBatchInstitutionId(event.target.value);
+                  setIssueBatchPreview(null);
+                }}
+                value={issueBatchInstitutionId}
+              >
+                <option value="">Instituicao</option>
+                {institutions.map((institution) => (
+                  <option key={institution.id} value={institution.id}>
+                    {institution.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                onChange={(event) => {
+                  setIssueBatchCompetence(event.target.value);
+                  setIssueBatchPreview(null);
+                }}
+                type="month"
+                value={issueBatchCompetence}
+              />
+              <input
+                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                onChange={(event) => {
+                  setIssueBatchDueDate(event.target.value);
+                  setIssueBatchPreview(null);
+                }}
+                type="date"
+                value={issueBatchDueDate}
+              />
+              <button
+                className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+                disabled={saving || !issueBatchInstitutionId || !issueBatchCompetence}
+                onClick={() => void handlePreviewInstitutionIssueBatch()}
+                type="button"
+              >
+                Gerar previa
+              </button>
+              <button
+                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                disabled={saving || !issueBatchPreview || issueBatchPreview.totalEligible === 0}
+                onClick={() => void handleCreateInstitutionIssueBatch()}
+                type="button"
+              >
+                Emitir boletos elegiveis
+              </button>
+            </div>
+            {issueBatchPreview ? (
+              <div className="grid gap-2 rounded border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                <div className="flex flex-wrap gap-2">
+                  <span className="font-medium">{issueBatchPreview.institutionName}</span>
+                  <span>Competencia: {issueBatchPreview.competence}</span>
+                  <span>Matriculas: {issueBatchPreview.totalEnrollmentsFound}</span>
+                  <span>Faturas: {issueBatchPreview.totalInvoicesFound}</span>
+                  <span>Elegiveis: {issueBatchPreview.totalEligible}</span>
+                  <span>Bloqueadas: {issueBatchPreview.totalBlocked}</span>
+                  <span>Valor: {issueBatchPreview.eligibleAmountFormatted}</span>
+                </div>
+                <div className="flex flex-wrap gap-2 text-slate-500">
+                  <span>Pagas: {issueBatchPreview.totalAlreadyPaid}</span>
+                  <span>Boleto ativo: {issueBatchPreview.totalWithActiveBankSlip}</span>
+                  <span>Cancelado reemitivel: {issueBatchPreview.totalWithCancelledBankSlipAllowsNewIssue}</span>
+                  <span>Sem fatura: {issueBatchPreview.totalMissingInvoice}</span>
+                  <span>CPF invalido: {issueBatchPreview.totalInvalidOrMissingCpfCnpj}</span>
+                  <span>Endereco incompleto: {issueBatchPreview.totalIncompleteRequiredAddress}</span>
+                </div>
+                {issueBatchPreview.items.slice(0, 8).map((item) => (
+                  <div className="flex flex-wrap gap-2" key={`${item.enrollmentId}-${item.invoiceId ?? item.eligibilityCode}`}>
+                    <span className="font-medium">{item.studentName}</span>
+                    <span>{item.amountFormatted ?? "Sem fatura"}</span>
+                    <span>{item.dueDate ? formatDate(item.dueDate) : "-"}</span>
+                    <span>{item.eligible ? "Elegivel" : "Bloqueado"}</span>
+                    {!item.eligible ? (
+                      <span className="text-slate-500">{item.eligibilityReason}</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+              <span className="text-xs font-medium uppercase text-slate-500">
+                Selecionar faturas manualmente
+              </span>
             <button
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
               disabled={saving || invoices.every((invoice) => !canIssueBankSlip(invoice, bankSlips[invoice.id]))}
@@ -678,6 +827,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
             >
               Emitir selecionadas ({selectedInvoiceIds.length})
             </button>
+            </div>
           </div>
           {issueBatch ? (
             <div className="mt-3 grid gap-2 text-xs text-slate-700">
@@ -1851,6 +2001,10 @@ function currentMonthRange() {
     from: from.toISOString().slice(0, 10),
     to: to.toISOString().slice(0, 10),
   };
+}
+
+function currentMonthCompetence() {
+  return todayDate().slice(0, 7);
 }
 
 function todayDate() {

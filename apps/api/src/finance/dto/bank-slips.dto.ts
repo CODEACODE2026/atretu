@@ -1,7 +1,6 @@
 import { Transform, Type } from "class-transformer";
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsDateString,
   IsEnum,
   IsInt,
@@ -15,6 +14,11 @@ import {
   Min,
 } from "class-validator";
 import { InvoiceCancellationReason } from "@prisma/client";
+
+export enum BankSlipIssueBatchSource {
+  MANUAL = "MANUAL",
+  INSTITUTION = "INSTITUTION",
+}
 
 export class InvoiceBankSlipParamsDto {
   @IsUUID()
@@ -32,11 +36,72 @@ export class BankSlipIssueBatchParamsDto {
 }
 
 export class CreateBankSlipIssueBatchDto {
+  @IsOptional()
+  @IsEnum(BankSlipIssueBatchSource)
+  source?: BankSlipIssueBatchSource;
+
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(200)
   @IsUUID(undefined, { each: true })
-  invoiceIds!: string[];
+  invoiceIds?: string[];
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(7, 7)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  competence?: string;
+
+  @IsOptional()
+  @IsUUID()
+  shiftId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  classId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+}
+
+export class PreviewBankSlipIssueBatchDto {
+  @IsUUID()
+  institutionId!: string;
+
+  @IsString()
+  @Length(7, 7)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  competence!: string;
+
+  @IsOptional()
+  @IsUUID()
+  shiftId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  classId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit = 50;
 }
 
 export class ListBankSlipIssueBatchesDto {

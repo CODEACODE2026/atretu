@@ -28,6 +28,7 @@ import {
   ListBankSlipIssueBatchesDto,
   ListBankSlipSyncRunItemsDto,
   ListBankSlipSyncRunsDto,
+  PreviewBankSlipIssueBatchDto,
   RecoverIssuedBankSlipDto,
   RetryBankSlipIssueBatchDto,
   RequestBankSlipCancellationDto,
@@ -115,6 +116,12 @@ export class BankSlipsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.bankSlips.createIssueBatch(body, user.id);
+  }
+
+  @Post("finance/bank-slip-issue-batches/preview")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  previewIssueBatch(@Body() body: PreviewBankSlipIssueBatchDto) {
+    return this.bankSlips.previewIssueBatch(body);
   }
 
   @Get("finance/bank-slip-issue-batches")
