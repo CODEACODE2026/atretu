@@ -1772,7 +1772,7 @@ export class BankSlipsService {
       totalIncompleteRequiredAddress: counters.incompleteRequiredAddress,
       totalBlocked: counters.blocked,
       eligibleAmountCents: counters.eligibleAmountCents,
-      eligibleAmountFormatted: formatInvoiceAmount(counters.eligibleAmountCents),
+      eligibleAmountFormatted: this.formatBatchAmount(counters.eligibleAmountCents),
     };
 
     return {
@@ -1796,6 +1796,12 @@ export class BankSlipsService {
     options: { resolveStalePendingIssue: boolean } = { resolveStalePendingIssue: true },
   ) {
     if (invoice.status !== InvoiceStatus.OPEN) {
+      if (invoice.status === InvoiceStatus.PAID) {
+        return { eligible: false, code: "INVOICE_ALREADY_PAID", reason: "Fatura ja esta paga" };
+      }
+      if (invoice.status === InvoiceStatus.CANCELLED) {
+        return { eligible: false, code: "INVOICE_CANCELLED", reason: "Fatura cancelada" };
+      }
       return { eligible: false, code: "INVOICE_NOT_OPEN", reason: "Fatura nao esta aberta" };
     }
     if (isInvoiceOverdue(invoice)) {
@@ -2089,6 +2095,7 @@ export class BankSlipsService {
   private async recalculateIssueBatch(batchId: string) {
     const items = await this.prisma.bankSlipIssueBatchItem.findMany({
       where: { batchId },
+      include: { invoice: true },
     });
     const counts = {
       totalItems: items.length,
@@ -2117,14 +2124,58 @@ export class BankSlipsService {
         : hasProblems
           ? BankSlipIssueBatchStatus.COMPLETED_WITH_ERRORS
           : BankSlipIssueBatchStatus.COMPLETED;
+    const report = this.buildIssueBatchReport(items);
+    const metadata = this.mergeBatchMetadata(batch.metadata, { report }) as Prisma.InputJsonValue;
     return this.prisma.bankSlipIssueBatch.update({
       where: { id: batchId },
       data: {
         status,
         ...counts,
         finishedAt: hasOpenWork ? null : new Date(),
+        metadata,
       },
     });
+  }
+
+  private buildIssueBatchReport(
+    items: Array<{
+      status: BankSlipIssueBatchItemStatus;
+      lastErrorCode?: string | null;
+      invoice?: { amountCents: number } | null;
+    }>,
+  ) {
+    const issuedAmountCents = items
+      .filter((item) => item.status === BankSlipIssueBatchItemStatus.ISSUED)
+      .reduce((sum, item) => sum + (item.invoice?.amountCents ?? 0), 0);
+    const alreadyPaid = items.filter((item) => item.lastErrorCode === "INVOICE_ALREADY_PAID").length;
+    const alreadyHadBankSlip = items.filter((item) =>
+      ["BANK_SLIP_ALREADY_EXISTS", "BANK_SLIP_ISSUE_IN_PROGRESS"].includes(item.lastErrorCode ?? ""),
+    ).length;
+    const incompleteRegistration = items.filter((item) =>
+      ["PAYER_DATA_INCOMPLETE", "PAYER_ADDRESS_REQUIRED", "PAYER_DATA_INVALID"].includes(item.lastErrorCode ?? ""),
+    ).length;
+    return {
+      issuedAmountCents,
+      issuedAmountFormatted: this.formatBatchAmount(issuedAmountCents),
+      alreadyPaid,
+      alreadyHadBankSlip,
+      incompleteRegistration,
+    };
+  }
+
+  private formatBatchAmount(amountCents: number) {
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(amountCents / 100);
+  }
+
+  private mergeBatchMetadata(metadata: Prisma.JsonValue | null, updates: Record<string, unknown>) {
+    const base =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? metadata as Record<string, unknown>
+        : {};
+    return { ...base, ...updates };
   }
 
   private countIssueBatchItems(

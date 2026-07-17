@@ -840,6 +840,22 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                 <span>Falhas: {issueBatch.failedItems}</span>
                 <span>Incertos: {issueBatch.unknownItems}</span>
                 <span>Cancelados: {issueBatch.cancelledItems}</span>
+                {issueBatch.metadata?.filters?.institutionName ? (
+                  <span>Instituicao: {issueBatch.metadata.filters.institutionName}</span>
+                ) : null}
+                {issueBatch.metadata?.filters?.competence ? (
+                  <span>Competencia: {issueBatch.metadata.filters.competence}</span>
+                ) : null}
+                {issueBatch.metadata?.report?.issuedAmountFormatted ? (
+                  <span>Valor emitido: {issueBatch.metadata.report.issuedAmountFormatted}</span>
+                ) : null}
+                {issueBatch.metadata?.report ? (
+                  <>
+                    <span>Ja pagos: {issueBatch.metadata.report.alreadyPaid ?? 0}</span>
+                    <span>Ja tinham boleto: {issueBatch.metadata.report.alreadyHadBankSlip ?? 0}</span>
+                    <span>Cadastro incompleto: {issueBatch.metadata.report.incompleteRegistration ?? 0}</span>
+                  </>
+                ) : null}
                 <button
                   className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
                   disabled={saving}

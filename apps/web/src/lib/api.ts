@@ -594,6 +594,24 @@ export type BankSlipIssueBatch = {
   startedAt?: string | null;
   finishedAt?: string | null;
   cancelledAt?: string | null;
+  metadata?: {
+    source?: "MANUAL" | "INSTITUTION";
+    filters?: {
+      institutionId?: string;
+      institutionName?: string;
+      competence?: string;
+      shiftId?: string | null;
+      dueDate?: string | null;
+    };
+    previewSummary?: Partial<BankSlipIssueBatchPreview>;
+    report?: {
+      issuedAmountCents?: number;
+      issuedAmountFormatted?: string;
+      alreadyPaid?: number;
+      alreadyHadBankSlip?: number;
+      incompleteRegistration?: number;
+    };
+  } | null;
   createdAt: string;
   updatedAt: string;
 };

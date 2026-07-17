@@ -1102,7 +1102,7 @@ async function testIssueBatchCreationDeduplicatesAndSkipsIneligible() {
   assert.equal(batch.skippedItems, 1);
   assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
   assert.equal(prisma.issueBatchItems[1]?.status, BankSlipIssueBatchItemStatus.SKIPPED);
-  assert.equal(prisma.issueBatchItems[1]?.lastErrorCode, "INVOICE_NOT_OPEN");
+  assert.equal(prisma.issueBatchItems[1]?.lastErrorCode, "INVOICE_ALREADY_PAID");
 }
 
 async function testIssueBatchPreviewByInstitution() {
@@ -1114,7 +1114,8 @@ async function testIssueBatchPreviewByInstitution() {
     studentId: "student-3",
     status: InvoiceStatus.PAID,
   });
-  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
 
   const preview = await service.previewIssueBatch({
     institutionId: "institution-1",
@@ -1132,6 +1133,8 @@ async function testIssueBatchPreviewByInstitution() {
   assert.equal(preview.totalBlocked, 2);
   assert.equal(preview.eligibleAmountCents, 12050);
   assert.equal(preview.items.length, 3);
+  assert.equal(prisma.issueBatches.length, 0);
+  assert.equal(sicredi.issueCalls.length, 0);
 }
 
 async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
@@ -1159,6 +1162,70 @@ async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
   assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
   assert.equal(prisma.issueBatchItems[1]?.status, BankSlipIssueBatchItemStatus.SKIPPED);
   assert.equal((prisma.issueBatches[0]?.metadata as { source?: string }).source, "INSTITUTION");
+}
+
+async function testInstitutionPreviewScopeAndBlockingRules() {
+  const prisma = new FakePrisma();
+  prisma.addInstitution("institution-2");
+  prisma.addEnrollment("foreign-enrollment", "student-foreign", { institutionId: "institution-2" });
+  prisma.addInvoice("foreign-invoice", {
+    enrollmentId: "foreign-enrollment",
+    studentId: "student-foreign",
+  });
+  prisma.addInvoice("issued-invoice", { enrollmentId: "enrollment-1", studentId: "student-1" });
+  prisma.seedIssuedBankSlip({ invoiceId: "issued-invoice" });
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  const preview = await service.previewIssueBatch({
+    institutionId: "institution-1",
+    competence: "2099-08",
+    page: 1,
+    limit: 20,
+  });
+
+  assert.equal(preview.totalEnrollmentsFound, 1);
+  assert.equal(preview.totalInvoicesFound, 2);
+  assert.equal(preview.totalWithActiveBankSlip, 1);
+  assert.equal(preview.items.some((item) => item.enrollmentId === "foreign-enrollment"), false);
+
+  const emptyCompetence = await service.previewIssueBatch({
+    institutionId: "institution-1",
+    competence: "2099-09",
+    page: 1,
+    limit: 20,
+  });
+  assert.equal(emptyCompetence.totalInvoicesFound, 0);
+  assert.equal(emptyCompetence.totalMissingInvoice, 1);
+
+  await assert.rejects(
+    () => service.previewIssueBatch({
+      institutionId: "institution-missing",
+      competence: "2099-08",
+      page: 1,
+      limit: 20,
+    }),
+    /Instituicao ativa nao encontrada/,
+  );
+}
+
+async function testIssueBatchReportIncludesInstitutionSummary() {
+  const prisma = new FakePrisma();
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+  const batch = await service.createIssueBatch(
+    {
+      source: BankSlipIssueBatchSource.INSTITUTION,
+      institutionId: "institution-1",
+      competence: "2099-08",
+    },
+    "user-1",
+  );
+  await service.processIssueBatchQueue();
+  const updated = prisma.issueBatches.find((item) => item.id === batch.id);
+  assert.ok(updated);
+  const metadata = updated.metadata as { filters?: { institutionId?: string; competence?: string }; report?: { issuedAmountCents?: number } };
+  assert.equal(metadata.filters?.institutionId, "institution-1");
+  assert.equal(metadata.filters?.competence, "2099-08");
+  assert.equal(metadata.report?.issuedAmountCents, 12050);
 }
 
 async function testIssueBatchProcessesSuccess() {
@@ -1707,8 +1774,14 @@ class FakePrisma {
       }
       return include?.batch ? { ...record, batch: this.issueBatches.find((batch) => batch.id === record.batchId) } : record;
     },
-    findMany: async ({ where }: { where?: Record<string, unknown> } = {}) =>
-      this.issueBatchItems.filter((item) => this.matchesWhere(item, where ?? {})),
+    findMany: async ({ where, include }: { where?: Record<string, unknown>; include?: Record<string, unknown> } = {}) =>
+      this.issueBatchItems
+        .filter((item) => this.matchesWhere(item, where ?? {}))
+        .map((item) =>
+          include?.invoice
+            ? { ...item, invoice: this.invoices.get(String(item.invoiceId)) ?? null }
+            : item,
+        ),
     count: async ({ where }: { where?: Record<string, unknown> } = {}) =>
       this.issueBatchItems.filter((item) => this.matchesWhere(item, where ?? {})).length,
   };
@@ -1795,8 +1868,17 @@ class FakePrisma {
     (this.invoiceRecord as Record<string, unknown>).bankSlip = this.bankSlips[0];
   }
 
-  addEnrollment(id: string, studentId: string) {
-    this.enrollments.set(id, createEnrollment(id, studentId));
+  addInstitution(id: string, overrides: Record<string, unknown> = {}) {
+    this.institutions.set(id, {
+      id,
+      name: `Instituicao ${id}`,
+      status: RecordStatus.ACTIVE,
+      ...overrides,
+    });
+  }
+
+  addEnrollment(id: string, studentId: string, overrides: Record<string, unknown> = {}) {
+    this.enrollments.set(id, createEnrollment(id, studentId, overrides));
   }
 
   addInvoice(id: string, overrides: Record<string, unknown> = {}) {
@@ -1835,23 +1917,25 @@ class FakePrisma {
   }
 }
 
-function createEnrollment(id: string, studentId: string) {
+function createEnrollment(id: string, studentId: string, overrides: Record<string, unknown> = {}) {
+  const institutionId = String(overrides.institutionId ?? "institution-1");
   return {
     id,
     studentId,
     academicYearId: "academic-year-1",
-    institutionId: "institution-1",
+    institutionId,
     shiftId: "shift-1",
     course: "Ensino Medio",
     grade: "1",
     status: EnrollmentStatus.ACTIVE,
-    institution: { id: "institution-1", name: "Instituicao Teste", status: RecordStatus.ACTIVE },
+    institution: { id: institutionId, name: `Instituicao ${institutionId}`, status: RecordStatus.ACTIVE },
     shift: { id: "shift-1", name: "Manha", status: RecordStatus.ACTIVE },
     student: {
       id: studentId,
       person: createPerson(studentId),
       guardian: null,
     },
+    ...overrides,
   };
 }
 
@@ -1933,6 +2017,8 @@ await testPayerManualLimits();
 await testIssueBatchCreationDeduplicatesAndSkipsIneligible();
 await testIssueBatchPreviewByInstitution();
 await testIssueBatchCreationByInstitutionCreatesSkippedItems();
+await testInstitutionPreviewScopeAndBlockingRules();
+await testIssueBatchReportIncludesInstitutionSummary();
 await testIssueBatchProcessesSuccess();
 await testIssueBatchProcessorLockPreventsDuplicateExecution();
 await testIssueBatchUnknownDoesNotRetry();
