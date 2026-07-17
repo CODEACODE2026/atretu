@@ -9,6 +9,8 @@ import {
 import {
   AdministrativeAuditEventType,
   BankSlipEnvironment,
+  BankSlipIssueBatchItemStatus,
+  BankSlipIssueBatchStatus,
   BankSlipProvider,
   BankSlipSyncRunItemStatus,
   BankSlipSyncRunStatus,
@@ -38,6 +40,9 @@ const config: SicrediConfig = {
   requirePayerAddress: true,
   syncOpenIssuedIntervalMs: 900_000,
   syncOpenIssuedLimit: 50,
+  issueBatchIntervalMs: 60_000,
+  issueBatchConcurrency: 2,
+  issueBatchLimit: 20,
 };
 
 async function testIssueBankSlipSuccess() {
@@ -1077,6 +1082,149 @@ async function testPayerManualLimits() {
   );
 }
 
+async function testIssueBatchCreationDeduplicatesAndSkipsIneligible() {
+  const prisma = new FakePrisma();
+  prisma.addInvoice("invoice-2");
+  (prisma.invoices.get("invoice-2") as Record<string, unknown>).status = InvoiceStatus.PAID;
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  const batch = await service.createIssueBatch(
+    { invoiceIds: ["invoice-1", "invoice-1", "invoice-2"] },
+    "user-1",
+  );
+
+  assert.equal(batch.totalItems, 2);
+  assert.equal(batch.queuedItems, 1);
+  assert.equal(batch.skippedItems, 1);
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
+  assert.equal(prisma.issueBatchItems[1]?.status, BankSlipIssueBatchItemStatus.SKIPPED);
+  assert.equal(prisma.issueBatchItems[1]?.lastErrorCode, "INVOICE_NOT_OPEN");
+}
+
+async function testIssueBatchProcessesSuccess() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const batch = await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+  const result = await service.processIssueBatchQueue();
+
+  assert.equal(result.processed, 1);
+  assert.equal(sicredi.issueCalls.length, 1);
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.ISSUED);
+  assert.equal(prisma.issueBatches.find((item) => item.id === batch.id)?.status, BankSlipIssueBatchStatus.COMPLETED);
+}
+
+async function testIssueBatchProcessorLockPreventsDuplicateExecution() {
+  const prisma = new FakePrisma();
+  prisma.issueBatchLockAvailable = false;
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+  const result = await service.processIssueBatchQueue();
+
+  assert.equal(result.skipped, true);
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
+}
+
+async function testIssueBatchUnknownDoesNotRetry() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  sicredi.issueError = new SicrediClientError({
+    operation: "issueBankSlip",
+    message: "Timeout",
+    code: "TIMEOUT",
+    transient: true,
+    uncertain: true,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+  await service.processIssueBatchQueue();
+  await assert.rejects(
+    () => service.retryFailedIssueBatch("issue-batch-1", "user-1", { reason: "retry" }),
+    (error) => error instanceof ConflictException,
+  );
+
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.UNKNOWN);
+  assert.equal(sicredi.issueCalls.length, 1);
+}
+
+async function testIssueBatchHandles4295xxAndPersistenceConflictAsUnknown() {
+  const cases = [
+    new SicrediClientError({
+      operation: "issueBankSlip",
+      message: "Rate limit",
+      code: "RATE_LIMIT",
+      statusCode: 429,
+      transient: true,
+      uncertain: true,
+    }),
+    new SicrediClientError({
+      operation: "issueBankSlip",
+      message: "Server error",
+      code: "SERVER_ERROR",
+      statusCode: 500,
+      transient: true,
+      uncertain: true,
+    }),
+  ];
+  for (const issueError of cases) {
+    const prisma = new FakePrisma();
+    const sicredi = new FakeSicrediClient();
+    sicredi.issueError = issueError;
+    const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+    await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+    await service.processIssueBatchQueue();
+
+    assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.UNKNOWN);
+  }
+
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    environment: BankSlipEnvironment.PRODUCTION,
+    nossoNumero: "251006142",
+    seuNumero: "A000000001",
+  });
+  prisma.addInvoice("invoice-2");
+  const service = new BankSlipsService(
+    prisma as never,
+    new FakeSicrediClient() as never,
+    { ...config, environment: "production" },
+  );
+  await service.createIssueBatch({ invoiceIds: ["invoice-2"] }, "user-1");
+  await service.processIssueBatchQueue();
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.UNKNOWN);
+  assert.equal(prisma.issueBatchItems[0]?.lastErrorCode, "BANK_SLIP_ISSUE_PERSISTENCE_CONFLICT");
+}
+
+async function testIssueBatchCancelAndRetrySafeFailure() {
+  const prisma = new FakePrisma();
+  prisma.addInvoice("invoice-2");
+  const sicredi = new FakeSicrediClient();
+  sicredi.issueError = new SicrediClientError({
+    operation: "issueBankSlip",
+    message: "Rejected",
+    code: "REJECTED",
+    statusCode: 400,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const batch = await service.createIssueBatch({ invoiceIds: ["invoice-1", "invoice-2"] }, "user-1");
+  await service.cancelIssueBatch(batch.id, "user-1", { reason: "Pausar lote" });
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.CANCELLED);
+  assert.equal(prisma.issueBatchItems[1]?.status, BankSlipIssueBatchItemStatus.CANCELLED);
+
+  const retryBatch = await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+  await service.processIssueBatchQueue();
+  assert.equal(prisma.issueBatchItems[2]?.status, BankSlipIssueBatchItemStatus.FAILED);
+  sicredi.issueError = undefined;
+  await service.retryFailedIssueBatch(retryBatch.id, "user-1", { reason: "Erro corrigido" });
+  await service.processIssueBatchQueue();
+  assert.equal(prisma.issueBatchItems[2]?.status, BankSlipIssueBatchItemStatus.ISSUED);
+}
+
 class FakeSicrediClient {
   issueCalls: Array<Record<string, unknown>> = [];
   getCalls: string[] = [];
@@ -1176,13 +1324,18 @@ class FakeSicrediClient {
 class FakePrisma {
   invoices = new Map([["invoice-1", createInvoice("invoice-1")]]);
   bankSlips: Array<Record<string, unknown>> = [];
+  issueBatches: Array<Record<string, unknown>> = [];
+  issueBatchItems: Array<Record<string, unknown>> = [];
   syncRuns: Array<Record<string, unknown>> = [];
   syncRunItems: Array<Record<string, unknown>> = [];
   historyEvents: Array<Record<string, unknown>> = [];
   auditLogs: Array<Record<string, unknown>> = [];
   auditFindFirstCalls = 0;
   syncLockAvailable = true;
+  issueBatchLockAvailable = true;
   private bankSlipIdSequence = 0;
+  private issueBatchIdSequence = 0;
+  private issueBatchItemIdSequence = 0;
   private syncRunIdSequence = 0;
   private syncRunItemIdSequence = 0;
   private transactionQueue = Promise.resolve();
@@ -1214,6 +1367,12 @@ class FakePrisma {
   invoiceDelegate = {
     findUnique: async ({ where }: { where: { id: string } }) =>
       this.invoiceWithBankSlip(where.id),
+    findMany: async ({ where }: { where?: { id?: { in?: string[] } } } = {}) => {
+      const ids = where?.id?.in;
+      const invoices = [...this.invoices.values()];
+      return (ids ? invoices.filter((invoice) => ids.includes(invoice.id)) : invoices)
+        .map((invoice) => this.invoiceWithBankSlip(invoice.id));
+    },
     update: async ({
       where,
       data,
@@ -1365,6 +1524,107 @@ class FakePrisma {
       this.syncRunItems.filter((item) => item.runId === where.runId).length,
   };
 
+  bankSlipIssueBatch = {
+    create: async ({ data }: { data: Record<string, unknown> }) => {
+      this.issueBatchIdSequence += 1;
+      const record = {
+        id: `issue-batch-${this.issueBatchIdSequence}`,
+        status: BankSlipIssueBatchStatus.DRAFT,
+        totalItems: 0,
+        queuedItems: 0,
+        processingItems: 0,
+        issuedItems: 0,
+        skippedItems: 0,
+        failedItems: 0,
+        unknownItems: 0,
+        cancelledItems: 0,
+        startedAt: null,
+        finishedAt: null,
+        cancelledAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...data,
+      };
+      this.issueBatches.push(record);
+      return record;
+    },
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: Record<string, unknown>;
+    }) => {
+      const record = this.issueBatches.find((item) => item.id === where.id);
+      assert.ok(record);
+      Object.assign(record, data, { updatedAt: new Date() });
+      return record;
+    },
+    findUnique: async ({ where }: { where: { id: string } }) =>
+      this.issueBatches.find((item) => item.id === where.id) ?? null,
+    findMany: async () => this.issueBatches,
+    count: async () => this.issueBatches.length,
+  };
+
+  bankSlipIssueBatchItem = {
+    create: async ({ data }: { data: Record<string, unknown> }) => {
+      this.issueBatchItemIdSequence += 1;
+      const record = {
+        id: `issue-batch-item-${this.issueBatchItemIdSequence}`,
+        status: BankSlipIssueBatchItemStatus.QUEUED,
+        attempts: 0,
+        nextAttemptAt: null,
+        lockedAt: null,
+        startedAt: null,
+        finishedAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        skipReason: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...data,
+      };
+      this.issueBatchItems.push(record);
+      return record;
+    },
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: Record<string, unknown>;
+    }) => {
+      const record = this.issueBatchItems.find((item) => item.id === where.id);
+      assert.ok(record);
+      Object.assign(record, this.applyUpdateData(record, data), { updatedAt: new Date() });
+      return record;
+    },
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    }) => {
+      const records = this.issueBatchItems.filter((item) => this.matchesWhere(item, where));
+      records.forEach((record) => {
+        Object.assign(record, this.applyUpdateData(record, data), { updatedAt: new Date() });
+      });
+      return { count: records.length };
+    },
+    findUnique: async ({ where, include }: { where: { id: string }; include?: Record<string, unknown> }) => {
+      const record = this.issueBatchItems.find((item) => item.id === where.id);
+      if (!record) {
+        return null;
+      }
+      return include?.batch ? { ...record, batch: this.issueBatches.find((batch) => batch.id === record.batchId) } : record;
+    },
+    findMany: async ({ where }: { where?: Record<string, unknown> } = {}) =>
+      this.issueBatchItems.filter((item) => this.matchesWhere(item, where ?? {})),
+    count: async ({ where }: { where?: Record<string, unknown> } = {}) =>
+      this.issueBatchItems.filter((item) => this.matchesWhere(item, where ?? {})).length,
+  };
+
   async $transaction<T>(callback: (tx: this) => Promise<T>) {
     const previous = this.transactionQueue;
     let release: () => void = () => undefined;
@@ -1379,15 +1639,38 @@ class FakePrisma {
     }
   }
 
-  async $queryRaw(strings?: TemplateStringsArray) {
+  async $queryRaw(strings?: TemplateStringsArray, ...values: unknown[]) {
     const query = Array.isArray(strings) ? strings.join("") : "";
     if (query.includes("pg_try_advisory_lock")) {
-      return [{ locked: this.syncLockAvailable }];
+      return [{ locked: values.includes(7_811_005) ? this.issueBatchLockAvailable : this.syncLockAvailable }];
     }
     if (query.includes("pg_advisory_unlock")) {
       return [{ unlocked: true }];
     }
     return [{ id: "locked" }];
+  }
+
+  private applyUpdateData(record: Record<string, unknown>, data: Record<string, unknown>) {
+    return Object.fromEntries(
+      Object.entries(data).map(([key, value]) => [
+        key,
+        value && typeof value === "object" && "increment" in value
+          ? Number(record[key] ?? 0) + Number((value as { increment: number }).increment)
+          : value,
+      ]),
+    );
+  }
+
+  private matchesWhere(record: Record<string, unknown>, where: Record<string, unknown>) {
+    return Object.entries(where).every(([key, value]) => {
+      if (key === "batch" || key === "OR") {
+        return true;
+      }
+      if (value && typeof value === "object" && "in" in value) {
+        return (value as { in: unknown[] }).in.includes(record[key]);
+      }
+      return record[key] === value;
+    });
   }
 
   seedIssuedBankSlip(overrides: Record<string, unknown> = {}) {
@@ -1517,3 +1800,9 @@ await testCancellationConfirmedBySyncCancelsInvoice();
 await testPdfUsesStoredLinhaDigitavel();
 await testPdfErrorsAreMappedSafely();
 await testPayerManualLimits();
+await testIssueBatchCreationDeduplicatesAndSkipsIneligible();
+await testIssueBatchProcessesSuccess();
+await testIssueBatchProcessorLockPreventsDuplicateExecution();
+await testIssueBatchUnknownDoesNotRetry();
+await testIssueBatchHandles4295xxAndPersistenceConflictAsUnknown();
+await testIssueBatchCancelAndRetrySafeFailure();

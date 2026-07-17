@@ -7,6 +7,8 @@ import {
   type ApiUser,
   type BaseRecord,
   type BankSlipRecord,
+  type BankSlipIssueBatch,
+  type BankSlipIssueBatchItem,
   type BankSlipSummary,
   type BankSlipStatus,
   type InvoiceCancellationReason,
@@ -60,6 +62,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   const [saving, setSaving] = useState(false);
   const [bankSlipAction, setBankSlipAction] = useState("");
   const issueBankSlipInFlightRef = useRef("");
+  const issueBatchInFlightRef = useRef(false);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [issueBatch, setIssueBatch] = useState<BankSlipIssueBatch | null>(null);
+  const [issueBatchItems, setIssueBatchItems] = useState<BankSlipIssueBatchItem[]>([]);
   const [syncPaidDate, setSyncPaidDate] = useState(todayDate());
   const [syncPaidSummary, setSyncPaidSummary] = useState("");
   const [message, setMessage] = useState("");
@@ -80,6 +86,16 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     dueDateFrom,
     dueDateTo,
   ]);
+
+  useEffect(() => {
+    if (!issueBatch || !isIssueBatchRunning(issueBatch)) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void refreshIssueBatch(issueBatch.id);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [issueBatch?.id, issueBatch?.status]);
 
   async function loadReferences() {
     setError("");
@@ -118,6 +134,9 @@ export function FinancePanel({ user }: { user: ApiUser }) {
       });
       setInvoices(response.data);
       setBankSlips((current) => mergeBankSlipSummaries(response.data, current));
+      setSelectedInvoiceIds((current) =>
+        current.filter((invoiceId) => response.data.some((invoice) => invoice.id === invoiceId)),
+      );
       setTotalPages(Math.max(response.pagination.totalPages, 1));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar");
@@ -404,6 +423,107 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     }
   }
 
+  function toggleInvoiceSelection(invoiceId: string) {
+    setSelectedInvoiceIds((current) =>
+      current.includes(invoiceId)
+        ? current.filter((currentId) => currentId !== invoiceId)
+        : [...current, invoiceId],
+    );
+  }
+
+  function selectAllEligibleInvoices() {
+    const eligible = invoices
+      .filter((invoice) => canIssueBankSlip(invoice, bankSlips[invoice.id]))
+      .map((invoice) => invoice.id);
+    setSelectedInvoiceIds(eligible);
+  }
+
+  async function refreshIssueBatch(batchId: string) {
+    try {
+      const [batch, items] = await Promise.all([
+        api.getBankSlipIssueBatch(batchId),
+        api.listBankSlipIssueBatchItems(batchId, { limit: 200 }),
+      ]);
+      setIssueBatch(batch);
+      setIssueBatchItems(items.data);
+      if (!isIssueBatchRunning(batch)) {
+        await loadInvoices();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao atualizar lote");
+    }
+  }
+
+  async function handleCreateIssueBatch() {
+    if (issueBatchInFlightRef.current || selectedInvoiceIds.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(`Emitir boletos para ${selectedInvoiceIds.length} fatura(s) selecionada(s)?`);
+    if (!confirmed) {
+      return;
+    }
+    issueBatchInFlightRef.current = true;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const batch = await api.createBankSlipIssueBatch(selectedInvoiceIds);
+      setIssueBatch(batch);
+      setSelectedInvoiceIds([]);
+      await refreshIssueBatch(batch.id);
+      setMessage("Lote de emissao criado");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao criar lote");
+    } finally {
+      setSaving(false);
+      issueBatchInFlightRef.current = false;
+    }
+  }
+
+  async function handleCancelIssueBatch() {
+    if (!issueBatch) {
+      return;
+    }
+    const reason = window.prompt("Motivo do cancelamento do lote") ?? undefined;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const batch = await api.cancelBankSlipIssueBatch(issueBatch.id, {
+        reason: emptyToUndefined(reason),
+      });
+      setIssueBatch(batch);
+      await refreshIssueBatch(batch.id);
+      setMessage("Lote cancelado");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao cancelar lote");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRetryIssueBatch() {
+    if (!issueBatch) {
+      return;
+    }
+    const reason = window.prompt("Motivo do retry") ?? undefined;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const batch = await api.retryFailedBankSlipIssueBatch(issueBatch.id, {
+        reason: emptyToUndefined(reason),
+      });
+      setIssueBatch(batch);
+      await refreshIssueBatch(batch.id);
+      setMessage("Itens com falha segura reenfileirados");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao reenfileirar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="grid gap-4">
       <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
@@ -537,6 +657,87 @@ export function FinancePanel({ user }: { user: ApiUser }) {
           </div>
         ) : null}
 
+        <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase text-slate-500">
+              Emissao em lote
+            </span>
+            <button
+              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+              disabled={saving || invoices.every((invoice) => !canIssueBankSlip(invoice, bankSlips[invoice.id]))}
+              onClick={selectAllEligibleInvoices}
+              type="button"
+            >
+              Selecionar elegiveis
+            </button>
+            <button
+              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+              disabled={saving || selectedInvoiceIds.length === 0}
+              onClick={() => void handleCreateIssueBatch()}
+              type="button"
+            >
+              Emitir selecionadas ({selectedInvoiceIds.length})
+            </button>
+          </div>
+          {issueBatch ? (
+            <div className="mt-3 grid gap-2 text-xs text-slate-700">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">Lote {issueBatch.id.slice(0, 8)}</span>
+                <span>{issueBatchStatusLabel(issueBatch.status)}</span>
+                <span>Total: {issueBatch.totalItems}</span>
+                <span>Emitidos: {issueBatch.issuedItems}</span>
+                <span>Ignorados: {issueBatch.skippedItems}</span>
+                <span>Falhas: {issueBatch.failedItems}</span>
+                <span>Incertos: {issueBatch.unknownItems}</span>
+                <span>Cancelados: {issueBatch.cancelledItems}</span>
+                <button
+                  className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
+                  disabled={saving}
+                  onClick={() => void refreshIssueBatch(issueBatch.id)}
+                  type="button"
+                >
+                  Atualizar
+                </button>
+                {isIssueBatchRunning(issueBatch) ? (
+                  <button
+                    className="rounded border border-amber-200 bg-white px-2 py-1 font-medium text-amber-700 disabled:opacity-60"
+                    disabled={saving}
+                    onClick={() => void handleCancelIssueBatch()}
+                    type="button"
+                  >
+                    Cancelar lote
+                  </button>
+                ) : null}
+                {issueBatch.failedItems > 0 ? (
+                  <button
+                    className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
+                    disabled={saving}
+                    onClick={() => void handleRetryIssueBatch()}
+                    type="button"
+                  >
+                    Retry seguro
+                  </button>
+                ) : null}
+              </div>
+              {issueBatchItems.length > 0 ? (
+                <div className="grid gap-1">
+                  {issueBatchItems.slice(0, 8).map((item) => (
+                    <div className="flex flex-wrap gap-2" key={item.id}>
+                      <span>{issueBatchItemStatusLabel(item.status)}</span>
+                      <span>{item.invoiceId.slice(0, 8)}</span>
+                      {item.skipReason || item.lastErrorMessage ? (
+                        <span className="text-slate-500">
+                          {item.skipReason ?? item.lastErrorMessage}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         {message ? (
           <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {message}
@@ -549,9 +750,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
         ) : null}
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[940px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
+                <th className="px-4 py-3">Sel.</th>
                 <th className="px-4 py-3">Academico</th>
                 <th className="px-4 py-3">CPF</th>
                 <th className="px-4 py-3">Ano</th>
@@ -566,13 +768,13 @@ export function FinancePanel({ user }: { user: ApiUser }) {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={9}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={10}>
                     Carregando...
                   </td>
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={9}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={10}>
                     Nenhuma fatura encontrada
                   </td>
                 </tr>
@@ -582,6 +784,14 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                   return (
                     <Fragment key={invoice.id}>
                       <tr>
+                        <td className="px-4 py-3">
+                          <input
+                            checked={selectedInvoiceIds.includes(invoice.id)}
+                            disabled={!canIssueBankSlip(invoice, bankSlip) || saving}
+                            onChange={() => toggleInvoiceSelection(invoice.id)}
+                            type="checkbox"
+                          />
+                        </td>
                         <td className="px-4 py-3 font-medium text-slate-950">
                           {invoice.student.person.fullName}
                           {invoice.description ? (
@@ -628,7 +838,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                       </tr>
                       {expandedInvoiceId === invoice.id ? (
                         <tr>
-                          <td className="bg-slate-50 px-4 py-3" colSpan={9}>
+                          <td className="bg-slate-50 px-4 py-3" colSpan={10}>
                             <BankSlipDetails bankSlip={bankSlip} invoice={invoice} />
                           </td>
                         </tr>
@@ -1480,6 +1690,36 @@ export function canIssueBankSlip(
 
 function issueBankSlipButtonLabel(bankSlip: BankSlipListRecord | null | undefined) {
   return bankSlip?.status === "CANCELLED" ? "Emitir novo boleto" : "Emitir boleto";
+}
+
+function isIssueBatchRunning(batch: BankSlipIssueBatch) {
+  return batch.status === "QUEUED" || batch.status === "PROCESSING";
+}
+
+function issueBatchStatusLabel(status: BankSlipIssueBatch["status"]) {
+  const labels: Record<BankSlipIssueBatch["status"], string> = {
+    DRAFT: "Rascunho",
+    QUEUED: "Na fila",
+    PROCESSING: "Processando",
+    COMPLETED: "Concluido",
+    COMPLETED_WITH_ERRORS: "Concluido com erros",
+    FAILED: "Falhou",
+    CANCELLED: "Cancelado",
+  };
+  return labels[status];
+}
+
+function issueBatchItemStatusLabel(status: BankSlipIssueBatchItem["status"]) {
+  const labels: Record<BankSlipIssueBatchItem["status"], string> = {
+    QUEUED: "Na fila",
+    PROCESSING: "Processando",
+    ISSUED: "Emitido",
+    SKIPPED: "Ignorado",
+    FAILED: "Falhou",
+    UNKNOWN: "Incerto",
+    CANCELLED: "Cancelado",
+  };
+  return labels[status];
 }
 
 export function canRequestBankSlipCancellation(

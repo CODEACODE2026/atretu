@@ -14,6 +14,9 @@ export type SicrediConfig = {
   requirePayerAddress: boolean;
   syncOpenIssuedIntervalMs: number;
   syncOpenIssuedLimit: number;
+  issueBatchIntervalMs: number;
+  issueBatchConcurrency: number;
+  issueBatchLimit: number;
 };
 
 export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): SicrediConfig {
@@ -47,6 +50,22 @@ export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): Sicredi
       "SICREDI_SYNC_OPEN_ISSUED_LIMIT",
       env.SICREDI_SYNC_OPEN_ISSUED_LIMIT,
       50,
+    ),
+    issueBatchIntervalMs: readPositiveInt(
+      "SICREDI_ISSUE_BATCH_INTERVAL_MS",
+      env.SICREDI_ISSUE_BATCH_INTERVAL_MS,
+      60_000,
+    ),
+    issueBatchConcurrency: readBoundedPositiveInt(
+      "SICREDI_ISSUE_BATCH_CONCURRENCY",
+      env.SICREDI_ISSUE_BATCH_CONCURRENCY,
+      2,
+      3,
+    ),
+    issueBatchLimit: readPositiveInt(
+      "SICREDI_ISSUE_BATCH_LIMIT",
+      env.SICREDI_ISSUE_BATCH_LIMIT,
+      20,
     ),
   };
 }
@@ -92,6 +111,19 @@ function readPositiveInt(name: string, value: string | undefined, fallback: numb
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function readBoundedPositiveInt(
+  name: string,
+  value: string | undefined,
+  fallback: number,
+  max: number,
+) {
+  const parsed = readPositiveInt(name, value, fallback);
+  if (parsed > max) {
+    throw new Error(`${name} must be less than or equal to ${max}`);
   }
   return parsed;
 }

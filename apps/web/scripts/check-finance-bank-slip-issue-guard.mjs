@@ -32,4 +32,22 @@ assert.match(
   "Issue button must label reissue after external cancellation",
 );
 
+assert.match(
+  source,
+  /const issueBatchInFlightRef = useRef\(false\);/,
+  "Batch issue flow must have a synchronous in-flight ref",
+);
+
+assert.match(
+  source,
+  /api\.createBankSlipIssueBatch\(selectedInvoiceIds\)/,
+  "Finance panel must create issue batches from selected invoices",
+);
+
+assert.match(
+  source,
+  /Emitir selecionadas/,
+  "Finance panel must expose the batch issue action",
+);
+
 console.log("Finance bank slip issue guard OK");

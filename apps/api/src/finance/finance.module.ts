@@ -4,6 +4,7 @@ import { AdministrativeAuditModule } from "../administrative-audit/administrativ
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { UsersModule } from "../users/users.module.js";
+import { BankSlipIssueBatchJob } from "./bank-slip-issue-batch.job.js";
 import { BankSlipsController } from "./bank-slips.controller.js";
 import { BankSlipSyncJob } from "./bank-slip-sync.job.js";
 import {
@@ -28,6 +29,7 @@ import { loadSicrediConfig } from "./sicredi-config.js";
   providers: [
     InvoicesService,
     BankSlipsService,
+    BankSlipIssueBatchJob,
     BankSlipSyncJob,
     {
       provide: SICREDI_CONFIG,

@@ -559,6 +559,63 @@ export type SyncPaidBankSlipsDaySummary = {
   errors: Array<{ seuNumero: string; nossoNumero: string; code: string }>;
 };
 
+export type BankSlipIssueBatchStatus =
+  | "DRAFT"
+  | "QUEUED"
+  | "PROCESSING"
+  | "COMPLETED"
+  | "COMPLETED_WITH_ERRORS"
+  | "FAILED"
+  | "CANCELLED";
+
+export type BankSlipIssueBatchItemStatus =
+  | "QUEUED"
+  | "PROCESSING"
+  | "ISSUED"
+  | "SKIPPED"
+  | "FAILED"
+  | "UNKNOWN"
+  | "CANCELLED";
+
+export type BankSlipIssueBatch = {
+  id: string;
+  status: BankSlipIssueBatchStatus;
+  requestedByUserId: string;
+  cancelledByUserId?: string | null;
+  cancelReason?: string | null;
+  totalItems: number;
+  queuedItems: number;
+  processingItems: number;
+  issuedItems: number;
+  skippedItems: number;
+  failedItems: number;
+  unknownItems: number;
+  cancelledItems: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BankSlipIssueBatchItem = {
+  id: string;
+  batchId: string;
+  invoiceId: string;
+  bankSlipId?: string | null;
+  status: BankSlipIssueBatchItemStatus;
+  attempts: number;
+  nextAttemptAt?: string | null;
+  lockedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
+  skipReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type InvoiceRecord = {
   id: string;
   amountCents: number;
@@ -916,6 +973,49 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ date }),
     });
+  },
+
+  createBankSlipIssueBatch(invoiceIds: string[]) {
+    return request<BankSlipIssueBatch>("/finance/bank-slip-issue-batches", {
+      method: "POST",
+      body: JSON.stringify({ invoiceIds }),
+    });
+  },
+
+  listBankSlipIssueBatches(params?: { page?: number; limit?: number }) {
+    return request<ListResponse<BankSlipIssueBatch>>(
+      withParams("/finance/bank-slip-issue-batches", params),
+    );
+  },
+
+  getBankSlipIssueBatch(batchId: string) {
+    return request<BankSlipIssueBatch>(`/finance/bank-slip-issue-batches/${batchId}`);
+  },
+
+  listBankSlipIssueBatchItems(batchId: string, params?: { page?: number; limit?: number }) {
+    return request<ListResponse<BankSlipIssueBatchItem>>(
+      withParams(`/finance/bank-slip-issue-batches/${batchId}/items`, params),
+    );
+  },
+
+  cancelBankSlipIssueBatch(batchId: string, body: { reason?: string }) {
+    return request<BankSlipIssueBatch>(
+      `/finance/bank-slip-issue-batches/${batchId}/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  retryFailedBankSlipIssueBatch(batchId: string, body: { reason?: string }) {
+    return request<BankSlipIssueBatch>(
+      `/finance/bank-slip-issue-batches/${batchId}/retry-failed`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
   },
 
   listStudentCardsForStudent(studentId: string) {

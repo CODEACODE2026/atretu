@@ -221,6 +221,26 @@ enum BankSlipSyncRunItemStatus {
   ERROR
 }
 
+enum BankSlipIssueBatchStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+enum BankSlipIssueBatchItemStatus {
+  QUEUED
+  PROCESSING
+  ISSUED
+  SKIPPED
+  FAILED
+  UNKNOWN
+  CANCELLED
+}
+
 enum StudentDocumentType {
   CPF
   RG
@@ -271,6 +291,8 @@ model User {
   invoicesCancelled        Invoice[]                @relation("InvoiceCancelledBy")
   bankSlipCancellations    BankSlip[]               @relation("BankSlipCancellationRequestedBy")
   bankSlipSyncRunsStarted  BankSlipSyncRun[]        @relation("BankSlipSyncRunStartedBy")
+  bankSlipIssueBatches     BankSlipIssueBatch[]     @relation("BankSlipIssueBatchRequestedBy")
+  bankSlipIssueBatchCancels BankSlipIssueBatch[]    @relation("BankSlipIssueBatchCancelledBy")
 
   @@map("users")
 }
@@ -617,6 +639,7 @@ model Invoice {
   studentHistoryEvents StudentHistoryEvent[]
   bankSlip             BankSlip?
   bankSlipSyncRunItems BankSlipSyncRunItem[]
+  bankSlipIssueBatchItems BankSlipIssueBatchItem[]
 
   @@index([studentId, createdAt])
   @@index([enrollmentId])
@@ -656,6 +679,7 @@ model BankSlip {
   cancellationRequestedBy       User?                      @relation("BankSlipCancellationRequestedBy", fields: [cancellationRequestedByUserId], references: [id], onDelete: Restrict)
   studentHistoryEvents          StudentHistoryEvent[]
   syncRunItems                  BankSlipSyncRunItem[]
+  issueBatchItems               BankSlipIssueBatchItem[]
 
   @@unique([provider, environment, seuNumero])
   @@index([provider, environment, nossoNumero])
@@ -713,6 +737,64 @@ model BankSlipSyncRunItem {
   @@index([invoiceId, checkedAt])
   @@index([status, checkedAt])
   @@map("bank_slip_sync_run_items")
+}
+
+model BankSlipIssueBatch {
+  id              String                     @id @default(uuid()) @db.Uuid
+  status          BankSlipIssueBatchStatus   @default(DRAFT)
+  requestedByUserId String                   @map("requested_by_user_id") @db.Uuid
+  cancelledByUserId String?                  @map("cancelled_by_user_id") @db.Uuid
+  cancelReason    String?                    @map("cancel_reason") @db.VarChar(500)
+  totalItems      Int                        @default(0) @map("total_items")
+  queuedItems     Int                        @default(0) @map("queued_items")
+  processingItems Int                        @default(0) @map("processing_items")
+  issuedItems     Int                        @default(0) @map("issued_items")
+  skippedItems    Int                        @default(0) @map("skipped_items")
+  failedItems     Int                        @default(0) @map("failed_items")
+  unknownItems    Int                        @default(0) @map("unknown_items")
+  cancelledItems  Int                        @default(0) @map("cancelled_items")
+  startedAt       DateTime?                  @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime?                  @map("finished_at") @db.Timestamptz(6)
+  cancelledAt     DateTime?                  @map("cancelled_at") @db.Timestamptz(6)
+  metadata        Json?
+  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  requestedBy     User                       @relation("BankSlipIssueBatchRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  cancelledBy     User?                      @relation("BankSlipIssueBatchCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  items           BankSlipIssueBatchItem[]
+
+  @@index([status, createdAt])
+  @@index([requestedByUserId, createdAt])
+  @@index([cancelledByUserId, cancelledAt])
+  @@map("bank_slip_issue_batches")
+}
+
+model BankSlipIssueBatchItem {
+  id               String                       @id @default(uuid()) @db.Uuid
+  batchId          String                       @map("batch_id") @db.Uuid
+  invoiceId        String                       @map("invoice_id") @db.Uuid
+  bankSlipId       String?                      @map("bank_slip_id") @db.Uuid
+  status           BankSlipIssueBatchItemStatus @default(QUEUED)
+  attempts         Int                          @default(0)
+  nextAttemptAt    DateTime?                    @map("next_attempt_at") @db.Timestamptz(6)
+  lockedAt         DateTime?                    @map("locked_at") @db.Timestamptz(6)
+  startedAt        DateTime?                    @map("started_at") @db.Timestamptz(6)
+  finishedAt       DateTime?                    @map("finished_at") @db.Timestamptz(6)
+  lastErrorCode    String?                      @map("last_error_code") @db.VarChar(80)
+  lastErrorMessage String?                      @map("last_error_message") @db.VarChar(500)
+  skipReason       String?                      @map("skip_reason") @db.VarChar(500)
+  createdAt        DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  batch            BankSlipIssueBatch           @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  invoice          Invoice                      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  bankSlip         BankSlip?                    @relation(fields: [bankSlipId], references: [id], onDelete: SetNull)
+
+  @@unique([batchId, invoiceId])
+  @@index([batchId, status])
+  @@index([status, nextAttemptAt])
+  @@index([invoiceId])
+  @@index([bankSlipId])
+  @@map("bank_slip_issue_batch_items")
 }
 
 model BusAssignment {

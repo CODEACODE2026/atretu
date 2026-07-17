@@ -1,8 +1,11 @@
 import { Transform, Type } from "class-transformer";
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsDateString,
   IsEnum,
   IsInt,
+  IsArray,
   IsOptional,
   IsString,
   IsUUID,
@@ -21,6 +24,65 @@ export class InvoiceBankSlipParamsDto {
 export class BankSlipSyncRunParamsDto {
   @IsUUID()
   runId!: string;
+}
+
+export class BankSlipIssueBatchParamsDto {
+  @IsUUID()
+  batchId!: string;
+}
+
+export class CreateBankSlipIssueBatchDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID(undefined, { each: true })
+  invoiceIds!: string[];
+}
+
+export class ListBankSlipIssueBatchesDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
+}
+
+export class ListBankSlipIssueBatchItemsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit = 50;
+}
+
+export class CancelBankSlipIssueBatchDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  reason?: string;
+}
+
+export class RetryBankSlipIssueBatchDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  reason?: string;
 }
 
 export class ListBankSlipSyncRunsDto {

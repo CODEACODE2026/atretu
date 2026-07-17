@@ -10,6 +10,8 @@ import {
 import {
   AdministrativeAuditEventType,
   BankSlipEnvironment,
+  BankSlipIssueBatchItemStatus,
+  BankSlipIssueBatchStatus,
   BankSlipProvider,
   BankSlipSyncRunItemStatus,
   BankSlipSyncRunStatus,
@@ -41,9 +43,14 @@ import {
   type SicrediBusinessError,
 } from "./sicredi-business-errors.js";
 import type {
+  CancelBankSlipIssueBatchDto,
+  CreateBankSlipIssueBatchDto,
+  ListBankSlipIssueBatchItemsDto,
+  ListBankSlipIssueBatchesDto,
   ListBankSlipSyncRunItemsDto,
   ListBankSlipSyncRunsDto,
   RecoverIssuedBankSlipDto,
+  RetryBankSlipIssueBatchDto,
   RequestBankSlipCancellationDto,
 } from "./dto/bank-slips.dto.js";
 import { resolvePagination } from "../common/pagination.js";
@@ -87,6 +94,7 @@ type CancellationPreparation = {
 
 const PENDING_ISSUE_STALE_MS = 15 * 60 * 1000;
 const OPEN_ISSUED_SYNC_LOCK_ID = 7_811_004;
+const ISSUE_BATCH_PROCESSOR_LOCK_ID = 7_811_005;
 
 @Injectable()
 export class BankSlipsService {
@@ -595,6 +603,183 @@ export class BankSlipsService {
         totalPages: Math.ceil(total / pagination.limit),
       },
     };
+  }
+
+  async createIssueBatch(body: CreateBankSlipIssueBatchDto, userId: string) {
+    const invoiceIds = [...new Set(body.invoiceIds)];
+    const invoices = await this.prisma.invoice.findMany({
+      where: { id: { in: invoiceIds } },
+      include: this.invoiceInclude(),
+    });
+    const byId = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+    const missing = invoiceIds.filter((invoiceId) => !byId.has(invoiceId));
+    if (missing.length > 0) {
+      throw new BadRequestException({
+        code: "INVOICE_NOT_FOUND",
+        message: "Uma ou mais faturas nao foram encontradas",
+      });
+    }
+
+    const batch = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.bankSlipIssueBatch.create({
+        data: {
+          status: BankSlipIssueBatchStatus.DRAFT,
+          requestedByUserId: userId,
+          totalItems: invoiceIds.length,
+          metadata: { duplicatedInvoiceIds: body.invoiceIds.length - invoiceIds.length },
+        },
+      });
+      for (const invoiceId of invoiceIds) {
+        const invoice = byId.get(invoiceId);
+        if (!invoice) {
+          continue;
+        }
+        const eligibility = await this.issueBatchEligibility(tx, invoice, userId);
+        await tx.bankSlipIssueBatchItem.create({
+          data: {
+            batchId: created.id,
+            invoiceId,
+            bankSlipId: invoice.bankSlip?.id,
+            status: eligibility.eligible
+              ? BankSlipIssueBatchItemStatus.QUEUED
+              : BankSlipIssueBatchItemStatus.SKIPPED,
+            skipReason: eligibility.reason,
+            lastErrorCode: eligibility.code,
+            lastErrorMessage: eligibility.reason,
+          },
+        });
+      }
+      return created;
+    });
+    return this.recalculateIssueBatch(batch.id);
+  }
+
+  async listIssueBatches(query: ListBankSlipIssueBatchesDto) {
+    const pagination = resolvePagination(query, { defaultLimit: 20, maxLimit: 100 });
+    const [records, total] = await Promise.all([
+      this.prisma.bankSlipIssueBatch.findMany({
+        orderBy: [{ createdAt: "desc" }],
+        skip: pagination.skip,
+        take: pagination.limit,
+      }),
+      this.prisma.bankSlipIssueBatch.count(),
+    ]);
+    return {
+      data: records,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
+  }
+
+  async getIssueBatch(id: string) {
+    const batch = await this.prisma.bankSlipIssueBatch.findUnique({ where: { id } });
+    if (!batch) {
+      throw new NotFoundException("Lote de emissao nao encontrado");
+    }
+    return batch;
+  }
+
+  async listIssueBatchItems(batchId: string, query: ListBankSlipIssueBatchItemsDto) {
+    await this.getIssueBatch(batchId);
+    const pagination = resolvePagination(query, { defaultLimit: 50, maxLimit: 200 });
+    const [records, total] = await Promise.all([
+      this.prisma.bankSlipIssueBatchItem.findMany({
+        where: { batchId },
+        orderBy: [{ createdAt: "asc" }],
+        skip: pagination.skip,
+        take: pagination.limit,
+      }),
+      this.prisma.bankSlipIssueBatchItem.count({ where: { batchId } }),
+    ]);
+    return {
+      data: records,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
+  }
+
+  async cancelIssueBatch(
+    batchId: string,
+    userId: string,
+    body: CancelBankSlipIssueBatchDto,
+  ) {
+    await this.getIssueBatch(batchId);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.bankSlipIssueBatchItem.updateMany({
+        where: { batchId, status: BankSlipIssueBatchItemStatus.QUEUED },
+        data: {
+          status: BankSlipIssueBatchItemStatus.CANCELLED,
+          finishedAt: new Date(),
+          lastErrorCode: "BATCH_CANCELLED",
+          lastErrorMessage: this.optional(body.reason) ?? "Lote cancelado pelo usuario",
+        },
+      });
+      await tx.bankSlipIssueBatch.update({
+        where: { id: batchId },
+        data: {
+          cancelledAt: new Date(),
+          cancelledByUserId: userId,
+          cancelReason: this.optional(body.reason),
+        },
+      });
+    });
+    return this.recalculateIssueBatch(batchId);
+  }
+
+  async retryFailedIssueBatch(
+    batchId: string,
+    _userId: string,
+    body: RetryBankSlipIssueBatchDto,
+  ) {
+    await this.getIssueBatch(batchId);
+    const result = await this.prisma.bankSlipIssueBatchItem.updateMany({
+      where: { batchId, status: BankSlipIssueBatchItemStatus.FAILED },
+      data: {
+        status: BankSlipIssueBatchItemStatus.QUEUED,
+        nextAttemptAt: null,
+        lockedAt: null,
+        startedAt: null,
+        finishedAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: this.optional(body.reason) ?? null,
+      },
+    });
+    if (result.count === 0) {
+      throw new ConflictException({
+        code: "NO_SAFE_RETRY_ITEMS",
+        message: "Nao ha itens com falha segura para retry",
+      });
+    }
+    return this.recalculateIssueBatch(batchId);
+  }
+
+  async processIssueBatchQueue() {
+    const locked = await this.acquireIssueBatchProcessorLock();
+    if (!locked) {
+      return { processed: 0, skipped: true };
+    }
+    try {
+      const items = await this.claimIssueBatchItems();
+      let processed = 0;
+      for (let index = 0; index < items.length; index += this.sicrediConfig.issueBatchConcurrency) {
+        const chunk = items.slice(index, index + this.sicrediConfig.issueBatchConcurrency);
+        await Promise.all(chunk.map((item) => this.processIssueBatchItem(item.id)));
+        processed += chunk.length;
+      }
+      const batchIds = [...new Set(items.map((item) => item.batchId))];
+      await Promise.all(batchIds.map((batchId) => this.recalculateIssueBatch(batchId)));
+      return { processed, skipped: false };
+    } finally {
+      await this.releaseIssueBatchProcessorLock();
+    }
   }
 
   async requestCancellation(
@@ -1365,6 +1550,221 @@ export class BankSlipsService {
       ],
       take: this.sicrediConfig.syncOpenIssuedLimit,
     });
+  }
+
+  private async issueBatchEligibility(
+    tx: Prisma.TransactionClient,
+    invoice: InvoiceWithRelations,
+    userId: string,
+  ) {
+    if (invoice.status !== InvoiceStatus.OPEN) {
+      return { eligible: false, code: "INVOICE_NOT_OPEN", reason: "Fatura nao esta aberta" };
+    }
+    if (isInvoiceOverdue(invoice)) {
+      return { eligible: false, code: "DUE_DATE_IN_PAST", reason: "Fatura vencida nao pode emitir boleto" };
+    }
+    if (invoice.enrollment.status !== EnrollmentStatus.ACTIVE) {
+      return { eligible: false, code: "ENROLLMENT_NOT_ACTIVE", reason: "Matricula da fatura nao esta ativa" };
+    }
+    const bankSlip = invoice.bankSlip;
+    if (!bankSlip) {
+      return { eligible: true };
+    }
+    if (bankSlip.status === BankSlipStatus.CANCELLED) {
+      return { eligible: true };
+    }
+    if (bankSlip.status === BankSlipStatus.PENDING_ISSUE) {
+      if (Date.now() - bankSlip.updatedAt.getTime() >= PENDING_ISSUE_STALE_MS) {
+        await this.resolveStalePendingIssueTx(tx, invoice, userId);
+        return {
+          eligible: false,
+          code: "PENDING_ISSUE_STALE",
+          reason: "Emissao anterior ficou incerta; revise antes de nova emissao",
+        };
+      }
+      return {
+        eligible: false,
+        code: "BANK_SLIP_ISSUE_IN_PROGRESS",
+        reason: "Emissao de boleto em andamento para esta fatura",
+      };
+    }
+    if (bankSlip.status === BankSlipStatus.UNKNOWN) {
+      return {
+        eligible: false,
+        code: "BANK_SLIP_ISSUE_UNKNOWN",
+        reason: "Boleto com situacao incerta exige revisao manual",
+      };
+    }
+    if (bankSlip.status === BankSlipStatus.PAID) {
+      return {
+        eligible: false,
+        code: "BANK_SLIP_ALREADY_PAID",
+        reason: "Fatura ja possui boleto pago",
+      };
+    }
+    return {
+      eligible: false,
+      code: "BANK_SLIP_ALREADY_EXISTS",
+      reason: "Fatura ja possui boleto ativo",
+    };
+  }
+
+  private async claimIssueBatchItems() {
+    const items = await this.prisma.bankSlipIssueBatchItem.findMany({
+      where: {
+        status: BankSlipIssueBatchItemStatus.QUEUED,
+        batch: { status: { in: [BankSlipIssueBatchStatus.QUEUED, BankSlipIssueBatchStatus.PROCESSING] } },
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+      },
+      orderBy: [{ createdAt: "asc" }],
+      take: this.sicrediConfig.issueBatchLimit,
+    });
+    const claimed = [];
+    for (const item of items) {
+      const updated = await this.prisma.bankSlipIssueBatchItem.updateMany({
+        where: { id: item.id, status: BankSlipIssueBatchItemStatus.QUEUED },
+        data: {
+          status: BankSlipIssueBatchItemStatus.PROCESSING,
+          lockedAt: new Date(),
+          startedAt: item.startedAt ?? new Date(),
+          attempts: { increment: 1 },
+        },
+      });
+      if (updated.count === 1) {
+        await this.prisma.bankSlipIssueBatch.update({
+          where: { id: item.batchId },
+          data: { status: BankSlipIssueBatchStatus.PROCESSING, startedAt: new Date() },
+        });
+        claimed.push(item);
+      }
+    }
+    return claimed;
+  }
+
+  private async processIssueBatchItem(itemId: string) {
+    const item = await this.prisma.bankSlipIssueBatchItem.findUnique({
+      where: { id: itemId },
+      include: { batch: true },
+    });
+    if (!item || item.status !== BankSlipIssueBatchItemStatus.PROCESSING) {
+      return;
+    }
+    try {
+      const bankSlip = await this.issueForInvoice(item.invoiceId, item.batch.requestedByUserId);
+      await this.prisma.bankSlipIssueBatchItem.update({
+        where: { id: item.id },
+        data: {
+          status: BankSlipIssueBatchItemStatus.ISSUED,
+          bankSlipId: bankSlip.id,
+          finishedAt: new Date(),
+          lockedAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+        },
+      });
+    } catch (error) {
+      const normalized = this.normalizeIssueBatchError(error);
+      await this.prisma.bankSlipIssueBatchItem.update({
+        where: { id: item.id },
+        data: {
+          status: normalized.status,
+          finishedAt: new Date(),
+          lockedAt: null,
+          lastErrorCode: normalized.code,
+          lastErrorMessage: normalized.message,
+        },
+      });
+    }
+  }
+
+  private normalizeIssueBatchError(error: unknown) {
+    const response =
+      error && typeof error === "object" && "getResponse" in error
+        ? (error as { getResponse: () => unknown }).getResponse()
+        : undefined;
+    const body = response && typeof response === "object" ? response as Record<string, unknown> : {};
+    const code = typeof body.code === "string"
+      ? body.code
+      : error instanceof Error
+        ? error.name
+        : "BANK_SLIP_ISSUE_FAILED";
+    const message = typeof body.message === "string"
+      ? body.message
+      : error instanceof Error
+        ? error.message
+        : "Falha ao emitir boleto";
+    const status =
+      code === "BANK_SLIP_ISSUE_UNKNOWN" ||
+      code === "BANK_SLIP_ISSUE_PERSISTENCE_CONFLICT" ||
+      code === "SICREDI_TEMPORARILY_UNAVAILABLE"
+        ? BankSlipIssueBatchItemStatus.UNKNOWN
+        : BankSlipIssueBatchItemStatus.FAILED;
+    return {
+      status,
+      code: this.truncate(code, 80),
+      message: this.truncate(message, 500),
+    };
+  }
+
+  private async recalculateIssueBatch(batchId: string) {
+    const items = await this.prisma.bankSlipIssueBatchItem.findMany({
+      where: { batchId },
+    });
+    const counts = {
+      totalItems: items.length,
+      queuedItems: this.countIssueBatchItems(items, BankSlipIssueBatchItemStatus.QUEUED),
+      processingItems: this.countIssueBatchItems(items, BankSlipIssueBatchItemStatus.PROCESSING),
+      issuedItems: this.countIssueBatchItems(items, BankSlipIssueBatchItemStatus.ISSUED),
+      skippedItems: this.countIssueBatchItems(items, BankSlipIssueBatchItemStatus.SKIPPED),
+      failedItems: this.countIssueBatchItems(items, BankSlipIssueBatchItemStatus.FAILED),
+      unknownItems: this.countIssueBatchItems(items, BankSlipIssueBatchItemStatus.UNKNOWN),
+      cancelledItems: this.countIssueBatchItems(items, BankSlipIssueBatchItemStatus.CANCELLED),
+    };
+    const batch = await this.prisma.bankSlipIssueBatch.findUnique({ where: { id: batchId } });
+    if (!batch) {
+      throw new NotFoundException("Lote de emissao nao encontrado");
+    }
+    const hasOpenWork = counts.queuedItems > 0 || counts.processingItems > 0;
+    const hasProblems =
+      counts.skippedItems > 0 ||
+      counts.failedItems > 0 ||
+      counts.unknownItems > 0 ||
+      counts.cancelledItems > 0;
+    const status = batch.cancelledAt
+      ? BankSlipIssueBatchStatus.CANCELLED
+      : hasOpenWork
+        ? (counts.processingItems > 0 ? BankSlipIssueBatchStatus.PROCESSING : BankSlipIssueBatchStatus.QUEUED)
+        : hasProblems
+          ? BankSlipIssueBatchStatus.COMPLETED_WITH_ERRORS
+          : BankSlipIssueBatchStatus.COMPLETED;
+    return this.prisma.bankSlipIssueBatch.update({
+      where: { id: batchId },
+      data: {
+        status,
+        ...counts,
+        finishedAt: hasOpenWork ? null : new Date(),
+      },
+    });
+  }
+
+  private countIssueBatchItems(
+    items: Array<{ status: BankSlipIssueBatchItemStatus }>,
+    status: BankSlipIssueBatchItemStatus,
+  ) {
+    return items.filter((item) => item.status === status).length;
+  }
+
+  private async acquireIssueBatchProcessorLock() {
+    const rows = await this.prisma.$queryRaw<Array<{ locked: boolean }>>`
+      SELECT pg_try_advisory_lock(${ISSUE_BATCH_PROCESSOR_LOCK_ID}) AS locked
+    `;
+    return Boolean(rows[0]?.locked);
+  }
+
+  private async releaseIssueBatchProcessorLock() {
+    await this.prisma.$queryRaw<Array<{ unlocked: boolean }>>`
+      SELECT pg_advisory_unlock(${ISSUE_BATCH_PROCESSOR_LOCK_ID}) AS unlocked
+    `;
   }
 
   private async acquireOpenIssuedSyncLock() {

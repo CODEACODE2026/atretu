@@ -23,6 +23,9 @@ const config: SicrediConfig = {
   requirePayerAddress: false,
   syncOpenIssuedIntervalMs: 900_000,
   syncOpenIssuedLimit: 50,
+  issueBatchIntervalMs: 60_000,
+  issueBatchConcurrency: 2,
+  issueBatchLimit: 20,
 };
 
 const issueInput: SicrediIssueBankSlipInput = {

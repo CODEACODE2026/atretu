@@ -19,11 +19,17 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { BankSlipsService } from "./bank-slips.service.js";
 import {
+  BankSlipIssueBatchParamsDto,
   BankSlipSyncRunParamsDto,
+  CancelBankSlipIssueBatchDto,
+  CreateBankSlipIssueBatchDto,
   InvoiceBankSlipParamsDto,
+  ListBankSlipIssueBatchItemsDto,
+  ListBankSlipIssueBatchesDto,
   ListBankSlipSyncRunItemsDto,
   ListBankSlipSyncRunsDto,
   RecoverIssuedBankSlipDto,
+  RetryBankSlipIssueBatchDto,
   RequestBankSlipCancellationDto,
   SyncPaidBankSlipsDayDto,
 } from "./dto/bank-slips.dto.js";
@@ -100,6 +106,56 @@ export class BankSlipsController {
     @Query() query: ListBankSlipSyncRunItemsDto,
   ) {
     return this.bankSlips.listSyncRunItems(params.runId, query);
+  }
+
+  @Post("finance/bank-slip-issue-batches")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  createIssueBatch(
+    @Body() body: CreateBankSlipIssueBatchDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.createIssueBatch(body, user.id);
+  }
+
+  @Get("finance/bank-slip-issue-batches")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listIssueBatches(@Query() query: ListBankSlipIssueBatchesDto) {
+    return this.bankSlips.listIssueBatches(query);
+  }
+
+  @Get("finance/bank-slip-issue-batches/:batchId")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  getIssueBatch(@Param() params: BankSlipIssueBatchParamsDto) {
+    return this.bankSlips.getIssueBatch(params.batchId);
+  }
+
+  @Get("finance/bank-slip-issue-batches/:batchId/items")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listIssueBatchItems(
+    @Param() params: BankSlipIssueBatchParamsDto,
+    @Query() query: ListBankSlipIssueBatchItemsDto,
+  ) {
+    return this.bankSlips.listIssueBatchItems(params.batchId, query);
+  }
+
+  @Post("finance/bank-slip-issue-batches/:batchId/cancel")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  cancelIssueBatch(
+    @Param() params: BankSlipIssueBatchParamsDto,
+    @Body() body: CancelBankSlipIssueBatchDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.cancelIssueBatch(params.batchId, user.id, body);
+  }
+
+  @Post("finance/bank-slip-issue-batches/:batchId/retry-failed")
+  @Roles(RoleCode.SUPER_ADMIN)
+  retryFailedIssueBatch(
+    @Param() params: BankSlipIssueBatchParamsDto,
+    @Body() body: RetryBankSlipIssueBatchDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.retryFailedIssueBatch(params.batchId, user.id, body);
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/cancel")
