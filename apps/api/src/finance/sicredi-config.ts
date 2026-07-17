@@ -12,6 +12,8 @@ export type SicrediConfig = {
   codigoBeneficiario: string;
   timeoutMs: number;
   requirePayerAddress: boolean;
+  syncOpenIssuedIntervalMs: number;
+  syncOpenIssuedLimit: number;
 };
 
 export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): SicrediConfig {
@@ -35,6 +37,16 @@ export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): Sicredi
       "SICREDI_REQUIRE_PAYER_ADDRESS",
       env.SICREDI_REQUIRE_PAYER_ADDRESS,
       false,
+    ),
+    syncOpenIssuedIntervalMs: readPositiveInt(
+      "SICREDI_SYNC_OPEN_ISSUED_INTERVAL_MS",
+      env.SICREDI_SYNC_OPEN_ISSUED_INTERVAL_MS,
+      15 * 60 * 1000,
+    ),
+    syncOpenIssuedLimit: readPositiveInt(
+      "SICREDI_SYNC_OPEN_ISSUED_LIMIT",
+      env.SICREDI_SYNC_OPEN_ISSUED_LIMIT,
+      50,
     ),
   };
 }

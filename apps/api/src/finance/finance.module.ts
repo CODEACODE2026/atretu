@@ -1,9 +1,11 @@
 import { Module } from "@nestjs/common";
+import { ScheduleModule } from "@nestjs/schedule";
 import { AdministrativeAuditModule } from "../administrative-audit/administrative-audit.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { BankSlipsController } from "./bank-slips.controller.js";
+import { BankSlipSyncJob } from "./bank-slip-sync.job.js";
 import {
   BankSlipsService,
   SICREDI_CLIENT,
@@ -15,11 +17,18 @@ import { SicrediClient } from "./sicredi-client.js";
 import { loadSicrediConfig } from "./sicredi-config.js";
 
 @Module({
-  imports: [AdministrativeAuditModule, AuthModule, DatabaseModule, UsersModule],
+  imports: [
+    ScheduleModule.forRoot(),
+    AdministrativeAuditModule,
+    AuthModule,
+    DatabaseModule,
+    UsersModule,
+  ],
   controllers: [InvoicesController, BankSlipsController],
   providers: [
     InvoicesService,
     BankSlipsService,
+    BankSlipSyncJob,
     {
       provide: SICREDI_CONFIG,
       useFactory: () => loadSicrediConfig(),

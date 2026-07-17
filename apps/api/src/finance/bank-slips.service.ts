@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -10,6 +11,9 @@ import {
   AdministrativeAuditEventType,
   BankSlipEnvironment,
   BankSlipProvider,
+  BankSlipSyncRunItemStatus,
+  BankSlipSyncRunStatus,
+  BankSlipSyncRunType,
   BankSlipStatus,
   EnrollmentStatus,
   InvoiceCancellationReason,
@@ -37,9 +41,12 @@ import {
   type SicrediBusinessError,
 } from "./sicredi-business-errors.js";
 import type {
+  ListBankSlipSyncRunItemsDto,
+  ListBankSlipSyncRunsDto,
   RecoverIssuedBankSlipDto,
   RequestBankSlipCancellationDto,
 } from "./dto/bank-slips.dto.js";
+import { resolvePagination } from "../common/pagination.js";
 
 export const SICREDI_CLIENT = Symbol("SICREDI_CLIENT");
 export const SICREDI_CONFIG = Symbol("SICREDI_CONFIG");
@@ -79,9 +86,12 @@ type CancellationPreparation = {
 };
 
 const PENDING_ISSUE_STALE_MS = 15 * 60 * 1000;
+const OPEN_ISSUED_SYNC_LOCK_ID = 7_811_004;
 
 @Injectable()
 export class BankSlipsService {
+  private readonly logger = new Logger(BankSlipsService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SICREDI_CLIENT) private readonly sicredi: SicrediClientPort,
@@ -439,6 +449,152 @@ export class BankSlipsService {
       },
     });
     return summary;
+  }
+
+  async syncOpenIssued(userId?: string) {
+    const type = userId
+      ? BankSlipSyncRunType.MANUAL_OPEN_ISSUED
+      : BankSlipSyncRunType.AUTOMATIC_OPEN_ISSUED;
+    const locked = await this.acquireOpenIssuedSyncLock();
+    if (!locked) {
+      return this.createSkippedSyncRun(type, userId);
+    }
+
+    const run = await this.prisma.bankSlipSyncRun.create({
+      data: {
+        type,
+        startedByUserId: userId,
+        metadata: {
+          limit: this.sicrediConfig.syncOpenIssuedLimit,
+          environment: this.environment(),
+        },
+      },
+    });
+    const counters = {
+      scannedCount: 0,
+      updatedCount: 0,
+      paidCount: 0,
+      cancelledCount: 0,
+      errorCount: 0,
+    };
+
+    try {
+      const bankSlips = await this.findOpenIssuedBankSlipsForSync();
+      for (const bankSlip of bankSlips) {
+        counters.scannedCount += 1;
+        try {
+          const result = await this.syncOpenIssuedBankSlip(run.id, bankSlip, userId);
+          if (result.updated) {
+            counters.updatedCount += 1;
+          }
+          if (result.status === BankSlipSyncRunItemStatus.PAID) {
+            counters.paidCount += 1;
+          }
+          if (result.status === BankSlipSyncRunItemStatus.CANCELLED) {
+            counters.cancelledCount += 1;
+          }
+          if (
+            result.status === BankSlipSyncRunItemStatus.ERROR ||
+            result.status === BankSlipSyncRunItemStatus.NOT_FOUND ||
+            result.status === BankSlipSyncRunItemStatus.PARTIAL_PAYMENT_REVIEW
+          ) {
+            counters.errorCount += 1;
+          }
+        } catch (error) {
+          counters.errorCount += 1;
+          await this.recordSyncRunItem(run.id, bankSlip, {
+            itemStatus: BankSlipSyncRunItemStatus.ERROR,
+            previousStatus: bankSlip.status,
+            newStatus: bankSlip.status,
+            errorCode: "SYNC_ITEM_FAILED",
+            errorMessage: error instanceof Error ? error.message : "Falha inesperada na sincronizacao",
+          });
+          this.logger.warn({
+            event: "sicredi_open_issued_sync_item_failed",
+            runId: run.id,
+            bankSlipId: bankSlip.id,
+            invoiceId: bankSlip.invoiceId,
+            errorType: error instanceof Error ? error.name : typeof error,
+          });
+        }
+      }
+      const finalStatus =
+        counters.errorCount > 0
+          ? BankSlipSyncRunStatus.COMPLETED_WITH_ERRORS
+          : BankSlipSyncRunStatus.COMPLETED;
+      return this.finishSyncRun(run.id, finalStatus, counters);
+    } catch (error) {
+      counters.errorCount += 1;
+      this.logger.error({
+        event: "sicredi_open_issued_sync_failed",
+        runId: run.id,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      await this.finishSyncRun(run.id, BankSlipSyncRunStatus.FAILED, counters, {
+        errorCode: "SYNC_RUN_FAILED",
+        errorMessage:
+          error instanceof Error
+            ? (this.truncate(error.message, 500) ?? "Falha inesperada")
+            : "Falha inesperada",
+      });
+      throw error;
+    } finally {
+      await this.releaseOpenIssuedSyncLock();
+    }
+  }
+
+  async listSyncRuns(query: ListBankSlipSyncRunsDto) {
+    const pagination = resolvePagination(query, { defaultLimit: 20, maxLimit: 100 });
+    const [records, total] = await Promise.all([
+      this.prisma.bankSlipSyncRun.findMany({
+        orderBy: [{ startedAt: "desc" }],
+        skip: pagination.skip,
+        take: pagination.limit,
+      }),
+      this.prisma.bankSlipSyncRun.count(),
+    ]);
+    return {
+      data: records,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
+  }
+
+  async getSyncRun(id: string) {
+    const record = await this.prisma.bankSlipSyncRun.findUnique({
+      where: { id },
+    });
+    if (!record) {
+      throw new NotFoundException("Execucao de sincronizacao nao encontrada");
+    }
+    return record;
+  }
+
+  async listSyncRunItems(runId: string, query: ListBankSlipSyncRunItemsDto) {
+    await this.getSyncRun(runId);
+    const pagination = resolvePagination(query, { defaultLimit: 50, maxLimit: 200 });
+    const [records, total] = await Promise.all([
+      this.prisma.bankSlipSyncRunItem.findMany({
+        where: { runId },
+        orderBy: [{ checkedAt: "asc" }],
+        skip: pagination.skip,
+        take: pagination.limit,
+      }),
+      this.prisma.bankSlipSyncRunItem.count({ where: { runId } }),
+    ]);
+    return {
+      data: records,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
   }
 
   async requestCancellation(
@@ -870,7 +1026,7 @@ export class BankSlipsService {
     });
   }
 
-  private async applyProviderDetails(id: string, details: SicrediBankSlipDetails, userId: string) {
+  private async applyProviderDetails(id: string, details: SicrediBankSlipDetails, userId?: string) {
     const mappedStatus = mapSicrediStatusToBankSlipStatus(details.situacao);
     const paidAmountCents = details.dadosLiquidacao?.valor
       ? parseSicrediAmountToCents(details.dadosLiquidacao.valor)
@@ -917,6 +1073,141 @@ export class BankSlipsService {
     });
   }
 
+  private async syncOpenIssuedBankSlip(
+    runId: string,
+    bankSlip: BankSlipWithRelations,
+    userId: string | undefined,
+  ) {
+    if (!bankSlip.nossoNumero) {
+      await this.recordSyncRunItem(runId, bankSlip, {
+        itemStatus: BankSlipSyncRunItemStatus.ERROR,
+        previousStatus: bankSlip.status,
+        newStatus: bankSlip.status,
+        errorCode: "BANK_SLIP_NOT_ISSUED",
+        errorMessage: "Boleto emitido sem Nosso Numero para consulta",
+      });
+      return { status: BankSlipSyncRunItemStatus.ERROR, updated: false };
+    }
+
+    try {
+      const details = await this.sicredi.getBankSlip(bankSlip.nossoNumero);
+      const mappedStatus = mapSicrediStatusToBankSlipStatus(details.situacao);
+      const paidAmountCents = details.dadosLiquidacao?.valor
+        ? parseSicrediAmountToCents(details.dadosLiquidacao.valor)
+        : undefined;
+      if (
+        mappedStatus === BankSlipStatus.PAID &&
+        paidAmountCents !== undefined &&
+        paidAmountCents < bankSlip.originalAmountCents
+      ) {
+        const updated = await this.markPartialPaymentReview(bankSlip.id, details, paidAmountCents);
+        await this.recordSyncRunItem(runId, bankSlip, {
+          itemStatus: BankSlipSyncRunItemStatus.PARTIAL_PAYMENT_REVIEW,
+          previousStatus: bankSlip.status,
+          newStatus: updated.status,
+          providerStatus: details.situacao,
+          errorCode: "PARTIAL_PAYMENT_REVIEW",
+          errorMessage: "Pagamento parcial recebido; fatura mantida em aberto para revisao",
+          metadata: {
+            paidAmountCents,
+            originalAmountCents: bankSlip.originalAmountCents,
+          },
+        });
+        return { status: BankSlipSyncRunItemStatus.PARTIAL_PAYMENT_REVIEW, updated: true };
+      }
+
+      const updated = await this.applyProviderDetails(
+        bankSlip.id,
+        details,
+        userId,
+      );
+      const itemStatus = this.syncRunItemStatus(bankSlip.status, updated.status);
+      await this.recordSyncRunItem(runId, bankSlip, {
+        itemStatus,
+        previousStatus: bankSlip.status,
+        newStatus: updated.status,
+        providerStatus: details.situacao,
+      });
+      return {
+        status: itemStatus,
+        updated: updated.status !== bankSlip.status || itemStatus !== BankSlipSyncRunItemStatus.CHECKED,
+      };
+    } catch (error) {
+      if (!(error instanceof SicrediClientError)) {
+        throw error;
+      }
+      const translated = translateSicrediClientError(error, "sync");
+      await this.markBankSlipCheckedWithProviderError(bankSlip.id, translated);
+      const itemStatus =
+        translated.code === "SICREDI_NOT_FOUND"
+          ? BankSlipSyncRunItemStatus.NOT_FOUND
+          : BankSlipSyncRunItemStatus.ERROR;
+      await this.recordSyncRunItem(runId, bankSlip, {
+        itemStatus,
+        previousStatus: bankSlip.status,
+        newStatus: bankSlip.status,
+        errorCode: translated.code,
+        errorMessage: translated.message,
+        metadata: {
+          transient: translated.transient,
+          uncertain: translated.uncertain,
+          statusCode: translated.statusCode ?? 0,
+          providerCode: translated.providerCode ?? "",
+        },
+      });
+      return { status: itemStatus, updated: false };
+    }
+  }
+
+  private async markPartialPaymentReview(
+    id: string,
+    details: SicrediBankSlipDetails,
+    paidAmountCents: number,
+  ) {
+    const paidAt = details.dadosLiquidacao?.data
+      ? this.parseProviderDate(details.dadosLiquidacao.data)
+      : undefined;
+    return this.prisma.bankSlip.update({
+      where: { id },
+      data: {
+        providerStatus: details.situacao,
+        paidAmountCents,
+        paidAt,
+        lastCheckedAt: new Date(),
+        providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
+        providerErrorMessage:
+          "Pagamento parcial recebido; fatura mantida aberta ate definicao da regra operacional.",
+      },
+      include: this.bankSlipInclude(),
+    });
+  }
+
+  private async markBankSlipCheckedWithProviderError(
+    id: string,
+    error: SicrediBusinessError,
+  ) {
+    await this.prisma.bankSlip.update({
+      where: { id },
+      data: {
+        lastCheckedAt: new Date(),
+        providerErrorCode: this.truncate(error.code, 80),
+        providerErrorMessage: this.truncate(error.message, 500),
+      },
+    });
+  }
+
+  private syncRunItemStatus(previous: BankSlipStatus, current: BankSlipStatus) {
+    if (current === BankSlipStatus.PAID) {
+      return BankSlipSyncRunItemStatus.PAID;
+    }
+    if (current === BankSlipStatus.CANCELLED) {
+      return BankSlipSyncRunItemStatus.CANCELLED;
+    }
+    return previous === current
+      ? BankSlipSyncRunItemStatus.CHECKED
+      : BankSlipSyncRunItemStatus.UPDATED;
+  }
+
   private async applyPaidItem(id: string, item: SicrediPaidBankSlip, userId: string) {
     return this.prisma.$transaction(async (tx) => {
       const current = await this.lockBankSlip(tx, id);
@@ -949,7 +1240,7 @@ export class BankSlipsService {
     tx: Prisma.TransactionClient,
     previous: BankSlipWithRelations,
     updated: BankSlipWithRelations,
-    userId: string,
+    userId: string | undefined,
   ) {
     if (updated.status === BankSlipStatus.PAID && previous.status !== BankSlipStatus.PAID) {
       if (previous.status === BankSlipStatus.CANCELLED || updated.invoice.status === InvoiceStatus.CANCELLED) {
@@ -1038,6 +1329,103 @@ export class BankSlipsService {
         OR: [{ nossoNumero: item.nossoNumero }, { seuNumero: item.seuNumero }],
       },
       include: this.bankSlipInclude(),
+    });
+  }
+
+  private findOpenIssuedBankSlipsForSync() {
+    return this.prisma.bankSlip.findMany({
+      where: {
+        provider: BankSlipProvider.SICREDI,
+        environment: this.environment(),
+        status: BankSlipStatus.ISSUED,
+        invoice: { status: InvoiceStatus.OPEN },
+      },
+      include: this.bankSlipInclude(),
+      orderBy: [
+        { lastCheckedAt: { sort: "asc", nulls: "first" } },
+        { updatedAt: "asc" },
+      ],
+      take: this.sicrediConfig.syncOpenIssuedLimit,
+    });
+  }
+
+  private async acquireOpenIssuedSyncLock() {
+    const rows = await this.prisma.$queryRaw<Array<{ locked: boolean }>>`
+      SELECT pg_try_advisory_lock(${OPEN_ISSUED_SYNC_LOCK_ID}) AS locked
+    `;
+    return Boolean(rows[0]?.locked);
+  }
+
+  private async releaseOpenIssuedSyncLock() {
+    await this.prisma.$queryRaw<Array<{ unlocked: boolean }>>`
+      SELECT pg_advisory_unlock(${OPEN_ISSUED_SYNC_LOCK_ID}) AS unlocked
+    `;
+  }
+
+  private async createSkippedSyncRun(
+    type: BankSlipSyncRunType,
+    userId: string | undefined,
+  ) {
+    return this.prisma.bankSlipSyncRun.create({
+      data: {
+        type,
+        status: BankSlipSyncRunStatus.SKIPPED_ALREADY_RUNNING,
+        startedByUserId: userId,
+        finishedAt: new Date(),
+        metadata: { reason: "OPEN_ISSUED_SYNC_ALREADY_RUNNING" },
+      },
+    });
+  }
+
+  private async finishSyncRun(
+    id: string,
+    status: BankSlipSyncRunStatus,
+    counters: {
+      scannedCount: number;
+      updatedCount: number;
+      paidCount: number;
+      cancelledCount: number;
+      errorCount: number;
+    },
+    metadata?: Record<string, string | number | boolean | null>,
+  ) {
+    return this.prisma.bankSlipSyncRun.update({
+      where: { id },
+      data: {
+        status,
+        ...counters,
+        finishedAt: new Date(),
+        ...(metadata ? { metadata } : {}),
+      },
+    });
+  }
+
+  private async recordSyncRunItem(
+    runId: string,
+    bankSlip: BankSlipWithRelations,
+    input: {
+      itemStatus: BankSlipSyncRunItemStatus;
+      previousStatus?: BankSlipStatus;
+      newStatus?: BankSlipStatus;
+      providerStatus?: string;
+      errorCode?: string;
+      errorMessage?: string;
+      metadata?: Record<string, string | number | boolean>;
+    },
+  ) {
+    await this.prisma.bankSlipSyncRunItem.create({
+      data: {
+        runId,
+        bankSlipId: bankSlip.id,
+        invoiceId: bankSlip.invoiceId,
+        status: input.itemStatus,
+        previousStatus: input.previousStatus,
+        newStatus: input.newStatus,
+        providerStatus: this.truncate(input.providerStatus, 80),
+        errorCode: this.truncate(input.errorCode, 80),
+        errorMessage: this.truncate(input.errorMessage, 500),
+        metadata: input.metadata,
+      },
     });
   }
 
@@ -1224,7 +1612,7 @@ export class BankSlipsService {
     input: {
       eventType: AdministrativeAuditEventType;
       recordId: string;
-      userId: string;
+      userId?: string;
       metadata: Record<string, string | number | boolean>;
     },
   ) {

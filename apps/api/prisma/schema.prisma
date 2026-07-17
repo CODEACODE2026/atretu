@@ -196,6 +196,31 @@ enum BankSlipStatus {
   UNKNOWN
 }
 
+enum BankSlipSyncRunType {
+  AUTOMATIC_OPEN_ISSUED
+  MANUAL_OPEN_ISSUED
+  MANUAL_PAID_DAY
+  MANUAL_INVOICE
+}
+
+enum BankSlipSyncRunStatus {
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  SKIPPED_ALREADY_RUNNING
+}
+
+enum BankSlipSyncRunItemStatus {
+  CHECKED
+  UPDATED
+  PAID
+  CANCELLED
+  PARTIAL_PAYMENT_REVIEW
+  NOT_FOUND
+  ERROR
+}
+
 enum StudentDocumentType {
   CPF
   RG
@@ -245,6 +270,7 @@ model User {
   invoicesCreated          Invoice[]                @relation("InvoiceCreatedBy")
   invoicesCancelled        Invoice[]                @relation("InvoiceCancelledBy")
   bankSlipCancellations    BankSlip[]               @relation("BankSlipCancellationRequestedBy")
+  bankSlipSyncRunsStarted  BankSlipSyncRun[]        @relation("BankSlipSyncRunStartedBy")
 
   @@map("users")
 }
@@ -590,6 +616,7 @@ model Invoice {
   cancelledBy          User?                      @relation("InvoiceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   studentHistoryEvents StudentHistoryEvent[]
   bankSlip             BankSlip?
+  bankSlipSyncRunItems BankSlipSyncRunItem[]
 
   @@index([studentId, createdAt])
   @@index([enrollmentId])
@@ -628,6 +655,7 @@ model BankSlip {
   invoice                       Invoice                    @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   cancellationRequestedBy       User?                      @relation("BankSlipCancellationRequestedBy", fields: [cancellationRequestedByUserId], references: [id], onDelete: Restrict)
   studentHistoryEvents          StudentHistoryEvent[]
+  syncRunItems                  BankSlipSyncRunItem[]
 
   @@unique([provider, environment, seuNumero])
   @@index([provider, environment, nossoNumero])
@@ -638,6 +666,53 @@ model BankSlip {
   @@index([paidAt])
   @@index([cancelledAt])
   @@map("bank_slips")
+}
+
+model BankSlipSyncRun {
+  id              String                @id @default(uuid()) @db.Uuid
+  type            BankSlipSyncRunType
+  status          BankSlipSyncRunStatus @default(RUNNING)
+  startedByUserId String?               @map("started_by_user_id") @db.Uuid
+  startedAt       DateTime              @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime?             @map("finished_at") @db.Timestamptz(6)
+  scannedCount    Int                   @default(0) @map("scanned_count")
+  updatedCount    Int                   @default(0) @map("updated_count")
+  paidCount       Int                   @default(0) @map("paid_count")
+  cancelledCount  Int                   @default(0) @map("cancelled_count")
+  errorCount      Int                   @default(0) @map("error_count")
+  metadata        Json?
+  startedBy       User?                 @relation("BankSlipSyncRunStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
+  items           BankSlipSyncRunItem[]
+
+  @@index([status, startedAt])
+  @@index([type, startedAt])
+  @@index([startedByUserId, startedAt])
+  @@map("bank_slip_sync_runs")
+}
+
+model BankSlipSyncRunItem {
+  id             String                    @id @default(uuid()) @db.Uuid
+  runId          String                    @map("run_id") @db.Uuid
+  bankSlipId     String                    @map("bank_slip_id") @db.Uuid
+  invoiceId      String                    @map("invoice_id") @db.Uuid
+  status         BankSlipSyncRunItemStatus
+  previousStatus BankSlipStatus?           @map("previous_status")
+  newStatus      BankSlipStatus?           @map("new_status")
+  providerStatus String?                   @map("provider_status") @db.VarChar(80)
+  attempts       Int                       @default(1)
+  errorCode      String?                   @map("error_code") @db.VarChar(80)
+  errorMessage   String?                   @map("error_message") @db.VarChar(500)
+  checkedAt      DateTime                  @default(now()) @map("checked_at") @db.Timestamptz(6)
+  metadata       Json?
+  run            BankSlipSyncRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  bankSlip       BankSlip                  @relation(fields: [bankSlipId], references: [id], onDelete: Restrict)
+  invoice        Invoice                   @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([runId, checkedAt])
+  @@index([bankSlipId, checkedAt])
+  @@index([invoiceId, checkedAt])
+  @@index([status, checkedAt])
+  @@map("bank_slip_sync_run_items")
 }
 
 model BusAssignment {

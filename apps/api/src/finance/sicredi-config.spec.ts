@@ -13,6 +13,8 @@ const baseEnv = {
   SICREDI_CODIGO_BENEFICIARIO: "12345",
   SICREDI_HTTP_TIMEOUT_MS: "15000",
   SICREDI_REQUIRE_PAYER_ADDRESS: "true",
+  SICREDI_SYNC_OPEN_ISSUED_INTERVAL_MS: "600000",
+  SICREDI_SYNC_OPEN_ISSUED_LIMIT: "25",
 };
 
 const config = loadSicrediConfig(baseEnv);
@@ -20,6 +22,8 @@ assert.equal(config.environment, "sandbox");
 assert.equal(config.timeoutMs, 15000);
 assert.equal(config.requirePayerAddress, true);
 assert.equal(config.cooperativa, "6789");
+assert.equal(config.syncOpenIssuedIntervalMs, 600000);
+assert.equal(config.syncOpenIssuedLimit, 25);
 
 assert.throws(
   () => loadSicrediConfig({ ...baseEnv, SICREDI_ENV: "homologation" }),
@@ -40,4 +44,8 @@ assert.throws(
 assert.throws(
   () => loadSicrediConfig({ ...baseEnv, SICREDI_AUTH_URL: "not-a-url" }),
   /SICREDI_AUTH_URL/,
+);
+assert.throws(
+  () => loadSicrediConfig({ ...baseEnv, SICREDI_SYNC_OPEN_ISSUED_LIMIT: "0" }),
+  /SICREDI_SYNC_OPEN_ISSUED_LIMIT/,
 );

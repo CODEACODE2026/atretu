@@ -21,6 +21,8 @@ const config: SicrediConfig = {
   codigoBeneficiario: "12345",
   timeoutMs: 10,
   requirePayerAddress: false,
+  syncOpenIssuedIntervalMs: 900_000,
+  syncOpenIssuedLimit: 50,
 };
 
 const issueInput: SicrediIssueBankSlipInput = {

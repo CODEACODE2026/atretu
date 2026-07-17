@@ -10,6 +10,8 @@ import {
   AdministrativeAuditEventType,
   BankSlipEnvironment,
   BankSlipProvider,
+  BankSlipSyncRunItemStatus,
+  BankSlipSyncRunStatus,
   BankSlipStatus,
   EnrollmentStatus,
   InvoiceCancellationReason,
@@ -34,6 +36,8 @@ const config: SicrediConfig = {
   codigoBeneficiario: "12345",
   timeoutMs: 10,
   requirePayerAddress: true,
+  syncOpenIssuedIntervalMs: 900_000,
+  syncOpenIssuedLimit: 50,
 };
 
 async function testIssueBankSlipSuccess() {
@@ -605,6 +609,169 @@ async function testSyncPaidByDay() {
   assert.equal(prisma.invoiceRecord.status, InvoiceStatus.PAID);
 }
 
+async function testOpenIssuedSyncLockPreventsDuplicateRun() {
+  const prisma = new FakePrisma();
+  prisma.syncLockAvailable = false;
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.status, BankSlipSyncRunStatus.SKIPPED_ALREADY_RUNNING);
+  assert.equal(sicredi.getCalls.length, 0);
+  assert.equal(prisma.syncRuns.length, 1);
+}
+
+async function testOpenIssuedSyncConfirmsPaymentTransactionally() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.status, BankSlipSyncRunStatus.COMPLETED);
+  assert.equal(result.scannedCount, 1);
+  assert.equal(result.paidCount, 1);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.PAID);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.PAID);
+  assert.ok(prisma.bankSlips[0]?.lastCheckedAt);
+  assert.equal(prisma.syncRunItems[0]?.status, BankSlipSyncRunItemStatus.PAID);
+}
+
+async function testOpenIssuedSyncIsIdempotentForAlreadyPaidInvoice() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({ status: BankSlipStatus.PAID });
+  (prisma.invoiceRecord as Record<string, unknown>).status = InvoiceStatus.PAID;
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.scannedCount, 0);
+  assert.equal(sicredi.getCalls.length, 0);
+  assert.equal(
+    prisma.historyEvents.filter(
+      (event) => event.eventType === StudentHistoryEventType.BANK_SLIP_PAYMENT_CONFIRMED,
+    ).length,
+    0,
+  );
+}
+
+async function testOpenIssuedSyncRecordsProviderErrorsWithoutStoppingBatch() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({ id: "bank-slip-1", invoiceId: "invoice-1" });
+  prisma.addInvoice("invoice-2");
+  prisma.seedIssuedBankSlip({
+    id: "bank-slip-2",
+    invoiceId: "invoice-2",
+    seuNumero: "A000000002",
+    nossoNumero: "251006143",
+  });
+  const sicredi = new FakeSicrediClient();
+  sicredi.getErrorsByNossoNumero.set(
+    "251006142",
+    new SicrediClientError({
+      operation: "getBankSlip",
+      message: "Forbidden",
+      statusCode: 403,
+      code: "FORBIDDEN",
+    }),
+  );
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.status, BankSlipSyncRunStatus.COMPLETED_WITH_ERRORS);
+  assert.equal(result.scannedCount, 2);
+  assert.equal(result.errorCount, 1);
+  assert.equal(result.paidCount, 1);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.bankSlips[1]?.status, BankSlipStatus.PAID);
+  assert.equal(prisma.syncRunItems[0]?.status, BankSlipSyncRunItemStatus.ERROR);
+  assert.equal(prisma.syncRunItems[1]?.status, BankSlipSyncRunItemStatus.PAID);
+}
+
+async function testOpenIssuedSyncHandles4044295xxAndTimeoutSafely() {
+  const cases = [
+    { statusCode: 401, code: "AUTH", expected: "SICREDI_AUTHENTICATION_FAILED" },
+    { statusCode: 404, code: "NOT_FOUND", expected: "SICREDI_NOT_FOUND" },
+    { statusCode: 429, code: "RATE_LIMIT", expected: "SICREDI_TEMPORARILY_UNAVAILABLE" },
+    { statusCode: 500, code: "SERVER_ERROR", expected: "SICREDI_TEMPORARILY_UNAVAILABLE" },
+    { statusCode: undefined, code: "TIMEOUT", expected: "SICREDI_TEMPORARILY_UNAVAILABLE" },
+  ];
+
+  for (const item of cases) {
+    const prisma = new FakePrisma();
+    prisma.seedIssuedBankSlip();
+    const sicredi = new FakeSicrediClient();
+    sicredi.getError = new SicrediClientError({
+      operation: "getBankSlip",
+      message: item.code,
+      statusCode: item.statusCode,
+      code: item.code,
+      transient: item.statusCode === 429 || item.statusCode === 500 || item.code === "TIMEOUT",
+      uncertain: item.statusCode === 429 || item.statusCode === 500 || item.code === "TIMEOUT",
+    });
+    const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+    const result = await service.syncOpenIssued("user-1");
+
+    assert.equal(result.status, BankSlipSyncRunStatus.COMPLETED_WITH_ERRORS);
+    assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+    assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+    assert.equal(prisma.syncRunItems[0]?.errorCode, item.expected);
+    assert.ok(prisma.bankSlips[0]?.lastCheckedAt);
+  }
+}
+
+async function testOpenIssuedSyncPartialPaymentDoesNotQuitInvoice() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextPaidAmount = "60.25";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.status, BankSlipSyncRunStatus.COMPLETED_WITH_ERRORS);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, "PARTIAL_PAYMENT_REVIEW");
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+  assert.equal(prisma.syncRunItems[0]?.status, BankSlipSyncRunItemStatus.PARTIAL_PAYMENT_REVIEW);
+}
+
+async function testOpenIssuedSyncVencidoKeepsInvoiceOpen() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextStatus = "VENCIDO";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.status, BankSlipSyncRunStatus.COMPLETED);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.bankSlips[0]?.providerStatus, "VENCIDO");
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+}
+
+async function testOpenIssuedSyncBaixadoCancelsInvoice() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextStatus = "BAIXADO POR SOLICITACAO";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.cancelledCount, 1);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.CANCELLED);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.CANCELLED);
+  assert.equal(prisma.syncRunItems[0]?.status, BankSlipSyncRunItemStatus.CANCELLED);
+}
+
 async function testSyncUnknownStatusPreservesCurrentState() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip();
@@ -882,12 +1049,15 @@ async function testPayerManualLimits() {
 
 class FakeSicrediClient {
   issueCalls: Array<Record<string, unknown>> = [];
+  getCalls: string[] = [];
   issueError?: SicrediClientError;
   getError?: SicrediClientError;
+  getErrorsByNossoNumero = new Map<string, SicrediClientError>();
   cancelError?: SicrediClientError;
   pdfError?: SicrediClientError;
   pdfLinhaDigitavel?: string;
   nextStatus = "LIQUIDADO";
+  nextPaidAmount = "120.50";
 
   async issueBankSlip(input: Record<string, unknown>) {
     this.issueCalls.push(input);
@@ -904,19 +1074,27 @@ class FakeSicrediClient {
     };
   }
 
-  async getBankSlip() {
+  async getBankSlip(nossoNumero = "251006142") {
+    this.getCalls.push(nossoNumero);
+    const mappedError = this.getErrorsByNossoNumero.get(nossoNumero);
+    if (mappedError) {
+      throw mappedError;
+    }
     if (this.getError) {
       throw this.getError;
     }
+    const isPaid = this.nextStatus.startsWith("LIQUIDADO");
     return {
-      nossoNumero: "251006142",
-      seuNumero: "A000000001",
+      nossoNumero,
+      seuNumero: nossoNumero === "251006143" ? "A000000002" : "A000000001",
       situacao: this.nextStatus,
       valorNominal: "120.50",
       dataVencimento: "2099-08-10",
       linhaDigitavel: "74891125110061420512803153351030188640000009990",
       codigoBarras: "74891886400000099901125100614205120315335103",
-      dadosLiquidacao: { data: "2099-08-11", valor: "120.50" },
+      dadosLiquidacao: isPaid
+        ? { data: "2099-08-11", valor: this.nextPaidAmount }
+        : undefined,
     };
   }
 
@@ -968,10 +1146,15 @@ class FakeSicrediClient {
 class FakePrisma {
   invoices = new Map([["invoice-1", createInvoice("invoice-1")]]);
   bankSlips: Array<Record<string, unknown>> = [];
+  syncRuns: Array<Record<string, unknown>> = [];
+  syncRunItems: Array<Record<string, unknown>> = [];
   historyEvents: Array<Record<string, unknown>> = [];
   auditLogs: Array<Record<string, unknown>> = [];
   auditFindFirstCalls = 0;
+  syncLockAvailable = true;
   private bankSlipIdSequence = 0;
+  private syncRunIdSequence = 0;
+  private syncRunItemIdSequence = 0;
   private transactionQueue = Promise.resolve();
 
   get invoiceRecord() {
@@ -1020,6 +1203,16 @@ class FakePrisma {
       where.invoiceId
         ? this.bankSlipWithInvoiceId(where.invoiceId)
         : this.bankSlipWithInvoice(String(where.id)),
+    findMany: async (args?: { take?: number }) => {
+      const records = this.bankSlips
+        .filter((item) => {
+          const invoice = this.invoices.get(String(item.invoiceId));
+          return item.status === BankSlipStatus.ISSUED && invoice?.status === InvoiceStatus.OPEN;
+        })
+        .map((item) => this.bankSlipWithInvoice(String(item.id)))
+        .filter(Boolean);
+      return args?.take ? records.slice(0, args.take) : records;
+    },
     findFirst: async (args?: { select?: { seuNumero?: boolean } }) => {
       const record = this.bankSlips.at(-1);
       if (!record) {
@@ -1088,6 +1281,60 @@ class FakePrisma {
 
   invoice = this.invoiceDelegate;
 
+  bankSlipSyncRun = {
+    create: async ({ data }: { data: Record<string, unknown> }) => {
+      this.syncRunIdSequence += 1;
+      const record = {
+        id: `sync-run-${this.syncRunIdSequence}`,
+        status: BankSlipSyncRunStatus.RUNNING,
+        scannedCount: 0,
+        updatedCount: 0,
+        paidCount: 0,
+        cancelledCount: 0,
+        errorCount: 0,
+        startedAt: new Date(),
+        finishedAt: null,
+        ...data,
+      };
+      this.syncRuns.push(record);
+      return record;
+    },
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: Record<string, unknown>;
+    }) => {
+      const record = this.syncRuns.find((item) => item.id === where.id);
+      assert.ok(record);
+      Object.assign(record, data);
+      return record;
+    },
+    findUnique: async ({ where }: { where: { id: string } }) =>
+      this.syncRuns.find((item) => item.id === where.id) ?? null,
+    findMany: async () => this.syncRuns,
+    count: async () => this.syncRuns.length,
+  };
+
+  bankSlipSyncRunItem = {
+    create: async ({ data }: { data: Record<string, unknown> }) => {
+      this.syncRunItemIdSequence += 1;
+      const record = {
+        id: `sync-run-item-${this.syncRunItemIdSequence}`,
+        attempts: 1,
+        checkedAt: new Date(),
+        ...data,
+      };
+      this.syncRunItems.push(record);
+      return record;
+    },
+    findMany: async ({ where }: { where: { runId: string } }) =>
+      this.syncRunItems.filter((item) => item.runId === where.runId),
+    count: async ({ where }: { where: { runId: string } }) =>
+      this.syncRunItems.filter((item) => item.runId === where.runId).length,
+  };
+
   async $transaction<T>(callback: (tx: this) => Promise<T>) {
     const previous = this.transactionQueue;
     let release: () => void = () => undefined;
@@ -1102,7 +1349,14 @@ class FakePrisma {
     }
   }
 
-  async $queryRaw() {
+  async $queryRaw(strings?: TemplateStringsArray) {
+    const query = Array.isArray(strings) ? strings.join("") : "";
+    if (query.includes("pg_try_advisory_lock")) {
+      return [{ locked: this.syncLockAvailable }];
+    }
+    if (query.includes("pg_advisory_unlock")) {
+      return [{ unlocked: true }];
+    }
     return [{ id: "locked" }];
   }
 
@@ -1211,6 +1465,14 @@ await testFreshPendingIssueStaysPending();
 await testConcurrentSeuNumeroGeneration();
 await testSyncPaidMarksInvoicePaid();
 await testSyncPaidByDay();
+await testOpenIssuedSyncLockPreventsDuplicateRun();
+await testOpenIssuedSyncConfirmsPaymentTransactionally();
+await testOpenIssuedSyncIsIdempotentForAlreadyPaidInvoice();
+await testOpenIssuedSyncRecordsProviderErrorsWithoutStoppingBatch();
+await testOpenIssuedSyncHandles4044295xxAndTimeoutSafely();
+await testOpenIssuedSyncPartialPaymentDoesNotQuitInvoice();
+await testOpenIssuedSyncVencidoKeepsInvoiceOpen();
+await testOpenIssuedSyncBaixadoCancelsInvoice();
 await testSyncUnknownStatusPreservesCurrentState();
 await testSyncRejectedStatusPreservesCurrentState();
 await testSyncPaidDoesNotRegress();

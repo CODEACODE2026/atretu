@@ -6,6 +6,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Res,
   UseGuards,
 } from "@nestjs/common";
@@ -18,7 +19,10 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { BankSlipsService } from "./bank-slips.service.js";
 import {
+  BankSlipSyncRunParamsDto,
   InvoiceBankSlipParamsDto,
+  ListBankSlipSyncRunItemsDto,
+  ListBankSlipSyncRunsDto,
   RecoverIssuedBankSlipDto,
   RequestBankSlipCancellationDto,
   SyncPaidBankSlipsDayDto,
@@ -69,6 +73,33 @@ export class BankSlipsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.bankSlips.syncPaidByDay(body.date, user.id);
+  }
+
+  @Post("finance/bank-slips/sync-open-issued")
+  @Roles(RoleCode.SUPER_ADMIN)
+  syncOpenIssued(@CurrentUser() user: AuthUser) {
+    return this.bankSlips.syncOpenIssued(user.id);
+  }
+
+  @Get("finance/bank-slip-sync-runs")
+  @Roles(RoleCode.SUPER_ADMIN)
+  listSyncRuns(@Query() query: ListBankSlipSyncRunsDto) {
+    return this.bankSlips.listSyncRuns(query);
+  }
+
+  @Get("finance/bank-slip-sync-runs/:runId")
+  @Roles(RoleCode.SUPER_ADMIN)
+  getSyncRun(@Param() params: BankSlipSyncRunParamsDto) {
+    return this.bankSlips.getSyncRun(params.runId);
+  }
+
+  @Get("finance/bank-slip-sync-runs/:runId/items")
+  @Roles(RoleCode.SUPER_ADMIN)
+  listSyncRunItems(
+    @Param() params: BankSlipSyncRunParamsDto,
+    @Query() query: ListBankSlipSyncRunItemsDto,
+  ) {
+    return this.bankSlips.listSyncRunItems(params.runId, query);
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/cancel")

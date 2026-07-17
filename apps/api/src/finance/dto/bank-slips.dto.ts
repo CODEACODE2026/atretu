@@ -1,18 +1,56 @@
-import { Transform } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import {
   IsDateString,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Length,
+  Max,
   MaxLength,
+  Min,
 } from "class-validator";
 import { InvoiceCancellationReason } from "@prisma/client";
 
 export class InvoiceBankSlipParamsDto {
   @IsUUID()
   invoiceId!: string;
+}
+
+export class BankSlipSyncRunParamsDto {
+  @IsUUID()
+  runId!: string;
+}
+
+export class ListBankSlipSyncRunsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
+}
+
+export class ListBankSlipSyncRunItemsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit = 50;
 }
 
 export class SyncPaidBankSlipsDayDto {
