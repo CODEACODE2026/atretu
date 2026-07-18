@@ -20,6 +20,7 @@ import {
   type StudentSummary,
 } from "../../lib/api";
 import { canAccessRestrictedAdmin } from "../../lib/auth";
+import { formatDate, formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
 
 type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
@@ -504,10 +505,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     setError("");
     try {
       const batch = await api.createBankSlipIssueBatch(selectedInvoiceIds);
+      setMessage("Lote de emissao criado");
       setIssueBatch(batch);
       setSelectedInvoiceIds([]);
       await refreshIssueBatch(batch.id);
-      setMessage("Lote de emissao criado");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao criar lote");
     } finally {
@@ -539,9 +540,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
         dueDate: issueBatchPreview.dueDate ?? issueBatchDueDate,
         createMissingInvoices: true,
       });
+      setMessage("Lote institucional de emissao criado");
       setIssueBatch(batch);
       await refreshIssueBatch(batch.id);
-      setMessage("Lote institucional de emissao criado");
+      await loadInvoices();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao criar lote institucional");
     } finally {
@@ -807,7 +809,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                   <div className="flex flex-wrap gap-2" key={`${item.enrollmentId}-${item.invoiceId ?? item.eligibilityCode}`}>
                     <span className="font-medium">{item.studentName}</span>
                     <span>{item.amountFormatted ?? "Sem fatura"}</span>
-                    <span>{item.dueDate ? formatDate(item.dueDate) : "-"}</span>
+                    <span>{formatDate(item.dueDate)}</span>
                     <span>{institutionIssueStatusLabel(item.institutionIssueStatus, item.eligible)}</span>
                     {!item.eligible ? (
                       <span className="text-slate-500">{item.eligibilityReason}</span>
@@ -856,9 +858,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                 {issueBatch.shift?.name ? (
                   <span>Turno: {issueBatch.shift.name}</span>
                 ) : null}
-                {issueBatch.dueDate ? (
-                  <span>Vencimento: {formatDate(issueBatch.dueDate)}</span>
-                ) : null}
+                <span>Vencimento: {formatDate(issueBatch.dueDate)}</span>
                 {issueBatch.source === "INSTITUTION" ? (
                   <>
                     <span>Alunos: {issueBatch.totalStudents}</span>
@@ -1993,8 +1993,8 @@ function formatLinhaDigitavel(value: string) {
   return value.replace(/(\d{5})(?=\d)/g, "$1 ").trim();
 }
 
-function formatOptionalDateTime(value?: string | null) {
-  return value ? formatDateTime(value) : "-";
+function formatOptionalDateTime(value?: string | Date | null) {
+  return formatDateTime(value);
 }
 
 function formatOptionalCents(value?: number | null) {
@@ -2004,13 +2004,6 @@ function formatOptionalCents(value?: number | null) {
         currency: "BRL",
       }).format(value / 100)
     : "-";
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
 
 function safeBankSlipFileName(fileName: string, invoiceId: string) {
@@ -2070,12 +2063,6 @@ function currentMonthRange() {
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(
-    new Date(`${value}T00:00:00.000Z`),
-  );
 }
 
 function emptyToUndefined(value?: string) {

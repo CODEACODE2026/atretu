@@ -46,6 +46,24 @@ assert.match(
 
 assert.match(
   source,
+  /setMessage\("Lote institucional de emissao criado"\);[\s\S]*?setIssueBatch\(batch\);[\s\S]*?refreshIssueBatch\(batch\.id\);[\s\S]*?loadInvoices\(\)/,
+  "Institutional issue flow must record success and refresh the invoice list after creation",
+);
+
+assert.match(
+  source,
+  /item\.invoiceId \? item\.invoiceId\.slice\(0, 8\) : "Sem fatura"/,
+  "Batch item rendering must handle skipped items without invoiceId",
+);
+
+assert.match(
+  source,
+  /formatDate\(issueBatch\.dueDate\)/,
+  "Batch dueDate rendering must go through the defensive formatter",
+);
+
+assert.match(
+  source,
   /Emitir selecionadas/,
   "Finance panel must expose the batch issue action",
 );
