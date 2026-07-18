@@ -660,6 +660,7 @@ export class BankSlipsService {
         message: "Uma ou mais faturas nao foram encontradas",
       });
     }
+    const activeIssueBatchInvoiceIds = await this.findActiveIssueBatchInvoiceIds(invoiceIds);
 
     const batch = await this.prisma.$transaction(async (tx) => {
       const created = await tx.bankSlipIssueBatch.create({
@@ -682,6 +683,7 @@ export class BankSlipsService {
         }
         const eligibility = await this.issueBatchEligibility(tx, invoice, userId, {
           resolveStalePendingIssue: true,
+          activeIssueBatchInvoiceIds,
         });
         if (eligibility.eligible) {
           eligibleCount += 1;
@@ -1809,6 +1811,9 @@ export class BankSlipsService {
       records.push(invoice);
       invoicesByEnrollment.set(invoice.enrollmentId, records);
     });
+    const activeIssueBatchInvoiceIds = await this.findActiveIssueBatchInvoiceIds(
+      invoices.map((invoice) => invoice.id),
+    );
     const items: Array<Record<string, unknown>> = [];
     const counters = {
       eligible: 0,
@@ -1879,6 +1884,7 @@ export class BankSlipsService {
         } else {
           eligibility = await this.issueBatchEligibility(this.prisma, invoice, options.userId, {
             resolveStalePendingIssue: options.resolveStalePendingIssue,
+            activeIssueBatchInvoiceIds,
           });
           issueStatus = eligibility.eligible ? "EXISTING_INVOICE_ELIGIBLE" : "BLOCKED";
           if (
@@ -1956,7 +1962,10 @@ export class BankSlipsService {
     tx: PrismaTx,
     invoice: InvoiceWithRelations,
     userId: string | undefined,
-    options: { resolveStalePendingIssue: boolean } = { resolveStalePendingIssue: true },
+    options: {
+      resolveStalePendingIssue: boolean;
+      activeIssueBatchInvoiceIds?: Set<string>;
+    } = { resolveStalePendingIssue: true },
   ) {
     if (invoice.status !== InvoiceStatus.OPEN) {
       if (invoice.status === InvoiceStatus.PAID) {
@@ -1976,6 +1985,13 @@ export class BankSlipsService {
     const payerEligibility = this.issueBatchPayerEligibility(invoice.student.person);
     if (!payerEligibility.eligible) {
       return payerEligibility;
+    }
+    if (options.activeIssueBatchInvoiceIds?.has(invoice.id)) {
+      return {
+        eligible: false,
+        code: "BANK_SLIP_ISSUE_IN_PROGRESS",
+        reason: "Fatura ja esta em lote de emissao ativo",
+      };
     }
     const bankSlip = invoice.bankSlip;
     if (!bankSlip) {
@@ -2044,6 +2060,39 @@ export class BankSlipsService {
         reason: "Dados do pagador invalidos",
       };
     }
+  }
+
+  private async findActiveIssueBatchInvoiceIds(invoiceIds: string[]) {
+    const uniqueIds = [...new Set(invoiceIds)];
+    if (uniqueIds.length === 0) {
+      return new Set<string>();
+    }
+    const items = await this.prisma.bankSlipIssueBatchItem.findMany({
+      where: {
+        invoiceId: { in: uniqueIds },
+        status: {
+          in: [
+            BankSlipIssueBatchItemStatus.QUEUED,
+            BankSlipIssueBatchItemStatus.PROCESSING,
+          ],
+        },
+        batch: {
+          status: {
+            in: [
+              BankSlipIssueBatchStatus.DRAFT,
+              BankSlipIssueBatchStatus.QUEUED,
+              BankSlipIssueBatchStatus.PROCESSING,
+            ],
+          },
+        },
+      },
+      select: { invoiceId: true },
+    });
+    return new Set(
+      items
+        .map((item) => item.invoiceId)
+        .filter((invoiceId): invoiceId is string => typeof invoiceId === "string"),
+    );
   }
 
   private accumulateInstitutionPreviewCounters(

@@ -1292,6 +1292,63 @@ async function testInstitutionIssueBatchConcurrentCreationDoesNotDuplicateInvoic
   );
 }
 
+async function testIssueBatchBlocksInvoiceAlreadyQueuedInActiveBatch() {
+  const prisma = new FakePrisma();
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+  const second = await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+
+  assert.equal(second.totalItems, 1);
+  assert.equal(second.queuedItems, 0);
+  assert.equal(second.skippedItems, 1);
+  assert.equal(prisma.issueBatchItems[1]?.lastErrorCode, "BANK_SLIP_ISSUE_IN_PROGRESS");
+}
+
+async function testInstitutionIssueBatchDoesNotDuplicateActiveBatchItems() {
+  const prisma = new FakePrisma();
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  const first = await service.createIssueBatch(
+    {
+      source: BankSlipIssueBatchSource.INSTITUTION,
+      institutionId: "institution-1",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
+      createMissingInvoices: true,
+    },
+    "user-1",
+  );
+  const beforeItems = prisma.issueBatchItems.length;
+
+  const duplicatePreview = await service.previewIssueBatch({
+    institutionId: "institution-1",
+    amountCents: 12050,
+    dueDate: "2099-08-10",
+    page: 1,
+    limit: 20,
+  });
+
+  assert.equal(first.queuedItems, 1);
+  assert.equal(duplicatePreview.totalEligible, 0);
+  assert.equal(duplicatePreview.totalBlocked, 1);
+  assert.equal(duplicatePreview.items[0]?.eligibilityCode, "BANK_SLIP_ISSUE_IN_PROGRESS");
+  await assert.rejects(
+    () => service.createIssueBatch(
+      {
+        source: BankSlipIssueBatchSource.INSTITUTION,
+        institutionId: "institution-1",
+        amountCents: 12050,
+        dueDate: "2099-08-10",
+        createMissingInvoices: true,
+      },
+      "user-1",
+    ),
+    /Nenhuma fatura elegivel/,
+  );
+  assert.equal(prisma.issueBatchItems.length, beforeItems);
+}
+
 async function testInstitutionPreviewScopeAndBlockingRules() {
   const prisma = new FakePrisma();
   prisma.addInstitution("institution-2");
@@ -2307,6 +2364,8 @@ await testIssueBatchPreviewByInstitution();
 await testIssueBatchCreationByInstitutionCreatesSkippedItems();
 await testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput();
 await testInstitutionIssueBatchConcurrentCreationDoesNotDuplicateInvoice();
+await testIssueBatchBlocksInvoiceAlreadyQueuedInActiveBatch();
+await testInstitutionIssueBatchDoesNotDuplicateActiveBatchItems();
 await testInstitutionPreviewScopeAndBlockingRules();
 await testIssueBatchReportIncludesInstitutionSummary();
 await testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible();
