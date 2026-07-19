@@ -14,6 +14,31 @@ export type AuthResponse = {
   user: ApiUser;
 };
 
+export type JobStatus = {
+  name: string;
+  enabled: boolean;
+  registered: boolean;
+  intervalMs: number;
+  tickCount: number;
+  lastTickAt?: string | null;
+  lastRunStartedAt?: string | null;
+  lastRunFinishedAt?: string | null;
+  nextRunEstimatedAt?: string | null;
+  running: boolean;
+  lastError?: {
+    at: string;
+    type: string;
+    message: string;
+  } | null;
+};
+
+export type JobsStatusResponse = {
+  serverTime: string;
+  uptimeSeconds: number;
+  pid: number;
+  jobs: JobStatus[];
+};
+
 export type RecordStatus = "ACTIVE" | "INACTIVE";
 
 export type BaseRecord = {
@@ -843,6 +868,10 @@ export const api = {
 
   me() {
     return request<AuthResponse>("/auth/me");
+  },
+
+  getJobsStatus() {
+    return request<JobsStatusResponse>("/admin/jobs/status");
   },
 
   logout() {

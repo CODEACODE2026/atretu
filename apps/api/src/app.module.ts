@@ -9,6 +9,7 @@ import { DatabaseModule } from "./database/database.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
 import { FinanceModule } from "./finance/finance.module.js";
 import { HealthController } from "./health.controller.js";
+import { JobsModule } from "./jobs/jobs.module.js";
 import { PreRegistrationsModule } from "./pre-registrations/pre-registrations.module.js";
 import { StudentCardsModule } from "./student-cards/student-cards.module.js";
 import { StudentsModule } from "./students/students.module.js";
@@ -18,6 +19,7 @@ import { StudentsModule } from "./students/students.module.js";
     AppConfigModule,
     DatabaseModule,
     AuthModule,
+    JobsModule,
     BaseRecordsModule,
     BusAssignmentsModule,
     DocumentsModule,

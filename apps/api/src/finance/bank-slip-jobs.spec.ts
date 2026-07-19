@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { JobMonitorService } from "../jobs/job-monitor.service.js";
 import { BankSlipIssueBatchJob } from "./bank-slip-issue-batch.job.js";
 import { BankSlipSyncJob } from "./bank-slip-sync.job.js";
 import type { SicrediConfig } from "./sicredi-config.js";
@@ -51,23 +52,27 @@ class FakeBankSlipsService {
 function createSyncJob(config: Partial<SicrediConfig> = {}) {
   const service = new FakeBankSlipsService();
   const scheduler = new FakeSchedulerRegistry();
+  const monitor = new JobMonitorService();
   const job = new BankSlipSyncJob(
     service as never,
     { ...baseConfig, ...config },
     scheduler as never,
+    monitor,
   );
-  return { job, scheduler, service };
+  return { job, monitor, scheduler, service };
 }
 
 function createIssueBatchJob(config: Partial<SicrediConfig> = {}) {
   const service = new FakeBankSlipsService();
   const scheduler = new FakeSchedulerRegistry();
+  const monitor = new JobMonitorService();
   const job = new BankSlipIssueBatchJob(
     service as never,
     { ...baseConfig, ...config },
     scheduler as never,
+    monitor,
   );
-  return { job, scheduler, service };
+  return { job, monitor, scheduler, service };
 }
 
 {
@@ -85,16 +90,25 @@ function createIssueBatchJob(config: Partial<SicrediConfig> = {}) {
 }
 
 {
-  const { job, scheduler } = createSyncJob({ syncOpenIssuedEnabled: true });
+  const { job, monitor, scheduler } = createSyncJob({ syncOpenIssuedEnabled: true });
   job.onModuleInit();
   assert.equal(scheduler.intervals.length, 1);
   assert.equal(scheduler.intervals[0]?.name, "sicredi-open-issued-sync");
+  const status = monitor.getStatus().jobs[0];
+  assert.equal(status?.name, "sicredi_open_issued_sync");
+  assert.equal(status?.enabled, true);
+  assert.equal(status?.registered, true);
 }
 
 {
-  const { job, service } = createSyncJob({ syncOpenIssuedEnabled: true });
+  const { job, monitor, service } = createSyncJob({ syncOpenIssuedEnabled: true });
+  job.onModuleInit();
   await (job as unknown as { run: () => Promise<void> }).run();
   assert.equal(service.syncOpenIssuedCalls, 1);
+  const status = monitor.getStatus().jobs[0];
+  assert.equal(status?.running, false);
+  assert.ok(status?.lastRunStartedAt);
+  assert.ok(status?.lastRunFinishedAt);
 }
 
 {
@@ -112,10 +126,14 @@ function createIssueBatchJob(config: Partial<SicrediConfig> = {}) {
 }
 
 {
-  const { job, scheduler } = createIssueBatchJob({ issueBatchEnabled: true });
+  const { job, monitor, scheduler } = createIssueBatchJob({ issueBatchEnabled: true });
   job.onModuleInit();
   assert.equal(scheduler.intervals.length, 1);
   assert.equal(scheduler.intervals[0]?.name, "sicredi-bank-slip-issue-batch");
+  const status = monitor.getStatus().jobs[0];
+  assert.equal(status?.name, "sicredi_issue_batch");
+  assert.equal(status?.enabled, true);
+  assert.equal(status?.registered, true);
 }
 
 {

@@ -3,6 +3,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { AdministrativeAuditModule } from "../administrative-audit/administrative-audit.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
+import { JobsModule } from "../jobs/jobs.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { BankSlipIssueBatchJob } from "./bank-slip-issue-batch.job.js";
 import { BankSlipsController } from "./bank-slips.controller.js";
@@ -23,6 +24,7 @@ import { loadSicrediConfig } from "./sicredi-config.js";
     AdministrativeAuditModule,
     AuthModule,
     DatabaseModule,
+    JobsModule,
     UsersModule,
   ],
   controllers: [InvoicesController, BankSlipsController],

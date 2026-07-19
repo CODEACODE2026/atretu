@@ -14,6 +14,7 @@ import {
 import { canAccessRestrictedAdmin, getPrimaryRoleLabel } from "../../lib/auth";
 import { AcademicYearsPanel } from "./academic-years-panel";
 import { FinancePanel } from "./finance-panel";
+import { JobsMonitorPanel } from "./jobs-monitor-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { StudentCardsPanel } from "./student-cards-panel";
 import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
@@ -152,6 +153,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
     | "reenrollments"
     | "student-cards"
     | "finance"
+    | "jobs"
     | "pre-registrations"
     | "years"
     | "base"
@@ -161,15 +163,19 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
     { key: "reenrollments", label: "Rematriculas" },
     { key: "student-cards", label: "Carteirinhas" },
     { key: "finance", label: "Financeiro" },
+    { key: "jobs", label: "Monitor de Jobs", restricted: true },
     { key: "pre-registrations", label: "Pre-cadastros" },
     { key: "years", label: "Anos Letivos" },
     { key: "base", label: "Cadastros Base" },
   ] as const;
+  const visibleTabs = tabs.filter(
+    (tab) => !("restricted" in tab) || canAccessRestrictedAdmin(user),
+  );
 
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap gap-2">
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             className={
               area === tab.key
@@ -189,6 +195,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
       {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
       {area === "student-cards" ? <StudentCardsPanel user={user} /> : null}
       {area === "finance" ? <FinancePanel user={user} /> : null}
+      {area === "jobs" ? <JobsMonitorPanel /> : null}
       {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
       {area === "years" ? <AcademicYearsPanel user={user} /> : null}
       {area === "base" ? <BaseRecordsPanel /> : null}
