@@ -2705,6 +2705,7 @@ export class BankSlipsService {
       paidCount: number;
       cancelledCount: number;
       errorCount: number;
+      unchangedCount: number;
     },
     metadata?: Record<string, string | number | boolean | null>,
   ) {

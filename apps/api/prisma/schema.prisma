@@ -713,6 +713,7 @@ model BankSlipSyncRun {
   paidCount       Int                   @default(0) @map("paid_count")
   cancelledCount  Int                   @default(0) @map("cancelled_count")
   errorCount      Int                   @default(0) @map("error_count")
+  unchangedCount  Int                   @default(0) @map("unchanged_count")
   metadata        Json?
   startedBy       User?                 @relation("BankSlipSyncRunStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
   items           BankSlipSyncRunItem[]

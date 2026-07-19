@@ -752,6 +752,33 @@ async function testOpenIssuedSyncPartialPaymentDoesNotQuitInvoice() {
   assert.equal(prisma.syncRunItems[0]?.status, BankSlipSyncRunItemStatus.PARTIAL_PAYMENT_REVIEW);
 }
 
+async function testOpenIssuedSyncPersistsUnchangedCountForAllErrorSummary() {
+  const prisma = new FakePrisma();
+  for (let index = 1; index <= 4; index += 1) {
+    const invoiceId = `invoice-${index}`;
+    if (index > 1) {
+      prisma.addInvoice(invoiceId);
+    }
+    prisma.seedIssuedBankSlip({
+      id: `bank-slip-${index}`,
+      invoiceId,
+      seuNumero: `A00000000${index}`,
+      nossoNumero: `25100614${index}`,
+    });
+  }
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextPaidAmount = "60.25";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncOpenIssued("user-1");
+
+  assert.equal(result.scannedCount, 4);
+  assert.equal(result.updatedCount, 4);
+  assert.equal(result.unchangedCount, 0);
+  assert.equal(result.errorCount, 4);
+  assert.equal(prisma.syncRuns[0]?.unchangedCount, 0);
+}
+
 async function testOpenIssuedSyncVencidoKeepsInvoiceOpen() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip();
@@ -1996,6 +2023,7 @@ class FakePrisma {
         paidCount: 0,
         cancelledCount: 0,
         errorCount: 0,
+        unchangedCount: 0,
         startedAt: new Date(),
         finishedAt: null,
         ...data,
@@ -2454,6 +2482,7 @@ await testOpenIssuedSyncIsIdempotentForAlreadyPaidInvoice();
 await testOpenIssuedSyncRecordsProviderErrorsWithoutStoppingBatch();
 await testOpenIssuedSyncHandles4044295xxAndTimeoutSafely();
 await testOpenIssuedSyncPartialPaymentDoesNotQuitInvoice();
+await testOpenIssuedSyncPersistsUnchangedCountForAllErrorSummary();
 await testOpenIssuedSyncVencidoKeepsInvoiceOpen();
 await testOpenIssuedSyncBaixadoExternallyKeepsInvoiceOpen();
 await testExternalCancellationByInvoiceKeepsInvoiceOpen();
