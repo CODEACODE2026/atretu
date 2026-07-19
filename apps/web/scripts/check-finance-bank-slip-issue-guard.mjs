@@ -46,8 +46,26 @@ assert.match(
 
 assert.match(
   source,
-  /setMessage\("Lote institucional de emissao criado"\);[\s\S]*?setIssueBatch\(batch\);[\s\S]*?refreshIssueBatch\(batch\.id\);[\s\S]*?loadInvoices\(\)/,
-  "Institutional issue flow must record success and refresh the invoice list after creation",
+  /setMessage\("Lote criado\. Emitindo boletos\.\.\."\);[\s\S]*?setIssueBatch\(batch\);[\s\S]*?refreshIssueBatch\(batch\.id\);[\s\S]*?loadInvoices\(\)/,
+  "Institutional issue flow must record immediate processing status and refresh the invoice list after creation",
+);
+
+assert.match(
+  source,
+  /Boolean\(issueBatch && isIssueBatchRunning\(issueBatch\)\)/,
+  "Institutional issue button must stay disabled while the batch is processing",
+);
+
+assert.match(
+  source,
+  /setMessage\(issueBatchCompletionMessage\(batch\)\)/,
+  "Polling must publish a completion summary when the batch finishes",
+);
+
+assert.match(
+  source,
+  /Emissao concluida: \$\{batch\.issuedItems\} boleto\(s\) emitido\(s\), \$\{errors\} erro\(s\), \$\{batch\.skippedItems\} bloqueado\(s\)\./,
+  "Completion summary must include issued, error, and blocked counts",
 );
 
 assert.match(

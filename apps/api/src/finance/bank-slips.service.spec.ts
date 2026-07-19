@@ -1349,6 +1349,62 @@ async function testInstitutionIssueBatchDoesNotDuplicateActiveBatchItems() {
   assert.equal(prisma.issueBatchItems.length, beforeItems);
 }
 
+async function testCreateIssueBatchDispatchesImmediateProcessingAfterTransaction() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  sicredi.beforeIssue = () => {
+    assert.equal(prisma.inTransaction, false);
+  };
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const batch = await service.createIssueBatch(
+    { invoiceIds: ["invoice-1"] },
+    "user-1",
+    { processImmediately: true },
+  );
+
+  assert.equal(batch.queuedItems, 1);
+  await waitFor(() => sicredi.issueCalls.length === 1);
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.ISSUED);
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.bankSlips[0]?.invoiceId, "invoice-1");
+  assert.equal(prisma.issueBatches[0]?.status, BankSlipIssueBatchStatus.COMPLETED);
+}
+
+async function testImmediateProcessingRespectsSchedulerLock() {
+  const prisma = new FakePrisma();
+  prisma.issueBatchLockAvailable = false;
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await service.createIssueBatch(
+    { invoiceIds: ["invoice-1"] },
+    "user-1",
+    { processImmediately: true },
+  );
+  await sleep(20);
+
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
+}
+
+async function testIssueBatchHandlesMissingSicrediConfiguration() {
+  const prisma = new FakePrisma();
+  const service = new BankSlipsService(
+    prisma as never,
+    new FakeSicrediClient() as never,
+    { ...config, apiKey: "" },
+  );
+
+  await service.createIssueBatch({ invoiceIds: ["invoice-1"] }, "user-1");
+  await service.processIssueBatchQueue();
+
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.FAILED);
+  assert.equal(prisma.issueBatchItems[0]?.lastErrorCode, "SICREDI_CONFIGURATION_MISSING");
+  assert.equal(prisma.bankSlips.length, 0);
+  assert.equal(prisma.issueBatches[0]?.status, BankSlipIssueBatchStatus.COMPLETED_WITH_ERRORS);
+}
+
 async function testInstitutionPreviewScopeAndBlockingRules() {
   const prisma = new FakePrisma();
   prisma.addInstitution("institution-2");
@@ -1636,8 +1692,10 @@ class FakeSicrediClient {
   pdfLinhaDigitavel?: string;
   nextStatus = "LIQUIDADO";
   nextPaidAmount = "120.50";
+  beforeIssue?: () => void;
 
   async issueBankSlip(input: Record<string, unknown>) {
+    this.beforeIssue?.();
     this.issueCalls.push(input);
     if (this.issueError) {
       throw this.issueError;
@@ -1737,6 +1795,7 @@ class FakePrisma {
   historyEvents: Array<Record<string, unknown>> = [];
   auditLogs: Array<Record<string, unknown>> = [];
   auditFindFirstCalls = 0;
+  inTransaction = false;
   syncLockAvailable = true;
   issueBatchLockAvailable = true;
   private bankSlipIdSequence = 0;
@@ -2114,9 +2173,11 @@ class FakePrisma {
       release = resolve;
     });
     await previous;
+    this.inTransaction = true;
     try {
       return await callback(this);
     } finally {
+      this.inTransaction = false;
       release();
     }
   }
@@ -2318,6 +2379,21 @@ function createPerson(studentId: string) {
   };
 }
 
+async function waitFor(predicate: () => boolean, timeoutMs = 200) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await sleep(5);
+  }
+  assert.equal(predicate(), true);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 await testIssueBankSlipSuccess();
 await testIssueUncertainMarksUnknown();
 await testIssueDiagnosticsTrackServiceStagesSafely();
@@ -2366,6 +2442,9 @@ await testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput();
 await testInstitutionIssueBatchConcurrentCreationDoesNotDuplicateInvoice();
 await testIssueBatchBlocksInvoiceAlreadyQueuedInActiveBatch();
 await testInstitutionIssueBatchDoesNotDuplicateActiveBatchItems();
+await testCreateIssueBatchDispatchesImmediateProcessingAfterTransaction();
+await testImmediateProcessingRespectsSchedulerLock();
+await testIssueBatchHandlesMissingSicrediConfiguration();
 await testInstitutionPreviewScopeAndBlockingRules();
 await testIssueBatchReportIncludesInstitutionSummary();
 await testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible();

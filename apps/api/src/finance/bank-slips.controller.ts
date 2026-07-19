@@ -115,7 +115,9 @@ export class BankSlipsController {
     @Body() body: CreateBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bankSlips.createIssueBatch(body, user.id);
+    return this.bankSlips.createIssueBatch(body, user.id, {
+      processImmediately: true,
+    });
   }
 
   @Post("finance/bank-slip-issue-batches/preview")

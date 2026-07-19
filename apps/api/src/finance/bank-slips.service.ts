@@ -104,6 +104,10 @@ const PENDING_ISSUE_STALE_MS = 15 * 60 * 1000;
 const OPEN_ISSUED_SYNC_LOCK_ID = 7_811_004;
 const ISSUE_BATCH_PROCESSOR_LOCK_ID = 7_811_005;
 
+type CreateIssueBatchOptions = {
+  processImmediately?: boolean;
+};
+
 @Injectable()
 export class BankSlipsService {
   private readonly logger = new Logger(BankSlipsService.name);
@@ -115,6 +119,7 @@ export class BankSlipsService {
   ) {}
 
   async issueForInvoice(invoiceId: string, userId: string) {
+    this.assertSicrediConfigurationAvailable();
     logIssueDiagnostic({
       etapa: "issue-start",
       invoiceId,
@@ -632,12 +637,36 @@ export class BankSlipsService {
     };
   }
 
-  async createIssueBatch(body: CreateBankSlipIssueBatchDto, userId: string) {
+  async createIssueBatch(
+    body: CreateBankSlipIssueBatchDto,
+    userId: string,
+    options: CreateIssueBatchOptions = {},
+  ) {
     const source = body.source ?? (body.institutionId ? BankSlipIssueBatchSource.INSTITUTION : BankSlipIssueBatchSource.MANUAL);
-    if (source === BankSlipIssueBatchSource.INSTITUTION) {
-      return this.createInstitutionIssueBatch(body, userId);
+    const batch = source === BankSlipIssueBatchSource.INSTITUTION
+      ? await this.createInstitutionIssueBatch(body, userId)
+      : await this.createManualIssueBatch(body, userId);
+    if (options.processImmediately) {
+      this.dispatchIssueBatchProcessing(batch.id);
     }
-    return this.createManualIssueBatch(body, userId);
+    return batch;
+  }
+
+  private dispatchIssueBatchProcessing(batchId: string) {
+    setTimeout(() => {
+      void this.processIssueBatchImmediately(batchId).catch((error) => {
+        this.logger.error({
+          event: "sicredi_bank_slip_issue_batch_immediate_failed",
+          batchId,
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+      });
+    }, 0);
+  }
+
+  async processIssueBatchImmediately(batchId: string) {
+    await this.getIssueBatch(batchId);
+    return this.processIssueBatchQueue({ batchId });
   }
 
   private async createManualIssueBatch(body: CreateBankSlipIssueBatchDto, userId: string) {
@@ -946,13 +975,13 @@ export class BankSlipsService {
     return this.recalculateIssueBatch(batchId);
   }
 
-  async processIssueBatchQueue() {
+  async processIssueBatchQueue(options: { batchId?: string } = {}) {
     const locked = await this.acquireIssueBatchProcessorLock();
     if (!locked) {
       return { processed: 0, skipped: true };
     }
     try {
-      const items = await this.claimIssueBatchItems();
+      const items = await this.claimIssueBatchItems(options);
       let processed = 0;
       for (let index = 0; index < items.length; index += this.sicrediConfig.issueBatchConcurrency) {
         const chunk = items.slice(index, index + this.sicrediConfig.issueBatchConcurrency);
@@ -2338,9 +2367,10 @@ export class BankSlipsService {
     };
   }
 
-  private async claimIssueBatchItems() {
+  private async claimIssueBatchItems(options: { batchId?: string } = {}) {
     const items = await this.prisma.bankSlipIssueBatchItem.findMany({
       where: {
+        ...(options.batchId ? { batchId: options.batchId } : {}),
         status: BankSlipIssueBatchItemStatus.QUEUED,
         invoiceId: { not: null },
         batch: { status: { in: [BankSlipIssueBatchStatus.QUEUED, BankSlipIssueBatchStatus.PROCESSING] } },
@@ -2416,6 +2446,28 @@ export class BankSlipsService {
           lastErrorCode: normalized.code,
           lastErrorMessage: normalized.message,
         },
+      });
+    }
+  }
+
+  private assertSicrediConfigurationAvailable() {
+    const required: Array<[string, string]> = [
+      ["SICREDI_AUTH_URL", this.sicrediConfig.authUrl],
+      ["SICREDI_BASE_URL", this.sicrediConfig.baseUrl],
+      ["SICREDI_API_KEY", this.sicrediConfig.apiKey],
+      ["SICREDI_USERNAME", this.sicrediConfig.username],
+      ["SICREDI_PASSWORD", this.sicrediConfig.password],
+      ["SICREDI_COOPERATIVA", this.sicrediConfig.cooperativa],
+      ["SICREDI_POSTO", this.sicrediConfig.posto],
+      ["SICREDI_CODIGO_BENEFICIARIO", this.sicrediConfig.codigoBeneficiario],
+    ];
+    const missing = required
+      .filter(([, value]) => !value || value.trim().length === 0)
+      .map(([name]) => name);
+    if (missing.length > 0) {
+      throw new ServiceUnavailableException({
+        code: "SICREDI_CONFIGURATION_MISSING",
+        message: `Configuracao Sicredi incompleta: ${missing.join(", ")}`,
       });
     }
   }

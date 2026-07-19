@@ -485,6 +485,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
       setIssueBatchItems(items.data);
       if (!isIssueBatchRunning(batch)) {
         await loadInvoices();
+        setMessage(issueBatchCompletionMessage(batch));
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao atualizar lote");
@@ -505,7 +506,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     setError("");
     try {
       const batch = await api.createBankSlipIssueBatch(selectedInvoiceIds);
-      setMessage("Lote de emissao criado");
+      setMessage("Lote criado. Emitindo boletos...");
       setIssueBatch(batch);
       setSelectedInvoiceIds([]);
       await refreshIssueBatch(batch.id);
@@ -540,7 +541,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
         dueDate: issueBatchPreview.dueDate ?? issueBatchDueDate,
         createMissingInvoices: true,
       });
-      setMessage("Lote institucional de emissao criado");
+      setMessage("Lote criado. Emitindo boletos...");
       setIssueBatch(batch);
       await refreshIssueBatch(batch.id);
       await loadInvoices();
@@ -779,7 +780,12 @@ export function FinancePanel({ user }: { user: ApiUser }) {
               </button>
               <button
                 className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                disabled={saving || !issueBatchPreview || issueBatchPreview.totalEligible === 0}
+                disabled={
+                  saving ||
+                  Boolean(issueBatch && isIssueBatchRunning(issueBatch)) ||
+                  !issueBatchPreview ||
+                  issueBatchPreview.totalEligible === 0
+                }
                 onClick={() => void handleCreateInstitutionIssueBatch()}
                 type="button"
               >
@@ -1881,6 +1887,14 @@ function issueBankSlipButtonLabel(bankSlip: BankSlipListRecord | null | undefine
 
 function isIssueBatchRunning(batch: BankSlipIssueBatch) {
   return batch.status === "QUEUED" || batch.status === "PROCESSING";
+}
+
+function issueBatchCompletionMessage(batch: BankSlipIssueBatch) {
+  if (batch.status === "CANCELLED") {
+    return "Lote cancelado.";
+  }
+  const errors = batch.failedItems + batch.unknownItems;
+  return `Emissao concluida: ${batch.issuedItems} boleto(s) emitido(s), ${errors} erro(s), ${batch.skippedItems} bloqueado(s).`;
 }
 
 function issueBatchStatusLabel(status: BankSlipIssueBatch["status"]) {
