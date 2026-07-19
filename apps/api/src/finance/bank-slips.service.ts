@@ -497,16 +497,26 @@ export class BankSlipsService {
       paidCount: 0,
       cancelledCount: 0,
       errorCount: 0,
+      unchangedCount: 0,
     };
 
     try {
+      const startedAt = Date.now();
       const bankSlips = await this.findOpenIssuedBankSlipsForSync();
+      this.logger.log({
+        event: "sicredi_open_issued_sync_started",
+        eligibleSlips: bankSlips.length,
+        limit: this.sicrediConfig.syncOpenIssuedLimit,
+        environment: this.environment(),
+      });
       for (const bankSlip of bankSlips) {
         counters.scannedCount += 1;
         try {
           const result = await this.syncOpenIssuedBankSlip(run.id, bankSlip, userId);
           if (result.updated) {
             counters.updatedCount += 1;
+          } else {
+            counters.unchangedCount += 1;
           }
           if (result.status === BankSlipSyncRunItemStatus.PAID) {
             counters.paidCount += 1;
@@ -539,6 +549,17 @@ export class BankSlipsService {
           });
         }
       }
+      this.logger.log({
+        event: "sicredi_open_issued_sync_finished",
+        runId: run.id,
+        checked: counters.scannedCount,
+        paid: counters.paidCount,
+        cancelled: counters.cancelledCount,
+        updated: counters.updatedCount,
+        unchanged: counters.unchangedCount,
+        errors: counters.errorCount,
+        durationMs: Date.now() - startedAt,
+      });
       const finalStatus =
         counters.errorCount > 0
           ? BankSlipSyncRunStatus.COMPLETED_WITH_ERRORS

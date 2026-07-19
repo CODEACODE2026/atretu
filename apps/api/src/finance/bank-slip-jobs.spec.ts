@@ -92,6 +92,12 @@ function createIssueBatchJob(config: Partial<SicrediConfig> = {}) {
 }
 
 {
+  const { job, service } = createSyncJob({ syncOpenIssuedEnabled: true });
+  await (job as unknown as { run: () => Promise<void> }).run();
+  assert.equal(service.syncOpenIssuedCalls, 1);
+}
+
+{
   const { job, scheduler, service } = createIssueBatchJob();
   job.onModuleInit();
   assert.equal(scheduler.intervals.length, 0);
