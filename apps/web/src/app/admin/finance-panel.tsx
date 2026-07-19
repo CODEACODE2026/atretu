@@ -76,6 +76,14 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   const [syncPaidSummary, setSyncPaidSummary] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const issueBatchProgressEvents = useMemo(
+    () => latestIssueBatchEvents(issueBatchItems),
+    [issueBatchItems],
+  );
+  const showIssueBatchProgress = Boolean(
+    issueBatch &&
+      (isIssueBatchRunning(issueBatch) || issueBatch.progressPercent === 100 || issueBatch.finishedAt),
+  );
 
   useEffect(() => {
     void loadReferences();
@@ -597,6 +605,13 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     }
   }
 
+  function handleViewIssueBatchDetails() {
+    document.getElementById("issue-batch-details")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
   return (
     <div className="grid gap-4">
       <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
@@ -846,8 +861,15 @@ export function FinancePanel({ user }: { user: ApiUser }) {
             </button>
             </div>
           </div>
+          {issueBatch && showIssueBatchProgress ? (
+            <IssueBatchProgressPanel
+              batch={issueBatch}
+              events={issueBatchProgressEvents}
+              onViewDetails={handleViewIssueBatchDetails}
+            />
+          ) : null}
           {issueBatch ? (
-            <div className="mt-3 grid gap-2 text-xs text-slate-700">
+            <div className="mt-3 grid gap-2 text-xs text-slate-700" id="issue-batch-details">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">Lote {issueBatch.id.slice(0, 8)}</span>
                 <span>{issueBatchStatusLabel(issueBatch.status)}</span>
@@ -917,7 +939,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                   {issueBatchItems.slice(0, 8).map((item) => (
                     <div className="flex flex-wrap gap-2" key={item.id}>
                       <span>{issueBatchItemStatusLabel(item.status)}</span>
+                      {item.studentName ? <span>{item.studentName}</span> : null}
                       <span>{item.invoiceId ? item.invoiceId.slice(0, 8) : "Sem fatura"}</span>
+                      {item.nossoNumero ? <span>Nosso numero: {item.nossoNumero}</span> : null}
+                      {item.linhaDigitavel ? <span>Linha digitavel: {item.linhaDigitavel}</span> : null}
                       {item.skipReason || item.lastErrorMessage ? (
                         <span className="text-slate-500">
                           {item.skipReason ?? item.lastErrorMessage}
@@ -1895,6 +1920,134 @@ function issueBatchCompletionMessage(batch: BankSlipIssueBatch) {
   }
   const errors = batch.failedItems + batch.unknownItems;
   return `Emissao concluida: ${batch.issuedItems} boleto(s) emitido(s), ${errors} erro(s), ${batch.skippedItems} bloqueado(s).`;
+}
+
+function IssueBatchProgressPanel({
+  batch,
+  events,
+  onViewDetails,
+}: {
+  batch: BankSlipIssueBatch;
+  events: BankSlipIssueBatchItem[];
+  onViewDetails: () => void;
+}) {
+  const running = isIssueBatchRunning(batch);
+  const elapsedMs = issueBatchElapsedMs(batch);
+  const estimatedRemainingMs = running ? issueBatchEstimatedRemainingMs(batch, elapsedMs) : 0;
+  const errors = batch.failedItems + batch.unknownItems;
+  return (
+    <div className="mt-3 grid gap-3 rounded border border-blue-100 bg-blue-50 p-4 text-sm text-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-semibold text-slate-950">
+            {running ? "Emitindo boletos..." : "Emissao concluida."}
+          </p>
+          <p className="text-xs text-slate-600">
+            {batch.processedItems} de {batch.totalItems} boletos processados
+          </p>
+        </div>
+        {!running ? (
+          <button
+            className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+            onClick={onViewDetails}
+            type="button"
+          >
+            Ver detalhes do lote
+          </button>
+        ) : null}
+      </div>
+      <div className="grid gap-1">
+        <div className="h-2 overflow-hidden rounded bg-white">
+          <div
+            className="h-full rounded bg-blue-600 transition-all"
+            style={{ width: `${batch.progressPercent}%` }}
+          />
+        </div>
+        <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-600">
+          <span>{batch.progressPercent}%</span>
+          <span>Tempo decorrido: {formatDuration(elapsedMs)}</span>
+          {running && estimatedRemainingMs > 0 ? (
+            <span>Estimativa restante: {formatDuration(estimatedRemainingMs)}</span>
+          ) : null}
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="rounded border border-emerald-100 bg-white px-3 py-2">
+          <p className="text-xs text-slate-500">Emitidos</p>
+          <p className="text-base font-semibold text-emerald-700">{batch.successItems}</p>
+        </div>
+        <div className="rounded border border-amber-100 bg-white px-3 py-2">
+          <p className="text-xs text-slate-500">Bloqueados</p>
+          <p className="text-base font-semibold text-amber-700">{batch.skippedItems}</p>
+        </div>
+        <div className="rounded border border-red-100 bg-white px-3 py-2">
+          <p className="text-xs text-slate-500">Erros</p>
+          <p className="text-base font-semibold text-red-700">{errors}</p>
+        </div>
+      </div>
+      {events.length > 0 ? (
+        <div className="grid gap-1 border-t border-blue-100 pt-2 text-xs">
+          <p className="font-medium text-slate-700">Ultimos eventos</p>
+          {events.map((item) => (
+            <div className="flex flex-wrap items-center gap-2" key={item.id}>
+              <span className={issueBatchEventTone(item.status)}>
+                {issueBatchItemStatusLabel(item.status)}
+              </span>
+              <span>{item.studentName ?? item.studentId ?? item.invoiceId ?? "Aluno"}</span>
+              {item.nossoNumero ? <span>Nosso numero: {item.nossoNumero}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function latestIssueBatchEvents(items: BankSlipIssueBatchItem[]) {
+  return [...items]
+    .filter((item) => item.status !== "QUEUED" && item.status !== "PROCESSING")
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .slice(0, 5);
+}
+
+function issueBatchElapsedMs(batch: BankSlipIssueBatch) {
+  const startedAt = Date.parse(batch.startedAt ?? batch.createdAt);
+  if (Number.isNaN(startedAt)) {
+    return 0;
+  }
+  const endedAt = batch.finishedAt ? Date.parse(batch.finishedAt) : Date.now();
+  if (Number.isNaN(endedAt) || endedAt < startedAt) {
+    return 0;
+  }
+  return endedAt - startedAt;
+}
+
+function issueBatchEstimatedRemainingMs(batch: BankSlipIssueBatch, elapsedMs: number) {
+  if (batch.processedItems <= 0 || batch.processedItems >= batch.totalItems) {
+    return 0;
+  }
+  const msPerItem = elapsedMs / batch.processedItems;
+  return Math.round(msPerItem * (batch.totalItems - batch.processedItems));
+}
+
+function formatDuration(valueMs: number) {
+  const totalSeconds = Math.max(0, Math.round(valueMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}min ${seconds}s` : `${seconds}s`;
+}
+
+function issueBatchEventTone(status: BankSlipIssueBatchItem["status"]) {
+  if (status === "ISSUED") {
+    return "font-medium text-emerald-700";
+  }
+  if (status === "SKIPPED") {
+    return "font-medium text-amber-700";
+  }
+  if (status === "FAILED" || status === "UNKNOWN") {
+    return "font-medium text-red-700";
+  }
+  return "font-medium text-slate-700";
 }
 
 function issueBatchStatusLabel(status: BankSlipIssueBatch["status"]) {

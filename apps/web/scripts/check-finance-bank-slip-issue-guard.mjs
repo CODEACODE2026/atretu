@@ -64,6 +64,42 @@ assert.match(
 
 assert.match(
   source,
+  /IssueBatchProgressPanel/,
+  "Finance panel must render a batch progress panel while polling",
+);
+
+assert.match(
+  source,
+  /batch\.progressPercent/,
+  "Batch progress panel must use backend-calculated progressPercent",
+);
+
+assert.match(
+  source,
+  /batch\.processedItems[\s\S]*?batch\.totalItems[\s\S]*?boletos processados/,
+  "Batch progress panel must show processed and total item counts",
+);
+
+assert.match(
+  source,
+  /latestIssueBatchEvents\(issueBatchItems\)/,
+  "Batch progress panel must show the latest processed item events",
+);
+
+assert.match(
+  source,
+  /formatDuration\(elapsedMs\)/,
+  "Batch progress panel must show elapsed time",
+);
+
+assert.match(
+  source,
+  /Ver detalhes do lote/,
+  "Finished batch progress panel must expose a view details action",
+);
+
+assert.match(
+  source,
   /Emissao concluida: \$\{batch\.issuedItems\} boleto\(s\) emitido\(s\), \$\{errors\} erro\(s\), \$\{batch\.skippedItems\} bloqueado\(s\)\./,
   "Completion summary must include issued, error, and blocked counts",
 );

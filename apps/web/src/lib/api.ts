@@ -602,6 +602,9 @@ export type BankSlipIssueBatch = {
   unitAmountCents: number;
   totalValueCents: number;
   totalItems: number;
+  processedItems: number;
+  successItems: number;
+  progressPercent: number;
   queuedItems: number;
   processingItems: number;
   issuedItems: number;
@@ -707,6 +710,10 @@ export type BankSlipIssueBatchItem = {
   studentId?: string | null;
   enrollmentId?: string | null;
   bankSlipId?: string | null;
+  studentName?: string | null;
+  bankSlipStatus?: BankSlipStatus | null;
+  nossoNumero?: string | null;
+  linhaDigitavel?: string | null;
   status: BankSlipIssueBatchItemStatus;
   attempts: number;
   nextAttemptAt?: string | null;

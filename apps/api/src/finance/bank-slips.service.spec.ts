@@ -1569,6 +1569,16 @@ async function testIssueBatchProcessesSuccess() {
   assert.equal(sicredi.issueCalls.length, 1);
   assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.ISSUED);
   assert.equal(prisma.issueBatches.find((item) => item.id === batch.id)?.status, BankSlipIssueBatchStatus.COMPLETED);
+  const refreshed = await service.getIssueBatch(batch.id);
+  assert.equal(refreshed.totalItems, 1);
+  assert.equal(refreshed.processedItems, 1);
+  assert.equal(refreshed.successItems, 1);
+  assert.equal(refreshed.progressPercent, 100);
+  const items = await service.listIssueBatchItems(batch.id, { page: 1, limit: 10 });
+  assert.equal(items.data[0]?.studentName, "Aluno student-1");
+  assert.equal(items.data[0]?.bankSlipStatus, BankSlipStatus.ISSUED);
+  assert.equal(items.data[0]?.nossoNumero, "251006142");
+  assert.equal(items.data[0]?.linhaDigitavel, "74891125110061420512803153351030188640000009990");
 }
 
 async function testIssueBatchProcessorLockPreventsDuplicateExecution() {
@@ -2154,14 +2164,23 @@ class FakePrisma {
       }
       return include?.batch ? { ...record, batch: this.issueBatches.find((batch) => batch.id === record.batchId) } : record;
     },
-    findMany: async ({ where, include }: { where?: Record<string, unknown>; include?: Record<string, unknown> } = {}) =>
+    findMany: async ({
+      where,
+      include,
+      skip,
+      take,
+    }: {
+      where?: Record<string, unknown>;
+      include?: Record<string, unknown>;
+      skip?: number;
+      take?: number;
+    } = {}) =>
       this.issueBatchItems
         .filter((item) => this.matchesWhere(item, where ?? {}))
         .map((item) =>
-          include?.invoice
-            ? { ...item, invoice: this.invoices.get(String(item.invoiceId)) ?? null }
-            : item,
-        ),
+          this.withIssueBatchItemIncludes(item, include),
+        )
+        .slice(skip ?? 0, typeof take === "number" ? (skip ?? 0) + take : undefined),
     count: async ({ where }: { where?: Record<string, unknown> } = {}) =>
       this.issueBatchItems.filter((item) => this.matchesWhere(item, where ?? {})).length,
   };
@@ -2211,6 +2230,22 @@ class FakePrisma {
       ...record,
       institution: institutionId ? this.institutions.get(institutionId) ?? null : null,
       shift: shiftId ? { id: shiftId, name: "Manha" } : null,
+    };
+  }
+
+  private withIssueBatchItemIncludes(record: Record<string, unknown>, include?: Record<string, unknown>) {
+    const invoice = this.invoices.get(String(record.invoiceId)) ?? null;
+    const studentId = typeof record.studentId === "string" ? record.studentId : invoice?.studentId;
+    const bankSlipId = typeof record.bankSlipId === "string" ? record.bankSlipId : null;
+    return {
+      ...record,
+      ...(include?.invoice ? { invoice } : {}),
+      ...(include?.student
+        ? { student: studentId ? { id: studentId, person: createPerson(studentId) } : null }
+        : {}),
+      ...(include?.bankSlip
+        ? { bankSlip: bankSlipId ? this.bankSlips.find((item) => item.id === bankSlipId) ?? null : null }
+        : {}),
     };
   }
 

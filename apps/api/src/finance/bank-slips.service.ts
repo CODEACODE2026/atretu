@@ -856,7 +856,7 @@ export class BankSlipsService {
       this.prisma.bankSlipIssueBatch.count({ where }),
     ]);
     return {
-      data: records,
+      data: records.map((record) => this.toIssueBatchResponse(record)),
       pagination: {
         page: pagination.page,
         limit: pagination.limit,
@@ -874,7 +874,7 @@ export class BankSlipsService {
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
-    return batch;
+    return this.toIssueBatchResponse(batch);
   }
 
   private buildIssueBatchWhere(query: ListBankSlipIssueBatchesDto): Prisma.BankSlipIssueBatchWhereInput {
@@ -903,6 +903,17 @@ export class BankSlipsService {
     const [records, total] = await Promise.all([
       this.prisma.bankSlipIssueBatchItem.findMany({
         where: { batchId },
+        include: {
+          student: { include: { person: true } },
+          bankSlip: {
+            select: {
+              id: true,
+              status: true,
+              nossoNumero: true,
+              linhaDigitavel: true,
+            },
+          },
+        },
         orderBy: [{ createdAt: "asc" }],
         skip: pagination.skip,
         take: pagination.limit,
@@ -910,7 +921,7 @@ export class BankSlipsService {
       this.prisma.bankSlipIssueBatchItem.count({ where: { batchId } }),
     ]);
     return {
-      data: records,
+      data: records.map((record) => this.toIssueBatchItemResponse(record)),
       pagination: {
         page: pagination.page,
         limit: pagination.limit,
@@ -2535,7 +2546,7 @@ export class BankSlipsService {
           : BankSlipIssueBatchStatus.COMPLETED;
     const report = this.buildIssueBatchReport(items);
     const metadata = this.mergeBatchMetadata(batch.metadata, { report }) as Prisma.InputJsonValue;
-    return this.prisma.bankSlipIssueBatch.update({
+    const updated = await this.prisma.bankSlipIssueBatch.update({
       where: { id: batchId },
       data: {
         status,
@@ -2544,6 +2555,35 @@ export class BankSlipsService {
         metadata,
       },
     });
+    return this.toIssueBatchResponse(updated);
+  }
+
+  private toIssueBatchResponse(batch: IssueBatchResponseInput) {
+    const processedItems =
+      batch.issuedItems +
+      batch.skippedItems +
+      batch.failedItems +
+      batch.unknownItems +
+      batch.cancelledItems;
+    const progressPercent = batch.totalItems > 0
+      ? Math.min(100, Math.round((processedItems / batch.totalItems) * 100))
+      : 0;
+    return {
+      ...batch,
+      processedItems,
+      successItems: batch.issuedItems,
+      progressPercent,
+    };
+  }
+
+  private toIssueBatchItemResponse(item: IssueBatchItemWithProgressRelations) {
+    return {
+      ...item,
+      studentName: item.student?.person.fullName ?? null,
+      bankSlipStatus: item.bankSlip?.status ?? null,
+      nossoNumero: item.bankSlip?.nossoNumero ?? null,
+      linhaDigitavel: item.bankSlip?.linhaDigitavel ?? null,
+    };
   }
 
   private buildIssueBatchReport(
@@ -3060,4 +3100,26 @@ type InvoiceWithRelations = Prisma.InvoiceGetPayload<{
 
 type BankSlipWithRelations = Prisma.BankSlipGetPayload<{
   include: ReturnType<BankSlipsService["bankSlipInclude"]>;
+}>;
+
+type IssueBatchWithRelations = Prisma.BankSlipIssueBatchGetPayload<{
+  include: ReturnType<BankSlipsService["issueBatchInclude"]>;
+}>;
+
+type IssueBatchResponseInput =
+  Prisma.BankSlipIssueBatchGetPayload<Record<string, never>> &
+  Partial<Pick<IssueBatchWithRelations, "institution" | "shift">>;
+
+type IssueBatchItemWithProgressRelations = Prisma.BankSlipIssueBatchItemGetPayload<{
+  include: {
+    student: { include: { person: true } };
+    bankSlip: {
+      select: {
+        id: true;
+        status: true;
+        nossoNumero: true;
+        linhaDigitavel: true;
+      };
+    };
+  };
 }>;
