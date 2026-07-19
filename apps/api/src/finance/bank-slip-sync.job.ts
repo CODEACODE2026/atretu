@@ -25,6 +25,11 @@ export class BankSlipSyncJob implements OnModuleInit {
     }
 
     const interval = setInterval(() => {
+      this.logger.log({
+        event: "sicredi_open_issued_sync_tick",
+        intervalMs: this.sicrediConfig.syncOpenIssuedIntervalMs,
+        limit: this.sicrediConfig.syncOpenIssuedLimit,
+      });
       void this.run();
     }, this.sicrediConfig.syncOpenIssuedIntervalMs);
     this.schedulerRegistry.addInterval(JOB_NAME, interval);
