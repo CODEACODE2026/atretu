@@ -147,6 +147,26 @@ export class BankSlipsController {
     return this.bankSlips.listIssueBatchItems(params.batchId, query);
   }
 
+  @Get("finance/bank-slip-issue-batches/:batchId/download")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Header("Cache-Control", "no-store, private")
+  @Header("X-Content-Type-Options", "nosniff")
+  async downloadIssueBatchPdfs(
+    @Param() params: BankSlipIssueBatchParamsDto,
+    @Res() response: Response,
+  ) {
+    const archive = await this.bankSlips.downloadIssueBatchPdfs(params.batchId);
+    response.setHeader("Content-Type", "application/zip");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${archive.fileName}"`,
+    );
+    response.setHeader("X-Bank-Slip-Zip-Total", String(archive.totals.total));
+    response.setHeader("X-Bank-Slip-Zip-Included", String(archive.totals.included));
+    response.setHeader("X-Bank-Slip-Zip-Skipped", String(archive.totals.skipped));
+    archive.stream.pipe(response);
+  }
+
   @Post("finance/bank-slip-issue-batches/:batchId/cancel")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   cancelIssueBatch(

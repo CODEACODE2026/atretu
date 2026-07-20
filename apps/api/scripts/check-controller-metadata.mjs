@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
+import { RoleCode } from "@prisma/client";
 import { BaseRecordsController } from "../src/base-records/base-records.controller.ts";
+import { BankSlipsController } from "../src/finance/bank-slips.controller.ts";
 import { PreRegistrationsController } from "../src/pre-registrations/pre-registrations.controller.ts";
 import { StudentsController } from "../src/students/students.controller.ts";
 
@@ -33,5 +35,17 @@ for (const check of checks) {
     `${check.method} must preserve ${check.expected} runtime metadata`,
   );
 }
+
+const bankSlipBatchDownloadRoles =
+  Reflect.getMetadata(
+    "roles",
+    BankSlipsController.prototype.downloadIssueBatchPdfs,
+  ) ?? [];
+
+assert.deepEqual(
+  bankSlipBatchDownloadRoles,
+  [RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA],
+  "downloadIssueBatchPdfs must require finance admin roles",
+);
 
 console.log("Controller DTO metadata OK");

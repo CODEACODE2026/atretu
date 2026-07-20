@@ -843,6 +843,7 @@ async function requestBlob(path: string, options: RequestInit = {}) {
   return {
     blob: await response.blob(),
     fileName: fileNameFromDisposition(response.headers.get("content-disposition")),
+    headers: response.headers,
   };
 }
 
@@ -1152,6 +1153,10 @@ export const api = {
     return request<ListResponse<BankSlipIssueBatchItem>>(
       withParams(`/finance/bank-slip-issue-batches/${batchId}/items`, params),
     );
+  },
+
+  downloadBankSlipIssueBatchZip(batchId: string) {
+    return requestBlob(`/finance/bank-slip-issue-batches/${batchId}/download`);
   },
 
   cancelBankSlipIssueBatch(batchId: string, body: { reason?: string }) {

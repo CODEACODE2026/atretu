@@ -72,6 +72,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   const [issueBatchPreview, setIssueBatchPreview] = useState<BankSlipIssueBatchPreview | null>(null);
   const [issueBatch, setIssueBatch] = useState<BankSlipIssueBatch | null>(null);
   const [issueBatchItems, setIssueBatchItems] = useState<BankSlipIssueBatchItem[]>([]);
+  const [issueBatchDownloadState, setIssueBatchDownloadState] = useState<
+    "" | "preparing" | "started" | "partial" | "empty" | "error"
+  >("");
+  const [issueBatchDownloadSummary, setIssueBatchDownloadSummary] = useState("");
   const [syncPaidDate, setSyncPaidDate] = useState(todayDate());
   const [syncPaidSummary, setSyncPaidSummary] = useState("");
   const [message, setMessage] = useState("");
@@ -605,6 +609,49 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     }
   }
 
+  async function handleDownloadIssueBatchPdfs() {
+    if (!issueBatch || issueBatchDownloadState === "preparing") {
+      return;
+    }
+    setIssueBatchDownloadState("preparing");
+    setIssueBatchDownloadSummary("Preparando arquivo...");
+    setMessage("");
+    setError("");
+    try {
+      const result = await api.downloadBankSlipIssueBatchZip(issueBatch.id);
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(result.blob);
+      link.href = url;
+      link.download = safeZipFileName(
+        result.fileName,
+        `boletos-${issueBatch.id.slice(0, 8)}.zip`,
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      const total = numberHeader(result.headers, "x-bank-slip-zip-total", issueBatch.totalItems);
+      const included = numberHeader(result.headers, "x-bank-slip-zip-included", 0);
+      const skipped = numberHeader(result.headers, "x-bank-slip-zip-skipped", Math.max(0, total - included));
+      const summary = `Total de boletos: ${total}; PDFs incluidos: ${included}; boletos ignorados: ${skipped}; falhas: ${issueBatch.failedItems + issueBatch.unknownItems}.`;
+      setIssueBatchDownloadSummary(summary);
+      if (included === 0) {
+        setIssueBatchDownloadState("empty");
+        setMessage("Nenhum boleto disponivel");
+      } else if (skipped > 0 || issueBatch.failedItems + issueBatch.unknownItems > 0) {
+        setIssueBatchDownloadState("partial");
+        setMessage("Alguns boletos não foram incluídos");
+      } else {
+        setIssueBatchDownloadState("started");
+        setMessage("Download iniciado");
+      }
+    } catch (caught) {
+      setIssueBatchDownloadState("error");
+      setIssueBatchDownloadSummary("");
+      setError(caught instanceof Error ? caught.message : "Erro ao preparar ZIP");
+    }
+  }
+
   function handleViewIssueBatchDetails() {
     document.getElementById("issue-batch-details")?.scrollIntoView({
       behavior: "smooth",
@@ -913,6 +960,16 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                 >
                   Atualizar
                 </button>
+                <button
+                  className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
+                  disabled={saving || issueBatchDownloadState === "preparing"}
+                  onClick={() => void handleDownloadIssueBatchPdfs()}
+                  type="button"
+                >
+                  {issueBatchDownloadState === "preparing"
+                    ? "Preparando arquivo..."
+                    : "Baixar boletos do lote"}
+                </button>
                 {isIssueBatchRunning(issueBatch) ? (
                   <button
                     className="rounded border border-amber-200 bg-white px-2 py-1 font-medium text-amber-700 disabled:opacity-60"
@@ -934,6 +991,9 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                   </button>
                 ) : null}
               </div>
+              {issueBatchDownloadSummary ? (
+                <p className="text-xs text-slate-600">{issueBatchDownloadSummary}</p>
+              ) : null}
               {issueBatchItems.length > 0 ? (
                 <div className="grid gap-1">
                   {issueBatchItems.slice(0, 8).map((item) => (
@@ -2176,6 +2236,16 @@ function formatOptionalCents(value?: number | null) {
 function safeBankSlipFileName(fileName: string, invoiceId: string) {
   const cleaned = fileName.replace(/[^a-zA-Z0-9_.-]/g, "");
   return cleaned && !/\d{11}/.test(cleaned) ? cleaned : `boleto-${invoiceId}.pdf`;
+}
+
+function safeZipFileName(fileName: string, fallback: string) {
+  const cleaned = fileName.replace(/[^a-zA-Z0-9_.-]/g, "");
+  return cleaned.endsWith(".zip") ? cleaned : fallback;
+}
+
+function numberHeader(headers: Headers, name: string, fallback: number) {
+  const parsed = Number.parseInt(headers.get(name) ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function parseMoneyToCents(input: string) {

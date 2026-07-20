@@ -62,6 +62,7 @@ import type {
   RequestBankSlipCancellationDto,
 } from "./dto/bank-slips.dto.js";
 import { resolvePagination } from "../common/pagination.js";
+import { createZipArchiveStream, type ZipArchiveEntry } from "./zip-archive.js";
 
 export const SICREDI_CLIENT = Symbol("SICREDI_CLIENT");
 export const SICREDI_CONFIG = Symbol("SICREDI_CONFIG");
@@ -94,6 +95,30 @@ type IssuePreparationResult =
 type PartialPaymentReview = {
   paidAmountCents: number;
   originalAmountCents: number;
+};
+
+type IssueBatchZipRow = {
+  aluno: string;
+  matricula: string;
+  nossoNumero: string;
+  valor: string;
+  vencimento: string;
+  status: string;
+  arquivo: string;
+  motivo: string;
+};
+
+type IssueBatchZipItem = {
+  sequence: number;
+  studentName: string;
+  enrollmentIdentifier: string;
+  nossoNumero: string;
+  amountCents: number;
+  dueDate: Date | null;
+  status: BankSlipIssueBatchItemStatus | BankSlipStatus;
+  filePath?: string;
+  linhaDigitavel?: string;
+  skipReason?: string;
 };
 
 type CancellationPreparation = {
@@ -1180,6 +1205,219 @@ export class BankSlipsService {
       }
       throw error;
     }
+  }
+
+  async downloadIssueBatchPdfs(batchId: string) {
+    const batch = await this.prisma.bankSlipIssueBatch.findUnique({
+      where: { id: batchId },
+      include: this.issueBatchInclude(),
+    });
+    if (!batch) {
+      throw new NotFoundException("Lote de emissao nao encontrado");
+    }
+    const records = await this.prisma.bankSlipIssueBatchItem.findMany({
+      where: { batchId },
+      include: {
+        invoice: true,
+        enrollment: true,
+        student: { include: { person: true } },
+        bankSlip: true,
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+    const institutionName = batch.institution?.name ?? "lote";
+    const institutionDir = this.sanitizeArchiveToken(institutionName, "instituicao", 60);
+    const dueDate = batch.dueDate ?? records.find((item) => item.invoice?.dueDate)?.invoice?.dueDate ?? null;
+    const preparedItems = this.prepareIssueBatchZipItems(records, institutionDir);
+    const totals = {
+      total: preparedItems.length,
+      included: preparedItems.filter((item) => item.filePath && item.linhaDigitavel).length,
+      skipped: preparedItems.filter((item) => !item.filePath || !item.linhaDigitavel).length,
+    };
+    const entries = this.createIssueBatchZipEntries(institutionDir, preparedItems);
+    return {
+      fileName: `boletos-${this.sanitizeArchiveToken(institutionName, "instituicao", 80)}-${this.formatArchiveDate(dueDate)}.zip`,
+      stream: createZipArchiveStream(entries),
+      totals,
+    };
+  }
+
+  private prepareIssueBatchZipItems(
+    records: Array<{
+      id: string;
+      status: BankSlipIssueBatchItemStatus;
+      enrollmentId?: string | null;
+      skipReason?: string | null;
+      lastErrorCode?: string | null;
+      lastErrorMessage?: string | null;
+      invoice?: { amountCents: number; dueDate: Date; enrollmentId: string } | null;
+      enrollment?: { id: string } | null;
+      student?: { id: string; person: { fullName: string } } | null;
+      bankSlip?: {
+        status: BankSlipStatus;
+        nossoNumero?: string | null;
+        linhaDigitavel?: string | null;
+      } | null;
+    }>,
+    institutionDir: string,
+  ) {
+    const duplicateCounts = new Map<string, number>();
+    for (const record of records) {
+      const slug = this.sanitizeArchiveToken(
+        record.student?.person.fullName ?? "aluno",
+        "aluno",
+        70,
+      );
+      duplicateCounts.set(slug, (duplicateCounts.get(slug) ?? 0) + 1);
+    }
+
+    return records.map((record, index): IssueBatchZipItem => {
+      const studentName = record.student?.person.fullName ?? "Aluno sem nome";
+      const enrollmentIdentifier =
+        record.enrollment?.id ??
+        record.enrollmentId ??
+        record.invoice?.enrollmentId ??
+        record.student?.id ??
+        record.id;
+      const studentSlug = this.sanitizeArchiveToken(studentName, "aluno", 70);
+      const duplicateSuffix = (duplicateCounts.get(studentSlug) ?? 0) > 1
+        ? `-MAT${this.sanitizeArchiveToken(enrollmentIdentifier, record.id, 18)}`
+        : "";
+      const sequence = index + 1;
+      const baseFile = `${String(sequence).padStart(3, "0")}-${studentSlug}${duplicateSuffix}.pdf`;
+      const skipReason = this.issueBatchZipSkipReason(record);
+      return {
+        sequence,
+        studentName,
+        enrollmentIdentifier,
+        nossoNumero: record.bankSlip?.nossoNumero ?? "",
+        amountCents: record.invoice?.amountCents ?? 0,
+        dueDate: record.invoice?.dueDate ?? null,
+        status: skipReason ? record.status : (record.bankSlip?.status ?? record.status),
+        filePath: skipReason ? undefined : `${institutionDir}/Boletos/${baseFile}`,
+        linhaDigitavel: skipReason ? undefined : (record.bankSlip?.linhaDigitavel ?? undefined),
+        skipReason,
+      };
+    });
+  }
+
+  private async *createIssueBatchZipEntries(
+    institutionDir: string,
+    items: IssueBatchZipItem[],
+  ): AsyncIterable<ZipArchiveEntry> {
+    const rows: IssueBatchZipRow[] = [];
+    for (const item of items) {
+      if (!item.filePath || !item.linhaDigitavel) {
+        rows.push(this.issueBatchZipRow(item, "", item.skipReason ?? "Boleto sem PDF disponivel"));
+        continue;
+      }
+      try {
+        const pdf = await this.sicredi.getPdf(item.linhaDigitavel);
+        if (pdf.sizeBytes <= 0) {
+          rows.push(this.issueBatchZipRow(item, "", "PDF do boleto esta vazio"));
+          continue;
+        }
+        rows.push(this.issueBatchZipRow(item, item.filePath, ""));
+        yield { path: item.filePath, data: pdf.bytes };
+      } catch (error) {
+        rows.push(this.issueBatchZipRow(item, "", this.issueBatchZipPdfErrorMessage(error)));
+      }
+    }
+    yield {
+      path: `${institutionDir}/Boletos/resumo.csv`,
+      data: Buffer.from(this.issueBatchZipCsv(rows), "utf8"),
+    };
+  }
+
+  private issueBatchZipSkipReason(record: {
+    status: BankSlipIssueBatchItemStatus;
+    skipReason?: string | null;
+    lastErrorCode?: string | null;
+    lastErrorMessage?: string | null;
+    bankSlip?: { status: BankSlipStatus; linhaDigitavel?: string | null } | null;
+  }) {
+    if (record.status !== BankSlipIssueBatchItemStatus.ISSUED) {
+      return record.skipReason ?? record.lastErrorMessage ?? `Item do lote em status ${record.status}`;
+    }
+    if (!record.bankSlip) {
+      return "Item emitido sem boleto vinculado";
+    }
+    if (!this.canDownloadBankSlipPdf(record.bankSlip.status)) {
+      return `Boleto em status ${record.bankSlip.status}`;
+    }
+    if (!record.bankSlip.linhaDigitavel) {
+      return "Boleto sem linha digitavel para PDF";
+    }
+    return undefined;
+  }
+
+  private canDownloadBankSlipPdf(status: BankSlipStatus) {
+    return (
+      status === BankSlipStatus.ISSUED ||
+      status === BankSlipStatus.PAID ||
+      status === BankSlipStatus.PENDING_CANCELLATION
+    );
+  }
+
+  private issueBatchZipRow(item: IssueBatchZipItem, filePath: string, reason: string): IssueBatchZipRow {
+    return {
+      aluno: item.studentName,
+      matricula: item.enrollmentIdentifier,
+      nossoNumero: item.nossoNumero,
+      valor: formatInvoiceAmount(item.amountCents),
+      vencimento: item.dueDate ? this.formatArchiveDate(item.dueDate) : "",
+      status: String(item.status),
+      arquivo: filePath,
+      motivo: reason,
+    };
+  }
+
+  private issueBatchZipCsv(rows: IssueBatchZipRow[]) {
+    const headers: Array<keyof IssueBatchZipRow> = [
+      "aluno",
+      "matricula",
+      "nossoNumero",
+      "valor",
+      "vencimento",
+      "status",
+      "arquivo",
+      "motivo",
+    ];
+    return [
+      headers.join(","),
+      ...rows.map((row) => headers.map((header) => this.csvCell(row[header])).join(",")),
+    ].join("\n");
+  }
+
+  private csvCell(value: string) {
+    const escaped = value.replaceAll("\"", "\"\"");
+    return /[",\n\r]/.test(escaped) ? `"${escaped}"` : escaped;
+  }
+
+  private issueBatchZipPdfErrorMessage(error: unknown) {
+    if (error instanceof SicrediClientError) {
+      return translateSicrediClientError(error, "pdf").message;
+    }
+    return error instanceof Error ? error.message : "Erro ao obter PDF do boleto";
+  }
+
+  private sanitizeArchiveToken(value: string, fallback: string, maxLength: number) {
+    const normalized = value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^[.-]+|[.-]+$/g, "")
+      .slice(0, maxLength)
+      .replace(/^[.-]+|[.-]+$/g, "");
+    return normalized || fallback;
+  }
+
+  private formatArchiveDate(date: Date | null) {
+    if (!date) {
+      return "sem-vencimento";
+    }
+    return date.toISOString().slice(0, 10);
   }
 
   private async prepareIssue(

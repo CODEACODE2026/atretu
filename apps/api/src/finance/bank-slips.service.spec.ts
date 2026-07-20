@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
+import type { Readable } from "node:stream";
 import {
   BadRequestException,
   ConflictException,
@@ -1740,6 +1741,103 @@ async function testIssueBatchProcessesSuccess() {
   assert.equal(items.data[0]?.linhaDigitavel, "74891125110061420512803153351030188640000009990");
 }
 
+async function testIssueBatchZipIncludesTenPdfsAndSummary() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(prisma, [
+    { name: "Joao da Silva" },
+    { name: "Maria Souza" },
+    { name: "Aluno Tres" },
+    { name: "Aluno Quatro" },
+    { name: "Aluno Cinco" },
+    { name: "Aluno Seis" },
+    { name: "Aluno Sete" },
+    { name: "Aluno Oito" },
+    { name: "Aluno Nove" },
+    { name: "Aluno Dez" },
+  ]);
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  const zip = await collectStream(archive.stream as Readable);
+  const entries = zipEntryNames(zip);
+
+  assert.equal(archive.fileName, "boletos-Colegio-Teste-2099-08-10.zip");
+  assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 10);
+  assert.equal(entries.includes("Colegio-Teste/Boletos/resumo.csv"), true);
+  const summary = csvText(zip, "Colegio-Teste/Boletos/resumo.csv");
+  assert.equal(summary.split("\n").length, 11);
+  assert.match(summary, /Colegio-Teste\/Boletos\/001-Joao-da-Silva.pdf/);
+  assert.match(summary, /Colegio-Teste\/Boletos\/010-Aluno-Dez.pdf/);
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(sicredi.pdfCalls.length, 10);
+}
+
+async function testIssueBatchZipSanitizesDuplicateStudentNames() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(prisma, [
+    { name: "Joao da Silva" },
+    { name: "João / da: Silva?" },
+  ]);
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  const entries = zipEntryNames(await collectStream(archive.stream as Readable));
+
+  assert.equal(entries.includes("Colegio-Teste/Boletos/001-Joao-da-Silva-MATenrollment-1.pdf"), true);
+  assert.equal(entries.includes("Colegio-Teste/Boletos/002-Joao-da-Silva-MATenrollment-2.pdf"), true);
+}
+
+async function testIssueBatchZipSkipsUnavailableAndBlockedItems() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(prisma, [
+    { name: "Aluno PDF" },
+    { name: "Aluno Sem PDF", linhaDigitavel: null },
+    {
+      name: "Aluno Bloqueado",
+      itemStatus: BankSlipIssueBatchItemStatus.SKIPPED,
+      skipReason: "Cadastro incompleto",
+    },
+  ]);
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  const zip = await collectStream(archive.stream as Readable);
+  const entries = zipEntryNames(zip);
+  const summary = csvText(zip, "Colegio-Teste/Boletos/resumo.csv");
+
+  assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 1);
+  assert.match(summary, /Boleto sem linha digitavel para PDF/);
+  assert.match(summary, /Cadastro incompleto/);
+  assert.equal(archive.totals.included, 1);
+  assert.equal(archive.totals.skipped, 2);
+}
+
+async function testIssueBatchZipKeepsSummaryWhenPdfFetchFails() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Sicredi indisponivel",
+    code: "TIMEOUT",
+    transient: true,
+    uncertain: false,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(prisma, [{ name: "Aluno PDF" }]);
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  const zip = await collectStream(archive.stream as Readable);
+  const entries = zipEntryNames(zip);
+  const summary = csvText(zip, "Colegio-Teste/Boletos/resumo.csv");
+
+  assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 0);
+  assert.match(summary, /PDF do boleto esta temporariamente indisponivel/);
+  assert.equal(sicredi.issueCalls.length, 0);
+}
+
 async function testIssueBatchProcessorLockPreventsDuplicateExecution() {
   const prisma = new FakePrisma();
   prisma.issueBatchLockAvailable = false;
@@ -1859,6 +1957,7 @@ class FakeSicrediClient {
   cancelError?: SicrediClientError;
   pdfError?: SicrediClientError;
   pdfLinhaDigitavel?: string;
+  pdfCalls: string[] = [];
   nextStatus = "LIQUIDADO";
   nextPaidAmount = "120.50";
   beforeIssue?: () => void;
@@ -1935,6 +2034,7 @@ class FakeSicrediClient {
   }
 
   async getPdf(linhaDigitavel: string) {
+    this.pdfCalls.push(linhaDigitavel);
     if (this.pdfError) {
       throw this.pdfError;
     }
@@ -2401,7 +2501,17 @@ class FakePrisma {
       ...record,
       ...(include?.invoice ? { invoice } : {}),
       ...(include?.student
-        ? { student: studentId ? { id: studentId, person: createPerson(studentId) } : null }
+        ? {
+            student: studentId
+              ? {
+                  id: studentId,
+                  person: createPerson(
+                    studentId,
+                    typeof record.studentName === "string" ? record.studentName : undefined,
+                  ),
+                }
+              : null,
+          }
         : {}),
       ...(include?.bankSlip
         ? { bankSlip: bankSlipId ? this.bankSlips.find((item) => item.id === bankSlipId) ?? null : null }
@@ -2478,6 +2588,41 @@ class FakePrisma {
     this.invoices.set(id, createInvoice(id, overrides));
   }
 
+  addBankSlip(overrides: Record<string, unknown> = {}) {
+    this.bankSlipIdSequence += 1;
+    const record = {
+      id: `bank-slip-${this.bankSlipIdSequence}`,
+      invoiceId: "invoice-1",
+      provider: BankSlipProvider.SICREDI,
+      environment: BankSlipEnvironment.SANDBOX,
+      status: BankSlipStatus.ISSUED,
+      documentSpecies: "RECIBO",
+      nossoNumero: `25100614${this.bankSlipIdSequence}`,
+      txid: null,
+      seuNumero: `A00000000${this.bankSlipIdSequence}`,
+      linhaDigitavel: "74891125110061420512803153351030188640000009990",
+      codigoBarras: "74891886400000099901125120315335103",
+      originalAmountCents: 12050,
+      paidAmountCents: null,
+      issuedAt: new Date(),
+      paidAt: null,
+      cancelledAt: null,
+      cancellationRequestedAt: null,
+      cancellationRequestedByUserId: null,
+      cancellationReason: null,
+      cancellationNote: null,
+      lastCheckedAt: null,
+      providerStatus: "ISSUED",
+      providerErrorCode: null,
+      providerErrorMessage: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...overrides,
+    };
+    this.bankSlips.push(record);
+    return record;
+  }
+
   private invoiceWithBankSlip(id: string) {
     const invoice = this.invoices.get(id);
     assert.ok(invoice);
@@ -2508,6 +2653,116 @@ class FakePrisma {
     return (!where.gte || date.getTime() >= where.gte.getTime()) &&
       (!where.lt || date.getTime() < where.lt.getTime());
   }
+}
+
+type DownloadBatchSeedItem = {
+  name: string;
+  itemStatus?: BankSlipIssueBatchItemStatus;
+  skipReason?: string;
+  linhaDigitavel?: string | null;
+};
+
+async function seedDownloadIssueBatch(prisma: FakePrisma, items: DownloadBatchSeedItem[]) {
+  prisma.addInstitution("institution-1", { name: "Colégio Teste" });
+  const batch = await prisma.bankSlipIssueBatch.create({
+    data: {
+      id: "issue-batch-download",
+      status: BankSlipIssueBatchStatus.COMPLETED,
+      source: BankSlipIssueBatchSource.INSTITUTION,
+      institutionId: "institution-1",
+      dueDate: new Date("2099-08-10T00:00:00.000Z"),
+      requestedByUserId: "user-1",
+      totalItems: items.length,
+      issuedItems: items.filter((item) => item.itemStatus !== BankSlipIssueBatchItemStatus.SKIPPED).length,
+      skippedItems: items.filter((item) => item.itemStatus === BankSlipIssueBatchItemStatus.SKIPPED).length,
+    },
+  });
+  items.forEach((item, index) => {
+    const sequence = index + 1;
+    const studentId = `student-${sequence}`;
+    const enrollmentId = `enrollment-${sequence}`;
+    const invoiceId = `invoice-${sequence}`;
+    prisma.addEnrollment(enrollmentId, studentId);
+    prisma.addInvoice(invoiceId, {
+      studentId,
+      enrollmentId,
+      dueDate: new Date("2099-08-10T00:00:00.000Z"),
+    });
+    const bankSlip = prisma.addBankSlip({
+      id: `bank-slip-${sequence}`,
+      invoiceId,
+      nossoNumero: `2510061${String(sequence).padStart(2, "0")}`,
+      linhaDigitavel: item.linhaDigitavel === undefined
+        ? "74891125110061420512803153351030188640000009990"
+        : item.linhaDigitavel,
+    });
+    prisma.issueBatchItems.push({
+      id: `issue-batch-item-${sequence}`,
+      batchId: batch.id,
+      invoiceId,
+      studentId,
+      studentName: item.name,
+      enrollmentId,
+      bankSlipId: bankSlip.id,
+      status: item.itemStatus ?? BankSlipIssueBatchItemStatus.ISSUED,
+      attempts: 1,
+      nextAttemptAt: null,
+      lockedAt: null,
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      skipReason: item.skipReason ?? null,
+      createdAt: new Date(2099, 7, sequence),
+      updatedAt: new Date(2099, 7, sequence),
+    });
+  });
+  return batch.id;
+}
+
+async function collectStream(stream: Readable) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function zipEntryNames(zip: Buffer) {
+  const names: string[] = [];
+  let offset = 0;
+  while (offset < zip.length - 4) {
+    if (zip.readUInt32LE(offset) !== 0x02014b50) {
+      offset += 1;
+      continue;
+    }
+    const nameLength = zip.readUInt16LE(offset + 28);
+    const extraLength = zip.readUInt16LE(offset + 30);
+    const commentLength = zip.readUInt16LE(offset + 32);
+    names.push(zip.subarray(offset + 46, offset + 46 + nameLength).toString("utf8"));
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  return names;
+}
+
+function csvText(zip: Buffer, path: string) {
+  let offset = 0;
+  while (offset < zip.length - 4) {
+    if (zip.readUInt32LE(offset) !== 0x04034b50) {
+      offset += 1;
+      continue;
+    }
+    const compressedSize = zip.readUInt32LE(offset + 18);
+    const nameLength = zip.readUInt16LE(offset + 26);
+    const extraLength = zip.readUInt16LE(offset + 28);
+    const name = zip.subarray(offset + 30, offset + 30 + nameLength).toString("utf8");
+    const dataStart = offset + 30 + nameLength + extraLength;
+    if (name === path) {
+      return zip.subarray(dataStart, dataStart + compressedSize).toString("utf8");
+    }
+    offset = dataStart + compressedSize;
+  }
+  throw new Error(`Entrada ${path} nao encontrada no ZIP`);
 }
 
 function createEnrollment(id: string, studentId: string, overrides: Record<string, unknown> = {}) {
@@ -2560,10 +2815,10 @@ function createInvoice(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createPerson(studentId: string) {
+function createPerson(studentId: string, fullName = `Aluno ${studentId}`) {
   return {
     id: `person-${studentId}`,
-    fullName: `Aluno ${studentId}`,
+    fullName,
     cpf: "12345678909",
     addressStreet: "Rua Teste",
     addressCity: "Curitiba",
@@ -2650,6 +2905,10 @@ await testIssueBatchReportIncludesInstitutionSummary();
 await testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible();
 testIssueBatchMigrationBackfillsMetadata();
 await testIssueBatchProcessesSuccess();
+await testIssueBatchZipIncludesTenPdfsAndSummary();
+await testIssueBatchZipSanitizesDuplicateStudentNames();
+await testIssueBatchZipSkipsUnavailableAndBlockedItems();
+await testIssueBatchZipKeepsSummaryWhenPdfFetchFails();
 await testIssueBatchProcessorLockPreventsDuplicateExecution();
 await testIssueBatchUnknownDoesNotRetry();
 await testIssueBatchHandles4295xxAndPersistenceConflictAsUnknown();
