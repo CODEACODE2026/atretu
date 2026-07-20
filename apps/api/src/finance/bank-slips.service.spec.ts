@@ -1199,6 +1199,45 @@ async function testPdfUsesStoredLinhaDigitavel() {
   assert.equal(sicredi.pdfLinhaDigitavel, "74891125110061420512803153351030188640000009990");
 }
 
+async function testPdfAllowsPaidInvoice() {
+  const prisma = new FakePrisma();
+  (prisma.invoiceRecord as { status: InvoiceStatus }).status = InvoiceStatus.PAID;
+  prisma.seedIssuedBankSlip({ status: BankSlipStatus.PAID });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const pdf = await service.getPdfByInvoiceId("invoice-1");
+
+  assert.equal(pdf.bytes.subarray(0, 4).toString(), "%PDF");
+  assert.equal(sicredi.pdfCalls.length, 1);
+}
+
+async function testPdfNormalizesLinhaDigitavel() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    linhaDigitavel: "74891.12511 00614.205128 03153.351030 1 88640000009990",
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await service.getPdfByInvoiceId("invoice-1");
+
+  assert.equal(sicredi.pdfLinhaDigitavel, "74891125110061420512803153351030188640000009990");
+}
+
+async function testPdfRejectsInvalidSignature() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfBytes = Buffer.from("not-a-pdf");
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () => service.getPdfByInvoiceId("invoice-1"),
+    /assinatura PDF valida/,
+  );
+}
+
 async function testPdfErrorsAreMappedSafely() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip();
@@ -1775,6 +1814,46 @@ async function testIssueBatchZipIncludesTenPdfsAndSummary() {
   assert.equal(sicredi.pdfCalls.length, 10);
 }
 
+async function testIssueBatchZipUsesInvoiceIdPdfPathAndNormalizesLine() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(prisma, [
+    {
+      name: "Aluno Linha Formatada",
+      linhaDigitavel: "74891.12511 00614.205128 03153.351030 1 88640000009990",
+    },
+  ]);
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  await collectStream(archive.stream as Readable);
+
+  assert.equal(archive.totals.included, 1);
+  assert.equal(sicredi.pdfLinhaDigitavel, "74891125110061420512803153351030188640000009990");
+  assert.equal(
+    prisma.bankSlipFindUniqueWheres.some((where) => where.invoiceId === "invoice-1"),
+    true,
+  );
+}
+
+async function testIssueBatchZipIncludesEightPdfs() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(
+    prisma,
+    Array.from({ length: 8 }, (_, index) => ({ name: `Aluno ${index + 1}` })),
+  );
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  const zip = await collectStream(archive.stream as Readable);
+  const entries = zipEntryNames(zip);
+
+  assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 8);
+  assert.equal(archive.totals.included, 8);
+  assert.equal(sicredi.pdfCalls.length, 8);
+}
+
 async function testIssueBatchZipSanitizesDuplicateStudentNames() {
   const prisma = new FakePrisma();
   const sicredi = new FakeSicrediClient();
@@ -1848,8 +1927,9 @@ async function testIssueBatchZipKeepsSummaryWhenPdfFetchFails() {
 async function testIssueBatchZipKeepsGoingAfterOnePdfFails() {
   const prisma = new FakePrisma();
   const sicredi = new FakeSicrediClient();
+  const failedLine = "74891125110061420512803153351030188640000000002";
   sicredi.pdfErrorsByLinhaDigitavel.set(
-    "linha-com-falha",
+    failedLine,
     new SicrediClientError({
       operation: "getPdf",
       message: "Falha de autenticacao com o Sicredi",
@@ -1859,9 +1939,9 @@ async function testIssueBatchZipKeepsGoingAfterOnePdfFails() {
   );
   const service = new BankSlipsService(prisma as never, sicredi as never, config);
   const batchId = await seedDownloadIssueBatch(prisma, [
-    { name: "Aluno PDF A", linhaDigitavel: "linha-ok-a" },
-    { name: "Aluno PDF B", linhaDigitavel: "linha-com-falha" },
-    { name: "Aluno PDF C", linhaDigitavel: "linha-ok-c" },
+    { name: "Aluno PDF A", linhaDigitavel: "74891125110061420512803153351030188640000000001" },
+    { name: "Aluno PDF B", linhaDigitavel: failedLine },
+    { name: "Aluno PDF C", linhaDigitavel: "74891125110061420512803153351030188640000000003" },
   ]);
 
   const archive = await service.downloadIssueBatchPdfs(batchId);
@@ -2016,6 +2096,7 @@ class FakeSicrediClient {
   pdfErrorsByLinhaDigitavel = new Map<string, SicrediClientError>();
   pdfLinhaDigitavel?: string;
   pdfCalls: string[] = [];
+  pdfBytes = Buffer.from("%PDF-1.4");
   nextStatus = "LIQUIDADO";
   nextPaidAmount = "120.50";
   beforeIssue?: () => void;
@@ -2102,9 +2183,9 @@ class FakeSicrediClient {
     }
     this.pdfLinhaDigitavel = linhaDigitavel;
     return {
-      bytes: Buffer.from("%PDF-1.4"),
+      bytes: this.pdfBytes,
       contentType: "application/pdf",
-      sizeBytes: 8,
+      sizeBytes: this.pdfBytes.byteLength,
       filename: "boleto-test.pdf",
     };
   }
@@ -2121,6 +2202,7 @@ class FakePrisma {
   bankSlips: Array<Record<string, unknown>> = [];
   issueBatches: Array<Record<string, unknown>> = [];
   issueBatchItems: Array<Record<string, unknown>> = [];
+  bankSlipFindUniqueWheres: Array<{ id?: string; invoiceId?: string }> = [];
   syncRuns: Array<Record<string, unknown>> = [];
   syncRunItems: Array<Record<string, unknown>> = [];
   historyEvents: Array<Record<string, unknown>> = [];
@@ -2205,10 +2287,12 @@ class FakePrisma {
   };
 
   bankSlip = {
-    findUnique: async ({ where }: { where: { id?: string; invoiceId?: string } }) =>
-      where.invoiceId
+    findUnique: async ({ where }: { where: { id?: string; invoiceId?: string } }) => {
+      this.bankSlipFindUniqueWheres.push(where);
+      return where.invoiceId
         ? this.bankSlipWithInvoiceId(where.invoiceId)
-        : this.bankSlipWithInvoice(String(where.id)),
+        : this.bankSlipWithInvoice(String(where.id));
+    },
     findMany: async (args?: { take?: number }) => {
       const records = this.bankSlips
         .filter((item) => {
@@ -2960,6 +3044,9 @@ await testCancellationAlreadyCancelledConfirmsBySync();
 await testCancellationNotFoundPreservesPreviousStatus();
 await testCancellationConfirmedBySyncCancelsInvoice();
 await testPdfUsesStoredLinhaDigitavel();
+await testPdfAllowsPaidInvoice();
+await testPdfNormalizesLinhaDigitavel();
+await testPdfRejectsInvalidSignature();
 await testPdfErrorsAreMappedSafely();
 await testPayerManualLimits();
 await testIssueBatchCreationDeduplicatesAndSkipsIneligible();
@@ -2978,6 +3065,8 @@ await testIssueBatchListUsesNormalizedFiltersAndKeepsOldBatchCompatible();
 testIssueBatchMigrationBackfillsMetadata();
 await testIssueBatchProcessesSuccess();
 await testIssueBatchZipIncludesTenPdfsAndSummary();
+await testIssueBatchZipUsesInvoiceIdPdfPathAndNormalizesLine();
+await testIssueBatchZipIncludesEightPdfs();
 await testIssueBatchZipSanitizesDuplicateStudentNames();
 await testIssueBatchZipSkipsUnavailableAndBlockedItems();
 await testIssueBatchZipKeepsSummaryWhenPdfFetchFails();

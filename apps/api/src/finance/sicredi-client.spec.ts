@@ -65,6 +65,7 @@ await testPdf();
 await testPdfUsesAuthenticationHeaders();
 await testPdfRefreshesExpiredToken();
 await testConcurrentPdfAuthentication();
+await testPdfDiagnosticsAreSanitized();
 await testPdfInvalidContentType();
 await testPdfTooLarge();
 
@@ -593,6 +594,54 @@ async function testConcurrentPdfAuthentication() {
   );
   assert.equal(fetch.calls.filter((call) => call.url.includes("/auth/")).length, 1);
   assert.equal(fetch.calls.filter((call) => call.url.includes("/boletos/pdf")).length, 8);
+}
+
+async function testPdfDiagnosticsAreSanitized() {
+  const previousEnabled = process.env.SICREDI_PDF_DIAGNOSTICS_ENABLED;
+  const previousInfo = console.info;
+  const logs: string[] = [];
+  process.env.SICREDI_PDF_DIAGNOSTICS_ENABLED = "true";
+  console.info = (...args: unknown[]) => {
+    logs.push(args.map((arg) => String(arg)).join(" "));
+  };
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    jsonResponse({
+      mensagem: `Nao autorizado token access-1 x-api-key ${config.apiKey} senha ${config.password}`,
+      codigo: "UNAUTHORIZED",
+    }, 401),
+    tokenResponse("access-2", "refresh-2", 300, 900),
+    jsonResponse({ mensagem: "Linha digitavel nao pertence ao beneficiario", codigo: "UNAUTHORIZED" }, 401),
+  ]);
+  const client = createClient(fetch);
+  try {
+    await assert.rejects(
+      () => client.getPdf("74891125110061420512803153351030188640000009990"),
+      (error) =>
+        error instanceof SicrediClientError &&
+        error.statusCode === 401 &&
+        !error.message.includes(config.password) &&
+        !error.message.includes(config.apiKey) &&
+        !error.message.includes("access-1"),
+    );
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.SICREDI_PDF_DIAGNOSTICS_ENABLED;
+    } else {
+      process.env.SICREDI_PDF_DIAGNOSTICS_ENABLED = previousEnabled;
+    }
+    console.info = previousInfo;
+  }
+  const log = logs.join("\n");
+  assert.match(log, /\[sicredi\.getPdf\.diagnostic\]/);
+  assert.match(log, /"xApiKeyPresent":true/);
+  assert.match(log, /"authorizationPresent":true/);
+  assert.match(log, /"bearerPrefixPresent":true/);
+  assert.match(log, /"providerStatus":401/);
+  assert.doesNotMatch(log, new RegExp(config.password));
+  assert.doesNotMatch(log, new RegExp(config.apiKey));
+  assert.doesNotMatch(log, /access-1/);
+  assert.doesNotMatch(log, /Bearer access/);
 }
 
 async function testPdfInvalidContentType() {

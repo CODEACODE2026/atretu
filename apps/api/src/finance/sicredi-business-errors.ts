@@ -31,6 +31,9 @@ export type SicrediBusinessError = {
   message: string;
   code:
     | "SICREDI_AUTHENTICATION_FAILED"
+    | "SICREDI_BANK_SLIP_NOT_OWNED_BY_BENEFICIARY"
+    | "SICREDI_PDF_ACCESS_DENIED"
+    | "SICREDI_UNKNOWN_PDF_401"
     | "SICREDI_FORBIDDEN"
     | "SICREDI_NOT_FOUND"
     | "SICREDI_CONFLICT"
@@ -81,6 +84,9 @@ export function translateSicrediClientError(
   }
 
   if (statusCode === 401) {
+    if (context === "pdf") {
+      return classifyPdf401(error, providerCode, normalized, cancellationOutcome);
+    }
     return {
       operation: error.operation,
       statusCode,
@@ -156,6 +162,10 @@ export function toSicrediHttpException(error: SicrediBusinessError) {
   switch (error.code) {
     case "SICREDI_AUTHENTICATION_FAILED":
       return new UnauthorizedException(body);
+    case "SICREDI_BANK_SLIP_NOT_OWNED_BY_BENEFICIARY":
+    case "SICREDI_PDF_ACCESS_DENIED":
+    case "SICREDI_UNKNOWN_PDF_401":
+      return new UnauthorizedException(body);
     case "SICREDI_FORBIDDEN":
       return new ForbiddenException(body);
     case "SICREDI_NOT_FOUND":
@@ -169,6 +179,60 @@ export function toSicrediHttpException(error: SicrediBusinessError) {
     default:
       return new BadRequestException(body);
   }
+}
+
+function classifyPdf401(
+  error: SicrediClientError,
+  providerCode: string | undefined,
+  normalized: string,
+  cancellationOutcome: SicrediCancellationOutcome | undefined,
+): SicrediBusinessError {
+  const code = normalize(providerCode ?? "");
+  const shared = {
+    operation: error.operation,
+    statusCode: error.statusCode,
+    providerCode,
+    transient: false,
+    uncertain: false,
+    cancellationOutcome,
+  };
+  if (
+    matches(code, normalized, [
+      "BENEFICIARIO",
+      "AGENCIA",
+      "COOPERATIVA",
+      "POSTO",
+      "CONVENIO",
+      "LINHA DIGITAVEL",
+      "NAO PERTENCE",
+      "NÃO PERTENCE",
+    ])
+  ) {
+    return {
+      ...shared,
+      code: "SICREDI_BANK_SLIP_NOT_OWNED_BY_BENEFICIARY",
+      message: "Sicredi recusou o PDF para a linha digitavel deste beneficiario",
+    };
+  }
+  if (matches(code, normalized, ["ACESSO NEGADO", "ACCESS DENIED", "NAO AUTORIZADO", "NÃO AUTORIZADO"])) {
+    return {
+      ...shared,
+      code: "SICREDI_PDF_ACCESS_DENIED",
+      message: "Sicredi recusou acesso ao PDF do boleto",
+    };
+  }
+  if (matches(code, normalized, ["AUTH", "TOKEN", "CREDENCIAL", "CREDENTIAL", "UNAUTHORIZED"])) {
+    return {
+      ...shared,
+      code: "SICREDI_AUTHENTICATION_FAILED",
+      message: "Falha de autenticacao com o Sicredi",
+    };
+  }
+  return {
+    ...shared,
+    code: "SICREDI_UNKNOWN_PDF_401",
+    message: "Sicredi retornou HTTP 401 ao solicitar o PDF do boleto",
+  };
 }
 
 function classifyCancellationOutcome(

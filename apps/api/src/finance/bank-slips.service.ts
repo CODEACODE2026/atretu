@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -113,6 +114,7 @@ type IssueBatchZipRow = {
 
 type IssueBatchZipItem = {
   sequence: number;
+  invoiceId?: string;
   studentName: string;
   enrollmentIdentifier: string;
   nossoNumero: string;
@@ -1188,31 +1190,48 @@ export class BankSlipsService {
   }
 
   async getPdf(invoiceId: string) {
+    return this.getPdfByInvoiceId(invoiceId);
+  }
+
+  async getPdfByInvoiceId(invoiceId: string) {
     const bankSlip = await this.getBankSlipByInvoice(invoiceId);
-    return this.getPdfForBankSlip(bankSlip);
+    return this.getPdfForBankSlip(bankSlip, { invoiceId, bankSlipId: bankSlip.id });
   }
 
   private async getPdfForBankSlip(bankSlip: {
+    id?: string;
     status: BankSlipStatus;
     linhaDigitavel?: string | null;
-  }) {
-    if (!bankSlip.linhaDigitavel) {
+  }, context: { invoiceId?: string; bankSlipId?: string } = {}) {
+    const linhaDigitavel = this.normalizeLinhaDigitavel(bankSlip.linhaDigitavel);
+    if (!linhaDigitavel) {
       throw new BadRequestException("Boleto ainda nao possui linha digitavel para PDF");
     }
     if (!this.canDownloadBankSlipPdf(bankSlip.status)) {
       throw new BadRequestException("PDF disponivel somente para boleto emitido");
     }
     try {
-      const pdf = await this.sicredi.getPdf(bankSlip.linhaDigitavel);
+      const pdf = await this.sicredi.getPdf(linhaDigitavel);
       if (pdf.sizeBytes <= 0) {
         throw new BadRequestException({
           code: "SICREDI_INVALID_RESPONSE",
           message: "PDF do boleto esta vazio",
         });
       }
+      if (pdf.bytes.subarray(0, 4).toString("latin1") !== "%PDF") {
+        throw new BadRequestException({
+          code: "SICREDI_INVALID_RESPONSE",
+          message: "Resposta do Sicredi nao possui assinatura PDF valida",
+        });
+      }
       return pdf;
     } catch (error) {
       if (error instanceof SicrediClientError) {
+        this.logPdfDiagnostic(error, {
+          invoiceId: context.invoiceId,
+          bankSlipId: context.bankSlipId ?? bankSlip.id,
+          linhaDigitavel,
+        });
         throw toSicrediHttpException(translateSicrediClientError(error, "pdf"));
       }
       throw error;
@@ -1257,7 +1276,8 @@ export class BankSlipsService {
       skipReason?: string | null;
       lastErrorCode?: string | null;
       lastErrorMessage?: string | null;
-      invoice?: { amountCents: number; dueDate: Date; enrollmentId: string } | null;
+      invoiceId?: string | null;
+      invoice?: { id: string; amountCents: number; dueDate: Date; enrollmentId: string } | null;
       enrollment?: { id: string } | null;
       student?: { id: string; person: { fullName: string } } | null;
       bankSlip?: {
@@ -1295,6 +1315,7 @@ export class BankSlipsService {
       const skipReason = this.issueBatchZipSkipReason(record);
       return {
         sequence,
+        invoiceId: record.invoice?.id ?? record.invoiceId ?? undefined,
         studentName,
         enrollmentIdentifier,
         nossoNumero: record.bankSlip?.nossoNumero ?? "",
@@ -1322,7 +1343,7 @@ export class BankSlipsService {
     let firstFailure = "";
     try {
       for (const item of items) {
-        if (!item.filePath || !item.linhaDigitavel || !item.bankSlipStatus) {
+        if (!item.filePath || !item.invoiceId || !item.linhaDigitavel || !item.bankSlipStatus) {
           const reason = item.skipReason ?? "Boleto sem PDF disponivel";
           rows.push(this.issueBatchZipRow(item, "", reason));
           skipped += 1;
@@ -1330,10 +1351,7 @@ export class BankSlipsService {
           continue;
         }
         try {
-          const pdf = await this.getPdfForBankSlip({
-            status: item.bankSlipStatus,
-            linhaDigitavel: item.linhaDigitavel,
-          });
+          const pdf = await this.getPdfByInvoiceId(item.invoiceId);
           tempDir ??= await mkdtemp(join(tmpdir(), "atretu-bank-slip-zip-"));
           const tempFile = join(tempDir, `${String(item.sequence).padStart(6, "0")}.pdf`);
           await writeFile(tempFile, pdf.bytes);
@@ -1417,6 +1435,42 @@ export class BankSlipsService {
     );
   }
 
+  private normalizeLinhaDigitavel(value?: string | null) {
+    const normalized = value?.replace(/\D/g, "") ?? "";
+    return normalized || undefined;
+  }
+
+  private logPdfDiagnostic(
+    error: SicrediClientError,
+    context: {
+      invoiceId?: string;
+      bankSlipId?: string;
+      linhaDigitavel?: string;
+    },
+  ) {
+    if (!isPdfDiagnosticEnabled()) {
+      return;
+    }
+    const diagnostic = {
+      event: "sicredi_pdf_request_failed",
+      operation: error.operation,
+      invoiceId: context.invoiceId,
+      bankSlipId: context.bankSlipId,
+      linhaDigitavelLength: context.linhaDigitavel?.length ?? 0,
+      linhaDigitavelLast4: context.linhaDigitavel?.slice(-4),
+      environment: this.sicrediConfig.environment,
+      baseUrlHost: safeUrlHost(this.sicrediConfig.baseUrl),
+      cooperativa: this.sicrediConfig.cooperativa,
+      posto: this.sicrediConfig.posto,
+      codigoBeneficiario: maskDigits(this.sicrediConfig.codigoBeneficiario),
+      statusCode: error.statusCode,
+      providerCode: error.providerCode,
+      providerMessage: sanitizeIssueDiagnosticText(error.providerMessage ?? error.message),
+      requestUrl: error.requestUrl,
+    };
+    this.logger.warn(diagnostic);
+  }
+
   private issueBatchZipRow(item: IssueBatchZipItem, filePath: string, reason: string): IssueBatchZipRow {
     return {
       aluno: item.studentName,
@@ -1455,6 +1509,20 @@ export class BankSlipsService {
   private issueBatchZipPdfErrorMessage(error: unknown) {
     if (error instanceof SicrediClientError) {
       return translateSicrediClientError(error, "pdf").message;
+    }
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === "string") {
+        return response;
+      }
+      if (
+        typeof response === "object" &&
+        response !== null &&
+        "message" in response &&
+        typeof response.message === "string"
+      ) {
+        return response.message;
+      }
     }
     return error instanceof Error ? error.message : "Erro ao obter PDF do boleto";
   }
@@ -3447,6 +3515,27 @@ function logIssueDiagnostic(payload: Record<string, unknown>) {
 function isIssueDiagnosticEnabled() {
   const nodeEnv = process.env.NODE_ENV?.trim();
   return !nodeEnv || nodeEnv === "development";
+}
+
+function isPdfDiagnosticEnabled() {
+  const value = process.env.SICREDI_PDF_DIAGNOSTICS_ENABLED?.trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(value ?? "");
+}
+
+function safeUrlHost(value: string) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return "";
+  }
+}
+
+function maskDigits(value: string) {
+  return {
+    digits: value.length,
+    last2: value.slice(-2),
+    leadingZeros: value.startsWith("0"),
+  };
 }
 
 function sanitizeIssueDiagnosticText(value: string) {

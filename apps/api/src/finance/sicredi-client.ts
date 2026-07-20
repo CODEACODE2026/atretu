@@ -165,6 +165,7 @@ export class SicrediClient {
   private readonly maxPdfBytes: number;
   private token?: SicrediToken;
   private authPromise?: Promise<SicrediToken>;
+  private lastAccessTokenSource: "reused" | "authenticate" | "refreshToken" | "shared" = "authenticate";
 
   constructor(
     private readonly config: SicrediConfig,
@@ -442,6 +443,7 @@ export class SicrediClient {
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         signal: controller.signal,
       });
+      await this.logPdfDiagnostic(options, url, headers, response.clone());
       await this.logIssueDiagnostic(options, url, headers, response.clone());
       return response;
     } catch (error) {
@@ -455,12 +457,15 @@ export class SicrediClient {
   private async getAccessToken(): Promise<string> {
     const now = Date.now();
     if (this.token && this.token.expiresAt - 20_000 > now) {
+      this.lastAccessTokenSource = "reused";
       return this.token.accessToken;
     }
     if (!this.authPromise) {
       this.authPromise = this.authenticate().finally(() => {
         this.authPromise = undefined;
       });
+    } else {
+      this.lastAccessTokenSource = "shared";
     }
     this.token = await this.authPromise;
     return this.token.accessToken;
@@ -496,6 +501,7 @@ export class SicrediClient {
       const response = await this.fetchForm(operation, body);
       const json = (await response.json()) as Record<string, unknown>;
       const now = Date.now();
+      this.lastAccessTokenSource = operation;
       return {
         accessToken: readString(json, "access_token"),
         refreshToken: readString(json, "refresh_token"),
@@ -660,6 +666,43 @@ export class SicrediClient {
       errorBody: response.ok ? undefined : this.sanitizeDiagnosticValue(responseBody.value),
     };
     console.info("[sicredi.issueBankSlip.diagnostic]", JSON.stringify(diagnostic));
+  }
+
+  private async logPdfDiagnostic(
+    options: RequestOptions,
+    url: URL,
+    headers: Record<string, string>,
+    response: Response,
+  ) {
+    if (!isPdfDiagnosticEnabled() || options.operation !== "getPdf") {
+      return;
+    }
+    const linhaDigitavel = String(options.query?.linhaDigitavel ?? "");
+    const responseBody = response.ok
+      ? { code: undefined, message: undefined }
+      : await this.safeErrorMessage(response);
+    const authorization = headers.Authorization ?? headers.authorization ?? "";
+    const diagnostic = {
+      event: "sicredi_pdf_request",
+      operation: options.operation,
+      method: options.method,
+      requestUrl: url.toString(),
+      environment: this.config.environment,
+      baseUrlHost: safeUrlHost(this.config.baseUrl),
+      cooperativa: this.config.cooperativa,
+      posto: this.config.posto,
+      codigoBeneficiario: maskDigits(this.config.codigoBeneficiario),
+      linhaDigitavelLength: linhaDigitavel.length,
+      linhaDigitavelLast4: linhaDigitavel.slice(-4),
+      xApiKeyPresent: Boolean(headers["x-api-key"]),
+      authorizationPresent: Boolean(authorization),
+      bearerPrefixPresent: /^Bearer\s+\S+/i.test(authorization),
+      tokenSource: this.lastAccessTokenSource,
+      providerStatus: response.status,
+      providerCode: responseBody.code,
+      providerMessage: responseBody.message,
+    };
+    console.info("[sicredi.getPdf.diagnostic]", JSON.stringify(diagnostic));
   }
 
   private logIssueClientDiagnostic(input: {
@@ -885,6 +928,19 @@ function maskDigits(value: string) {
 function isIssueDiagnosticEnabled() {
   const nodeEnv = process.env.NODE_ENV?.trim();
   return !nodeEnv || nodeEnv === "development";
+}
+
+function isPdfDiagnosticEnabled() {
+  const value = process.env.SICREDI_PDF_DIAGNOSTICS_ENABLED?.trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(value ?? "");
+}
+
+function safeUrlHost(value: string) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return "";
+  }
 }
 
 function readString(record: Record<string, unknown>, key: string, fallbackKey?: string): string {
