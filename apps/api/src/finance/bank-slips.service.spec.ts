@@ -606,6 +606,138 @@ async function testSyncPaidMarksInvoicePaid() {
   );
 }
 
+async function testManualSyncPartialPaymentDoesNotQuitInvoice() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextPaidAmount = "60.25";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncByInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(result.paidAmountCents, 6025);
+  assert.equal(result.providerStatus, "LIQUIDADO");
+  assert.equal(result.providerErrorCode, "PARTIAL_PAYMENT_REVIEW");
+  assert.equal(result.invoice.status, InvoiceStatus.OPEN);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+  assert.equal(
+    prisma.historyEvents.some(
+      (event) =>
+        event.eventType === StudentHistoryEventType.BANK_SLIP_PAYMENT_CONFIRMED,
+    ),
+    false,
+  );
+}
+
+async function testManualSyncFullPaymentClearsPartialPaymentReview() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
+    providerErrorMessage:
+      "Pagamento parcial recebido; fatura mantida aberta ate definicao da regra operacional.",
+    paidAmountCents: 6025,
+  });
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextPaidAmount = "120.50";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncByInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.PAID);
+  assert.equal(result.paidAmountCents, 12050);
+  assert.equal(result.providerErrorCode, null);
+  assert.equal(result.providerErrorMessage, null);
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.PAID);
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, null);
+  assert.equal(prisma.bankSlips[0]?.providerErrorMessage, null);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.PAID);
+  assert.equal(
+    prisma.historyEvents.some(
+      (event) =>
+        event.eventType === StudentHistoryEventType.BANK_SLIP_PAYMENT_CONFIRMED,
+    ),
+    true,
+  );
+}
+
+async function testManualSyncRepairsExistingPartialPaymentInconsistency() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.PAID,
+    providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
+    providerErrorMessage:
+      "Pagamento parcial recebido; fatura mantida aberta ate definicao da regra operacional.",
+    paidAmountCents: 8000,
+  });
+  (prisma.invoiceRecord as Record<string, unknown>).status = InvoiceStatus.PAID;
+  const sicredi = new FakeSicrediClient();
+  sicredi.nextPaidAmount = "80.00";
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.syncByInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(result.invoice.status, InvoiceStatus.OPEN);
+  assert.equal(result.providerErrorCode, "PARTIAL_PAYMENT_REVIEW");
+  assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+  assert.equal(
+    prisma.historyEvents.some(
+      (event) =>
+        event.eventType === StudentHistoryEventType.BANK_SLIP_PAYMENT_CONFIRMED,
+    ),
+    false,
+  );
+}
+
+async function testManualAndOpenIssuedSyncMatchPartialPaymentOutcome() {
+  const manualPrisma = new FakePrisma();
+  manualPrisma.seedIssuedBankSlip();
+  const manualSicredi = new FakeSicrediClient();
+  manualSicredi.nextPaidAmount = "60.25";
+  const manualService = new BankSlipsService(
+    manualPrisma as never,
+    manualSicredi as never,
+    config,
+  );
+
+  const batchPrisma = new FakePrisma();
+  batchPrisma.seedIssuedBankSlip();
+  const batchSicredi = new FakeSicrediClient();
+  batchSicredi.nextPaidAmount = "60.25";
+  const batchService = new BankSlipsService(
+    batchPrisma as never,
+    batchSicredi as never,
+    config,
+  );
+
+  await manualService.syncByInvoice("invoice-1", "user-1");
+  await batchService.syncOpenIssued("user-1");
+
+  assert.equal(manualPrisma.bankSlips[0]?.status, batchPrisma.bankSlips[0]?.status);
+  assert.equal(manualPrisma.invoiceRecord.status, batchPrisma.invoiceRecord.status);
+  assert.equal(
+    manualPrisma.bankSlips[0]?.providerErrorCode,
+    batchPrisma.bankSlips[0]?.providerErrorCode,
+  );
+  assert.equal(
+    manualPrisma.historyEvents.some(
+      (event) =>
+        event.eventType === StudentHistoryEventType.BANK_SLIP_PAYMENT_CONFIRMED,
+    ),
+    false,
+  );
+  assert.equal(
+    batchPrisma.historyEvents.some(
+      (event) =>
+        event.eventType === StudentHistoryEventType.BANK_SLIP_PAYMENT_CONFIRMED,
+    ),
+    false,
+  );
+}
+
 async function testSyncPaidByDay() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip();
@@ -2475,6 +2607,10 @@ await testStalePendingIssueBecomesUnknown();
 await testFreshPendingIssueStaysPending();
 await testConcurrentSeuNumeroGeneration();
 await testSyncPaidMarksInvoicePaid();
+await testManualSyncPartialPaymentDoesNotQuitInvoice();
+await testManualSyncFullPaymentClearsPartialPaymentReview();
+await testManualSyncRepairsExistingPartialPaymentInconsistency();
+await testManualAndOpenIssuedSyncMatchPartialPaymentOutcome();
 await testSyncPaidByDay();
 await testOpenIssuedSyncLockPreventsDuplicateRun();
 await testOpenIssuedSyncConfirmsPaymentTransactionally();

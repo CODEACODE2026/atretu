@@ -91,6 +91,11 @@ type IssuePreparationResult =
       bankSlip: BankSlipWithRelations;
     };
 
+type PartialPaymentReview = {
+  paidAmountCents: number;
+  originalAmountCents: number;
+};
+
 type CancellationPreparation = {
   bankSlipId: string;
   invoiceId: string;
@@ -394,6 +399,18 @@ export class BankSlipsService {
     }
     try {
       const details = await this.sicredi.getBankSlip(bankSlip.nossoNumero);
+      const partialPayment = this.resolvePartialPaymentReview(
+        details,
+        bankSlip.originalAmountCents,
+      );
+      if (partialPayment) {
+        const updated = await this.markPartialPaymentReview(
+          bankSlip.id,
+          details,
+          partialPayment.paidAmountCents,
+        );
+        return this.toBankSlipSummary(updated);
+      }
       return this.applyProviderDetails(bankSlip.id, details, userId);
     } catch (error) {
       if (error instanceof SicrediClientError) {
@@ -1459,9 +1476,7 @@ export class BankSlipsService {
 
   private async applyProviderDetails(id: string, details: SicrediBankSlipDetails, userId?: string) {
     const mappedStatus = mapSicrediStatusToBankSlipStatus(details.situacao);
-    const paidAmountCents = details.dadosLiquidacao?.valor
-      ? parseSicrediAmountToCents(details.dadosLiquidacao.valor)
-      : undefined;
+    const paidAmountCents = this.providerPaidAmountCents(details);
     const paidAt = details.dadosLiquidacao?.data
       ? this.parseProviderDate(details.dadosLiquidacao.data)
       : undefined;
@@ -1498,6 +1513,10 @@ export class BankSlipsService {
             "Boleto baixado no Sicredi sem solicitacao de baixa registrada no ATRETU; fatura mantida aberta para revisao.";
         }
       }
+      if (mappedStatus === BankSlipStatus.PAID) {
+        update.providerErrorCode = null;
+        update.providerErrorMessage = null;
+      }
       const resolvedStatus = this.resolveSyncedStatus(current.status, mappedStatus);
       const updated = await tx.bankSlip.update({
         where: { id },
@@ -1527,16 +1546,16 @@ export class BankSlipsService {
 
     try {
       const details = await this.sicredi.getBankSlip(bankSlip.nossoNumero);
-      const mappedStatus = mapSicrediStatusToBankSlipStatus(details.situacao);
-      const paidAmountCents = details.dadosLiquidacao?.valor
-        ? parseSicrediAmountToCents(details.dadosLiquidacao.valor)
-        : undefined;
-      if (
-        mappedStatus === BankSlipStatus.PAID &&
-        paidAmountCents !== undefined &&
-        paidAmountCents < bankSlip.originalAmountCents
-      ) {
-        const updated = await this.markPartialPaymentReview(bankSlip.id, details, paidAmountCents);
+      const partialPayment = this.resolvePartialPaymentReview(
+        details,
+        bankSlip.originalAmountCents,
+      );
+      if (partialPayment) {
+        const updated = await this.markPartialPaymentReview(
+          bankSlip.id,
+          details,
+          partialPayment.paidAmountCents,
+        );
         await this.recordSyncRunItem(runId, bankSlip, {
           itemStatus: BankSlipSyncRunItemStatus.PARTIAL_PAYMENT_REVIEW,
           previousStatus: bankSlip.status,
@@ -1545,8 +1564,8 @@ export class BankSlipsService {
           errorCode: "PARTIAL_PAYMENT_REVIEW",
           errorMessage: "Pagamento parcial recebido; fatura mantida em aberto para revisao",
           metadata: {
-            paidAmountCents,
-            originalAmountCents: bankSlip.originalAmountCents,
+            paidAmountCents: partialPayment.paidAmountCents,
+            originalAmountCents: partialPayment.originalAmountCents,
           },
         });
         return { status: BankSlipSyncRunItemStatus.PARTIAL_PAYMENT_REVIEW, updated: true };
@@ -1603,19 +1622,56 @@ export class BankSlipsService {
     const paidAt = details.dadosLiquidacao?.data
       ? this.parseProviderDate(details.dadosLiquidacao.data)
       : undefined;
-    return this.prisma.bankSlip.update({
-      where: { id },
-      data: {
-        providerStatus: details.situacao,
-        paidAmountCents,
-        paidAt,
-        lastCheckedAt: new Date(),
-        providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
-        providerErrorMessage:
-          "Pagamento parcial recebido; fatura mantida aberta ate definicao da regra operacional.",
-      },
-      include: this.bankSlipInclude(),
+    return this.prisma.$transaction(async (tx) => {
+      const current = await this.lockBankSlip(tx, id);
+      if (
+        current.status === BankSlipStatus.CANCELLED ||
+        current.invoice.status === InvoiceStatus.CANCELLED
+      ) {
+        throw new ConflictException("Estado bancario conflitante para revisao de pagamento parcial");
+      }
+      if (current.invoice.status !== InvoiceStatus.OPEN) {
+        await tx.invoice.update({
+          where: { id: current.invoiceId },
+          data: { status: InvoiceStatus.OPEN },
+        });
+      }
+      const updated = await tx.bankSlip.update({
+        where: { id },
+        data: {
+          status: BankSlipStatus.ISSUED,
+          providerStatus: details.situacao,
+          paidAmountCents,
+          paidAt,
+          lastCheckedAt: new Date(),
+          providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
+          providerErrorMessage:
+            "Pagamento parcial recebido; fatura mantida aberta ate definicao da regra operacional.",
+        },
+        include: this.bankSlipInclude(),
+      });
+      return updated;
     });
+  }
+
+  private resolvePartialPaymentReview(
+    details: SicrediBankSlipDetails,
+    originalAmountCents: number,
+  ): PartialPaymentReview | null {
+    if (mapSicrediStatusToBankSlipStatus(details.situacao) !== BankSlipStatus.PAID) {
+      return null;
+    }
+    const paidAmountCents = this.providerPaidAmountCents(details);
+    if (paidAmountCents === undefined || paidAmountCents >= originalAmountCents) {
+      return null;
+    }
+    return { paidAmountCents, originalAmountCents };
+  }
+
+  private providerPaidAmountCents(details: SicrediBankSlipDetails) {
+    return details.dadosLiquidacao?.valor
+      ? parseSicrediAmountToCents(details.dadosLiquidacao.valor)
+      : undefined;
   }
 
   private async markBankSlipCheckedWithProviderError(
@@ -1664,6 +1720,8 @@ export class BankSlipsService {
           paidAmountCents: parseSicrediAmountToCents(item.valorLiquidado),
           paidAt: this.parseProviderDate(item.dataPagamento),
           lastCheckedAt: new Date(),
+          providerErrorCode: null,
+          providerErrorMessage: null,
         },
         include: this.bankSlipInclude(),
       });
