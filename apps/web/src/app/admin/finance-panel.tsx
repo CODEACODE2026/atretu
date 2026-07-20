@@ -76,6 +76,11 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     "" | "preparing" | "started" | "partial" | "empty" | "error"
   >("");
   const [issueBatchDownloadSummary, setIssueBatchDownloadSummary] = useState("");
+  const [issueBatchDownloadPanelOpen, setIssueBatchDownloadPanelOpen] = useState(false);
+  const [issueBatchDownloadBatches, setIssueBatchDownloadBatches] = useState<BankSlipIssueBatch[]>([]);
+  const [issueBatchDownloadSearch, setIssueBatchDownloadSearch] = useState("");
+  const [issueBatchDownloadLoading, setIssueBatchDownloadLoading] = useState(false);
+  const [issueBatchDownloadBatchId, setIssueBatchDownloadBatchId] = useState("");
   const [syncPaidDate, setSyncPaidDate] = useState(todayDate());
   const [syncPaidSummary, setSyncPaidSummary] = useState("");
   const [message, setMessage] = useState("");
@@ -87,6 +92,10 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   const showIssueBatchProgress = Boolean(
     issueBatch &&
       (isIssueBatchRunning(issueBatch) || issueBatch.progressPercent === 100 || issueBatch.finishedAt),
+  );
+  const filteredIssueBatchDownloads = useMemo(
+    () => filterIssueBatchDownloads(issueBatchDownloadBatches, issueBatchDownloadSearch),
+    [issueBatchDownloadBatches, issueBatchDownloadSearch],
   );
 
   useEffect(() => {
@@ -609,36 +618,60 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     }
   }
 
-  async function handleDownloadIssueBatchPdfs() {
-    if (!issueBatch || issueBatchDownloadState === "preparing") {
+  async function openIssueBatchDownloadPanel() {
+    setIssueBatchDownloadPanelOpen(true);
+    if (issueBatchDownloadBatches.length === 0) {
+      await loadIssueBatchDownloadBatches();
+    }
+  }
+
+  async function loadIssueBatchDownloadBatches() {
+    setIssueBatchDownloadLoading(true);
+    setError("");
+    try {
+      const response = await api.listBankSlipIssueBatches({
+        source: "INSTITUTION",
+        limit: 100,
+      });
+      setIssueBatchDownloadBatches(response.data);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao carregar lotes");
+    } finally {
+      setIssueBatchDownloadLoading(false);
+    }
+  }
+
+  async function handleDownloadIssueBatchPdfs(batch: BankSlipIssueBatch) {
+    if (issueBatchDownloadState === "preparing") {
       return;
     }
     setIssueBatchDownloadState("preparing");
+    setIssueBatchDownloadBatchId(batch.id);
     setIssueBatchDownloadSummary("Preparando arquivo...");
     setMessage("");
     setError("");
     try {
-      const result = await api.downloadBankSlipIssueBatchZip(issueBatch.id);
+      const result = await api.downloadBankSlipIssueBatchZip(batch.id);
       const link = document.createElement("a");
       const url = URL.createObjectURL(result.blob);
       link.href = url;
       link.download = safeZipFileName(
         result.fileName,
-        `boletos-${issueBatch.id.slice(0, 8)}.zip`,
+        `boletos-${batch.id.slice(0, 8)}.zip`,
       );
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      const total = numberHeader(result.headers, "x-bank-slip-zip-total", issueBatch.totalItems);
+      const total = numberHeader(result.headers, "x-bank-slip-zip-total", batch.totalItems);
       const included = numberHeader(result.headers, "x-bank-slip-zip-included", 0);
       const skipped = numberHeader(result.headers, "x-bank-slip-zip-skipped", Math.max(0, total - included));
-      const summary = `Total de boletos: ${total}; PDFs incluidos: ${included}; boletos ignorados: ${skipped}; falhas: ${issueBatch.failedItems + issueBatch.unknownItems}.`;
+      const summary = `Total de boletos: ${total}; PDFs incluidos: ${included}; boletos ignorados: ${skipped}; falhas: ${batch.failedItems + batch.unknownItems}.`;
       setIssueBatchDownloadSummary(summary);
       if (included === 0) {
         setIssueBatchDownloadState("empty");
         setMessage("Nenhum boleto disponivel");
-      } else if (skipped > 0 || issueBatch.failedItems + issueBatch.unknownItems > 0) {
+      } else if (skipped > 0 || batch.failedItems + batch.unknownItems > 0) {
         setIssueBatchDownloadState("partial");
         setMessage("Alguns boletos não foram incluídos");
       } else {
@@ -649,6 +682,8 @@ export function FinancePanel({ user }: { user: ApiUser }) {
       setIssueBatchDownloadState("error");
       setIssueBatchDownloadSummary("");
       setError(caught instanceof Error ? caught.message : "Erro ao preparar ZIP");
+    } finally {
+      setIssueBatchDownloadBatchId("");
     }
   }
 
@@ -853,6 +888,14 @@ export function FinancePanel({ user }: { user: ApiUser }) {
               >
                 Gerar faturas e emitir boletos
               </button>
+              <button
+                className="rounded bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+                disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
+                onClick={() => void openIssueBatchDownloadPanel()}
+                type="button"
+              >
+                📦 Baixar boletos
+              </button>
             </div>
             {issueBatchPreview ? (
               <div className="grid gap-2 rounded border border-slate-200 bg-white p-3 text-xs text-slate-700">
@@ -963,7 +1006,7 @@ export function FinancePanel({ user }: { user: ApiUser }) {
                 <button
                   className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
                   disabled={saving || issueBatchDownloadState === "preparing"}
-                  onClick={() => void handleDownloadIssueBatchPdfs()}
+                  onClick={() => void handleDownloadIssueBatchPdfs(issueBatch)}
                   type="button"
                 >
                   {issueBatchDownloadState === "preparing"
@@ -1253,6 +1296,127 @@ export function FinancePanel({ user }: { user: ApiUser }) {
           {preview ? <InvoicePreviewBox preview={preview} /> : null}
         </form>
       </div>
+
+      {issueBatchDownloadPanelOpen ? (
+        <div className="fixed inset-0 z-50 bg-slate-950/40">
+          <div className="ml-auto flex h-full w-full max-w-6xl flex-col bg-white shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-950">
+                  Baixar boletos
+                </h2>
+                <p className="text-sm text-slate-600">
+                  Lotes de boletos gerados por instituicao
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+                  disabled={issueBatchDownloadLoading}
+                  onClick={() => void loadIssueBatchDownloadBatches()}
+                  type="button"
+                >
+                  Atualizar
+                </button>
+                <button
+                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                  onClick={() => setIssueBatchDownloadPanelOpen(false)}
+                  type="button"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+            <div className="grid gap-3 border-b border-slate-200 px-5 py-4">
+              <input
+                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                onChange={(event) => setIssueBatchDownloadSearch(event.target.value)}
+                placeholder="Pesquisar por instituicao, competencia ou data"
+                type="search"
+                value={issueBatchDownloadSearch}
+              />
+              <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+                <span>Total de lotes: {issueBatchDownloadBatches.length}</span>
+                <span>Resultado da busca: {filteredIssueBatchDownloads.length}</span>
+                {issueBatchDownloadSummary ? <span>{issueBatchDownloadSummary}</span> : null}
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {issueBatchDownloadLoading ? (
+                <p className="px-5 py-6 text-sm text-slate-500">Carregando lotes...</p>
+              ) : filteredIssueBatchDownloads.length === 0 ? (
+                <p className="px-5 py-6 text-sm text-slate-500">
+                  Nenhum lote encontrado
+                </p>
+              ) : (
+                <table className="w-full min-w-[1080px] text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Instituicao</th>
+                      <th className="px-4 py-3">Ano letivo</th>
+                      <th className="px-4 py-3">Competencia</th>
+                      <th className="px-4 py-3">Data de geracao</th>
+                      <th className="px-4 py-3">Vencimento</th>
+                      <th className="px-4 py-3">Alunos</th>
+                      <th className="px-4 py-3">Valor total</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Acoes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredIssueBatchDownloads.map((batch) => {
+                      const preparingThisBatch =
+                        issueBatchDownloadState === "preparing" &&
+                        issueBatchDownloadBatchId === batch.id;
+                      return (
+                        <tr key={batch.id}>
+                          <td className="px-4 py-3 font-medium text-slate-950">
+                            {issueBatchInstitutionName(batch)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {issueBatchAcademicYearLabel(batch)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {issueBatchCompetenceLabel(batch)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {formatDateTime(batch.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {formatDate(batch.dueDate)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {batch.totalStudents || batch.totalItems}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {formatOptionalCents(issueBatchTotalValueCents(batch))}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {issueBatchStatusLabel(batch.status)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              className="rounded bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                              disabled={
+                                issueBatchDownloadState === "preparing" &&
+                                Boolean(issueBatchDownloadBatchId)
+                              }
+                              onClick={() => void handleDownloadIssueBatchPdfs(batch)}
+                              type="button"
+                            >
+                              {preparingThisBatch ? "Preparando..." : "📥 Baixar boletos"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1980,6 +2144,78 @@ function issueBatchCompletionMessage(batch: BankSlipIssueBatch) {
   }
   const errors = batch.failedItems + batch.unknownItems;
   return `Emissao concluida: ${batch.issuedItems} boleto(s) emitido(s), ${errors} erro(s), ${batch.skippedItems} bloqueado(s).`;
+}
+
+function filterIssueBatchDownloads(
+  batches: BankSlipIssueBatch[],
+  search: string,
+) {
+  const query = normalizeSearchText(search);
+  if (!query) {
+    return batches;
+  }
+  return batches.filter((batch) =>
+    [
+      issueBatchInstitutionName(batch),
+      issueBatchAcademicYearLabel(batch),
+      issueBatchCompetenceLabel(batch),
+      formatDate(batch.createdAt),
+      formatDateTime(batch.createdAt),
+      formatDate(batch.dueDate),
+      issueBatchStatusLabel(batch.status),
+    ].some((value) => normalizeSearchText(value).includes(query)),
+  );
+}
+
+function issueBatchInstitutionName(batch: BankSlipIssueBatch) {
+  return batch.institution?.name ?? "Instituicao nao informada";
+}
+
+function issueBatchAcademicYearLabel(batch: BankSlipIssueBatch) {
+  return extractYear(batch.competence) ?? extractYear(batch.dueDate) ?? extractYear(batch.createdAt) ?? "-";
+}
+
+function issueBatchCompetenceLabel(batch: BankSlipIssueBatch) {
+  return formatMonthYear(batch.competence) ?? formatMonthYear(batch.dueDate) ?? "-";
+}
+
+function issueBatchTotalValueCents(batch: BankSlipIssueBatch) {
+  return batch.metadata?.report?.issuedAmountCents ?? batch.totalValueCents;
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function extractYear(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  const year = /^(\d{4})/.exec(value)?.[1] ?? /(\d{4})/.exec(value)?.[1];
+  return year ?? null;
+}
+
+function formatMonthYear(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  const match = /^(\d{4})-(\d{2})/.exec(value);
+  if (match) {
+    return `${match[2]}/${match[1]}`;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function IssueBatchProgressPanel({
