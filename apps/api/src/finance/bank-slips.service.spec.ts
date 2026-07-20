@@ -1769,6 +1769,8 @@ async function testIssueBatchZipIncludesTenPdfsAndSummary() {
   assert.equal(summary.split("\n").length, 11);
   assert.match(summary, /Colegio-Teste\/Boletos\/001-Joao-da-Silva.pdf/);
   assert.match(summary, /Colegio-Teste\/Boletos\/010-Aluno-Dez.pdf/);
+  const firstPdf = zipEntryContent(zip, "Colegio-Teste/Boletos/001-Joao-da-Silva.pdf");
+  assert.equal(firstPdf?.subarray(0, 4).toString(), "%PDF");
   assert.equal(sicredi.issueCalls.length, 0);
   assert.equal(sicredi.pdfCalls.length, 10);
 }
@@ -1813,6 +1815,7 @@ async function testIssueBatchZipSkipsUnavailableAndBlockedItems() {
   assert.match(summary, /Cadastro incompleto/);
   assert.equal(archive.totals.included, 1);
   assert.equal(archive.totals.skipped, 2);
+  assert.equal(archive.totals.failed, 0);
 }
 
 async function testIssueBatchZipKeepsSummaryWhenPdfFetchFails() {
@@ -1835,6 +1838,60 @@ async function testIssueBatchZipKeepsSummaryWhenPdfFetchFails() {
 
   assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 0);
   assert.match(summary, /PDF do boleto esta temporariamente indisponivel/);
+  assert.equal(archive.totals.included, 0);
+  assert.equal(archive.totals.skipped, 1);
+  assert.equal(archive.totals.failed, 1);
+  assert.equal(archive.totals.firstFailure, "PDF do boleto esta temporariamente indisponivel");
+  assert.equal(sicredi.issueCalls.length, 0);
+}
+
+async function testIssueBatchZipKeepsGoingAfterOnePdfFails() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfErrorsByLinhaDigitavel.set(
+    "linha-com-falha",
+    new SicrediClientError({
+      operation: "getPdf",
+      message: "Falha de autenticacao com o Sicredi",
+      statusCode: 401,
+      code: "UNAUTHORIZED",
+    }),
+  );
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(prisma, [
+    { name: "Aluno PDF A", linhaDigitavel: "linha-ok-a" },
+    { name: "Aluno PDF B", linhaDigitavel: "linha-com-falha" },
+    { name: "Aluno PDF C", linhaDigitavel: "linha-ok-c" },
+  ]);
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  const zip = await collectStream(archive.stream as Readable);
+  const entries = zipEntryNames(zip);
+  const summary = csvText(zip, "Colegio-Teste/Boletos/resumo.csv");
+
+  assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 2);
+  assert.equal(archive.totals.included, 2);
+  assert.equal(archive.totals.skipped, 1);
+  assert.equal(archive.totals.failed, 1);
+  assert.match(summary, /Falha de autenticacao com o Sicredi/);
+  assert.equal(sicredi.issueCalls.length, 0);
+}
+
+async function testIssueBatchZipDownloadsPaidBankSlip() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const batchId = await seedDownloadIssueBatch(prisma, [
+    { name: "Aluno Pago", bankSlipStatus: BankSlipStatus.PAID },
+  ]);
+
+  const archive = await service.downloadIssueBatchPdfs(batchId);
+  const zip = await collectStream(archive.stream as Readable);
+  const entries = zipEntryNames(zip);
+
+  assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 1);
+  assert.equal(archive.totals.included, 1);
+  assert.equal(sicredi.pdfCalls.length, 1);
   assert.equal(sicredi.issueCalls.length, 0);
 }
 
@@ -1956,6 +2013,7 @@ class FakeSicrediClient {
   getErrorsByNossoNumero = new Map<string, SicrediClientError>();
   cancelError?: SicrediClientError;
   pdfError?: SicrediClientError;
+  pdfErrorsByLinhaDigitavel = new Map<string, SicrediClientError>();
   pdfLinhaDigitavel?: string;
   pdfCalls: string[] = [];
   nextStatus = "LIQUIDADO";
@@ -2035,6 +2093,10 @@ class FakeSicrediClient {
 
   async getPdf(linhaDigitavel: string) {
     this.pdfCalls.push(linhaDigitavel);
+    const mappedError = this.pdfErrorsByLinhaDigitavel.get(linhaDigitavel);
+    if (mappedError) {
+      throw mappedError;
+    }
     if (this.pdfError) {
       throw this.pdfError;
     }
@@ -2658,6 +2720,7 @@ class FakePrisma {
 type DownloadBatchSeedItem = {
   name: string;
   itemStatus?: BankSlipIssueBatchItemStatus;
+  bankSlipStatus?: BankSlipStatus;
   skipReason?: string;
   linhaDigitavel?: string | null;
 };
@@ -2691,6 +2754,7 @@ async function seedDownloadIssueBatch(prisma: FakePrisma, items: DownloadBatchSe
     const bankSlip = prisma.addBankSlip({
       id: `bank-slip-${sequence}`,
       invoiceId,
+      status: item.bankSlipStatus ?? BankSlipStatus.ISSUED,
       nossoNumero: `2510061${String(sequence).padStart(2, "0")}`,
       linhaDigitavel: item.linhaDigitavel === undefined
         ? "74891125110061420512803153351030188640000009990"
@@ -2746,6 +2810,14 @@ function zipEntryNames(zip: Buffer) {
 }
 
 function csvText(zip: Buffer, path: string) {
+  const content = zipEntryContent(zip, path);
+  if (!content) {
+    throw new Error(`Entrada ${path} nao encontrada no ZIP`);
+  }
+  return content.toString("utf8");
+}
+
+function zipEntryContent(zip: Buffer, path: string) {
   let offset = 0;
   while (offset < zip.length - 4) {
     if (zip.readUInt32LE(offset) !== 0x04034b50) {
@@ -2758,11 +2830,11 @@ function csvText(zip: Buffer, path: string) {
     const name = zip.subarray(offset + 30, offset + 30 + nameLength).toString("utf8");
     const dataStart = offset + 30 + nameLength + extraLength;
     if (name === path) {
-      return zip.subarray(dataStart, dataStart + compressedSize).toString("utf8");
+      return zip.subarray(dataStart, dataStart + compressedSize);
     }
     offset = dataStart + compressedSize;
   }
-  throw new Error(`Entrada ${path} nao encontrada no ZIP`);
+  return undefined;
 }
 
 function createEnrollment(id: string, studentId: string, overrides: Record<string, unknown> = {}) {
@@ -2909,6 +2981,8 @@ await testIssueBatchZipIncludesTenPdfsAndSummary();
 await testIssueBatchZipSanitizesDuplicateStudentNames();
 await testIssueBatchZipSkipsUnavailableAndBlockedItems();
 await testIssueBatchZipKeepsSummaryWhenPdfFetchFails();
+await testIssueBatchZipKeepsGoingAfterOnePdfFails();
+await testIssueBatchZipDownloadsPaidBankSlip();
 await testIssueBatchProcessorLockPreventsDuplicateExecution();
 await testIssueBatchUnknownDoesNotRetry();
 await testIssueBatchHandles4295xxAndPersistenceConflictAsUnknown();

@@ -666,12 +666,14 @@ export function FinancePanel({ user }: { user: ApiUser }) {
       const total = numberHeader(result.headers, "x-bank-slip-zip-total", batch.totalItems);
       const included = numberHeader(result.headers, "x-bank-slip-zip-included", 0);
       const skipped = numberHeader(result.headers, "x-bank-slip-zip-skipped", Math.max(0, total - included));
-      const summary = `Total de boletos: ${total}; PDFs incluidos: ${included}; boletos ignorados: ${skipped}; falhas: ${batch.failedItems + batch.unknownItems}.`;
+      const failed = numberHeader(result.headers, "x-bank-slip-zip-failed", skipped);
+      const firstFailure = decodedHeader(result.headers, "x-bank-slip-zip-first-failure");
+      const summary = `Total de boletos: ${total}; PDFs incluidos: ${included}; boletos ignorados: ${skipped}; falhas: ${failed}.`;
       setIssueBatchDownloadSummary(summary);
       if (included === 0) {
         setIssueBatchDownloadState("empty");
-        setMessage("Nenhum boleto disponivel");
-      } else if (skipped > 0 || batch.failedItems + batch.unknownItems > 0) {
+        setMessage(issueBatchEmptyDownloadMessage(firstFailure));
+      } else if (skipped > 0 || failed > 0) {
         setIssueBatchDownloadState("partial");
         setMessage("Alguns boletos não foram incluídos");
       } else {
@@ -2482,6 +2484,31 @@ function safeZipFileName(fileName: string, fallback: string) {
 function numberHeader(headers: Headers, name: string, fallback: number) {
   const parsed = Number.parseInt(headers.get(name) ?? "", 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function decodedHeader(headers: Headers, name: string) {
+  const value = headers.get(name);
+  if (!value) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function issueBatchEmptyDownloadMessage(firstFailure: string) {
+  const normalized = firstFailure
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (normalized.includes("autenticacao") || normalized.includes("autorizada")) {
+    return "Nenhum boleto pôde ser baixado. O Sicredi recusou a autenticação das solicitações de PDF.";
+  }
+  return firstFailure
+    ? `Nenhum boleto pôde ser baixado. ${firstFailure}.`
+    : "Nenhum boleto pôde ser baixado.";
 }
 
 function parseMoneyToCents(input: string) {

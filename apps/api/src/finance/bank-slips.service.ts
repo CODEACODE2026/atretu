@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   BadRequestException,
   ConflictException,
@@ -116,9 +119,15 @@ type IssueBatchZipItem = {
   amountCents: number;
   dueDate: Date | null;
   status: BankSlipIssueBatchItemStatus | BankSlipStatus;
+  bankSlipStatus?: BankSlipStatus;
   filePath?: string;
   linhaDigitavel?: string;
   skipReason?: string;
+};
+
+type IssueBatchZipPdfEntry = {
+  path: string;
+  tempFile: string;
 };
 
 type CancellationPreparation = {
@@ -1180,14 +1189,17 @@ export class BankSlipsService {
 
   async getPdf(invoiceId: string) {
     const bankSlip = await this.getBankSlipByInvoice(invoiceId);
+    return this.getPdfForBankSlip(bankSlip);
+  }
+
+  private async getPdfForBankSlip(bankSlip: {
+    status: BankSlipStatus;
+    linhaDigitavel?: string | null;
+  }) {
     if (!bankSlip.linhaDigitavel) {
       throw new BadRequestException("Boleto ainda nao possui linha digitavel para PDF");
     }
-    if (
-      bankSlip.status !== BankSlipStatus.ISSUED &&
-      bankSlip.status !== BankSlipStatus.PAID &&
-      bankSlip.status !== BankSlipStatus.PENDING_CANCELLATION
-    ) {
+    if (!this.canDownloadBankSlipPdf(bankSlip.status)) {
       throw new BadRequestException("PDF disponivel somente para boleto emitido");
     }
     try {
@@ -1229,16 +1241,11 @@ export class BankSlipsService {
     const institutionDir = this.sanitizeArchiveToken(institutionName, "instituicao", 60);
     const dueDate = batch.dueDate ?? records.find((item) => item.invoice?.dueDate)?.invoice?.dueDate ?? null;
     const preparedItems = this.prepareIssueBatchZipItems(records, institutionDir);
-    const totals = {
-      total: preparedItems.length,
-      included: preparedItems.filter((item) => item.filePath && item.linhaDigitavel).length,
-      skipped: preparedItems.filter((item) => !item.filePath || !item.linhaDigitavel).length,
-    };
-    const entries = this.createIssueBatchZipEntries(institutionDir, preparedItems);
+    const archive = await this.prepareIssueBatchZipArchive(institutionDir, preparedItems);
     return {
       fileName: `boletos-${this.sanitizeArchiveToken(institutionName, "instituicao", 80)}-${this.formatArchiveDate(dueDate)}.zip`,
-      stream: createZipArchiveStream(entries),
-      totals,
+      stream: createZipArchiveStream(archive.entries),
+      totals: archive.totals,
     };
   }
 
@@ -1294,6 +1301,7 @@ export class BankSlipsService {
         amountCents: record.invoice?.amountCents ?? 0,
         dueDate: record.invoice?.dueDate ?? null,
         status: skipReason ? record.status : (record.bankSlip?.status ?? record.status),
+        bankSlipStatus: record.bankSlip?.status ?? undefined,
         filePath: skipReason ? undefined : `${institutionDir}/Boletos/${baseFile}`,
         linhaDigitavel: skipReason ? undefined : (record.bankSlip?.linhaDigitavel ?? undefined),
         skipReason,
@@ -1301,32 +1309,82 @@ export class BankSlipsService {
     });
   }
 
-  private async *createIssueBatchZipEntries(
+  private async prepareIssueBatchZipArchive(
     institutionDir: string,
     items: IssueBatchZipItem[],
-  ): AsyncIterable<ZipArchiveEntry> {
+  ) {
     const rows: IssueBatchZipRow[] = [];
-    for (const item of items) {
-      if (!item.filePath || !item.linhaDigitavel) {
-        rows.push(this.issueBatchZipRow(item, "", item.skipReason ?? "Boleto sem PDF disponivel"));
-        continue;
-      }
-      try {
-        const pdf = await this.sicredi.getPdf(item.linhaDigitavel);
-        if (pdf.sizeBytes <= 0) {
-          rows.push(this.issueBatchZipRow(item, "", "PDF do boleto esta vazio"));
+    const pdfEntries: IssueBatchZipPdfEntry[] = [];
+    let tempDir: string | undefined;
+    let included = 0;
+    let skipped = 0;
+    let failed = 0;
+    let firstFailure = "";
+    try {
+      for (const item of items) {
+        if (!item.filePath || !item.linhaDigitavel || !item.bankSlipStatus) {
+          const reason = item.skipReason ?? "Boleto sem PDF disponivel";
+          rows.push(this.issueBatchZipRow(item, "", reason));
+          skipped += 1;
+          firstFailure ||= reason;
           continue;
         }
-        rows.push(this.issueBatchZipRow(item, item.filePath, ""));
-        yield { path: item.filePath, data: pdf.bytes };
-      } catch (error) {
-        rows.push(this.issueBatchZipRow(item, "", this.issueBatchZipPdfErrorMessage(error)));
+        try {
+          const pdf = await this.getPdfForBankSlip({
+            status: item.bankSlipStatus,
+            linhaDigitavel: item.linhaDigitavel,
+          });
+          tempDir ??= await mkdtemp(join(tmpdir(), "atretu-bank-slip-zip-"));
+          const tempFile = join(tempDir, `${String(item.sequence).padStart(6, "0")}.pdf`);
+          await writeFile(tempFile, pdf.bytes);
+          rows.push(this.issueBatchZipRow(item, item.filePath, ""));
+          pdfEntries.push({ path: item.filePath, tempFile });
+          included += 1;
+        } catch (error) {
+          const reason = this.issueBatchZipPdfErrorMessage(error);
+          rows.push(this.issueBatchZipRow(item, "", reason));
+          skipped += 1;
+          failed += 1;
+          firstFailure ||= reason;
+        }
+      }
+    } catch (error) {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+      throw error;
+    }
+    return {
+      entries: this.createIssueBatchZipEntriesFromPrepared(institutionDir, pdfEntries, rows, tempDir),
+      totals: {
+        total: items.length,
+        included,
+        skipped,
+        failed,
+        firstFailure,
+      },
+    };
+  }
+
+  private async *createIssueBatchZipEntriesFromPrepared(
+    institutionDir: string,
+    pdfEntries: IssueBatchZipPdfEntry[],
+    rows: IssueBatchZipRow[],
+    tempDir: string | undefined,
+  ): AsyncIterable<ZipArchiveEntry> {
+    try {
+      for (const entry of pdfEntries) {
+        yield { path: entry.path, data: await readFile(entry.tempFile) };
+      }
+      yield {
+        path: `${institutionDir}/Boletos/resumo.csv`,
+        data: Buffer.from(this.issueBatchZipCsv(rows), "utf8"),
+      };
+    } finally {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
       }
     }
-    yield {
-      path: `${institutionDir}/Boletos/resumo.csv`,
-      data: Buffer.from(this.issueBatchZipCsv(rows), "utf8"),
-    };
   }
 
   private issueBatchZipSkipReason(record: {

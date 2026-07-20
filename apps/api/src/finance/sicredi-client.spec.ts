@@ -62,6 +62,9 @@ await testPaidDayPagination();
 await testPaidDayPaginationLimit();
 await testCancellation();
 await testPdf();
+await testPdfUsesAuthenticationHeaders();
+await testPdfRefreshesExpiredToken();
+await testConcurrentPdfAuthentication();
 await testPdfInvalidContentType();
 await testPdfTooLarge();
 
@@ -545,6 +548,53 @@ async function testPdf() {
   assert.match(result.filename, /^boleto-/);
 }
 
+async function testPdfUsesAuthenticationHeaders() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 300, 900),
+    pdfResponse(),
+  ]);
+  const client = createClient(fetch);
+  await client.getPdf("74891125110061420512803153351030188640000009990");
+  const authHeaders = new Headers(fetch.calls[0]?.headers);
+  const pdfHeaders = new Headers(fetch.calls[1]?.headers);
+  assert.equal(authHeaders.get("x-api-key"), config.apiKey);
+  assert.equal(authHeaders.get("context"), "COBRANCA");
+  assert.equal(pdfHeaders.get("x-api-key"), config.apiKey);
+  assert.equal(pdfHeaders.get("authorization"), "Bearer access-1");
+  assert.equal(fetch.calls[1]?.url, "https://sicredi.test/sb/cobranca/boleto/v1/boletos/pdf?linhaDigitavel=74891125110061420512803153351030188640000009990");
+}
+
+async function testPdfRefreshesExpiredToken() {
+  const fetch = queueFetch([
+    tokenResponse("access-1", "refresh-1", 1, 900),
+    pdfResponse(),
+    tokenResponse("access-2", "refresh-2", 300, 900),
+    pdfResponse(),
+  ]);
+  const client = createClient(fetch);
+  await client.getPdf("74891125110061420512803153351030188640000009990");
+  await client.getPdf("74891125110061420512803153351030188640000009990");
+  const refreshBody = String(fetch.calls[2]?.body);
+  const secondPdfHeaders = new Headers(fetch.calls[3]?.headers);
+  assert.match(refreshBody, /grant_type=refresh_token/);
+  assert.equal(secondPdfHeaders.get("authorization"), "Bearer access-2");
+}
+
+async function testConcurrentPdfAuthentication() {
+  const fetch = queueFetch([
+    asyncJson({ access_token: "access-1", refresh_token: "refresh-1", expires_in: 300, refresh_expires_in: 900 }),
+    ...Array.from({ length: 8 }, () => pdfResponse()),
+  ]);
+  const client = createClient(fetch);
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      client.getPdf(`7489112511006142051280315335103018864000000000${index}`),
+    ),
+  );
+  assert.equal(fetch.calls.filter((call) => call.url.includes("/auth/")).length, 1);
+  assert.equal(fetch.calls.filter((call) => call.url.includes("/boletos/pdf")).length, 8);
+}
+
 async function testPdfInvalidContentType() {
   const fetch = queueFetch([
     tokenResponse("access-1", "refresh-1", 300, 900),
@@ -660,6 +710,13 @@ function paidPageResponse(hasNext: boolean) {
       },
     ],
     hasNext,
+  });
+}
+
+function pdfResponse() {
+  return new Response(Buffer.from("%PDF-1.4\n%%EOF\n"), {
+    status: 201,
+    headers: { "content-type": "application/pdf" },
   });
 }
 

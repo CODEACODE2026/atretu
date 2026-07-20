@@ -164,6 +164,13 @@ export class BankSlipsController {
     response.setHeader("X-Bank-Slip-Zip-Total", String(archive.totals.total));
     response.setHeader("X-Bank-Slip-Zip-Included", String(archive.totals.included));
     response.setHeader("X-Bank-Slip-Zip-Skipped", String(archive.totals.skipped));
+    response.setHeader("X-Bank-Slip-Zip-Failed", String(archive.totals.failed));
+    if (archive.totals.firstFailure) {
+      response.setHeader(
+        "X-Bank-Slip-Zip-First-Failure",
+        encodeURIComponent(archive.totals.firstFailure),
+      );
+    }
     archive.stream.pipe(response);
   }
 
