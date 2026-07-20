@@ -29,6 +29,7 @@ import {
   ListBankSlipSyncRunItemsDto,
   ListBankSlipSyncRunsDto,
   PreviewBankSlipIssueBatchDto,
+  RecoverBankSlipPdfsDto,
   RecoverIssuedBankSlipDto,
   RetryBankSlipIssueBatchDto,
   RequestBankSlipCancellationDto,
@@ -86,6 +87,12 @@ export class BankSlipsController {
   @Roles(RoleCode.SUPER_ADMIN)
   syncOpenIssued(@CurrentUser() user: AuthUser) {
     return this.bankSlips.syncOpenIssued(user.id);
+  }
+
+  @Post("finance/bank-slips/recover-pdfs")
+  @Roles(RoleCode.SUPER_ADMIN)
+  recoverBankSlipPdfs(@Body() body: RecoverBankSlipPdfsDto) {
+    return this.bankSlips.recoverMissingPdfs(body.limit);
   }
 
   @Get("finance/bank-slip-sync-runs")

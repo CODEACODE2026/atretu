@@ -6,6 +6,7 @@ import { DatabaseModule } from "../database/database.module.js";
 import { JobsModule } from "../jobs/jobs.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { BankSlipIssueBatchJob } from "./bank-slip-issue-batch.job.js";
+import { BankSlipPdfStorage } from "./bank-slip-pdf-storage.js";
 import { BankSlipsController } from "./bank-slips.controller.js";
 import { BankSlipSyncJob } from "./bank-slip-sync.job.js";
 import {
@@ -31,6 +32,7 @@ import { loadSicrediConfig } from "./sicredi-config.js";
   providers: [
     InvoicesService,
     BankSlipsService,
+    BankSlipPdfStorage,
     BankSlipIssueBatchJob,
     BankSlipSyncJob,
     {

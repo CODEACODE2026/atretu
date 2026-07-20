@@ -67,6 +67,7 @@ import type {
 } from "./dto/bank-slips.dto.js";
 import { resolvePagination } from "../common/pagination.js";
 import { createZipArchiveStream, type ZipArchiveEntry } from "./zip-archive.js";
+import { BankSlipPdfStorage } from "./bank-slip-pdf-storage.js";
 
 export const SICREDI_CLIENT = Symbol("SICREDI_CLIENT");
 export const SICREDI_CONFIG = Symbol("SICREDI_CONFIG");
@@ -109,6 +110,7 @@ type IssueBatchZipRow = {
   vencimento: string;
   status: string;
   arquivo: string;
+  origem: "STORED" | "SICREDI" | "UNAVAILABLE";
   motivo: string;
 };
 
@@ -130,6 +132,14 @@ type IssueBatchZipItem = {
 type IssueBatchZipPdfEntry = {
   path: string;
   tempFile: string;
+};
+
+type BankSlipPdfResult = {
+  bytes: Buffer;
+  contentType: string;
+  sizeBytes: number;
+  filename: string;
+  source: "STORED" | "SICREDI";
 };
 
 type CancellationPreparation = {
@@ -157,6 +167,7 @@ export class BankSlipsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SICREDI_CLIENT) private readonly sicredi: SicrediClientPort,
     @Inject(SICREDI_CONFIG) private readonly sicrediConfig: SicrediConfig,
+    @Inject(BankSlipPdfStorage) private readonly pdfStorage: BankSlipPdfStorage = new BankSlipPdfStorage(),
   ) {}
 
   async issueForInvoice(invoiceId: string, userId: string) {
@@ -178,7 +189,8 @@ export class BankSlipsService {
       });
       const response = await this.sicredi.issueBankSlip(prepared.input);
       const updated = await this.persistIssuedBankSlip(prepared, response, userId);
-      return this.toBankSlipSummary(updated);
+      const archived = await this.archiveIssuedBankSlipPdf(updated);
+      return this.toBankSlipSummary(archived);
     } catch (error) {
       logIssueDiagnostic({
         etapa: "issue-catch",
@@ -375,6 +387,38 @@ export class BankSlipsService {
         code: "BANK_SLIP_ISSUE_PERSISTENCE_CONFLICT",
         message:
           "Sicredi confirmou a emissao, mas o retorno nao foi persistido localmente; recupere o boleto sem nova emissao",
+      });
+    }
+  }
+
+  private async archiveIssuedBankSlipPdf(bankSlip: BankSlipWithRelations) {
+    try {
+      const pdf = await this.getPdfFromSicrediForBankSlip(bankSlip, {
+        invoiceId: bankSlip.invoiceId,
+        bankSlipId: bankSlip.id,
+      });
+      await this.persistStoredBankSlipPdf(bankSlip, pdf.bytes, pdf);
+      const archived = await this.prisma.bankSlip.findUnique({
+        where: { id: bankSlip.id },
+        include: this.bankSlipInclude(),
+      });
+      return archived ?? bankSlip;
+    } catch (error) {
+      this.logger.warn({
+        event: "bank_slip_pdf_archive_pending",
+        bankSlipId: bankSlip.id,
+        invoiceId: bankSlip.invoiceId,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      return this.prisma.bankSlip.update({
+        where: { id: bankSlip.id },
+        data: {
+          providerErrorCode: "PDF_ARCHIVE_PENDING",
+          providerErrorMessage:
+            "Boleto emitido, mas o PDF oficial ainda nao foi arquivado. Tente recuperar enquanto estiver disponivel no Sicredi.",
+          lastCheckedAt: new Date(),
+        },
+        include: this.bankSlipInclude(),
       });
     }
   }
@@ -1198,11 +1242,164 @@ export class BankSlipsService {
     return this.getPdfForBankSlip(bankSlip, { invoiceId, bankSlipId: bankSlip.id });
   }
 
+  async recoverMissingPdfs(limit = 50) {
+    const bankSlips = await this.prisma.bankSlip.findMany({
+      where: {
+        pdfStorageKey: null,
+        status: {
+          in: [
+            BankSlipStatus.ISSUED,
+            BankSlipStatus.PAID,
+            BankSlipStatus.PENDING_CANCELLATION,
+          ],
+        },
+      },
+      take: limit,
+      orderBy: [{ issuedAt: "asc" }, { createdAt: "asc" }],
+      include: this.bankSlipInclude(),
+    });
+    const summary = {
+      scanned: bankSlips.length,
+      archived: 0,
+      unavailable: 0,
+      failed: 0,
+      items: [] as Array<{
+        bankSlipId: string;
+        invoiceId: string;
+        status: "ARCHIVED" | "UNAVAILABLE" | "FAILED";
+        code?: string;
+      }>,
+    };
+    for (const bankSlip of bankSlips) {
+      try {
+        await this.fetchAndStoreBankSlipPdf(bankSlip, {
+          invoiceId: bankSlip.invoiceId,
+          bankSlipId: bankSlip.id,
+        });
+        summary.archived += 1;
+        summary.items.push({
+          bankSlipId: bankSlip.id,
+          invoiceId: bankSlip.invoiceId,
+          status: "ARCHIVED",
+        });
+      } catch (error) {
+        const unavailable = this.isPaidPdfUnavailableError(bankSlip, error);
+        const code = unavailable ? "PDF_NOT_ARCHIVED_BEFORE_SETTLEMENT" : "PDF_RECOVERY_FAILED";
+        await this.prisma.bankSlip.update({
+          where: { id: bankSlip.id },
+          data: {
+            providerErrorCode: code,
+            providerErrorMessage: unavailable
+              ? "PDF oficial nao foi arquivado antes da liquidacao e nao esta mais disponivel no Sicredi."
+              : this.truncate(
+                  error instanceof Error ? error.message : "Falha ao recuperar PDF do boleto",
+                  500,
+                ),
+            lastCheckedAt: new Date(),
+          },
+          include: this.bankSlipInclude(),
+        });
+        if (unavailable) {
+          summary.unavailable += 1;
+        } else {
+          summary.failed += 1;
+        }
+        summary.items.push({
+          bankSlipId: bankSlip.id,
+          invoiceId: bankSlip.invoiceId,
+          status: unavailable ? "UNAVAILABLE" : "FAILED",
+          code,
+        });
+      }
+    }
+    return summary;
+  }
+
   private async getPdfForBankSlip(bankSlip: {
+    id?: string;
+    invoiceId?: string;
+    status: BankSlipStatus;
+    linhaDigitavel?: string | null;
+    pdfStorageKey?: string | null;
+    pdfSha256?: string | null;
+    pdfSizeBytes?: number | null;
+    invoice?: { enrollment?: { institutionId?: string | null } | null } | null;
+  }, context: { invoiceId?: string; bankSlipId?: string } = {}) {
+    const stored = await this.readStoredBankSlipPdf(bankSlip);
+    if (stored) {
+      return stored;
+    }
+    return this.fetchAndStoreBankSlipPdf(bankSlip, context);
+  }
+
+  private async fetchAndStoreBankSlipPdf(bankSlip: {
+    id?: string;
+    invoiceId?: string;
+    status: BankSlipStatus;
+    linhaDigitavel?: string | null;
+    invoice?: { enrollment?: { institutionId?: string | null } | null } | null;
+  }, context: { invoiceId?: string; bankSlipId?: string } = {}) {
+    try {
+      const pdf = await this.getPdfFromSicrediForBankSlip(bankSlip, context);
+      if (bankSlip.id) {
+        return this.persistStoredBankSlipPdf(bankSlip, pdf.bytes, pdf);
+      }
+      return pdf;
+    } catch (error) {
+      if (this.isPaidPdfUnavailableError(bankSlip, error)) {
+        throw new BadRequestException({
+          code: "PDF_NOT_ARCHIVED_BEFORE_SETTLEMENT",
+          message:
+            "O boleto foi pago, mas o PDF oficial nao foi armazenado antes da liquidacao e nao esta mais disponivel no Sicredi.",
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async readStoredBankSlipPdf(bankSlip: {
+    id?: string;
+    pdfStorageKey?: string | null;
+    pdfSha256?: string | null;
+    pdfSizeBytes?: number | null;
+    invoice?: { enrollment?: { institutionId?: string | null } | null } | null;
+  }): Promise<BankSlipPdfResult | undefined> {
+    if (!bankSlip.pdfStorageKey) {
+      return undefined;
+    }
+    this.assertBankSlipPdfStorageKeyMatchesOwner(bankSlip);
+    const stored = await this.pdfStorage.read(bankSlip.pdfStorageKey);
+    if (
+      bankSlip.pdfSizeBytes !== null &&
+      bankSlip.pdfSizeBytes !== undefined &&
+      stored.sizeBytes !== bankSlip.pdfSizeBytes
+    ) {
+      throw new ConflictException({
+        code: "BANK_SLIP_PDF_ARCHIVE_MISMATCH",
+        message: "Arquivo PDF arquivado nao confere com os metadados registrados",
+      });
+    }
+    if (bankSlip.pdfSha256 && stored.sha256 !== bankSlip.pdfSha256) {
+      throw new ConflictException({
+        code: "BANK_SLIP_PDF_ARCHIVE_MISMATCH",
+        message: "Arquivo PDF arquivado nao confere com os metadados registrados",
+      });
+    }
+    this.assertValidPdfBytes(stored.bytes);
+    return {
+      bytes: stored.bytes,
+      contentType: "application/pdf",
+      sizeBytes: stored.sizeBytes,
+      filename: `boleto-${bankSlip.id ?? "arquivado"}.pdf`,
+      source: "STORED",
+    };
+  }
+
+  private async getPdfFromSicrediForBankSlip(bankSlip: {
     id?: string;
     status: BankSlipStatus;
     linhaDigitavel?: string | null;
-  }, context: { invoiceId?: string; bankSlipId?: string } = {}) {
+  }, context: { invoiceId?: string; bankSlipId?: string } = {}): Promise<BankSlipPdfResult> {
     const linhaDigitavel = this.normalizeLinhaDigitavel(bankSlip.linhaDigitavel);
     if (!linhaDigitavel) {
       throw new BadRequestException("Boleto ainda nao possui linha digitavel para PDF");
@@ -1212,19 +1409,9 @@ export class BankSlipsService {
     }
     try {
       const pdf = await this.sicredi.getPdf(linhaDigitavel);
-      if (pdf.sizeBytes <= 0) {
-        throw new BadRequestException({
-          code: "SICREDI_INVALID_RESPONSE",
-          message: "PDF do boleto esta vazio",
-        });
-      }
-      if (pdf.bytes.subarray(0, 4).toString("latin1") !== "%PDF") {
-        throw new BadRequestException({
-          code: "SICREDI_INVALID_RESPONSE",
-          message: "Resposta do Sicredi nao possui assinatura PDF valida",
-        });
-      }
-      return pdf;
+      this.assertValidPdfContentType(pdf.contentType);
+      this.assertValidPdfBytes(pdf.bytes);
+      return { ...pdf, source: "SICREDI" };
     } catch (error) {
       if (error instanceof SicrediClientError) {
         this.logPdfDiagnostic(error, {
@@ -1235,6 +1422,109 @@ export class BankSlipsService {
         throw toSicrediHttpException(translateSicrediClientError(error, "pdf"));
       }
       throw error;
+    }
+  }
+
+  private async persistStoredBankSlipPdf(
+    bankSlip: {
+      id?: string;
+      invoiceId?: string;
+      invoice?: { enrollment?: { institutionId?: string | null } | null } | null;
+    },
+    bytes: Buffer,
+    pdf?: { contentType: string; filename: string },
+  ): Promise<BankSlipPdfResult> {
+    if (!bankSlip.id) {
+      throw new BadRequestException("Boleto sem identificador para arquivamento de PDF");
+    }
+    this.assertValidPdfBytes(bytes);
+    const institutionId = bankSlip.invoice?.enrollment?.institutionId ?? "default";
+    const stored = await this.pdfStorage.store({
+      bankSlipId: bankSlip.id,
+      institutionId,
+      bytes,
+    });
+    const updated = await this.prisma.bankSlip.update({
+      where: { id: bankSlip.id },
+      data: {
+        pdfStorageKey: stored.storageKey,
+        pdfStoredAt: new Date(),
+        pdfSha256: stored.sha256,
+        pdfSizeBytes: stored.sizeBytes,
+        providerErrorCode: null,
+        providerErrorMessage: null,
+      },
+      include: this.bankSlipInclude(),
+    });
+    return {
+      bytes,
+      contentType: pdf?.contentType ?? "application/pdf",
+      sizeBytes: stored.sizeBytes,
+      filename: pdf?.filename ?? `boleto-${updated.id}.pdf`,
+      source: "SICREDI",
+    };
+  }
+
+  private assertValidPdfContentType(contentType: string) {
+    if (contentType !== "application/pdf" && contentType !== "application/octet-stream") {
+      throw new BadRequestException({
+        code: "SICREDI_INVALID_RESPONSE",
+        message: "Resposta do Sicredi nao possui Content-Type de PDF valido",
+      });
+    }
+  }
+
+  private assertValidPdfBytes(bytes: Buffer) {
+    if (bytes.byteLength <= 0) {
+      throw new BadRequestException({
+        code: "SICREDI_INVALID_RESPONSE",
+        message: "PDF do boleto esta vazio",
+      });
+    }
+    if (bytes.subarray(0, 4).toString("latin1") !== "%PDF") {
+      throw new BadRequestException({
+        code: "SICREDI_INVALID_RESPONSE",
+        message: "Resposta do Sicredi nao possui assinatura PDF valida",
+      });
+    }
+  }
+
+  private isPaidPdfUnavailableError(
+    bankSlip: { status: BankSlipStatus },
+    error: unknown,
+  ) {
+    if (bankSlip.status !== BankSlipStatus.PAID) {
+      return false;
+    }
+    if (error instanceof SicrediClientError) {
+      const translated = translateSicrediClientError(error, "pdf");
+      return translated.code !== "SICREDI_AUTHENTICATION_FAILED";
+    }
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      const text = typeof response === "string" ? response : JSON.stringify(response);
+      return /beneficiario|PDF_ACCESS_DENIED|BANK_SLIP_NOT_OWNED|UNKNOWN_SICREDI_401|nao esta mais disponivel/i.test(
+        text,
+      );
+    }
+    return false;
+  }
+
+  private assertBankSlipPdfStorageKeyMatchesOwner(bankSlip: {
+    id?: string;
+    pdfStorageKey?: string | null;
+    invoice?: { enrollment?: { institutionId?: string | null } | null } | null;
+  }) {
+    if (!bankSlip.id || !bankSlip.pdfStorageKey) {
+      return;
+    }
+    const institutionId = bankSlip.invoice?.enrollment?.institutionId ?? "default";
+    const expectedKey = this.pdfStorage.storageKey(institutionId, bankSlip.id);
+    if (bankSlip.pdfStorageKey !== expectedKey) {
+      throw new ConflictException({
+        code: "BANK_SLIP_PDF_ARCHIVE_OWNER_MISMATCH",
+        message: "Arquivo PDF arquivado nao pertence a instituicao do boleto",
+      });
     }
   }
 
@@ -1345,7 +1635,7 @@ export class BankSlipsService {
       for (const item of items) {
         if (!item.filePath || !item.invoiceId || !item.linhaDigitavel || !item.bankSlipStatus) {
           const reason = item.skipReason ?? "Boleto sem PDF disponivel";
-          rows.push(this.issueBatchZipRow(item, "", reason));
+          rows.push(this.issueBatchZipRow(item, "", "UNAVAILABLE", reason));
           skipped += 1;
           firstFailure ||= reason;
           continue;
@@ -1355,12 +1645,12 @@ export class BankSlipsService {
           tempDir ??= await mkdtemp(join(tmpdir(), "atretu-bank-slip-zip-"));
           const tempFile = join(tempDir, `${String(item.sequence).padStart(6, "0")}.pdf`);
           await writeFile(tempFile, pdf.bytes);
-          rows.push(this.issueBatchZipRow(item, item.filePath, ""));
+          rows.push(this.issueBatchZipRow(item, item.filePath, pdf.source, ""));
           pdfEntries.push({ path: item.filePath, tempFile });
           included += 1;
         } catch (error) {
           const reason = this.issueBatchZipPdfErrorMessage(error);
-          rows.push(this.issueBatchZipRow(item, "", reason));
+          rows.push(this.issueBatchZipRow(item, "", "UNAVAILABLE", reason));
           skipped += 1;
           failed += 1;
           firstFailure ||= reason;
@@ -1471,7 +1761,12 @@ export class BankSlipsService {
     this.logger.warn(diagnostic);
   }
 
-  private issueBatchZipRow(item: IssueBatchZipItem, filePath: string, reason: string): IssueBatchZipRow {
+  private issueBatchZipRow(
+    item: IssueBatchZipItem,
+    filePath: string,
+    source: IssueBatchZipRow["origem"],
+    reason: string,
+  ): IssueBatchZipRow {
     return {
       aluno: item.studentName,
       matricula: item.enrollmentIdentifier,
@@ -1480,6 +1775,7 @@ export class BankSlipsService {
       vencimento: item.dueDate ? this.formatArchiveDate(item.dueDate) : "",
       status: String(item.status),
       arquivo: filePath,
+      origem: source,
       motivo: reason,
     };
   }
@@ -1493,6 +1789,7 @@ export class BankSlipsService {
       "vencimento",
       "status",
       "arquivo",
+      "origem",
       "motivo",
     ];
     return [
@@ -1687,6 +1984,10 @@ export class BankSlipsService {
         providerStatus: null,
         providerErrorCode: null,
         providerErrorMessage: null,
+        pdfStorageKey: null,
+        pdfStoredAt: null,
+        pdfSha256: null,
+        pdfSizeBytes: null,
       },
       include: this.bankSlipInclude(),
     });
@@ -3296,7 +3597,12 @@ export class BankSlipsService {
 
   private bankSlipInclude() {
     return {
-      invoice: { include: { student: { include: { person: true } } } },
+      invoice: {
+        include: {
+          student: { include: { person: true } },
+          enrollment: true,
+        },
+      },
     } satisfies Prisma.BankSlipInclude;
   }
 
@@ -3342,6 +3648,10 @@ export class BankSlipsService {
       providerStatus: bankSlip.providerStatus,
       providerErrorCode: bankSlip.providerErrorCode,
       providerErrorMessage: bankSlip.providerErrorMessage,
+      pdfStorageKey: bankSlip.pdfStorageKey,
+      pdfStoredAt: bankSlip.pdfStoredAt,
+      pdfSha256: bankSlip.pdfSha256,
+      pdfSizeBytes: bankSlip.pdfSizeBytes,
       createdAt: bankSlip.createdAt,
       updatedAt: bankSlip.updatedAt,
       invoice: {

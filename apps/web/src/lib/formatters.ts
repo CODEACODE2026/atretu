@@ -91,6 +91,10 @@ export function mapApiErrorMessage(message?: string) {
   }
 
   const mappings: Array<[RegExp, string]> = [
+    [
+      /PDF_NOT_ARCHIVED_BEFORE_SETTLEMENT|PDF oficial nao foi armazenado|PDF oficial não foi armazenado/i,
+      "O boleto foi pago, mas o PDF oficial não foi armazenado antes da liquidação e não está mais disponível no Sicredi.",
+    ],
     [/ACADEMIC_YEAR_NOT_ACTIVE|ACADEMIC_YEAR_ARCHIVED/i, "Ano Letivo arquivado nao pode ser usado neste fluxo."],
     [/ACADEMIC_YEAR_CURRENT_CANNOT_ARCHIVE/i, "Ano Letivo atual nao pode ser arquivado."],
     [/ACADEMIC_YEAR_(CANNOT_DELETE|HAS_DEPENDENCIES)/i, "Este registro possui dependencias e nao pode ser excluido."],

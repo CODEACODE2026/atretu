@@ -176,6 +176,15 @@ export class RetryBankSlipIssueBatchDto {
   reason?: string;
 }
 
+export class RecoverBankSlipPdfsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  limit = 50;
+}
+
 export class ListBankSlipSyncRunsDto {
   @IsOptional()
   @Type(() => Number)

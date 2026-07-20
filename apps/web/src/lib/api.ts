@@ -559,6 +559,10 @@ export type BankSlipRecord = {
   providerStatus?: string | null;
   providerErrorCode?: string | null;
   providerErrorMessage?: string | null;
+  pdfStorageKey?: string | null;
+  pdfStoredAt?: string | null;
+  pdfSha256?: string | null;
+  pdfSizeBytes?: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -571,6 +575,7 @@ export type BankSlipSummary = {
   paidAt?: string | null;
   cancelledAt?: string | null;
   lastCheckedAt?: string | null;
+  pdfStoredAt?: string | null;
 };
 
 export type SyncPaidBankSlipsDaySummary = {

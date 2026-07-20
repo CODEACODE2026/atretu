@@ -25,6 +25,7 @@ import {
   StudentHistoryEventType,
 } from "@prisma/client";
 import { BankSlipsService } from "./bank-slips.service.js";
+import { BankSlipPdfStorage, sha256 } from "./bank-slip-pdf-storage.js";
 import { SicrediClientError } from "./sicredi-client.js";
 import type { SicrediConfig } from "./sicredi-config.js";
 
@@ -66,6 +67,11 @@ async function testIssueBankSlipSuccess() {
   assert.equal((sicredi.issueCalls[0] as Record<string, unknown>).nossoNumero, undefined);
   assert.equal(prisma.bankSlips[0]?.originalAmountCents, 12050);
   assert.equal(prisma.bankSlips[0]?.txid, "tx-issue-1");
+  assert.equal(prisma.bankSlips[0]?.pdfStorageKey, "bank-slips/institution-1/bank-slip-1.pdf");
+  assert.equal(prisma.bankSlips[0]?.pdfSha256, sha256(Buffer.from("%PDF-1.4")));
+  assert.equal(prisma.bankSlips[0]?.pdfSizeBytes, 8);
+  assert.ok(prisma.bankSlips[0]?.pdfStoredAt instanceof Date);
+  assert.equal(sicredi.pdfCalls.length, 1);
   assert.equal(prisma.historyEvents[0]?.eventType, StudentHistoryEventType.BANK_SLIP_ISSUED);
   assert.equal(
     prisma.auditLogs.some(
@@ -76,6 +82,26 @@ async function testIssueBankSlipSuccess() {
   const auditText = JSON.stringify(prisma.auditLogs);
   assert.doesNotMatch(auditText, /12345678909/);
   assert.doesNotMatch(auditText, /secret-api-key|secret-password|access_token/);
+}
+
+async function testIssuePdfArchiveFailureDoesNotUndoIssue() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Sicredi recusou o PDF",
+    statusCode: 401,
+    code: "UNAUTHORIZED",
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const result = await service.issueForInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(result.providerErrorCode, "PDF_ARCHIVE_PENDING");
+  assert.equal(prisma.bankSlips[0]?.pdfStorageKey, null);
+  assert.equal(sicredi.issueCalls.length, 1);
+  assert.equal(sicredi.pdfCalls.length, 1);
 }
 
 async function testIssueUncertainMarksUnknown() {
@@ -1212,6 +1238,112 @@ async function testPdfAllowsPaidInvoice() {
   assert.equal(sicredi.pdfCalls.length, 1);
 }
 
+async function testPdfOpenUsesStoredArchive() {
+  const prisma = new FakePrisma();
+  const storage = new BankSlipPdfStorage();
+  const bytes = Buffer.from("%PDF-STORED-OPEN");
+  const stored = await storage.store({
+    institutionId: "institution-1",
+    bankSlipId: "bank-slip-1",
+    bytes,
+  });
+  prisma.seedIssuedBankSlip({
+    pdfStorageKey: stored.storageKey,
+    pdfSha256: stored.sha256,
+    pdfSizeBytes: stored.sizeBytes,
+    pdfStoredAt: new Date(),
+  });
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Should not call Sicredi",
+    statusCode: 500,
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config, storage);
+
+  const pdf = await service.getPdfByInvoiceId("invoice-1");
+
+  assert.equal(pdf.source, "STORED");
+  assert.equal(pdf.bytes.toString(), "%PDF-STORED-OPEN");
+  assert.equal(sicredi.pdfCalls.length, 0);
+}
+
+async function testPdfPaidUsesStoredArchive() {
+  const prisma = new FakePrisma();
+  const storage = new BankSlipPdfStorage();
+  const bytes = Buffer.from("%PDF-STORED-PAID");
+  const stored = await storage.store({
+    institutionId: "institution-1",
+    bankSlipId: "bank-slip-1",
+    bytes,
+  });
+  (prisma.invoiceRecord as { status: InvoiceStatus }).status = InvoiceStatus.PAID;
+  prisma.seedIssuedBankSlip({
+    status: BankSlipStatus.PAID,
+    pdfStorageKey: stored.storageKey,
+    pdfSha256: stored.sha256,
+    pdfSizeBytes: stored.sizeBytes,
+    pdfStoredAt: new Date(),
+  });
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Sicredi recusou o PDF para a linha digitavel deste beneficiario",
+    statusCode: 401,
+    code: "BANK_SLIP_NOT_OWNED_BY_BENEFICIARY",
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config, storage);
+
+  const pdf = await service.getPdfByInvoiceId("invoice-1");
+
+  assert.equal(pdf.source, "STORED");
+  assert.equal(pdf.bytes.toString(), "%PDF-STORED-PAID");
+  assert.equal(sicredi.pdfCalls.length, 0);
+}
+
+async function testStoredPdfFromDifferentInstitutionIsBlocked() {
+  const prisma = new FakePrisma();
+  const storage = new BankSlipPdfStorage();
+  const stored = await storage.store({
+    institutionId: "institution-2",
+    bankSlipId: "bank-slip-1",
+    bytes: Buffer.from("%PDF-FOREIGN"),
+  });
+  prisma.seedIssuedBankSlip({
+    pdfStorageKey: stored.storageKey,
+    pdfSha256: stored.sha256,
+    pdfSizeBytes: stored.sizeBytes,
+    pdfStoredAt: new Date(),
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config, storage);
+
+  await assert.rejects(
+    () => service.getPdfByInvoiceId("invoice-1"),
+    /nao pertence a instituicao do boleto/,
+  );
+  assert.equal(sicredi.pdfCalls.length, 0);
+}
+
+async function testPaidOldPdfUnavailableHasClearMessage() {
+  const prisma = new FakePrisma();
+  (prisma.invoiceRecord as { status: InvoiceStatus }).status = InvoiceStatus.PAID;
+  prisma.seedIssuedBankSlip({ status: BankSlipStatus.PAID });
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Sicredi recusou o PDF para a linha digitavel deste beneficiario",
+    statusCode: 401,
+    code: "BANK_SLIP_NOT_OWNED_BY_BENEFICIARY",
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  await assert.rejects(
+    () => service.getPdfByInvoiceId("invoice-1"),
+    /PDF oficial nao foi armazenado antes da liquidacao/,
+  );
+}
+
 async function testPdfNormalizesLinhaDigitavel() {
   const prisma = new FakePrisma();
   prisma.seedIssuedBankSlip({
@@ -1960,9 +2092,19 @@ async function testIssueBatchZipKeepsGoingAfterOnePdfFails() {
 async function testIssueBatchZipDownloadsPaidBankSlip() {
   const prisma = new FakePrisma();
   const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Sicredi recusou o PDF para a linha digitavel deste beneficiario",
+    statusCode: 401,
+    code: "BANK_SLIP_NOT_OWNED_BY_BENEFICIARY",
+  });
   const service = new BankSlipsService(prisma as never, sicredi as never, config);
   const batchId = await seedDownloadIssueBatch(prisma, [
-    { name: "Aluno Pago", bankSlipStatus: BankSlipStatus.PAID },
+    {
+      name: "Aluno Pago",
+      bankSlipStatus: BankSlipStatus.PAID,
+      storedPdfBytes: Buffer.from("%PDF-STORED-ZIP"),
+    },
   ]);
 
   const archive = await service.downloadIssueBatchPdfs(batchId);
@@ -1971,8 +2113,62 @@ async function testIssueBatchZipDownloadsPaidBankSlip() {
 
   assert.equal(entries.filter((entry) => entry.endsWith(".pdf")).length, 1);
   assert.equal(archive.totals.included, 1);
-  assert.equal(sicredi.pdfCalls.length, 1);
+  assert.equal(sicredi.pdfCalls.length, 0);
   assert.equal(sicredi.issueCalls.length, 0);
+  const summary = csvText(zip, "Colegio-Teste/Boletos/resumo.csv");
+  assert.match(summary, /STORED/);
+}
+
+async function testRecoverMissingPdfsDoesNotReissueBankSlips() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const summary = await service.recoverMissingPdfs(10);
+
+  assert.equal(summary.scanned, 1);
+  assert.equal(summary.archived, 1);
+  assert.equal(prisma.bankSlips[0]?.pdfStorageKey, "bank-slips/institution-1/bank-slip-1.pdf");
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(sicredi.pdfCalls.length, 1);
+}
+
+async function testRecoverMissingPaidPdfMarksUnavailable() {
+  const prisma = new FakePrisma();
+  prisma.seedIssuedBankSlip({ status: BankSlipStatus.PAID });
+  const sicredi = new FakeSicrediClient();
+  sicredi.pdfError = new SicrediClientError({
+    operation: "getPdf",
+    message: "Sicredi recusou o PDF para a linha digitavel deste beneficiario",
+    statusCode: 401,
+    code: "BANK_SLIP_NOT_OWNED_BY_BENEFICIARY",
+  });
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  const summary = await service.recoverMissingPdfs(10);
+
+  assert.equal(summary.unavailable, 1);
+  assert.equal(prisma.bankSlips[0]?.providerErrorCode, "PDF_NOT_ARCHIVED_BEFORE_SETTLEMENT");
+  assert.equal(sicredi.issueCalls.length, 0);
+}
+
+async function testBankSlipPdfStorageBlocksPathTraversal() {
+  const storage = new BankSlipPdfStorage();
+
+  await assert.rejects(
+    () =>
+      storage.store({
+        institutionId: "../tenant",
+        bankSlipId: "bank-slip-1",
+        bytes: Buffer.from("%PDF"),
+      }),
+    /Invalid bank slip PDF storage identifier/,
+  );
+  await assert.rejects(
+    () => storage.read("../outside.pdf"),
+    /Invalid bank slip PDF storage key/,
+  );
 }
 
 async function testIssueBatchProcessorLockPreventsDuplicateExecution() {
@@ -2293,11 +2489,23 @@ class FakePrisma {
         ? this.bankSlipWithInvoiceId(where.invoiceId)
         : this.bankSlipWithInvoice(String(where.id));
     },
-    findMany: async (args?: { take?: number }) => {
+    findMany: async (args?: {
+      take?: number;
+      where?: {
+        pdfStorageKey?: null;
+        status?: { in?: BankSlipStatus[] };
+      };
+    }) => {
       const records = this.bankSlips
         .filter((item) => {
           const invoice = this.invoices.get(String(item.invoiceId));
-          return item.status === BankSlipStatus.ISSUED && invoice?.status === InvoiceStatus.OPEN;
+          const statusAllowed = args?.where?.status?.in
+            ? args.where.status.in.includes(item.status as BankSlipStatus)
+            : item.status === BankSlipStatus.ISSUED && invoice?.status === InvoiceStatus.OPEN;
+          const storageAllowed =
+            args?.where?.pdfStorageKey === undefined ||
+            item.pdfStorageKey === args.where.pdfStorageKey;
+          return statusAllowed && storageAllowed && Boolean(invoice);
         })
         .map((item) => this.bankSlipWithInvoice(String(item.id)))
         .filter(Boolean);
@@ -2334,6 +2542,10 @@ class FakePrisma {
         providerStatus: null,
         providerErrorCode: null,
         providerErrorMessage: null,
+        pdfStorageKey: null,
+        pdfStoredAt: null,
+        pdfSha256: null,
+        pdfSizeBytes: null,
         ...data,
       };
       this.bankSlips.push(record);
@@ -2710,6 +2922,10 @@ class FakePrisma {
       providerStatus: "ISSUED",
       providerErrorCode: null,
       providerErrorMessage: null,
+      pdfStorageKey: null,
+      pdfStoredAt: null,
+      pdfSha256: null,
+      pdfSizeBytes: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       ...overrides,
@@ -2761,6 +2977,10 @@ class FakePrisma {
       providerStatus: "ISSUED",
       providerErrorCode: null,
       providerErrorMessage: null,
+      pdfStorageKey: null,
+      pdfStoredAt: null,
+      pdfSha256: null,
+      pdfSizeBytes: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       ...overrides,
@@ -2807,6 +3027,7 @@ type DownloadBatchSeedItem = {
   bankSlipStatus?: BankSlipStatus;
   skipReason?: string;
   linhaDigitavel?: string | null;
+  storedPdfBytes?: Buffer;
 };
 
 async function seedDownloadIssueBatch(prisma: FakePrisma, items: DownloadBatchSeedItem[]) {
@@ -2824,7 +3045,8 @@ async function seedDownloadIssueBatch(prisma: FakePrisma, items: DownloadBatchSe
       skippedItems: items.filter((item) => item.itemStatus === BankSlipIssueBatchItemStatus.SKIPPED).length,
     },
   });
-  items.forEach((item, index) => {
+  const storage = new BankSlipPdfStorage();
+  for (const [index, item] of items.entries()) {
     const sequence = index + 1;
     const studentId = `student-${sequence}`;
     const enrollmentId = `enrollment-${sequence}`;
@@ -2835,6 +3057,13 @@ async function seedDownloadIssueBatch(prisma: FakePrisma, items: DownloadBatchSe
       enrollmentId,
       dueDate: new Date("2099-08-10T00:00:00.000Z"),
     });
+    const storageMetadata = item.storedPdfBytes
+      ? await storage.store({
+          institutionId: "institution-1",
+          bankSlipId: `bank-slip-${sequence}`,
+          bytes: item.storedPdfBytes,
+        })
+      : undefined;
     const bankSlip = prisma.addBankSlip({
       id: `bank-slip-${sequence}`,
       invoiceId,
@@ -2843,6 +3072,10 @@ async function seedDownloadIssueBatch(prisma: FakePrisma, items: DownloadBatchSe
       linhaDigitavel: item.linhaDigitavel === undefined
         ? "74891125110061420512803153351030188640000009990"
         : item.linhaDigitavel,
+      pdfStorageKey: storageMetadata?.storageKey ?? null,
+      pdfSha256: storageMetadata?.sha256 ?? null,
+      pdfSizeBytes: storageMetadata?.sizeBytes ?? null,
+      pdfStoredAt: storageMetadata ? new Date() : null,
     });
     prisma.issueBatchItems.push({
       id: `issue-batch-item-${sequence}`,
@@ -2864,7 +3097,7 @@ async function seedDownloadIssueBatch(prisma: FakePrisma, items: DownloadBatchSe
       createdAt: new Date(2099, 7, sequence),
       updatedAt: new Date(2099, 7, sequence),
     });
-  });
+  }
   return batch.id;
 }
 
@@ -3001,6 +3234,7 @@ function sleep(ms: number) {
 }
 
 await testIssueBankSlipSuccess();
+await testIssuePdfArchiveFailureDoesNotUndoIssue();
 await testIssueUncertainMarksUnknown();
 await testIssueDiagnosticsTrackServiceStagesSafely();
 await testSandboxAllowsDuplicateNossoNumero();
@@ -3045,6 +3279,10 @@ await testCancellationNotFoundPreservesPreviousStatus();
 await testCancellationConfirmedBySyncCancelsInvoice();
 await testPdfUsesStoredLinhaDigitavel();
 await testPdfAllowsPaidInvoice();
+await testPdfOpenUsesStoredArchive();
+await testPdfPaidUsesStoredArchive();
+await testStoredPdfFromDifferentInstitutionIsBlocked();
+await testPaidOldPdfUnavailableHasClearMessage();
 await testPdfNormalizesLinhaDigitavel();
 await testPdfRejectsInvalidSignature();
 await testPdfErrorsAreMappedSafely();
@@ -3072,6 +3310,9 @@ await testIssueBatchZipSkipsUnavailableAndBlockedItems();
 await testIssueBatchZipKeepsSummaryWhenPdfFetchFails();
 await testIssueBatchZipKeepsGoingAfterOnePdfFails();
 await testIssueBatchZipDownloadsPaidBankSlip();
+await testRecoverMissingPdfsDoesNotReissueBankSlips();
+await testRecoverMissingPaidPdfMarksUnavailable();
+await testBankSlipPdfStorageBlocksPathTraversal();
 await testIssueBatchProcessorLockPreventsDuplicateExecution();
 await testIssueBatchUnknownDoesNotRetry();
 await testIssueBatchHandles4295xxAndPersistenceConflictAsUnknown();

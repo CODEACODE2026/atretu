@@ -1896,6 +1896,9 @@ function BankSlipDetails({
           : (bankSlip.nossoNumeroMasked ?? "-")}
       </p>
       <p><strong>Emissao:</strong> {formatOptionalDateTime(bankSlip.issuedAt)}</p>
+      {isFullBankSlip(bankSlip) && bankSlip.pdfStoredAt ? (
+        <p><strong>PDF arquivado:</strong> {formatOptionalDateTime(bankSlip.pdfStoredAt)}</p>
+      ) : null}
       <p><strong>Ultima consulta:</strong> {formatOptionalDateTime(bankSlip.lastCheckedAt)}</p>
       <p><strong>Pagamento:</strong> {formatOptionalDateTime(bankSlip.paidAt)}</p>
       {isFullBankSlip(bankSlip) ? (
