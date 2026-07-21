@@ -138,7 +138,11 @@ export class CollectionsService {
 
   async getSummary(filters: CollectionFiltersDto, currentUser: AuthUser) {
     this.ensureAllowedUser(currentUser);
-    const cases = await this.findDerivedCases(filters, { activeOnly: true });
+    this.ensureRequestedInstitutionAllowed(filters, currentUser);
+    const cases = await this.findDerivedCases(filters, {
+      activeOnly: true,
+      currentUser,
+    });
     const studentIds = new Set(cases.map((item) => item.studentId));
     const totalOverdueCents = cases.reduce(
       (total, item) => total + item.outstandingAmountCents,
@@ -172,8 +176,12 @@ export class CollectionsService {
     currentUser: AuthUser,
   ) {
     this.ensureAllowedUser(currentUser);
+    this.ensureRequestedInstitutionAllowed(filters, currentUser);
     const pagination = resolvePagination(paginationInput);
-    const cases = await this.findDerivedCases(filters, { activeOnly: true });
+    const cases = await this.findDerivedCases(filters, {
+      activeOnly: true,
+      currentUser,
+    });
     const data = cases.slice(pagination.skip, pagination.skip + pagination.limit);
 
     return {
@@ -196,12 +204,13 @@ export class CollectionsService {
     if (!invoice) {
       throw new NotFoundException("Fatura nao encontrada");
     }
+    this.ensureInvoiceAccessible(invoice, currentUser);
     return this.toCollectionCase(invoice);
   }
 
   async listActions(invoiceId: string, currentUser: AuthUser) {
     this.ensureAllowedUser(currentUser);
-    await this.ensureInvoice(invoiceId);
+    await this.ensureInvoice(invoiceId, currentUser);
     const actions = await this.prisma.collectionAction.findMany({
       where: { invoiceId },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -226,6 +235,7 @@ export class CollectionsService {
       if (!invoice) {
         throw new NotFoundException("Fatura nao encontrada");
       }
+      this.ensureInvoiceAccessible(invoice, currentUser);
       if (invoice.status !== InvoiceStatus.OPEN) {
         throw new BadRequestException({
           code: "COLLECTION_ACTION_INVOICE_NOT_OPEN",
@@ -281,7 +291,12 @@ export class CollectionsService {
 
   async listFollowUps(filters: CollectionFiltersDto, currentUser: AuthUser) {
     this.ensureAllowedUser(currentUser);
-    const cases = await this.findDerivedCases(filters, { activeOnly: true });
+    this.ensureRequestedInstitutionAllowed(filters, currentUser);
+    const cases = await this.findDerivedCases(filters, {
+      activeOnly: true,
+      currentUser,
+      includeOverdueFollowUps: true,
+    });
     return {
       data: cases
         .filter((item) => item.nextFollowUpAt !== null)
@@ -294,7 +309,11 @@ export class CollectionsService {
 
   private async findDerivedCases(
     filters: CollectionFiltersDto,
-    options: { activeOnly: boolean },
+    options: {
+      activeOnly: boolean;
+      currentUser: AuthUser;
+      includeOverdueFollowUps?: boolean;
+    },
   ) {
     const records = await this.prisma.invoice.findMany({
       where: this.buildInvoiceWhere(filters, options),
@@ -304,6 +323,7 @@ export class CollectionsService {
     const actionSnapshots = await this.loadActionSnapshots(
       records.map((invoice) => invoice.id),
       filters,
+      options,
     );
     return records
       .map((invoice) =>
@@ -314,7 +334,7 @@ export class CollectionsService {
 
   private buildInvoiceWhere(
     filters: CollectionFiltersDto,
-    options: { activeOnly: boolean },
+    options: { activeOnly: boolean; currentUser: AuthUser },
   ): Prisma.InvoiceWhereInput {
     const where: Prisma.InvoiceWhereInput = {};
     if (options.activeOnly) {
@@ -331,6 +351,16 @@ export class CollectionsService {
       where.enrollment = {
         ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
         institutionId: filters.institutionId,
+      };
+    }
+    const scopedInstitutionIds = this.scopedInstitutionIds(options.currentUser);
+    if (scopedInstitutionIds) {
+      where.enrollment = {
+        ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
+        institutionId:
+          scopedInstitutionIds.length === 1
+            ? scopedInstitutionIds[0]
+            : { in: scopedInstitutionIds },
       };
     }
     if (filters.academicYearId) {
@@ -415,6 +445,7 @@ export class CollectionsService {
   private async loadActionSnapshots(
     invoiceIds: string[],
     filters: CollectionFiltersDto,
+    options: { includeOverdueFollowUps?: boolean } = {},
   ) {
     const snapshots = new Map<string, CollectionCaseActionSnapshots>();
     if (invoiceIds.length === 0) {
@@ -447,7 +478,7 @@ export class CollectionsService {
       this.prisma.collectionAction.findMany({
         where: {
           invoiceId: { in: invoiceIds },
-          nextFollowUpAt: this.nextFollowUpFilter(filters),
+          nextFollowUpAt: this.nextFollowUpFilter(filters, options),
         },
         distinct: ["invoiceId"],
         orderBy: [
@@ -750,10 +781,12 @@ export class CollectionsService {
 
   private nextFollowUpFilter(
     filters: CollectionFiltersDto,
+    options: { includeOverdueFollowUps?: boolean } = {},
   ): Prisma.DateTimeFilter<"CollectionAction"> {
-    const nextFollowUpAt: Prisma.DateTimeFilter<"CollectionAction"> = {
-      gte: toUtcDateOnly(this.today()),
-    };
+    const nextFollowUpAt: Prisma.DateTimeFilter<"CollectionAction"> =
+      options.includeOverdueFollowUps
+        ? { gte: new Date(0) }
+        : { gte: toUtcDateOnly(this.today()) };
     if (filters.followUpFrom) {
       nextFollowUpAt.gte = parseInvoiceDueDate(filters.followUpFrom);
     }
@@ -821,12 +854,22 @@ export class CollectionsService {
         message: "Canal obrigatorio para acao de contato",
       });
     }
+    const contactedDocumentMasked = this.optional(body.contactedDocumentMasked);
+    if (
+      contactedDocumentMasked &&
+      this.looksLikeFullDocument(contactedDocumentMasked)
+    ) {
+      throw new BadRequestException({
+        code: "COLLECTION_ACTION_DOCUMENT_MUST_BE_MASKED",
+        message: "Informe apenas documento mascarado",
+      });
+    }
 
     return {
       actionType: body.actionType,
       channel: body.channel,
       contactedName: this.optional(body.contactedName),
-      contactedDocumentMasked: this.optional(body.contactedDocumentMasked),
+      contactedDocumentMasked,
       note,
       promisedAmountCents: body.promisedAmountCents,
       promiseDueDate: body.promiseDueDate
@@ -838,14 +881,15 @@ export class CollectionsService {
     };
   }
 
-  private async ensureInvoice(invoiceId: string) {
+  private async ensureInvoice(invoiceId: string, currentUser: AuthUser) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
-      select: { id: true },
+      select: { id: true, enrollment: { select: { institutionId: true } } },
     });
     if (!invoice) {
       throw new NotFoundException("Fatura nao encontrada");
     }
+    this.ensureInvoiceAccessible(invoice, currentUser);
   }
 
   private ensureAllowedUser(currentUser: AuthUser) {
@@ -855,6 +899,44 @@ export class CollectionsService {
     ) {
       throw new ForbiddenException("Acesso negado");
     }
+  }
+
+  private ensureRequestedInstitutionAllowed(
+    filters: CollectionFiltersDto,
+    currentUser: AuthUser,
+  ) {
+    const scopedInstitutionIds = this.scopedInstitutionIds(currentUser);
+    if (
+      scopedInstitutionIds &&
+      filters.institutionId &&
+      !scopedInstitutionIds.includes(filters.institutionId)
+    ) {
+      throw new ForbiddenException("Acesso negado");
+    }
+  }
+
+  private ensureInvoiceAccessible(
+    invoice: { enrollment: { institutionId: string } },
+    currentUser: AuthUser,
+  ) {
+    const scopedInstitutionIds = this.scopedInstitutionIds(currentUser);
+    if (
+      scopedInstitutionIds &&
+      !scopedInstitutionIds.includes(invoice.enrollment.institutionId)
+    ) {
+      throw new ForbiddenException("Acesso negado");
+    }
+  }
+
+  private scopedInstitutionIds(currentUser: AuthUser) {
+    if (currentUser.roles.includes(RoleCode.SUPER_ADMIN)) {
+      return null;
+    }
+    const ids = [
+      ...(currentUser.institutionId ? [currentUser.institutionId] : []),
+      ...(currentUser.institutionIds ?? []),
+    ];
+    return ids.length > 0 ? Array.from(new Set(ids)) : null;
   }
 
   private invoiceListInclude() {
@@ -949,6 +1031,14 @@ export class CollectionsService {
   private optional(value?: string | null) {
     const trimmed = value?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private looksLikeFullDocument(value: string) {
+    const digits = value.replace(/\D/g, "");
+    return (
+      (digits.length === 11 || digits.length === 14) &&
+      !value.includes("*")
+    );
   }
 
   private toDateOnly(value: Date) {

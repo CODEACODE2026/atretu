@@ -8,6 +8,8 @@ export type AuthUser = {
   email: string;
   status: UserStatus;
   roles: RoleCode[];
+  institutionId?: string | null;
+  institutionIds?: string[];
 };
 
 @Injectable()

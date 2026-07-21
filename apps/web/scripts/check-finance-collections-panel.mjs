@@ -64,6 +64,8 @@ includesAll(panel, [
   "overflow-x-auto",
   "md:grid-cols",
   "max-w-4xl",
+  'role="dialog"',
+  'aria-modal="true"',
 ]);
 
 includesAll(panel, [

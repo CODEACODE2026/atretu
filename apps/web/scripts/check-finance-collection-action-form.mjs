@@ -55,6 +55,7 @@ for (const value of [
   "setSubmitting(true)",
   "disabled={submitting}",
   "emptyCollectionActionForm",
+  "readError(caught",
 ]) {
   assert.ok(form.includes(value), `Expected form to include ${value}`);
 }
@@ -106,6 +107,7 @@ for (const forbidden of [
   "api.cancelInvoiceBankSlip",
   "api.cancelInvoice",
   "api.syncPaidBankSlipsDay",
+  "alert(",
   "Consultar Sicredi",
   "Emitir boleto",
   "Cancelar boleto",
@@ -127,6 +129,11 @@ assert.equal(
   form.includes('method: "POST"'),
   false,
   "POST must stay centralized in src/lib/api.ts",
+);
+assert.equal(
+  form.includes("createdByUserId"),
+  false,
+  "The action form must not mention createdByUserId",
 );
 
 console.log("Finance collection action form OK");

@@ -25,6 +25,10 @@ const USER: AuthUser = {
   status: UserStatus.ACTIVE,
   roles: [RoleCode.SECRETARIA],
 };
+const INSTITUTION_USER: AuthUser = {
+  ...USER,
+  institutionId: "institution-1",
+};
 
 async function testActiveQueueRulesAndNoNPlusOne() {
   const prisma = new FakePrisma([
@@ -208,6 +212,7 @@ async function testCreateActionValidatesAndAuditsWithoutFinancialMutation() {
   const invoice = invoiceRecord({ id: "invoice-1", dueDate: "2026-07-01" });
   const prisma = new FakePrisma([invoice]);
   const service = newService(prisma);
+  const bankSlipBefore = prisma.invoices.get("invoice-1")!.bankSlip!;
 
   const created = await service.createAction(
     "invoice-1",
@@ -234,6 +239,88 @@ async function testCreateActionValidatesAndAuditsWithoutFinancialMutation() {
   assert.equal(prisma.auditLogs[0]?.metadata.contactedDocumentMasked, undefined);
   assert.equal(prisma.invoices.get("invoice-1")?.status, InvoiceStatus.OPEN);
   assert.equal(prisma.invoices.get("invoice-1")?.bankSlip?.status, BankSlipStatus.ISSUED);
+  assert.equal(
+    prisma.invoices.get("invoice-1")?.bankSlip?.paidAmountCents,
+    bankSlipBefore.paidAmountCents,
+  );
+  assert.equal(prisma.invoices.get("invoice-1")?.bankSlip?.paidAt, bankSlipBefore.paidAt);
+  assert.equal(prisma.auditLogs.length, 1);
+}
+
+async function testAllCollectionActionTypesCanBePersistedWithExpectedFields() {
+  const cases: Array<{
+    type: CollectionActionType;
+    body: Record<string, unknown>;
+    expectedStatus: CollectionOperationalStatus;
+  }> = [
+    {
+      type: CollectionActionType.CONTACT_ATTEMPT,
+      body: { channel: CollectionChannel.PHONE },
+      expectedStatus: CollectionOperationalStatus.NO_CONTACT,
+    },
+    {
+      type: CollectionActionType.CONTACT_MADE,
+      body: {
+        channel: CollectionChannel.WHATSAPP,
+        contactedName: "Responsavel",
+        contactedDocumentMasked: "***.123.456-**",
+      },
+      expectedStatus: CollectionOperationalStatus.CONTACTED,
+    },
+    {
+      type: CollectionActionType.PROMISE_TO_PAY,
+      body: { promiseDueDate: "2026-07-25", promisedAmountCents: 7_500 },
+      expectedStatus: CollectionOperationalStatus.PROMISE_ACTIVE,
+    },
+    {
+      type: CollectionActionType.FOLLOW_UP_SCHEDULED,
+      body: { nextFollowUpAt: "2026-07-22T09:00:00.000Z" },
+      expectedStatus: CollectionOperationalStatus.FOLLOW_UP_SCHEDULED,
+    },
+    {
+      type: CollectionActionType.NO_CONTACT,
+      body: { channel: CollectionChannel.EMAIL },
+      expectedStatus: CollectionOperationalStatus.NO_CONTACT,
+    },
+    {
+      type: CollectionActionType.PARTIAL_PAYMENT_REVIEW_NOTE,
+      body: {},
+      expectedStatus: CollectionOperationalStatus.OVERDUE_NO_ACTION,
+    },
+    {
+      type: CollectionActionType.INTERNAL_NOTE,
+      body: {},
+      expectedStatus: CollectionOperationalStatus.OVERDUE_NO_ACTION,
+    },
+  ];
+
+  for (const item of cases) {
+    const invoiceId = `invoice-${item.type.toLowerCase()}`;
+    const prisma = new FakePrisma([
+      invoiceRecord({ id: invoiceId, dueDate: "2026-07-01" }),
+    ]);
+    const service = newService(prisma);
+
+    const created = await service.createAction(
+      invoiceId,
+      {
+        actionType: item.type,
+        note: `Registro ${item.type}`,
+        ...item.body,
+      } as never,
+      USER,
+    );
+    const detail = await service.getCaseByInvoiceId(invoiceId, USER);
+    const history = await service.listActions(invoiceId, USER);
+
+    assert.equal(created.actionType, item.type);
+    assert.equal(created.invoiceId, invoiceId);
+    assert.equal(created.source, CollectionActionSource.MANUAL);
+    assert.equal(history.data[0]?.id, created.id);
+    assert.equal(detail.operationalStatus, item.expectedStatus);
+    assert.equal(prisma.invoices.get(invoiceId)?.status, InvoiceStatus.OPEN);
+    assert.equal(prisma.invoices.get(invoiceId)?.bankSlip?.status, BankSlipStatus.ISSUED);
+  }
 }
 
 async function testCreateActionRejectsInvalidBusinessRules() {
@@ -333,6 +420,20 @@ async function testCreateActionRejectsInvalidBusinessRules() {
   await assert.rejects(
     () =>
       service.createAction(
+        "open",
+        {
+          actionType: CollectionActionType.CONTACT_MADE,
+          channel: CollectionChannel.PHONE,
+          note: "Documento completo.",
+          contactedDocumentMasked: "12345678909",
+        },
+        USER,
+      ),
+    /documento mascarado/,
+  );
+  await assert.rejects(
+    () =>
+      service.createAction(
         "paid",
         {
           actionType: CollectionActionType.INTERNAL_NOTE,
@@ -385,6 +486,34 @@ async function testCreateActionRollsBackWhenAuditFails() {
   );
 }
 
+async function testCreateActionRollsBackWhenActionCreateFails() {
+  const invoice = invoiceRecord({ id: "invoice-action-failure", dueDate: "2026-07-01" });
+  const prisma = new FakePrisma([invoice]);
+  prisma.failActionCreate = true;
+  const service = newService(prisma);
+
+  await assert.rejects(
+    () =>
+      service.createAction(
+        "invoice-action-failure",
+        {
+          actionType: CollectionActionType.INTERNAL_NOTE,
+          note: "Falha na persistencia da acao.",
+        },
+        USER,
+      ),
+    /action failed/,
+  );
+
+  assert.equal(prisma.transactionCalls, 1);
+  assert.equal(prisma.auditLogs.length, 0);
+  assert.equal(prisma.actions.length, 0);
+  assert.equal(
+    prisma.invoices.get("invoice-action-failure")?.collectionActions.length,
+    0,
+  );
+}
+
 async function testPermissionsFollowExistingRoles() {
   const prisma = new FakePrisma([invoiceRecord()]);
   const service = newService(prisma);
@@ -394,6 +523,57 @@ async function testPermissionsFollowExistingRoles() {
       service.listCases({}, { page: 1, limit: 10 }, { ...USER, roles: [] }),
     /Acesso negado/,
   );
+}
+
+async function testInstitutionScopedUserCannotEscapeInstitution() {
+  const prisma = new FakePrisma([
+    invoiceRecord({ id: "local", institutionId: "institution-1" }),
+    invoiceRecord({
+      id: "foreign",
+      institutionId: "institution-2",
+      actions: [actionRecord({ invoiceId: "foreign" })],
+    }),
+  ]);
+  const service = newService(prisma);
+
+  const listed = await service.listCases({}, { page: 1, limit: 10 }, INSTITUTION_USER);
+  const summary = await service.getSummary({}, INSTITUTION_USER);
+  const followUps = await service.listFollowUps({}, INSTITUTION_USER);
+
+  assert.deepEqual(listed.data.map((item) => item.invoiceId), ["local"]);
+  assert.equal(summary.invoiceCount, 1);
+  assert.equal(followUps.data.length, 0);
+  await assert.rejects(
+    () =>
+      service.listCases(
+        { institutionId: "institution-2" },
+        { page: 1, limit: 10 },
+        INSTITUTION_USER,
+      ),
+    /Acesso negado/,
+  );
+  await assert.rejects(
+    () => service.getCaseByInvoiceId("foreign", INSTITUTION_USER),
+    /Acesso negado/,
+  );
+  await assert.rejects(
+    () => service.listActions("foreign", INSTITUTION_USER),
+    /Acesso negado/,
+  );
+  await assert.rejects(
+    () =>
+      service.createAction(
+        "foreign",
+        {
+          actionType: CollectionActionType.INTERNAL_NOTE,
+          note: "Tentativa fora da instituicao.",
+        },
+        INSTITUTION_USER,
+      ),
+    /Acesso negado/,
+  );
+  assert.equal(prisma.actions.length, 1);
+  assert.equal(prisma.auditLogs.length, 0);
 }
 
 async function testFiltersAndFollowUps() {
@@ -631,6 +811,260 @@ async function testLatestActionSnapshotDeterminesOperationalStatus() {
   assert.equal(result.data[0]?.lastAction?.id, "newer-no-contact");
 }
 
+async function testOperationalStatusPrecedenceMatrix() {
+  const prisma = new FakePrisma([
+    invoiceRecord({
+      id: "partial-wins",
+      bankSlip: bankSlipRecord({
+        invoiceId: "partial-wins",
+        providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
+        paidAmountCents: 1_000,
+      }),
+      actions: [
+        actionRecord({
+          invoiceId: "partial-wins",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-10",
+        }),
+        actionRecord({
+          invoiceId: "partial-wins",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-22T10:00:00.000Z",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "broken-wins",
+      actions: [
+        actionRecord({
+          invoiceId: "broken-wins",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-10",
+        }),
+        actionRecord({
+          invoiceId: "broken-wins",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-22T10:00:00.000Z",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "follow-up-wins",
+      actions: [
+        actionRecord({
+          invoiceId: "follow-up-wins",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-25",
+        }),
+        actionRecord({
+          invoiceId: "follow-up-wins",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-22T10:00:00.000Z",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "promise-wins",
+      actions: [
+        actionRecord({
+          id: "older-promise",
+          invoiceId: "promise-wins",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-25",
+          createdAt: "2026-07-20T10:00:00.000Z",
+        }),
+        actionRecord({
+          id: "newer-contact",
+          invoiceId: "promise-wins",
+          actionType: CollectionActionType.CONTACT_MADE,
+          createdAt: "2026-07-20T11:00:00.000Z",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "paid-wins",
+      status: InvoiceStatus.PAID,
+      bankSlip: bankSlipRecord({
+        invoiceId: "paid-wins",
+        providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
+      }),
+    }),
+    invoiceRecord({
+      id: "cancelled-wins",
+      status: InvoiceStatus.CANCELLED,
+      bankSlip: bankSlipRecord({
+        invoiceId: "cancelled-wins",
+        providerErrorCode: "PARTIAL_PAYMENT_REVIEW",
+      }),
+    }),
+  ]);
+  const service = newService(prisma);
+
+  const active = await service.listCases({}, { page: 1, limit: 10 }, USER);
+  const byId = new Map(active.data.map((item) => [item.invoiceId, item]));
+  const paid = await service.getCaseByInvoiceId("paid-wins", USER);
+  const cancelled = await service.getCaseByInvoiceId("cancelled-wins", USER);
+
+  assert.equal(
+    byId.get("partial-wins")?.operationalStatus,
+    CollectionOperationalStatus.PARTIAL_PAYMENT_REVIEW,
+  );
+  assert.equal(
+    byId.get("broken-wins")?.operationalStatus,
+    CollectionOperationalStatus.PROMISE_BROKEN,
+  );
+  assert.equal(
+    byId.get("follow-up-wins")?.operationalStatus,
+    CollectionOperationalStatus.FOLLOW_UP_SCHEDULED,
+  );
+  assert.equal(
+    byId.get("promise-wins")?.operationalStatus,
+    CollectionOperationalStatus.PROMISE_ACTIVE,
+  );
+  assert.equal(
+    paid.operationalStatus,
+    CollectionOperationalStatus.RESOLVED_BY_PAYMENT,
+  );
+  assert.equal(cancelled.operationalStatus, CollectionOperationalStatus.CANCELLED);
+}
+
+async function testPromisesUseMostRecentDateAndUtcDateOnlySemantics() {
+  const prisma = new FakePrisma([
+    invoiceRecord({
+      id: "promise-today",
+      actions: [
+        actionRecord({
+          invoiceId: "promise-today",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-21",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "newest-promise-wins",
+      actions: [
+        actionRecord({
+          id: "older-broken",
+          invoiceId: "newest-promise-wins",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-10",
+          createdAt: "2026-07-20T10:00:00.000Z",
+        }),
+        actionRecord({
+          id: "newer-active",
+          invoiceId: "newest-promise-wins",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-25",
+          promisedAmountCents: 9_999,
+          createdAt: "2026-07-20T11:00:00.000Z",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "promise-broken-yesterday",
+      actions: [
+        actionRecord({
+          invoiceId: "promise-broken-yesterday",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-20",
+        }),
+      ],
+    }),
+  ]);
+  const service = newService(prisma);
+
+  const result = await service.listCases({}, { page: 1, limit: 10 }, USER);
+  const byId = new Map(result.data.map((item) => [item.invoiceId, item]));
+
+  assert.equal(
+    byId.get("promise-today")?.operationalStatus,
+    CollectionOperationalStatus.PROMISE_ACTIVE,
+  );
+  assert.equal(byId.get("promise-today")?.lastAction?.promiseDueDate, "2026-07-21");
+  assert.equal(
+    byId.get("newest-promise-wins")?.operationalStatus,
+    CollectionOperationalStatus.PROMISE_ACTIVE,
+  );
+  assert.equal(
+    byId.get("newest-promise-wins")?.lastAction?.promisedAmountCents,
+    9_999,
+  );
+  assert.equal(
+    byId.get("promise-broken-yesterday")?.operationalStatus,
+    CollectionOperationalStatus.PROMISE_BROKEN,
+  );
+}
+
+async function testFollowUpsSelectNextUpcomingAndRespectDateFilters() {
+  const prisma = new FakePrisma([
+    invoiceRecord({
+      id: "multiple-follow-ups",
+      actions: [
+        actionRecord({
+          id: "past-follow-up",
+          invoiceId: "multiple-follow-ups",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-20T09:00:00.000Z",
+          createdAt: "2026-07-19T10:00:00.000Z",
+        }),
+        actionRecord({
+          id: "today-follow-up",
+          invoiceId: "multiple-follow-ups",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-21T14:00:00.000Z",
+          createdAt: "2026-07-20T10:00:00.000Z",
+        }),
+        actionRecord({
+          id: "future-follow-up",
+          invoiceId: "multiple-follow-ups",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-22T08:00:00.000Z",
+          createdAt: "2026-07-20T11:00:00.000Z",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "tomorrow-first",
+      actions: [
+        actionRecord({
+          invoiceId: "tomorrow-first",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-22T07:00:00.000Z",
+        }),
+      ],
+    }),
+  ]);
+  const service = newService(prisma);
+
+  const listed = await service.listCases({}, { page: 1, limit: 10 }, USER);
+  const followUpsToday = await service.listFollowUps(
+    { followUpFrom: "2026-07-21", followUpTo: "2026-07-21" },
+    USER,
+  );
+  const followUpsAll = await service.listFollowUps({}, USER);
+  const byId = new Map(listed.data.map((item) => [item.invoiceId, item]));
+
+  assert.equal(
+    byId.get("multiple-follow-ups")?.operationalStatus,
+    CollectionOperationalStatus.FOLLOW_UP_SCHEDULED,
+  );
+  assert.equal(
+    byId.get("multiple-follow-ups")?.nextFollowUpAt?.toISOString(),
+    "2026-07-21T14:00:00.000Z",
+  );
+  assert.deepEqual(followUpsToday.data.map((item) => item.invoiceId), [
+    "multiple-follow-ups",
+  ]);
+  assert.deepEqual(followUpsAll.data.map((item) => item.invoiceId), [
+    "multiple-follow-ups",
+    "tomorrow-first",
+  ]);
+  assert.equal(
+    followUpsAll.data[0]?.nextFollowUpAt?.toISOString(),
+    "2026-07-20T09:00:00.000Z",
+  );
+}
+
 async function testListCasesDoesNotLoadFullActionHistoryAndUsesConstantQueries() {
   const records = Array.from({ length: 25 }, (_, index) =>
     invoiceRecord({
@@ -669,6 +1103,7 @@ class FakePrisma {
   actions: ReturnType<typeof actionRecord>[];
   auditLogs: Array<Record<string, any>> = [];
   transactionCalls = 0;
+  failActionCreate = false;
   failAuditCreate = false;
   bankSlip = {
     findUniqueCalls: [] as Record<string, unknown>[],
@@ -698,7 +1133,10 @@ class FakePrisma {
         return null;
       }
       if (args.select) {
-        return { id: invoice.id };
+        return {
+          id: invoice.id,
+          enrollment: { institutionId: invoice.enrollment.institutionId },
+        };
       }
       return this.withSortedActions(invoice);
     },
@@ -748,6 +1186,9 @@ class FakePrisma {
       data: Record<string, unknown>;
       include?: unknown;
     }) => {
+      if (this.failActionCreate) {
+        throw new Error("action failed");
+      }
       const action = actionRecord({
         ...data,
         id: `collection-action-${this.actions.length + 1}`,
@@ -818,8 +1259,20 @@ class FakePrisma {
         return false;
       }
     }
-    if (where.enrollment?.institutionId && invoice.enrollment.institutionId !== where.enrollment.institutionId) {
-      return false;
+    if (where.enrollment?.institutionId) {
+      const institutionFilter = where.enrollment.institutionId;
+      if (
+        typeof institutionFilter === "string" &&
+        invoice.enrollment.institutionId !== institutionFilter
+      ) {
+        return false;
+      }
+      if (
+        Array.isArray(institutionFilter.in) &&
+        !institutionFilter.in.includes(invoice.enrollment.institutionId)
+      ) {
+        return false;
+      }
     }
     if (where.enrollment?.academicYearId && invoice.enrollment.academicYearId !== where.enrollment.academicYearId) {
       return false;
@@ -1148,12 +1601,18 @@ await testOperationalStatuses();
 await testPriorityRules();
 await testGetCaseAndListActionsForResolvedInvoices();
 await testCreateActionValidatesAndAuditsWithoutFinancialMutation();
+await testAllCollectionActionTypesCanBePersistedWithExpectedFields();
 await testCreateActionRejectsInvalidBusinessRules();
 await testCreateActionRollsBackWhenAuditFails();
+await testCreateActionRollsBackWhenActionCreateFails();
 await testPermissionsFollowExistingRoles();
+await testInstitutionScopedUserCannotEscapeInstitution();
 await testFiltersAndFollowUps();
 await testDerivedFiltersPaginateAfterFilteringAndUseStableOrder();
 await testAgingBucketBoundariesDoNotOverlap();
 await testPartialPaymentReviewFilterRunsThroughBankSlip();
 await testLatestActionSnapshotDeterminesOperationalStatus();
+await testOperationalStatusPrecedenceMatrix();
+await testPromisesUseMostRecentDateAndUtcDateOnlySemantics();
+await testFollowUpsSelectNextUpcomingAndRespectDateFilters();
 await testListCasesDoesNotLoadFullActionHistoryAndUsesConstantQueries();

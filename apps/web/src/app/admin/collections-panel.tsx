@@ -688,7 +688,12 @@ function CollectionCaseDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/40">
+    <div
+      aria-label="Detalhe da cobranca"
+      aria-modal="true"
+      className="fixed inset-0 z-50 bg-slate-950/40"
+      role="dialog"
+    >
       <div className="ml-auto flex h-full w-full max-w-4xl flex-col bg-white shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
