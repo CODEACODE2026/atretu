@@ -14,6 +14,7 @@ import {
   SICREDI_CLIENT,
   SICREDI_CONFIG,
 } from "./bank-slips.service.js";
+import { CollectionsService } from "./collections.service.js";
 import { InvoicesController } from "./invoices.controller.js";
 import { InvoicesService } from "./invoices.service.js";
 import { SicrediClient } from "./sicredi-client.js";
@@ -31,6 +32,7 @@ import { loadSicrediConfig } from "./sicredi-config.js";
   controllers: [InvoicesController, BankSlipsController],
   providers: [
     InvoicesService,
+    CollectionsService,
     BankSlipsService,
     BankSlipPdfStorage,
     BankSlipIssueBatchJob,
@@ -46,6 +48,6 @@ import { loadSicrediConfig } from "./sicredi-config.js";
       inject: [SICREDI_CONFIG],
     },
   ],
-  exports: [InvoicesService, BankSlipsService],
+  exports: [InvoicesService, CollectionsService, BankSlipsService],
 })
 export class FinanceModule {}
