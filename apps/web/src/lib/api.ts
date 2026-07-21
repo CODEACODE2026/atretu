@@ -858,6 +858,17 @@ export type CollectionAction = {
   createdByUser?: Pick<ApiUser, "id" | "name" | "email"> | null;
 };
 
+export type CreateCollectionActionBody = {
+  actionType: CollectionActionType;
+  channel?: CollectionChannel;
+  contactedName?: string;
+  contactedDocumentMasked?: string;
+  note: string;
+  promisedAmountCents?: number;
+  promiseDueDate?: string;
+  nextFollowUpAt?: string;
+};
+
 export type CollectionCase = {
   invoiceId: string;
   studentId: string;
@@ -1195,6 +1206,16 @@ export const api = {
   listCollectionFollowUps(params?: ListCollectionCasesParams) {
     return request<{ data: CollectionFollowUp[] }>(
       withParams("/finance/collections/follow-ups", params),
+    );
+  },
+
+  createCollectionAction(invoiceId: string, body: CreateCollectionActionBody) {
+    return request<CollectionAction>(
+      `/finance/collections/cases/${invoiceId}/actions`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
     );
   },
 

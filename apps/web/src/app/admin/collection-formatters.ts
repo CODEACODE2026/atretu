@@ -6,6 +6,24 @@ import type {
   CollectionPriority,
 } from "../../lib/api";
 
+export const collectionActionTypes: CollectionActionType[] = [
+  "CONTACT_ATTEMPT",
+  "CONTACT_MADE",
+  "PROMISE_TO_PAY",
+  "FOLLOW_UP_SCHEDULED",
+  "NO_CONTACT",
+  "PARTIAL_PAYMENT_REVIEW_NOTE",
+  "INTERNAL_NOTE",
+];
+
+export const collectionChannels: CollectionChannel[] = [
+  "PHONE",
+  "WHATSAPP",
+  "EMAIL",
+  "IN_PERSON",
+  "OTHER",
+];
+
 export function collectionAgingBucketLabel(value: CollectionAgingBucket) {
   const labels: Record<CollectionAgingBucket, string> = {
     DAYS_1_30: "1 a 30 dias",

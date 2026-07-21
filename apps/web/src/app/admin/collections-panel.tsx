@@ -8,7 +8,6 @@ import {
   type BankSlipRecord,
   type BaseRecord,
   type CollectionAction,
-  type CollectionActionType,
   type CollectionAgingBucket,
   type CollectionCase,
   type CollectionCaseDetail,
@@ -21,10 +20,12 @@ import {
   collectionActionTypeLabel,
   collectionAgingBucketLabel,
   collectionChannelLabel,
+  collectionActionTypes,
   collectionOperationalStatusLabel,
   collectionPriorityClass,
   collectionPriorityLabel,
 } from "./collection-formatters";
+import { CollectionActionForm } from "./collection-action-form";
 
 const AGING_BUCKETS: CollectionAgingBucket[] = [
   "DAYS_1_30",
@@ -41,16 +42,6 @@ const OPERATIONAL_STATUSES: CollectionOperationalStatus[] = [
   "NO_CONTACT",
   "PARTIAL_PAYMENT_REVIEW",
 ];
-const ACTION_TYPES: CollectionActionType[] = [
-  "CONTACT_ATTEMPT",
-  "CONTACT_MADE",
-  "PROMISE_TO_PAY",
-  "FOLLOW_UP_SCHEDULED",
-  "NO_CONTACT",
-  "PARTIAL_PAYMENT_REVIEW_NOTE",
-  "INTERNAL_NOTE",
-];
-
 type CollectionFilters = {
   institutionId: string;
   academicYearId: string;
@@ -59,7 +50,7 @@ type CollectionFilters = {
   dueDateTo: string;
   agingBucket: CollectionAgingBucket | "";
   operationalStatus: CollectionOperationalStatus | "";
-  actionType: CollectionActionType | "";
+  actionType: CollectionAction["actionType"] | "";
   followUpFrom: string;
   followUpTo: string;
 };
@@ -243,8 +234,10 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
 
       {detailInvoiceId ? (
         <CollectionCaseDetailModal
+          canRegisterActions={canUseCollections}
           invoiceId={detailInvoiceId}
           onClose={() => setDetailInvoiceId("")}
+          onCollectionsChanged={() => void loadCollections()}
           onMessage={setMessage}
         />
       ) : null}
@@ -386,12 +379,15 @@ function CollectionFiltersBar({
       <select
         className="rounded border border-slate-300 px-3 py-2 text-sm"
         onChange={(event) =>
-          updateFilter("actionType", event.target.value as CollectionActionType | "")
+          updateFilter(
+            "actionType",
+            event.target.value as CollectionAction["actionType"] | "",
+          )
         }
         value={filters.actionType}
       >
         <option value="">Tipo da acao</option>
-        {ACTION_TYPES.map((type) => (
+        {collectionActionTypes.map((type) => (
           <option key={type} value={type}>
             {collectionActionTypeLabel(type)}
           </option>
@@ -587,12 +583,16 @@ function CollectionFollowUps({ cases }: { cases: CollectionCase[] }) {
 }
 
 function CollectionCaseDetailModal({
+  canRegisterActions,
   invoiceId,
   onClose,
+  onCollectionsChanged,
   onMessage,
 }: {
+  canRegisterActions: boolean;
   invoiceId: string;
   onClose: () => void;
+  onCollectionsChanged: () => Promise<void> | void;
   onMessage: (message: string) => void;
 }) {
   const [detail, setDetail] = useState<CollectionCaseDetail | null>(null);
@@ -601,16 +601,21 @@ function CollectionCaseDetailModal({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showActionForm, setShowActionForm] = useState(false);
   const detailRequestSeq = useRef(0);
 
   useEffect(() => {
-    const seq = detailRequestSeq.current + 1;
-    detailRequestSeq.current = seq;
-    void loadDetail(seq);
+    void refreshDetail();
     return () => {
       detailRequestSeq.current += 1;
     };
   }, [invoiceId]);
+
+  function refreshDetail() {
+    const seq = detailRequestSeq.current + 1;
+    detailRequestSeq.current = seq;
+    return loadDetail(seq);
+  }
 
   async function loadDetail(seq: number) {
     setLoading(true);
@@ -676,6 +681,12 @@ function CollectionCaseDetailModal({
     }
   }
 
+  async function handleActionCreated() {
+    setShowActionForm(false);
+    onMessage("Acao de cobranca registrada");
+    await Promise.all([refreshDetail(), onCollectionsChanged()]);
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/40">
       <div className="ml-auto flex h-full w-full max-w-4xl flex-col bg-white shadow-xl">
@@ -704,6 +715,46 @@ function CollectionCaseDetailModal({
           ) : detail ? (
             <div className="grid gap-4">
               <CollectionCaseDetailView caseDetail={detail} bankSlip={bankSlip} />
+              <div className="rounded border border-slate-200 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-950">
+                      Acoes de cobranca
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Registros manuais ficam no historico operacional.
+                    </p>
+                  </div>
+                  <button
+                    className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                    disabled={
+                      !canRegisterActions ||
+                      detail.invoiceStatus === "PAID" ||
+                      detail.invoiceStatus === "CANCELLED"
+                    }
+                    onClick={() => setShowActionForm(true)}
+                    type="button"
+                  >
+                    Registrar acao
+                  </button>
+                </div>
+                {detail.invoiceStatus === "PAID" ||
+                detail.invoiceStatus === "CANCELLED" ? (
+                  <p className="mt-2 text-sm text-slate-500">
+                    Faturas pagas ou canceladas nao aceitam novas acoes, mas o
+                    historico permanece disponivel.
+                  </p>
+                ) : null}
+                {showActionForm ? (
+                  <div className="mt-3">
+                    <CollectionActionForm
+                      caseDetail={detail}
+                      onCancel={() => setShowActionForm(false)}
+                      onCreated={handleActionCreated}
+                    />
+                  </div>
+                ) : null}
+              </div>
               <div className="rounded border border-slate-200 p-4">
                 <div className="flex flex-wrap gap-2">
                   <button
