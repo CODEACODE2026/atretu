@@ -14,6 +14,7 @@ import {
   SICREDI_CLIENT,
   SICREDI_CONFIG,
 } from "./bank-slips.service.js";
+import { CollectionsController } from "./collections.controller.js";
 import { CollectionsService } from "./collections.service.js";
 import { InvoicesController } from "./invoices.controller.js";
 import { InvoicesService } from "./invoices.service.js";
@@ -29,7 +30,7 @@ import { loadSicrediConfig } from "./sicredi-config.js";
     JobsModule,
     UsersModule,
   ],
-  controllers: [InvoicesController, BankSlipsController],
+  controllers: [InvoicesController, BankSlipsController, CollectionsController],
   providers: [
     InvoicesService,
     CollectionsService,

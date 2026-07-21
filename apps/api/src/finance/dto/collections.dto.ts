@@ -105,6 +105,11 @@ export class ListCollectionCasesDto extends CollectionFiltersDto {
   limit = 20;
 }
 
+export class CollectionInvoiceParamsDto {
+  @IsUUID()
+  invoiceId!: string;
+}
+
 export class CreateCollectionActionDto {
   @IsEnum(CollectionActionType)
   actionType!: CollectionActionType;
