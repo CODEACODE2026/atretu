@@ -1,4 +1,13 @@
-import { Controller, Get, Inject, Param, Query, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
@@ -9,6 +18,7 @@ import { CollectionsService } from "./collections.service.js";
 import {
   CollectionFiltersDto,
   CollectionInvoiceParamsDto,
+  CreateCollectionActionDto,
   ListCollectionCasesDto,
 } from "./dto/collections.dto.js";
 
@@ -47,6 +57,16 @@ export class CollectionsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.collections.listActions(params.invoiceId, user);
+  }
+
+  @Post("finance/collections/cases/:invoiceId/actions")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  createAction(
+    @Param() params: CollectionInvoiceParamsDto,
+    @Body() body: CreateCollectionActionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.collections.createAction(params.invoiceId, body, user);
   }
 
   @Get("finance/collections/follow-ups")

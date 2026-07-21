@@ -224,11 +224,14 @@ async function testCreateActionValidatesAndAuditsWithoutFinancialMutation() {
   assert.equal(created.invoiceId, "invoice-1");
   assert.equal(created.source, CollectionActionSource.MANUAL);
   assert.equal(created.createdByUser?.id, USER.id);
+  assert.equal(prisma.transactionCalls, 1);
   assert.equal(prisma.actions.length, 1);
+  assert.equal(prisma.actions[0]?.createdByUserId, USER.id);
   assert.equal(prisma.auditLogs.length, 1);
   assert.equal(prisma.auditLogs[0]?.eventType, "COLLECTION_ACTION_CREATED");
   assert.equal(prisma.auditLogs[0]?.domain, "finance_collections");
   assert.equal(prisma.auditLogs[0]?.metadata.note, undefined);
+  assert.equal(prisma.auditLogs[0]?.metadata.contactedDocumentMasked, undefined);
   assert.equal(prisma.invoices.get("invoice-1")?.status, InvoiceStatus.OPEN);
   assert.equal(prisma.invoices.get("invoice-1")?.bankSlip?.status, BankSlipStatus.ISSUED);
 }
@@ -241,6 +244,30 @@ async function testCreateActionRejectsInvalidBusinessRules() {
   ]);
   const service = newService(prisma);
 
+  await assert.rejects(
+    () =>
+      service.createAction(
+        "missing",
+        {
+          actionType: CollectionActionType.INTERNAL_NOTE,
+          note: "Fatura inexistente.",
+        },
+        USER,
+      ),
+    /Fatura nao encontrada/,
+  );
+  await assert.rejects(
+    () =>
+      service.createAction(
+        "open",
+        {
+          actionType: CollectionActionType.INTERNAL_NOTE,
+          note: "   ",
+        },
+        USER,
+      ),
+    /Observacao obrigatoria/,
+  );
   await assert.rejects(
     () =>
       service.createAction(
@@ -298,7 +325,7 @@ async function testCreateActionRejectsInvalidBusinessRules() {
           actionType: CollectionActionType.INTERNAL_NOTE,
           note: "Origem bloqueada.",
           source: CollectionActionSource.SYSTEM,
-        },
+        } as never,
         USER,
       ),
     /Somente a origem MANUAL/,
@@ -326,6 +353,35 @@ async function testCreateActionRejectsInvalidBusinessRules() {
         USER,
       ),
     /fatura paga ou cancelada/,
+  );
+}
+
+async function testCreateActionRollsBackWhenAuditFails() {
+  const invoice = invoiceRecord({ id: "invoice-rollback", dueDate: "2026-07-01" });
+  const prisma = new FakePrisma([invoice]);
+  prisma.failAuditCreate = true;
+  const service = newService(prisma);
+
+  await assert.rejects(
+    () =>
+      service.createAction(
+        "invoice-rollback",
+        {
+          actionType: CollectionActionType.CONTACT_MADE,
+          channel: CollectionChannel.PHONE,
+          note: "Contato com rollback.",
+        },
+        USER,
+      ),
+    /audit failed/,
+  );
+
+  assert.equal(prisma.transactionCalls, 1);
+  assert.equal(prisma.auditLogs.length, 0);
+  assert.equal(prisma.actions.length, 0);
+  assert.equal(
+    prisma.invoices.get("invoice-rollback")?.collectionActions.length,
+    0,
   );
 }
 
@@ -612,6 +668,8 @@ class FakePrisma {
   invoices: Map<string, ReturnType<typeof invoiceRecord>>;
   actions: ReturnType<typeof actionRecord>[];
   auditLogs: Array<Record<string, any>> = [];
+  transactionCalls = 0;
+  failAuditCreate = false;
   bankSlip = {
     findUniqueCalls: [] as Record<string, unknown>[],
     findUnique: async (args: Record<string, unknown>) => {
@@ -705,13 +763,37 @@ class FakePrisma {
 
   administrativeAuditLog = {
     create: async ({ data }: { data: Record<string, any> }) => {
+      if (this.failAuditCreate) {
+        throw new Error("audit failed");
+      }
       this.auditLogs.push(data);
       return data;
     },
   };
 
   async $transaction<T>(callback: (tx: this) => Promise<T>) {
-    return callback(this);
+    this.transactionCalls += 1;
+    const actionsSnapshot = this.actions.slice();
+    const auditLogsSnapshot = this.auditLogs.slice();
+    const invoiceActionsSnapshot = new Map(
+      [...this.invoices.entries()].map(([id, invoice]) => [
+        id,
+        invoice.collectionActions.slice(),
+      ]),
+    );
+    try {
+      return await callback(this);
+    } catch (error) {
+      this.actions = actionsSnapshot;
+      this.auditLogs = auditLogsSnapshot;
+      for (const [id, actions] of invoiceActionsSnapshot) {
+        const invoice = this.invoices.get(id);
+        if (invoice) {
+          invoice.collectionActions = actions;
+        }
+      }
+      throw error;
+    }
   }
 
   private matchesInvoiceWhere(
@@ -1067,6 +1149,7 @@ await testPriorityRules();
 await testGetCaseAndListActionsForResolvedInvoices();
 await testCreateActionValidatesAndAuditsWithoutFinancialMutation();
 await testCreateActionRejectsInvalidBusinessRules();
+await testCreateActionRollsBackWhenAuditFails();
 await testPermissionsFollowExistingRoles();
 await testFiltersAndFollowUps();
 await testDerivedFiltersPaginateAfterFilteringAndUseStableOrder();

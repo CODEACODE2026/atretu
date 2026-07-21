@@ -9,9 +9,9 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from "class-validator";
 import {
-  CollectionActionSource,
   CollectionActionType,
   CollectionChannel,
 } from "@prisma/client";
@@ -119,10 +119,6 @@ export class CreateCollectionActionDto {
   channel?: CollectionChannel;
 
   @IsOptional()
-  @IsEnum(CollectionActionSource)
-  source?: CollectionActionSource;
-
-  @IsOptional()
   @IsString()
   @MaxLength(160)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
@@ -135,6 +131,7 @@ export class CreateCollectionActionDto {
   contactedDocumentMasked?: string;
 
   @IsString()
+  @MinLength(1)
   @MaxLength(1000)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   note!: string;

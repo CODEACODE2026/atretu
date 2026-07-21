@@ -5,6 +5,7 @@ import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
 import {
   CollectionActionType,
+  CollectionChannel,
   RoleCode,
   UserStatus,
 } from "@prisma/client";
@@ -17,6 +18,7 @@ import {
   CollectionFiltersDto,
   CollectionInvoiceParamsDto,
   CollectionOperationalStatus,
+  CreateCollectionActionDto,
   ListCollectionCasesDto,
 } from "./dto/collections.dto.js";
 
@@ -43,6 +45,11 @@ async function testControllerRoutesGuardsAndRoles() {
   assertRoute("listCases", "finance/collections/cases");
   assertRoute("getCaseByInvoiceId", "finance/collections/cases/:invoiceId");
   assertRoute("listActions", "finance/collections/cases/:invoiceId/actions");
+  assertRoute(
+    "createAction",
+    "finance/collections/cases/:invoiceId/actions",
+    RequestMethod.POST,
+  );
   assertRoute("listFollowUps", "finance/collections/follow-ups");
 
   for (const method of [
@@ -50,6 +57,7 @@ async function testControllerRoutesGuardsAndRoles() {
     "listCases",
     "getCaseByInvoiceId",
     "listActions",
+    "createAction",
     "listFollowUps",
   ] as const) {
     assert.deepEqual(
@@ -59,6 +67,62 @@ async function testControllerRoutesGuardsAndRoles() {
   }
 
   assert.ok(controller);
+}
+
+async function testCreateActionEndpointCallsServiceWithAuthenticatedUser() {
+  const service = new FakeCollectionsService();
+  const controller = newController(service);
+  const params = {
+    invoiceId: "44444444-4444-4444-8444-444444444444",
+  };
+  const body = plainToInstance(CreateCollectionActionDto, {
+    actionType: CollectionActionType.CONTACT_MADE,
+    channel: CollectionChannel.WHATSAPP,
+    contactedName: "Responsavel",
+    contactedDocumentMasked: "***123",
+    note: "Contato realizado.",
+  });
+  const promiseBody = plainToInstance(CreateCollectionActionDto, {
+    actionType: CollectionActionType.PROMISE_TO_PAY,
+    channel: CollectionChannel.WHATSAPP,
+    note: "Promessa registrada.",
+    promisedAmountCents: 15_000,
+    promiseDueDate: "2026-07-25",
+  });
+  const followUpBody = plainToInstance(CreateCollectionActionDto, {
+    actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+    note: "Retorno agendado.",
+    nextFollowUpAt: "2026-07-22T14:00:00.000Z",
+  });
+
+  const result = await controller.createAction(params, body, USER);
+  await controller.createAction(params, promiseBody, USER);
+  await controller.createAction(params, followUpBody, USER);
+
+  assert.equal(result, service.createdAction);
+  assert.deepEqual(
+    service.calls.map((call) => ({
+      method: call.method,
+      invoiceId: call.invoiceId,
+      body: call.body,
+      user: call.user,
+    })),
+    [
+      { method: "createAction", invoiceId: params.invoiceId, body, user: USER },
+      {
+        method: "createAction",
+        invoiceId: params.invoiceId,
+        body: promiseBody,
+        user: USER,
+      },
+      {
+        method: "createAction",
+        invoiceId: params.invoiceId,
+        body: followUpBody,
+        user: USER,
+      },
+    ],
+  );
 }
 
 async function testSummaryEndpointCallsService() {
@@ -141,6 +205,67 @@ async function testDtoValidationRejectsInvalidParamsFiltersEnumsAndPagination() 
   assertValidationErrors(CollectionFiltersDto, { agingBucket: "DAYS_0_7" });
   assertValidationErrors(CollectionFiltersDto, { operationalStatus: "OPEN" });
   assertValidationErrors(CollectionFiltersDto, { actionType: "CALL_BACK" });
+  assertValidationErrors(CreateCollectionActionDto, { note: "Sem tipo." });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "   ",
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "x".repeat(1001),
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: "CALL_BACK",
+    note: "Enum invalido.",
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.CONTACT_MADE,
+    channel: "SMS",
+    note: "Canal invalido.",
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Valor invalido.",
+    promisedAmountCents: 0,
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Valor invalido.",
+    promisedAmountCents: -1,
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Valor invalido.",
+    promisedAmountCents: 10.5,
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Data invalida.",
+    promiseDueDate: "not-date",
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Campo bloqueado.",
+    source: "SYSTEM",
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Campo bloqueado.",
+    createdByUserId: "user-2",
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Campo bloqueado.",
+    invoiceId: "44444444-4444-4444-8444-444444444444",
+  });
+  assertValidationErrors(CreateCollectionActionDto, {
+    actionType: CollectionActionType.INTERNAL_NOTE,
+    note: "Campo bloqueado.",
+    unexpected: "x",
+  });
 
   assert.equal(
     validateSync(
@@ -148,6 +273,17 @@ async function testDtoValidationRejectsInvalidParamsFiltersEnumsAndPagination() 
         operationalStatus: CollectionOperationalStatus.PARTIAL_PAYMENT_REVIEW,
         actionType: CollectionActionType.CONTACT_ATTEMPT,
       }),
+    ).length,
+    0,
+  );
+  assert.equal(
+    validateSync(
+      plainToInstance(CreateCollectionActionDto, {
+        actionType: CollectionActionType.CONTACT_MADE,
+        channel: CollectionChannel.PHONE,
+        note: "Contato realizado.",
+      }),
+      { whitelist: true, forbidNonWhitelisted: true },
     ).length,
     0,
   );
@@ -173,14 +309,18 @@ function newController(service = new FakeCollectionsService()) {
   return new CollectionsController(service as never);
 }
 
-function assertRoute(method: keyof CollectionsController, path: string) {
+function assertRoute(
+  method: keyof CollectionsController,
+  path: string,
+  requestMethod = RequestMethod.GET,
+) {
   assert.equal(
     Reflect.getMetadata(PATH_METADATA_KEY, CollectionsController.prototype[method]),
     path,
   );
   assert.equal(
     Reflect.getMetadata(METHOD_METADATA_KEY, CollectionsController.prototype[method]),
-    RequestMethod.GET,
+    requestMethod,
   );
 }
 
@@ -188,7 +328,10 @@ function assertValidationErrors<T extends object>(
   dto: new () => T,
   value: Record<string, unknown>,
 ) {
-  const errors = validateSync(plainToInstance(dto, value));
+  const errors = validateSync(plainToInstance(dto, value), {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+  });
   assert.ok(errors.length > 0, `${dto.name} should reject ${JSON.stringify(value)}`);
 }
 
@@ -215,6 +358,7 @@ class FakeCollectionsService {
   };
   detail = { invoiceId: "invoice-1" };
   actions = { data: [{ id: "collection-action-1" }] };
+  createdAction = { id: "collection-action-created" };
   followUps = { data: [{ invoiceId: "invoice-1" }] };
   detailError: Error | null = null;
   actionsError: Error | null = null;
@@ -250,6 +394,15 @@ class FakeCollectionsService {
     return this.actions;
   }
 
+  async createAction(
+    invoiceId: string,
+    body: CreateCollectionActionDto,
+    user: AuthUser,
+  ) {
+    this.calls.push({ method: "createAction", invoiceId, body, user });
+    return this.createdAction;
+  }
+
   async listFollowUps(filters: CollectionFiltersDto, user: AuthUser) {
     this.calls.push({ method: "listFollowUps", filters, user });
     return this.followUps;
@@ -257,6 +410,7 @@ class FakeCollectionsService {
 }
 
 await testControllerRoutesGuardsAndRoles();
+await testCreateActionEndpointCallsServiceWithAuthenticatedUser();
 await testSummaryEndpointCallsService();
 await testListCasesEndpointPassesFiltersAndPagination();
 await testDetailActionsAndFollowUpsEndpointsCallService();

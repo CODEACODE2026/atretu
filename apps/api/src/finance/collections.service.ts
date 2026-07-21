@@ -765,7 +765,8 @@ export class CollectionsService {
   }
 
   private normalizeActionBody(body: CreateCollectionActionDto) {
-    if (body.source && body.source !== CollectionActionSource.MANUAL) {
+    const source = (body as { source?: CollectionActionSource }).source;
+    if (source && source !== CollectionActionSource.MANUAL) {
       throw new BadRequestException({
         code: "COLLECTION_ACTION_SOURCE_NOT_ALLOWED",
         message: "Somente a origem MANUAL pode ser usada nesta etapa",
@@ -946,7 +947,8 @@ export class CollectionsService {
   }
 
   private optional(value?: string | null) {
-    return value && value.length > 0 ? value : undefined;
+    const trimmed = value?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
   }
 
   private toDateOnly(value: Date) {
