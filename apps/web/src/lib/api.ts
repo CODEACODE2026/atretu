@@ -807,6 +807,134 @@ export type ListInvoicesParams = {
   order?: "asc" | "desc";
 };
 
+export type CollectionAgingBucket =
+  | "DAYS_1_30"
+  | "DAYS_31_60"
+  | "DAYS_61_90"
+  | "DAYS_90_PLUS";
+
+export type CollectionOperationalStatus =
+  | "OVERDUE_NO_ACTION"
+  | "CONTACTED"
+  | "PROMISE_ACTIVE"
+  | "PROMISE_BROKEN"
+  | "FOLLOW_UP_SCHEDULED"
+  | "NO_CONTACT"
+  | "PARTIAL_PAYMENT_REVIEW"
+  | "RESOLVED_BY_PAYMENT"
+  | "CANCELLED";
+
+export type CollectionPriority = "NORMAL" | "HIGH" | "CRITICAL";
+
+export type CollectionActionType =
+  | "CONTACT_ATTEMPT"
+  | "CONTACT_MADE"
+  | "PROMISE_TO_PAY"
+  | "FOLLOW_UP_SCHEDULED"
+  | "NO_CONTACT"
+  | "PARTIAL_PAYMENT_REVIEW_NOTE"
+  | "INTERNAL_NOTE";
+
+export type CollectionChannel =
+  | "PHONE"
+  | "WHATSAPP"
+  | "EMAIL"
+  | "IN_PERSON"
+  | "OTHER";
+
+export type CollectionAction = {
+  id: string;
+  invoiceId: string;
+  actionType: CollectionActionType;
+  channel?: CollectionChannel | null;
+  source: "MANUAL" | "SYSTEM" | "WHATSAPP" | "EMAIL";
+  contactedName?: string | null;
+  contactedDocumentMasked?: string | null;
+  note: string;
+  promisedAmountCents?: number | null;
+  promiseDueDate?: string | null;
+  nextFollowUpAt?: string | null;
+  createdAt: string;
+  createdByUser?: Pick<ApiUser, "id" | "name" | "email"> | null;
+};
+
+export type CollectionCase = {
+  invoiceId: string;
+  studentId: string;
+  enrollmentId: string;
+  amountCents: number;
+  amountFormatted: string;
+  dueDate: string;
+  invoiceStatus: InvoiceStatus;
+  daysOverdue: number;
+  outstandingAmountCents: number;
+  outstandingAmountFormatted?: string | null;
+  agingBucket: CollectionAgingBucket;
+  operationalStatus: CollectionOperationalStatus;
+  priority: CollectionPriority;
+  brokenPromise: boolean;
+  partialPaymentReview: boolean;
+  nextFollowUpAt?: string | null;
+  lastAction?: CollectionAction | null;
+  student: {
+    id: string;
+    status: StudentStatus;
+    person: {
+      id: string;
+      fullName: string;
+      cpfMasked: string;
+      phone?: string | null;
+      email?: string | null;
+    };
+    guardian?: GuardianRecord | null;
+  };
+  enrollment: Pick<EnrollmentRecord, "id" | "course" | "grade"> & {
+    institution: Pick<BaseRecord, "id" | "name">;
+    academicYear: Pick<AcademicYear, "id" | "year">;
+  };
+  bankSlip?: {
+    id: string;
+    status: BankSlipStatus;
+    paidAmountCents?: number | null;
+    paidAt?: string | null;
+    providerErrorCode?: string | null;
+    providerErrorMessage?: string | null;
+    nossoNumeroMasked?: string | null;
+    pdfStoredAt?: string | null;
+  } | null;
+};
+
+export type CollectionCaseDetail = CollectionCase;
+export type CollectionFollowUp = CollectionCase;
+
+export type CollectionSummary = {
+  totalOverdueCents: number;
+  invoiceCount: number;
+  studentCount: number;
+  averageOverdueAmountCents: number;
+  agingBuckets: Record<CollectionAgingBucket, number>;
+  promisesActiveCount: number;
+  promisesBrokenCount: number;
+  followUpsTodayCount: number;
+  partialPaymentReviewCount: number;
+};
+
+export type ListCollectionCasesParams = {
+  page?: number;
+  limit?: number;
+  institutionId?: string;
+  academicYearId?: string;
+  studentId?: string;
+  search?: string;
+  dueDateFrom?: string;
+  dueDateTo?: string;
+  agingBucket?: CollectionAgingBucket;
+  operationalStatus?: CollectionOperationalStatus;
+  actionType?: CollectionActionType;
+  followUpFrom?: string;
+  followUpTo?: string;
+};
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -1037,6 +1165,36 @@ export const api = {
   listInvoices(params?: ListInvoicesParams) {
     return request<ListResponse<InvoiceRecord>>(
       withParams("/finance/invoices", params),
+    );
+  },
+
+  getCollectionSummary(params?: ListCollectionCasesParams) {
+    return request<CollectionSummary>(
+      withParams("/finance/collections/summary", params),
+    );
+  },
+
+  listCollectionCases(params?: ListCollectionCasesParams) {
+    return request<ListResponse<CollectionCase>>(
+      withParams("/finance/collections/cases", params),
+    );
+  },
+
+  getCollectionCase(invoiceId: string) {
+    return request<CollectionCaseDetail>(
+      `/finance/collections/cases/${invoiceId}`,
+    );
+  },
+
+  listCollectionActions(invoiceId: string) {
+    return request<{ data: CollectionAction[] }>(
+      `/finance/collections/cases/${invoiceId}/actions`,
+    );
+  },
+
+  listCollectionFollowUps(params?: ListCollectionCasesParams) {
+    return request<{ data: CollectionFollowUp[] }>(
+      withParams("/finance/collections/follow-ups", params),
     );
   },
 

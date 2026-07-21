@@ -22,6 +22,7 @@ import {
 import { canAccessRestrictedAdmin } from "../../lib/auth";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
+import { CollectionsPanel } from "./collections-panel";
 
 type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
 
@@ -35,6 +36,9 @@ const invoiceCancellationOptions: Array<{
 ];
 
 export function FinancePanel({ user }: { user: ApiUser }) {
+  const [financeArea, setFinanceArea] = useState<"invoices" | "collections">("invoices");
+  const canViewCollections =
+    user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [bankSlips, setBankSlips] = useState<
     Record<string, BankSlipListRecord | null | undefined>
@@ -696,8 +700,47 @@ export function FinancePanel({ user }: { user: ApiUser }) {
     });
   }
 
+  const areaTabs = (
+    <div className="flex flex-wrap gap-2">
+      <button
+        className={`rounded border px-3 py-2 text-sm font-medium ${
+          financeArea === "invoices"
+            ? "border-slate-900 bg-slate-900 text-white"
+            : "border-slate-300 bg-white text-slate-700"
+        }`}
+        onClick={() => setFinanceArea("invoices")}
+        type="button"
+      >
+        Faturas
+      </button>
+      {canViewCollections ? (
+        <button
+          className={`rounded border px-3 py-2 text-sm font-medium ${
+            financeArea === "collections"
+              ? "border-slate-900 bg-slate-900 text-white"
+              : "border-slate-300 bg-white text-slate-700"
+          }`}
+          onClick={() => setFinanceArea("collections")}
+          type="button"
+        >
+          Cobranca e Inadimplencia
+        </button>
+      ) : null}
+    </div>
+  );
+
+  if (financeArea === "collections" && canViewCollections) {
+    return (
+      <div className="grid gap-4">
+        {areaTabs}
+        <CollectionsPanel user={user} />
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-4">
+      {areaTabs}
       <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
