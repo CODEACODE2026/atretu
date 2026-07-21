@@ -61,6 +61,12 @@ type CollectionActionSummary = {
   } | null;
 };
 
+type CollectionCaseActionSnapshots = {
+  lastAction: CollectionActionSummary | null;
+  newestPromise: CollectionActionSummary | null;
+  nextFollowUpAt: Date | null;
+};
+
 type CollectionCaseSummary = {
   invoiceId: string;
   studentId: string;
@@ -280,7 +286,8 @@ export class CollectionsService {
       data: cases
         .filter((item) => item.nextFollowUpAt !== null)
         .sort((left, right) =>
-          Number(left.nextFollowUpAt) - Number(right.nextFollowUpAt),
+          Number(left.nextFollowUpAt) - Number(right.nextFollowUpAt) ||
+          left.invoiceId.localeCompare(right.invoiceId),
         ),
     };
   }
@@ -291,11 +298,17 @@ export class CollectionsService {
   ) {
     const records = await this.prisma.invoice.findMany({
       where: this.buildInvoiceWhere(filters, options),
-      include: this.invoiceInclude(),
+      include: this.invoiceListInclude(),
       orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
     });
+    const actionSnapshots = await this.loadActionSnapshots(
+      records.map((invoice) => invoice.id),
+      filters,
+    );
     return records
-      .map((invoice) => this.toCollectionCase(invoice))
+      .map((invoice) =>
+        this.toCollectionCase(invoice, actionSnapshots.get(invoice.id)),
+      )
       .filter((item) => this.matchesDerivedFilters(item, filters));
   }
 
@@ -307,6 +320,12 @@ export class CollectionsService {
     if (options.activeOnly) {
       where.status = InvoiceStatus.OPEN;
       where.dueDate = { lt: toUtcDateOnly(this.today()) };
+    }
+    if (filters.agingBucket) {
+      where.dueDate = this.mergeDateFilters(
+        where.dueDate as Prisma.DateTimeFilter<"Invoice"> | undefined,
+        this.agingBucketDueDateFilter(filters.agingBucket),
+      );
     }
     if (filters.institutionId) {
       where.enrollment = {
@@ -345,6 +364,14 @@ export class CollectionsService {
         },
       ];
     }
+    if (
+      filters.operationalStatus ===
+      CollectionOperationalStatus.PARTIAL_PAYMENT_REVIEW
+    ) {
+      where.bankSlip = {
+        is: { providerErrorCode: PARTIAL_PAYMENT_REVIEW_CODE },
+      };
+    }
     if (filters.actionType) {
       where.collectionActions = {
         some: { actionType: filters.actionType },
@@ -376,9 +403,6 @@ export class CollectionsService {
     item: CollectionCaseSummary,
     filters: CollectionFiltersDto,
   ) {
-    if (filters.agingBucket && item.agingBucket !== filters.agingBucket) {
-      return false;
-    }
     if (
       filters.operationalStatus &&
       item.operationalStatus !== filters.operationalStatus
@@ -388,15 +412,90 @@ export class CollectionsService {
     return true;
   }
 
-  private toCollectionCase(invoice: InvoiceWithCollections): CollectionCaseSummary {
-    const actions = invoice.collectionActions.map((action) =>
-      this.toActionSummary(action),
-    );
-    const lastAction = actions[0] ?? null;
-    const newestPromise = actions.find(
-      (action) => action.actionType === CollectionActionType.PROMISE_TO_PAY,
-    );
-    const nextFollowUpAt = this.nextFollowUp(actions);
+  private async loadActionSnapshots(
+    invoiceIds: string[],
+    filters: CollectionFiltersDto,
+  ) {
+    const snapshots = new Map<string, CollectionCaseActionSnapshots>();
+    if (invoiceIds.length === 0) {
+      return snapshots;
+    }
+    const [lastActions, newestPromises, nextFollowUps] = await Promise.all([
+      this.prisma.collectionAction.findMany({
+        where: { invoiceId: { in: invoiceIds } },
+        distinct: ["invoiceId"],
+        orderBy: [
+          { invoiceId: "asc" },
+          { createdAt: "desc" },
+          { id: "desc" },
+        ],
+        include: this.actionInclude(),
+      }),
+      this.prisma.collectionAction.findMany({
+        where: {
+          invoiceId: { in: invoiceIds },
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+        },
+        distinct: ["invoiceId"],
+        orderBy: [
+          { invoiceId: "asc" },
+          { createdAt: "desc" },
+          { id: "desc" },
+        ],
+        include: this.actionInclude(),
+      }),
+      this.prisma.collectionAction.findMany({
+        where: {
+          invoiceId: { in: invoiceIds },
+          nextFollowUpAt: this.nextFollowUpFilter(filters),
+        },
+        distinct: ["invoiceId"],
+        orderBy: [
+          { invoiceId: "asc" },
+          { nextFollowUpAt: "asc" },
+          { createdAt: "desc" },
+          { id: "desc" },
+        ],
+        include: this.actionInclude(),
+      }),
+    ]);
+
+    for (const invoiceId of invoiceIds) {
+      snapshots.set(invoiceId, {
+        lastAction: null,
+        newestPromise: null,
+        nextFollowUpAt: null,
+      });
+    }
+    for (const action of lastActions) {
+      snapshots.get(action.invoiceId)!.lastAction = this.toActionSummary(action);
+    }
+    for (const action of newestPromises) {
+      snapshots.get(action.invoiceId)!.newestPromise = this.toActionSummary(action);
+    }
+    for (const action of nextFollowUps) {
+      snapshots.get(action.invoiceId)!.nextFollowUpAt = action.nextFollowUpAt;
+    }
+    return snapshots;
+  }
+
+  private toCollectionCase(
+    invoice: InvoiceListRecord | InvoiceWithCollections,
+    snapshots?: CollectionCaseActionSnapshots,
+  ): CollectionCaseSummary {
+    const actions =
+      "collectionActions" in invoice
+        ? invoice.collectionActions.map((action) => this.toActionSummary(action))
+        : [];
+    const lastAction = snapshots ? snapshots.lastAction : actions[0] ?? null;
+    const newestPromise = snapshots
+      ? snapshots.newestPromise ?? undefined
+      : actions.find(
+          (action) => action.actionType === CollectionActionType.PROMISE_TO_PAY,
+        );
+    const nextFollowUpAt = snapshots
+      ? snapshots.nextFollowUpAt
+      : this.nextFollowUp(actions);
     const partialPaymentReview = this.hasPartialPaymentReview(invoice);
     const daysOverdue = this.daysOverdue(invoice.dueDate);
     const outstandingAmountCents = this.outstandingAmount(invoice);
@@ -502,7 +601,7 @@ export class CollectionsService {
   }
 
   private operationalStatus(input: {
-    invoice: InvoiceWithCollections;
+    invoice: InvoiceListRecord | InvoiceWithCollections;
     lastAction: CollectionActionSummary | null;
     newestPromise: CollectionActionSummary | undefined;
     nextFollowUpAt: Date | null;
@@ -579,7 +678,45 @@ export class CollectionsService {
     return CollectionAgingBucket.DAYS_90_PLUS;
   }
 
-  private outstandingAmount(invoice: InvoiceWithCollections) {
+  private agingBucketDueDateFilter(bucket: CollectionAgingBucket) {
+    const today = toUtcDateOnly(this.today());
+    switch (bucket) {
+      case CollectionAgingBucket.DAYS_1_30:
+        return {
+          gte: this.addUtcDays(today, -30),
+          lt: today,
+        } satisfies Prisma.DateTimeFilter<"Invoice">;
+      case CollectionAgingBucket.DAYS_31_60:
+        return {
+          gte: this.addUtcDays(today, -60),
+          lte: this.addUtcDays(today, -31),
+        } satisfies Prisma.DateTimeFilter<"Invoice">;
+      case CollectionAgingBucket.DAYS_61_90:
+        return {
+          gte: this.addUtcDays(today, -90),
+          lte: this.addUtcDays(today, -61),
+        } satisfies Prisma.DateTimeFilter<"Invoice">;
+      case CollectionAgingBucket.DAYS_90_PLUS:
+        return {
+          lte: this.addUtcDays(today, -91),
+        } satisfies Prisma.DateTimeFilter<"Invoice">;
+    }
+  }
+
+  private mergeDateFilters(
+    left: Prisma.DateTimeFilter<"Invoice"> | undefined,
+    right: Prisma.DateTimeFilter<"Invoice">,
+  ) {
+    return { ...(left ?? {}), ...right };
+  }
+
+  private addUtcDays(date: Date, days: number) {
+    const next = new Date(date);
+    next.setUTCDate(next.getUTCDate() + days);
+    return next;
+  }
+
+  private outstandingAmount(invoice: InvoiceListRecord | InvoiceWithCollections) {
     if (invoice.status !== InvoiceStatus.OPEN) {
       return 0;
     }
@@ -592,17 +729,39 @@ export class CollectionsService {
     return invoice.amountCents;
   }
 
-  private hasPartialPaymentReview(invoice: InvoiceWithCollections) {
+  private hasPartialPaymentReview(
+    invoice: InvoiceListRecord | InvoiceWithCollections,
+  ) {
     return invoice.bankSlip?.providerErrorCode === PARTIAL_PAYMENT_REVIEW_CODE;
   }
 
   private nextFollowUp(actions: CollectionActionSummary[]) {
     return (
       actions
-        .filter((action) => action.nextFollowUpAt !== null)
+        .filter(
+          (action) =>
+            action.nextFollowUpAt !== null &&
+            action.nextFollowUpAt >= toUtcDateOnly(this.today()),
+        )
         .map((action) => action.nextFollowUpAt!)
         .sort((left, right) => left.getTime() - right.getTime())[0] ?? null
     );
+  }
+
+  private nextFollowUpFilter(
+    filters: CollectionFiltersDto,
+  ): Prisma.DateTimeFilter<"CollectionAction"> {
+    const nextFollowUpAt: Prisma.DateTimeFilter<"CollectionAction"> = {
+      gte: toUtcDateOnly(this.today()),
+    };
+    if (filters.followUpFrom) {
+      nextFollowUpAt.gte = parseInvoiceDueDate(filters.followUpFrom);
+    }
+    if (filters.followUpTo) {
+      const end = parseInvoiceDueDate(filters.followUpTo);
+      nextFollowUpAt.lt = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+    }
+    return nextFollowUpAt;
   }
 
   private normalizeActionBody(body: CreateCollectionActionDto) {
@@ -697,7 +856,7 @@ export class CollectionsService {
     }
   }
 
-  private invoiceInclude() {
+  private invoiceListInclude() {
     return {
       student: {
         include: {
@@ -712,6 +871,12 @@ export class CollectionsService {
         },
       },
       bankSlip: true,
+    } satisfies Prisma.InvoiceInclude;
+  }
+
+  private invoiceInclude() {
+    return {
+      ...this.invoiceListInclude(),
       collectionActions: {
         orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
         include: this.actionInclude(),
@@ -804,6 +969,10 @@ export class CollectionsService {
 
 type CollectionActionWithUser = Prisma.CollectionActionGetPayload<{
   include: ReturnType<CollectionsService["actionInclude"]>;
+}>;
+
+type InvoiceListRecord = Prisma.InvoiceGetPayload<{
+  include: ReturnType<CollectionsService["invoiceListInclude"]>;
 }>;
 
 type InvoiceWithCollections = Prisma.InvoiceGetPayload<{
