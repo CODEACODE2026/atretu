@@ -9,10 +9,12 @@ import {
   type BaseRecord,
   type BusAssignmentRecord,
   type BusRecord,
+  type DashboardQuickShortcut,
   type ListRecordsParams,
 } from "../../lib/api";
 import { canAccessRestrictedAdmin, getPrimaryRoleLabel } from "../../lib/auth";
 import { AcademicYearsPanel } from "./academic-years-panel";
+import { DashboardPanel } from "./dashboard-panel";
 import { FinancePanel } from "./finance-panel";
 import { JobsMonitorPanel } from "./jobs-monitor-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
@@ -23,6 +25,17 @@ type DomainKey = "institutions" | "shifts" | "buses";
 type StatusFilter = "active" | "inactive" | "all";
 type SortField = "name" | "status" | "createdAt" | "updatedAt";
 type RecordRow = BaseRecord | BusRecord;
+type AdminArea =
+  | "dashboard"
+  | "students"
+  | "reenrollments"
+  | "student-cards"
+  | "finance"
+  | "jobs"
+  | "pre-registrations"
+  | "years"
+  | "base";
+type FinanceArea = "invoices" | "collections";
 type EditingRecord = RecordRow | null;
 type PendingAction = {
   record: RecordRow;
@@ -148,17 +161,13 @@ export function AdminShell() {
 }
 
 function AdminWorkspace({ user }: { user: ApiUser }) {
-  const [area, setArea] = useState<
-    | "students"
-    | "reenrollments"
-    | "student-cards"
-    | "finance"
-    | "jobs"
-    | "pre-registrations"
-    | "years"
-    | "base"
-  >("students");
+  const [area, setArea] = useState<AdminArea>("dashboard");
+  const [financeInitialArea, setFinanceInitialArea] =
+    useState<FinanceArea>("invoices");
+  const [baseInitialDomain, setBaseInitialDomain] =
+    useState<DomainKey>("institutions");
   const tabs = [
+    { key: "dashboard", label: "Dashboard" },
     { key: "students", label: "Academicos" },
     { key: "reenrollments", label: "Rematriculas" },
     { key: "student-cards", label: "Carteirinhas" },
@@ -171,6 +180,41 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
   const visibleTabs = tabs.filter(
     (tab) => !("restricted" in tab) || canAccessRestrictedAdmin(user),
   );
+  const shortcutTargets: Record<
+    DashboardQuickShortcut["key"],
+    { area: AdminArea; baseDomain?: DomainKey; financeArea?: FinanceArea }
+  > = {
+    buses: { area: "base", baseDomain: "buses" },
+    collections: { area: "finance", financeArea: "collections" },
+    finance: { area: "finance", financeArea: "invoices" },
+    "pre-registrations": { area: "pre-registrations" },
+    "student-cards": { area: "student-cards" },
+    students: { area: "students" },
+  };
+
+  function handleAreaChange(nextArea: AdminArea) {
+    if (nextArea === "finance") {
+      setFinanceInitialArea("invoices");
+    }
+    if (nextArea === "base") {
+      setBaseInitialDomain("institutions");
+    }
+    setArea(nextArea);
+  }
+
+  function handleDashboardShortcut(shortcut: DashboardQuickShortcut) {
+    const target = shortcutTargets[shortcut.key];
+    if (!target) {
+      return;
+    }
+    if (target.financeArea) {
+      setFinanceInitialArea(target.financeArea);
+    }
+    if (target.baseDomain) {
+      setBaseInitialDomain(target.baseDomain);
+    }
+    setArea(target.area);
+  }
 
   return (
     <div className="grid gap-4">
@@ -179,11 +223,11 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
           <button
             className={
               area === tab.key
-                ? "rounded border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-medium text-white"
-                : "rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                ? "rounded border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                : "rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900"
             }
             key={tab.key}
-            onClick={() => setArea(tab.key)}
+            onClick={() => handleAreaChange(tab.key)}
             type="button"
           >
             {tab.label}
@@ -191,20 +235,34 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
         ))}
       </div>
 
+      {area === "dashboard" ? (
+        <DashboardPanel
+          isShortcutAvailable={(shortcut) => Boolean(shortcutTargets[shortcut.key])}
+          onShortcut={handleDashboardShortcut}
+        />
+      ) : null}
       {area === "students" ? <StudentsPanel user={user} /> : null}
       {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
       {area === "student-cards" ? <StudentCardsPanel user={user} /> : null}
-      {area === "finance" ? <FinancePanel user={user} /> : null}
+      {area === "finance" ? (
+        <FinancePanel initialArea={financeInitialArea} user={user} />
+      ) : null}
       {area === "jobs" ? <JobsMonitorPanel /> : null}
       {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
       {area === "years" ? <AcademicYearsPanel user={user} /> : null}
-      {area === "base" ? <BaseRecordsPanel /> : null}
+      {area === "base" ? (
+        <BaseRecordsPanel initialDomain={baseInitialDomain} />
+      ) : null}
     </div>
   );
 }
 
-function BaseRecordsPanel() {
-  const [domain, setDomain] = useState<DomainKey>("institutions");
+function BaseRecordsPanel({
+  initialDomain = "institutions",
+}: {
+  initialDomain?: DomainKey;
+}) {
+  const [domain, setDomain] = useState<DomainKey>(initialDomain);
   const [records, setRecords] = useState<RecordRow[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [academicYearId, setAcademicYearId] = useState("");
@@ -233,6 +291,10 @@ function BaseRecordsPanel() {
   useEffect(() => {
     void loadYears();
   }, []);
+
+  useEffect(() => {
+    setDomain(initialDomain);
+  }, [initialDomain]);
 
   useEffect(() => {
     setEditing(null);

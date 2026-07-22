@@ -25,6 +25,7 @@ import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
 import { CollectionsPanel } from "./collections-panel";
 
 type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
+type FinanceArea = "invoices" | "collections";
 
 const invoiceCancellationOptions: Array<{
   label: string;
@@ -35,8 +36,14 @@ const invoiceCancellationOptions: Array<{
   { label: "Outro motivo", value: "OTHER" },
 ];
 
-export function FinancePanel({ user }: { user: ApiUser }) {
-  const [financeArea, setFinanceArea] = useState<"invoices" | "collections">("invoices");
+export function FinancePanel({
+  initialArea = "invoices",
+  user,
+}: {
+  initialArea?: FinanceArea;
+  user: ApiUser;
+}) {
+  const [financeArea, setFinanceArea] = useState<FinanceArea>(initialArea);
   const canViewCollections =
     user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -105,6 +112,12 @@ export function FinancePanel({ user }: { user: ApiUser }) {
   useEffect(() => {
     void loadReferences();
   }, []);
+
+  useEffect(() => {
+    setFinanceArea(
+      initialArea === "collections" && !canViewCollections ? "invoices" : initialArea,
+    );
+  }, [canViewCollections, initialArea]);
 
   useEffect(() => {
     void loadInvoices();

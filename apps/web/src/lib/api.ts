@@ -39,6 +39,161 @@ export type JobsStatusResponse = {
   jobs: JobStatus[];
 };
 
+export type DashboardOverviewParams = {
+  academicYearId?: string;
+  institutionId?: string;
+};
+
+export type DashboardMetricStatus =
+  | "neutral"
+  | "success"
+  | "warning"
+  | "danger";
+
+export type DashboardMetric = {
+  key: string;
+  label: string;
+  value: number;
+  formattedValue: string;
+  context: string | null;
+  status: DashboardMetricStatus;
+};
+
+export type DashboardListItemStatus =
+  | PreRegistrationStatus
+  | BankSlipStatus
+  | CollectionOperationalStatus
+  | CollectionPriority
+  | "DOCUMENTS_PENDING"
+  | "FOLLOW_UP_TODAY"
+  | "FULL"
+  | "NEAR_FULL"
+  | "PENDING";
+
+export type DashboardListItem = {
+  id: string;
+  label: string;
+  description: string | null;
+  status: DashboardListItemStatus;
+  date: string | null;
+  amountCents?: number | null;
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
+export type DashboardChartType = "bar" | "line";
+export type DashboardBusOccupancyStatus = "NORMAL" | "NEAR_FULL" | "FULL";
+
+export type DashboardChartPoint = {
+  busId?: string;
+  label: string;
+  value: number;
+  amountCents?: number | null;
+  capacity?: number;
+  occupiedSeats?: number;
+  availableSeats?: number;
+  occupancyPercent?: number;
+  status?: DashboardBusOccupancyStatus;
+};
+
+export type DashboardChart = {
+  key:
+    | "overdueByAgingBucket"
+    | "occupancyByBus"
+    | "studentsByInstitution"
+    | "preRegistrationsByMonth";
+  title: string;
+  description: string;
+  type: DashboardChartType;
+  data: DashboardChartPoint[];
+};
+
+export type DashboardQuickShortcut = {
+  key:
+    | "students"
+    | "pre-registrations"
+    | "finance"
+    | "collections"
+    | "student-cards"
+    | "buses";
+  label: string;
+  href: string;
+  restrictedTo?: ApiUser["roles"];
+};
+
+export type AdminDashboardResponse = {
+  generatedAt: string;
+  academicYear: {
+    id: string;
+    year: number;
+    isCurrent: boolean;
+  } | null;
+  indicators: {
+    activeStudents: DashboardMetric;
+    pendingPreRegistrations: DashboardMetric;
+    overdueAmount: DashboardMetric;
+    overdueInvoices: DashboardMetric;
+    bankSlipsAttention: DashboardMetric;
+    busSeats: DashboardMetric;
+    pendingStudentCards: DashboardMetric;
+    incompleteDocuments: DashboardMetric;
+  };
+  agendaToday: {
+    collectionFollowUps: DashboardListItem[];
+    preRegistrationsToReview: DashboardListItem[];
+    pendingCards: DashboardListItem[];
+  };
+  criticalAlerts: DashboardListItem[];
+  financeAndCollections: {
+    metrics: DashboardMetric[];
+    criticalCases: DashboardListItem[];
+  };
+  academicsAndDocuments: {
+    metrics: DashboardMetric[];
+    recentItems: DashboardListItem[];
+  };
+  busesAndSeats: {
+    metrics: DashboardMetric[];
+    attentionBuses: DashboardListItem[];
+  };
+  preRegistrations: {
+    metrics: DashboardMetric[];
+    pendingItems: DashboardListItem[];
+  };
+  pendingStudentCards: {
+    metrics: DashboardMetric[];
+    items: DashboardListItem[];
+  };
+  charts: {
+    overdueByAgingBucket: DashboardChart & {
+      key: "overdueByAgingBucket";
+      type: "bar";
+    };
+    occupancyByBus: DashboardChart & {
+      key: "occupancyByBus";
+      type: "bar";
+      data: Array<
+        DashboardChartPoint & {
+          busId: string;
+          capacity: number;
+          occupiedSeats: number;
+          availableSeats: number;
+          occupancyPercent: number;
+          status: DashboardBusOccupancyStatus;
+        }
+      >;
+    };
+    studentsByInstitution: DashboardChart & {
+      key: "studentsByInstitution";
+      type: "bar";
+    };
+    preRegistrationsByMonth: DashboardChart & {
+      key: "preRegistrationsByMonth";
+      type: "line";
+    };
+  };
+  quickShortcuts: DashboardQuickShortcut[];
+};
+
 export type RecordStatus = "ACTIVE" | "INACTIVE";
 
 export type BaseRecord = {
@@ -1017,6 +1172,12 @@ export const api = {
 
   getJobsStatus() {
     return request<JobsStatusResponse>("/admin/jobs/status");
+  },
+
+  getAdminDashboard(params?: DashboardOverviewParams) {
+    return request<AdminDashboardResponse>(
+      withParams("/dashboard/overview", params),
+    );
   },
 
   logout() {

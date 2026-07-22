@@ -6,6 +6,7 @@ import { BusAssignmentsModule } from "./bus-assignments/bus-assignments.module.j
 import { HttpErrorFilter } from "./common/http-exception.filter.js";
 import { AppConfigModule } from "./config/app-config.module.js";
 import { DatabaseModule } from "./database/database.module.js";
+import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
 import { FinanceModule } from "./finance/finance.module.js";
 import { HealthController } from "./health.controller.js";
@@ -22,6 +23,7 @@ import { StudentsModule } from "./students/students.module.js";
     JobsModule,
     BaseRecordsModule,
     BusAssignmentsModule,
+    DashboardModule,
     DocumentsModule,
     FinanceModule,
     PreRegistrationsModule,
