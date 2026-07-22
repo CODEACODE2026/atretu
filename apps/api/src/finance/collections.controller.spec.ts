@@ -32,6 +32,7 @@ const USER: AuthUser = {
 const GUARDS_METADATA_KEY = "__guards__";
 const METHOD_METADATA_KEY = "method";
 const PATH_METADATA_KEY = "path";
+const ROUTE_ARGS_METADATA_KEY = "__routeArguments__";
 
 async function testControllerRoutesGuardsAndRoles() {
   const controller = newController();
@@ -67,6 +68,24 @@ async function testControllerRoutesGuardsAndRoles() {
   }
 
   assert.ok(controller);
+
+  const createActionArgs = Reflect.getMetadata(
+    ROUTE_ARGS_METADATA_KEY,
+    CollectionsController,
+    "createAction",
+  ) as Record<string, { pipes?: unknown[] }>;
+  const bodyPipe = createActionArgs["3:1"]?.pipes?.[0] as
+    | {
+        validatorOptions?: {
+          forbidNonWhitelisted?: boolean;
+          whitelist?: boolean;
+        };
+        expectedType?: unknown;
+      }
+    | undefined;
+  assert.equal(bodyPipe?.validatorOptions?.whitelist, true);
+  assert.equal(bodyPipe?.validatorOptions?.forbidNonWhitelisted, true);
+  assert.equal(bodyPipe?.expectedType, CreateCollectionActionDto);
 }
 
 async function testCreateActionEndpointCallsServiceWithAuthenticatedUser() {

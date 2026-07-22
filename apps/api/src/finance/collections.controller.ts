@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   UseGuards,
+  ValidationPipe,
 } from "@nestjs/common";
 import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -63,7 +64,15 @@ export class CollectionsController {
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   createAction(
     @Param() params: CollectionInvoiceParamsDto,
-    @Body() body: CreateCollectionActionDto,
+    @Body(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        expectedType: CreateCollectionActionDto,
+      }),
+    )
+    body: CreateCollectionActionDto,
     @CurrentUser() user: AuthUser,
   ) {
     return this.collections.createAction(params.invoiceId, body, user);
