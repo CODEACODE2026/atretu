@@ -12,8 +12,13 @@ import {
   type DashboardQuickShortcut,
   type ListRecordsParams,
 } from "../../lib/api";
-import { canAccessRestrictedAdmin, getPrimaryRoleLabel } from "../../lib/auth";
+import { canAccessRestrictedAdmin } from "../../lib/auth";
 import { AcademicYearsPanel } from "./academic-years-panel";
+import { ADMIN_NAV_ITEMS, type AdminArea } from "./admin-navigation";
+import { adminTheme } from "./admin-theme";
+import { AdminSidebar } from "./components/admin-sidebar";
+import { AdminTopbar } from "./components/admin-topbar";
+import { MobileNavigation } from "./components/mobile-navigation";
 import { DashboardPanel } from "./dashboard-panel";
 import { FinancePanel } from "./finance-panel";
 import { JobsMonitorPanel } from "./jobs-monitor-panel";
@@ -25,16 +30,6 @@ type DomainKey = "institutions" | "shifts" | "buses";
 type StatusFilter = "active" | "inactive" | "all";
 type SortField = "name" | "status" | "createdAt" | "updatedAt";
 type RecordRow = BaseRecord | BusRecord;
-type AdminArea =
-  | "dashboard"
-  | "students"
-  | "reenrollments"
-  | "student-cards"
-  | "finance"
-  | "jobs"
-  | "pre-registrations"
-  | "years"
-  | "base";
 type FinanceArea = "invoices" | "collections";
 type EditingRecord = RecordRow | null;
 type PendingAction = {
@@ -102,7 +97,7 @@ export function AdminShell() {
 
   if (authLoading) {
     return (
-      <main className="min-h-screen bg-slate-100 p-6">
+      <main className={`min-h-screen p-6 ${adminTheme.appBackground}`}>
         <p className="text-sm text-slate-600">Carregando...</p>
       </main>
     );
@@ -113,73 +108,33 @@ export function AdminShell() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-          <div>
-            <p className="text-xs font-medium uppercase text-slate-500">
-              Painel administrativo
-            </p>
-            <h1 className="text-xl font-semibold text-slate-950">Atretu</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium text-slate-950">{user.name}</p>
-              <p className="text-xs text-slate-500">
-                {getPrimaryRoleLabel(user)}
-              </p>
-            </div>
-            <button
-              className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
-              onClick={handleLogout}
-              type="button"
-            >
-              Sair
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <section className="mx-auto grid max-w-6xl gap-4 px-6 py-6">
-        {!canAccessRestrictedAdmin(user) ? (
-          <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            Seu perfil possui acesso operacional. Areas restritas do Super
-            Admin permanecem bloqueadas.
-          </div>
-        ) : null}
-
-        {authError ? (
-          <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {authError}
-          </div>
-        ) : null}
-
-        <AdminWorkspace user={user} />
-      </section>
-    </main>
+    <AdminWorkspace authError={authError} onLogout={handleLogout} user={user} />
   );
 }
 
-function AdminWorkspace({ user }: { user: ApiUser }) {
+function AdminWorkspace({
+  authError,
+  onLogout,
+  user,
+}: {
+  authError: string;
+  onLogout: () => void;
+  user: ApiUser;
+}) {
   const [area, setArea] = useState<AdminArea>("dashboard");
   const [financeInitialArea, setFinanceInitialArea] =
     useState<FinanceArea>("invoices");
   const [baseInitialDomain, setBaseInitialDomain] =
     useState<DomainKey>("institutions");
-  const tabs = [
-    { key: "dashboard", label: "Dashboard" },
-    { key: "students", label: "Academicos" },
-    { key: "reenrollments", label: "Rematriculas" },
-    { key: "student-cards", label: "Carteirinhas" },
-    { key: "finance", label: "Financeiro" },
-    { key: "jobs", label: "Monitor de Jobs", restricted: true },
-    { key: "pre-registrations", label: "Pre-cadastros" },
-    { key: "years", label: "Anos Letivos" },
-    { key: "base", label: "Cadastros Base" },
-  ] as const;
-  const visibleTabs = tabs.filter(
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [tabletViewport, setTabletViewport] = useState(false);
+  const effectiveSidebarCollapsed = sidebarCollapsed || tabletViewport;
+  const visibleTabs = ADMIN_NAV_ITEMS.filter(
     (tab) => !("restricted" in tab) || canAccessRestrictedAdmin(user),
   );
+  const currentItem =
+    visibleTabs.find((tab) => tab.key === area) ?? ADMIN_NAV_ITEMS[0];
   const shortcutTargets: Record<
     DashboardQuickShortcut["key"],
     { area: AdminArea; baseDomain?: DomainKey; financeArea?: FinanceArea }
@@ -192,6 +147,20 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
     students: { area: "students" },
   };
 
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
+
+    function syncTabletViewport() {
+      setTabletViewport(query.matches);
+    }
+
+    syncTabletViewport();
+    query.addEventListener("change", syncTabletViewport);
+    return () => {
+      query.removeEventListener("change", syncTabletViewport);
+    };
+  }, []);
+
   function handleAreaChange(nextArea: AdminArea) {
     if (nextArea === "finance") {
       setFinanceInitialArea("invoices");
@@ -199,6 +168,7 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
     if (nextArea === "base") {
       setBaseInitialDomain("institutions");
     }
+    setMobileNavigationOpen(false);
     setArea(nextArea);
   }
 
@@ -213,47 +183,89 @@ function AdminWorkspace({ user }: { user: ApiUser }) {
     if (target.baseDomain) {
       setBaseInitialDomain(target.baseDomain);
     }
+    setMobileNavigationOpen(false);
     setArea(target.area);
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap gap-2">
-        {visibleTabs.map((tab) => (
-          <button
-            className={
-              area === tab.key
-                ? "rounded border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-slate-900"
-                : "rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900"
-            }
-            key={tab.key}
-            onClick={() => handleAreaChange(tab.key)}
-            type="button"
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+    <main className={`min-h-screen text-slate-950 ${adminTheme.appBackground}`}>
+      <AdminSidebar
+        activeArea={area}
+        collapsed={effectiveSidebarCollapsed}
+        items={visibleTabs}
+        onLogout={onLogout}
+        onNavigate={handleAreaChange}
+        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        user={user}
+      />
+      <MobileNavigation
+        activeArea={area}
+        items={visibleTabs}
+        onClose={() => setMobileNavigationOpen(false)}
+        onLogout={onLogout}
+        onNavigate={handleAreaChange}
+        open={mobileNavigationOpen}
+        user={user}
+      />
 
-      {area === "dashboard" ? (
-        <DashboardPanel
-          isShortcutAvailable={(shortcut) => Boolean(shortcutTargets[shortcut.key])}
-          onShortcut={handleDashboardShortcut}
+      <div
+        className={
+          effectiveSidebarCollapsed
+            ? "min-h-screen transition-[margin] duration-200 md:ml-20"
+            : "min-h-screen transition-[margin] duration-200 md:ml-72"
+        }
+      >
+        <AdminTopbar
+          currentItem={currentItem}
+          onMobileMenu={() => setMobileNavigationOpen(true)}
+          onToggleSidebar={() => {
+            if (tabletViewport) {
+              setMobileNavigationOpen(true);
+              return;
+            }
+            setSidebarCollapsed((value) => !value);
+          }}
+          sidebarCollapsed={effectiveSidebarCollapsed}
+          user={user}
         />
-      ) : null}
-      {area === "students" ? <StudentsPanel user={user} /> : null}
-      {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
-      {area === "student-cards" ? <StudentCardsPanel user={user} /> : null}
-      {area === "finance" ? (
-        <FinancePanel initialArea={financeInitialArea} user={user} />
-      ) : null}
-      {area === "jobs" ? <JobsMonitorPanel /> : null}
-      {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
-      {area === "years" ? <AcademicYearsPanel user={user} /> : null}
-      {area === "base" ? (
-        <BaseRecordsPanel initialDomain={baseInitialDomain} />
-      ) : null}
-    </div>
+
+        <section className={adminTheme.page}>
+          {!canAccessRestrictedAdmin(user) ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-800 shadow-sm">
+              Seu perfil possui acesso operacional. Areas restritas do Super
+              Admin permanecem bloqueadas.
+            </div>
+          ) : null}
+
+          {authError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50/90 p-4 text-sm text-red-700 shadow-sm">
+              {authError}
+            </div>
+          ) : null}
+
+          {area === "dashboard" ? (
+            <DashboardPanel
+              isShortcutAvailable={(shortcut) =>
+                Boolean(shortcutTargets[shortcut.key])
+              }
+              onShortcut={handleDashboardShortcut}
+            />
+          ) : null}
+          {area === "students" ? <StudentsPanel user={user} /> : null}
+          {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
+          {area === "student-cards" ? <StudentCardsPanel user={user} /> : null}
+          {area === "finance" ? (
+            <FinancePanel initialArea={financeInitialArea} user={user} />
+          ) : null}
+          {area === "jobs" ? <JobsMonitorPanel /> : null}
+          {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
+          {area === "years" ? <AcademicYearsPanel user={user} /> : null}
+          {area === "base" ? (
+            <BaseRecordsPanel initialDomain={baseInitialDomain} />
+          ) : null}
+        </section>
+      </div>
+    </main>
   );
 }
 
