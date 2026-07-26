@@ -2,6 +2,18 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import {
+  BadgeCheck,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
+  GraduationCap,
+  MoreVertical,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  UserRound,
+} from "lucide-react";
+import {
   api,
   type AcademicYear,
   type ApiUser,
@@ -26,6 +38,7 @@ import {
   promptOption,
 } from "../../lib/formatters";
 import { StudentInvoicesForStudent } from "./finance-panel";
+import { adminTheme, cx } from "./admin-theme";
 import { StudentCardsForStudent } from "./student-cards-panel";
 
 const emptyPerson: StudentPayload["person"] = {
@@ -662,584 +675,479 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     }
   }
 
+  const resultLabel = loading
+    ? "Consultando academicos"
+    : students.length === 1
+      ? "1 academico encontrado"
+      : `${students.length} academicos nesta pagina`;
+  const hasActiveFilters = Boolean(
+    search || academicYearId || institutionId || shiftId || statusFilter !== "active",
+  );
+
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <form
-          className="flex w-full gap-2 sm:w-auto"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setPage(1);
-            void loadStudents(search);
-          }}
-        >
-          <input
-            className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por carteirinha, nome ou CPF"
-            type="search"
-            value={search}
-          />
-          <button
-            className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
-            type="submit"
-          >
-            Buscar
-          </button>
-        </form>
-
-        <div className="flex flex-wrap gap-2">
-          <Select
-            label="Ano"
-            onChange={(value) => {
-              setAcademicYearId(value);
-              setPage(1);
-            }}
-            options={years.map((year) => ({
-              label: String(year.year),
-              value: year.id,
-            }))}
-            value={academicYearId}
-          />
-          <Select
-            label="Instituicao"
-            onChange={(value) => {
-              setInstitutionId(value);
-              setPage(1);
-            }}
-            options={institutions.map((item) => ({
-              label: item.name,
-              value: item.id,
-            }))}
-            value={institutionId}
-          />
-          <Select
-            label="Turno"
-            onChange={(value) => {
-              setShiftId(value);
-              setPage(1);
-            }}
-            options={shifts.map((item) => ({
-              label: item.name,
-              value: item.id,
-            }))}
-            value={shiftId}
-          />
-          <Select
-            label="Situacao"
-            onChange={(value) => {
-              setStatusFilter(
-                (value || "active") as
-                  | "active"
-                  | "suspended"
-                  | "terminated"
-                  | "all",
-              );
-              setPage(1);
-            }}
-            options={[
-              { label: "Ativos", value: "active" },
-              { label: "Suspensos", value: "suspended" },
-              { label: "Desligados", value: "terminated" },
-              { label: "Todos", value: "all" },
-            ]}
-            value={statusFilter}
-          />
-        </div>
-      </div>
-
-      {message ? (
-        <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          {message}
-        </div>
-      ) : null}
-      {error ? (
-        <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
-        <div className="rounded border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Carteirinha</th>
-                  <th className="px-4 py-3">Nome</th>
-                  <th className="px-4 py-3">CPF</th>
-                  <th className="px-4 py-3">Instituicao</th>
-                  <th className="px-4 py-3">Curso</th>
-                  <th className="px-4 py-3">Serie</th>
-                  <th className="px-4 py-3">Turno</th>
-                  <th className="px-4 py-3">Ano</th>
-                  <th className="px-4 py-3">Situacao</th>
-                  <th className="px-4 py-3">Diretoria</th>
-                  <th className="px-4 py-3">Fatura futura</th>
-                  <th className="px-4 py-3">Acoes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={12}>
-                      Carregando...
-                    </td>
-                  </tr>
-                ) : students.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={12}>
-                      Nenhum academico encontrado
-                    </td>
-                  </tr>
-                ) : (
-                  students.map((student) => (
-                    <tr key={student.id}>
-                      <td className="px-4 py-3 font-semibold text-slate-950">
-                        {student.currentStudentCard?.cardNumber ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-slate-950">
-                        {student.person.fullName}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.person.cpfMasked}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.currentEnrollment?.institution.name ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.currentEnrollment?.course ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.currentEnrollment?.grade ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.currentEnrollment?.shift.name ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.currentEnrollment?.academicYear.year ?? "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={student.status} />
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.activeBoardMembership ? "Ativa" : "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {student.canReceiveFutureInvoices ? "Elegivel" : "Nao"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
-                          onClick={() => void openStudent(student.id)}
-                          type="button"
-                        >
-                          Abrir
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+    <div className="grid gap-5">
+      <section
+        className={cx(
+          adminTheme.card,
+          "relative overflow-hidden border-[#C8DAD4] p-5 sm:p-6",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 h-1 bg-[#1F6F5F]"
+        />
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <span
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#EEF7F4] text-[#14534D] ring-1 ring-[#D8E9E4]"
+                aria-hidden="true"
+              >
+                <GraduationCap size={22} strokeWidth={2} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-normal text-[#1F6F5F]">
+                  Rotas academicas
+                </p>
+                <h1 className="mt-1 text-2xl font-bold tracking-normal text-slate-950">
+                  Academicos
+                </h1>
+              </div>
+            </div>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+              Consulte academicos por ano, instituicao, turno e situacao. Esta
+              tela fica dedicada a busca e leitura rapida; cadastro e perfil entram
+              nas proximas etapas da Sprint 7.3.
+            </p>
           </div>
-          <div className="flex items-center justify-end gap-2 border-t border-slate-200 p-4 text-sm text-slate-600">
+          <button
+            className={adminTheme.primaryButton}
+            onClick={() =>
+              setMessage("Cadastro dedicado sera implementado na proxima etapa.")
+            }
+            type="button"
+          >
+            <Plus size={17} strokeWidth={2.2} />
+            Novo academico
+          </button>
+        </div>
+      </section>
+
+      <section className={cx(adminTheme.card, "grid gap-4 p-4 sm:p-5")}>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+          <form
+            className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setPage(1);
+              void loadStudents(search);
+            }}
+          >
+            <label className="relative min-w-0 flex-1">
+              <span className="sr-only">Buscar academico</span>
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={17}
+                strokeWidth={2}
+              />
+              <input
+                className={cx(adminTheme.control, "w-full pl-9")}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar por carteirinha, nome ou CPF"
+                type="search"
+                value={search}
+              />
+            </label>
+            <button className={adminTheme.secondaryButton} type="submit">
+              Buscar
+            </button>
+          </form>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <StudentFilterSelect
+              label="Ano"
+              onChange={(value) => {
+                setAcademicYearId(value);
+                setPage(1);
+              }}
+              options={years.map((year) => ({
+                label: String(year.year),
+                value: year.id,
+              }))}
+              value={academicYearId}
+            />
+            <StudentFilterSelect
+              label="Instituicao"
+              onChange={(value) => {
+                setInstitutionId(value);
+                setPage(1);
+              }}
+              options={institutions.map((item) => ({
+                label: item.name,
+                value: item.id,
+              }))}
+              value={institutionId}
+            />
+            <StudentFilterSelect
+              label="Turno"
+              onChange={(value) => {
+                setShiftId(value);
+                setPage(1);
+              }}
+              options={shifts.map((item) => ({
+                label: item.name,
+                value: item.id,
+              }))}
+              value={shiftId}
+            />
+            <StudentFilterSelect
+              label="Situacao"
+              onChange={(value) => {
+                setStatusFilter(
+                  (value || "active") as
+                    | "active"
+                    | "suspended"
+                    | "terminated"
+                    | "all",
+                );
+                setPage(1);
+              }}
+              options={[
+                { label: "Ativos", value: "active" },
+                { label: "Suspensos", value: "suspended" },
+                { label: "Desligados", value: "terminated" },
+                { label: "Todos", value: "all" },
+              ]}
+              value={statusFilter}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-4">
+          <div className="flex min-w-0 items-center gap-2 text-sm text-slate-600">
+            <SlidersHorizontal
+              aria-hidden="true"
+              className="shrink-0 text-[#1F6F5F]"
+              size={16}
+              strokeWidth={2}
+            />
+            <span>{resultLabel}</span>
+            {hasActiveFilters ? (
+              <span className="rounded-full border border-[#B8D6CF] bg-[#EEF7F4] px-2 py-1 text-xs font-semibold text-[#14534D]">
+                filtros ativos
+              </span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-slate-600">
             <button
-              className="rounded border border-slate-300 px-3 py-2 disabled:opacity-50"
+              aria-label="Pagina anterior"
+              className={adminTheme.iconButton}
               disabled={page <= 1}
               onClick={() => setPage((current) => Math.max(current - 1, 1))}
               type="button"
             >
-              Anterior
+              <ChevronLeft size={17} strokeWidth={2.2} />
             </button>
-            <span>
+            <span className="min-w-16 text-center font-medium text-slate-700">
               {page}/{totalPages}
             </span>
             <button
-              className="rounded border border-slate-300 px-3 py-2 disabled:opacity-50"
+              aria-label="Proxima pagina"
+              className={adminTheme.iconButton}
               disabled={page >= totalPages}
               onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
               type="button"
             >
-              Proxima
+              <ChevronRight size={17} strokeWidth={2.2} />
             </button>
           </div>
         </div>
+      </section>
 
-        <form
-          className="rounded border border-slate-200 bg-white p-4 shadow-sm"
-          onSubmit={handleCreate}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-slate-950">
-              {selected ? "Ficha do academico" : "Novo academico"}
-            </h2>
-            {selected ? (
-              <button
-                className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
-                onClick={resetForm}
-                type="button"
-              >
-                Novo
-              </button>
-            ) : null}
-          </div>
+      {message ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-800 shadow-sm">
+          {message}
+        </div>
+      ) : null}
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-700 shadow-sm">
+          {error}
+        </div>
+      ) : null}
 
-          {selected ? (
-            <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <p>
-                  <span className="font-medium text-slate-950">Situacao:</span>{" "}
-                  {statusLabel(selected.status)}
-                </p>
-                <p>
-                  <span className="font-medium text-slate-950">Diretoria:</span>{" "}
-                  {selected.activeBoardMembership ? "Ativa" : "Inativa"}
-                </p>
-                <p>
-                  <span className="font-medium text-slate-950">
-                    Fatura futura:
-                  </span>{" "}
-                  {selected.canReceiveFutureInvoices ? "Elegivel" : "Nao elegivel"}
-                </p>
-                <p>
-                  <span className="font-medium text-slate-950">Onibus:</span>{" "}
-                  consulte a matricula abaixo
-                </p>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  className="rounded border border-amber-200 bg-white px-2 py-1 text-xs font-medium text-amber-700 disabled:opacity-50"
-                  disabled={saving || selected.status !== "ACTIVE"}
-                  onClick={() => void handleSuspend()}
-                  type="button"
-                >
-                  Suspender
-                </button>
-                <button
-                  className="rounded border border-emerald-200 bg-white px-2 py-1 text-xs font-medium text-emerald-700 disabled:opacity-50"
-                  disabled={saving || selected.status !== "SUSPENDED"}
-                  onClick={() => void handleReactivate()}
-                  type="button"
-                >
-                  Reativar
-                </button>
-                <button
-                  className="rounded border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-50"
-                  disabled={saving || selected.status === "TERMINATED"}
-                  onClick={() => void handleTerminate()}
-                  type="button"
-                >
-                  Desligar
-                </button>
-                <button
-                  className="rounded border border-emerald-200 bg-white px-2 py-1 text-xs font-medium text-emerald-700 disabled:opacity-50"
-                  disabled={saving || selected.status !== "TERMINATED"}
-                  onClick={() => {
-                    prepareReinstatement(selected);
-                    setReinstateOpen((current) => !current);
-                  }}
-                  type="button"
-                >
-                  Religar academico
-                </button>
-                {selected.activeBoardMembership ? (
-                  <button
-                    className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                    disabled={saving}
-                    onClick={() => void handleEndBoard()}
-                    type="button"
-                  >
-                    Inativar diretoria
-                  </button>
-                ) : (
-                  <button
-                    className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                    disabled={saving || selected.status !== "ACTIVE"}
-                    onClick={() => void handleStartBoard()}
-                    type="button"
-                  >
-                    Adicionar diretoria
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          {selected?.status === "TERMINATED" && reinstateOpen ? (
-            <div
-              className="mt-4 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm"
-            >
-              <div className="grid gap-3">
-                <p className="text-xs text-emerald-900">
-                  O religamento emite nova carteirinha, nao restaura onibus antigo
-                  e preserva faturas, boletos e documentos existentes.
-                </p>
-                <label className="block text-sm font-medium text-slate-700">
-                  Ano Letivo
-                  <select
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    onChange={(event) =>
-                      applyReinstateAcademicYear(event.target.value)
+      <section className={cx(adminTheme.card, "overflow-hidden")}>
+        <div className="hidden lg:block">
+          <table className="w-full table-fixed text-left text-sm">
+            <thead className="border-b border-slate-200/80 bg-[#F8FAFA] text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[28%] px-5 py-3">Academico</th>
+                <th className="w-[24%] px-5 py-3">Instituicao</th>
+                <th className="w-[14%] px-5 py-3">Serie</th>
+                <th className="w-[14%] px-5 py-3">Status</th>
+                <th className="w-[14%] px-5 py-3">Financeiro</th>
+                <th className="w-[6%] px-5 py-3 text-right">Acoes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <StudentTableState colSpan={6} text="Carregando academicos..." />
+              ) : students.length === 0 ? (
+                <StudentTableState
+                  colSpan={6}
+                  text="Nenhum academico encontrado para os filtros atuais."
+                />
+              ) : (
+                students.map((student) => (
+                  <StudentDesktopRow
+                    key={student.id}
+                    onAction={() =>
+                      setMessage("Perfil do academico sera implementado na proxima etapa.")
                     }
-                    value={reinstateEnrollment.academicYearId}
-                  >
-                    <option value="">Selecione</option>
-                    {years.map((year) => (
-                      <option key={year.id} value={year.id}>
-                        {year.year}
-                        {year.isCurrent ? " (atual)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {selected.enrollments.some(
-                  (item) =>
-                    item.academicYear.id === reinstateEnrollment.academicYearId,
-                ) ? (
-                  <div className="rounded border border-emerald-200 bg-white p-3 text-xs text-slate-700">
-                    <p className="font-medium text-slate-950">
-                      Matricula existente sera reutilizada
-                    </p>
-                    <p>
-                      {
-                        selected.enrollments.find(
-                          (item) =>
-                            item.academicYear.id ===
-                            reinstateEnrollment.academicYearId,
-                        )?.institution.name
-                      }{" "}
-                      /{" "}
-                      {
-                        selected.enrollments.find(
-                          (item) =>
-                            item.academicYear.id ===
-                            reinstateEnrollment.academicYearId,
-                        )?.shift.name
-                      }
-                    </p>
-                    <p>
-                      {
-                        selected.enrollments.find(
-                          (item) =>
-                            item.academicYear.id ===
-                            reinstateEnrollment.academicYearId,
-                        )?.course
-                      }{" "}
-                      -{" "}
-                      {
-                        selected.enrollments.find(
-                          (item) =>
-                            item.academicYear.id ===
-                            reinstateEnrollment.academicYearId,
-                        )?.grade
-                      }
-                    </p>
-                  </div>
-                ) : (
-                  <EnrollmentFields
-                    enrollment={reinstateEnrollment}
-                    institutions={institutions}
-                    setEnrollment={setReinstateEnrollment}
-                    shifts={shifts}
-                    years={years}
+                    student={student}
                   />
-                )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
-                <label className="block text-sm font-medium text-slate-700">
-                  Onibus opcional
-                  <select
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    disabled={
-                      reinstateBusesLoading || !reinstateEnrollment.academicYearId
-                    }
-                    onChange={(event) => setReinstateBusId(event.target.value)}
-                    value={reinstateBusId}
-                  >
-                    <option value="">
-                      {reinstateBusesLoading
-                        ? "Carregando onibus..."
-                        : "Religar sem onibus"}
-                    </option>
-                    {reinstateBuses.map((bus) => (
-                      <option key={bus.id} value={bus.id}>
-                        {bus.name} - {bus.availableSeats ?? bus.capacity}/
-                        {bus.capacity} vagas
-                      </option>
-                    ))}
-                  </select>
-                  {!reinstateBusesLoading &&
-                  reinstateEnrollment.academicYearId &&
-                  reinstateBuses.length === 0 &&
-                  !reinstateBusesError ? (
-                    <span className="mt-1 block text-xs text-slate-500">
-                      Nenhum onibus com vaga disponivel
-                    </span>
-                  ) : null}
-                  {reinstateBusesError ? (
-                    <span className="mt-1 block text-xs text-red-700">
-                      {reinstateBusesError}
-                    </span>
-                  ) : null}
-                </label>
-
-                <label className="block text-sm font-medium text-slate-700">
-                  Motivo obrigatorio
-                  <textarea
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    maxLength={500}
-                    minLength={3}
-                    onChange={(event) => setReinstateReason(event.target.value)}
-                    required
-                    value={reinstateReason}
-                  />
-                </label>
-                <label className="block text-sm font-medium text-slate-700">
-                  Observacao opcional
-                  <textarea
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    maxLength={500}
-                    onChange={(event) => setReinstateNote(event.target.value)}
-                    value={reinstateNote}
-                  />
-                </label>
-                <button
-                  className="rounded bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                  disabled={saving}
-                  onClick={() => void handleReinstate()}
-                  type="button"
-                >
-                  {saving ? "Religando..." : "Confirmar religamento"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <PersonFields person={person} setPerson={setPerson} />
-          <GuardianFields guardian={guardian} setGuardian={setGuardian} />
-          <EnrollmentFields
-            enrollment={enrollment}
-            institutions={institutions}
-            setEnrollment={setEnrollment}
-            shifts={shifts}
-            years={years}
-          />
-
-          {!selected ? (
-            <label className="mt-3 block text-sm font-medium text-slate-700">
-              Onibus opcional
-              <select
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                disabled={createBusesLoading || !enrollment.academicYearId}
-                onChange={(event) => setCreateBusId(event.target.value)}
-                value={createBusId}
-              >
-                <option value="">
-                  {createBusesLoading
-                    ? "Carregando onibus..."
-                    : enrollment.academicYearId
-                      ? "Sem onibus no cadastro"
-                      : "Selecione o ano letivo primeiro"}
-                </option>
-                {createBuses.map((bus) => (
-                  <option key={bus.id} value={bus.id}>
-                    {bus.name} - {bus.availableSeats ?? bus.capacity}/
-                    {bus.capacity} vagas
-                  </option>
-                ))}
-              </select>
-              {!createBusesLoading &&
-              enrollment.academicYearId &&
-              createBuses.length === 0 &&
-              !createBusesError ? (
-                <span className="mt-1 block text-xs text-slate-500">
-                  Nenhum onibus com vaga disponivel
-                </span>
-              ) : null}
-              {createBusesError ? (
-                <span className="mt-1 block text-xs text-red-700">
-                  {createBusesError}
-                </span>
-              ) : null}
-            </label>
-          ) : null}
-
-          {selected ? (
-            <div className="mt-5 grid gap-2 sm:grid-cols-3">
-              <button
-                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                disabled={saving}
-                onClick={() => void handleUpdatePerson()}
-                type="button"
-              >
-                Salvar dados
-              </button>
-              <button
-                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                disabled={saving}
-                onClick={() => void handleUpdateGuardian()}
-                type="button"
-              >
-                Salvar responsavel
-              </button>
-              <button
-                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                disabled={saving}
-                onClick={() => void handleUpdateEnrollment()}
-                type="button"
-              >
-                Salvar matricula
-              </button>
-            </div>
+        <div className="grid gap-3 p-3 lg:hidden">
+          {loading ? (
+            <StudentMobileState text="Carregando academicos..." />
+          ) : students.length === 0 ? (
+            <StudentMobileState text="Nenhum academico encontrado para os filtros atuais." />
           ) : (
-            <button
-              className="mt-5 rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-              disabled={saving}
-              type="submit"
-            >
-              {saving ? "Salvando..." : "Criar academico"}
-            </button>
+            students.map((student) => (
+              <StudentMobileCard
+                key={student.id}
+                onAction={() =>
+                  setMessage("Perfil do academico sera implementado na proxima etapa.")
+                }
+                student={student}
+              />
+            ))
           )}
+        </div>
+      </section>
+    </div>
+  );
+}
 
-          {selected ? (
-            <>
-              <StudentEnrollments
-                enrollments={selected.enrollments}
-                onChanged={async () => {
-                  const detail = await api.getStudent(selected.id);
-                  setSelected(detail);
-                  await loadStudents();
-                }}
-              />
-              <StudentPhoto
-                onChanged={async () => {
-                  await refreshSelected(selected.id);
-                }}
-                studentId={selected.id}
-              />
-              <StudentCardsForStudent
-                student={selected}
-                user={user}
-                onChanged={async () => {
-                  await refreshSelected(selected.id);
-                }}
-              />
-              <StudentInvoicesForStudent
-                student={selected}
-                user={user}
-                onChanged={async () => {
-                  await refreshSelected(selected.id);
-                }}
-              />
-              <StudentDocuments studentId={selected.id} />
-              <StudentHistory events={history} />
-            </>
-          ) : null}
-        </form>
+function StudentDesktopRow({
+  onAction,
+  student,
+}: {
+  onAction: () => void;
+  student: StudentSummary;
+}) {
+  const enrollment = student.currentEnrollment;
+  return (
+    <tr className="group bg-white transition-colors duration-150 hover:bg-[#F8FAFA] motion-reduce:transition-none">
+      <td className="px-5 py-4">
+        <StudentIdentity student={student} />
+      </td>
+      <td className="px-5 py-4">
+        <p className="truncate font-semibold text-slate-900">
+          {enrollment?.institution.name ?? "Sem instituicao"}
+        </p>
+        <p className="mt-1 truncate text-xs text-slate-500">
+          {compactJoin([enrollment?.course, enrollment?.shift.name]) || "Sem curso"}
+        </p>
+      </td>
+      <td className="px-5 py-4">
+        <p className="font-semibold text-slate-900">{enrollment?.grade ?? "-"}</p>
+        <p className="mt-1 text-xs text-slate-500">
+          {enrollment?.academicYear.year
+            ? `Ano ${enrollment.academicYear.year}`
+            : "Sem ano letivo"}
+        </p>
+      </td>
+      <td className="px-5 py-4">
+        <ModernStatusBadge status={student.status} />
+        {student.activeBoardMembership ? (
+          <p className="mt-2 text-xs font-medium text-[#14534D]">Diretoria ativa</p>
+        ) : null}
+      </td>
+      <td className="px-5 py-4">
+        <FinanceSummary eligible={student.canReceiveFutureInvoices} />
+      </td>
+      <td className="px-5 py-4 text-right">
+        <button
+          aria-label={`Acoes de ${student.person.fullName}`}
+          className={adminTheme.iconButton}
+          onClick={onAction}
+          type="button"
+        >
+          <MoreVertical size={17} strokeWidth={2.2} />
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function StudentMobileCard({
+  onAction,
+  student,
+}: {
+  onAction: () => void;
+  student: StudentSummary;
+}) {
+  const enrollment = student.currentEnrollment;
+  return (
+    <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <StudentIdentity student={student} />
+        <button
+          aria-label={`Acoes de ${student.person.fullName}`}
+          className={adminTheme.iconButton}
+          onClick={onAction}
+          type="button"
+        >
+          <MoreVertical size={17} strokeWidth={2.2} />
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 rounded-lg border border-slate-200/80 bg-[#F8FAFA] p-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+            Instituicao
+          </p>
+          <p className="mt-1 font-semibold text-slate-900">
+            {enrollment?.institution.name ?? "Sem instituicao"}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {compactJoin([enrollment?.course, enrollment?.shift.name]) || "Sem curso"}
+          </p>
+        </div>
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <ModernStatusBadge status={student.status} />
+          <FinanceSummary eligible={student.canReceiveFutureInvoices} compact />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function StudentIdentity({ student }: { student: StudentSummary }) {
+  return (
+    <div className="flex min-w-0 flex-1 items-start gap-3">
+      <span
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF7F4] text-[#14534D] ring-1 ring-[#D8E9E4]"
+        aria-hidden="true"
+      >
+        <UserRound size={18} strokeWidth={2} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-semibold text-slate-950">
+          {student.person.fullName}
+        </p>
+        <p className="mt-1 truncate text-xs text-slate-500">
+          Carteirinha {student.currentStudentCard?.cardNumber ?? "nao emitida"}
+        </p>
       </div>
     </div>
   );
+}
+
+function FinanceSummary({
+  compact = false,
+  eligible,
+}: {
+  compact?: boolean;
+  eligible: boolean;
+}) {
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        eligible
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "border-amber-200 bg-amber-50 text-amber-800",
+      )}
+    >
+      <CircleDollarSign size={compact ? 13 : 14} strokeWidth={2.2} />
+      {eligible ? "Elegivel" : "Bloqueado"}
+    </span>
+  );
+}
+
+function ModernStatusBadge({ status }: { status: StudentSummary["status"] }) {
+  const classes =
+    status === "ACTIVE"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : status === "SUSPENDED"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : "border-red-200 bg-red-50 text-red-800";
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        classes,
+      )}
+    >
+      <BadgeCheck size={14} strokeWidth={2.2} />
+      {statusLabel(status)}
+    </span>
+  );
+}
+
+function StudentFilterSelect({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  return (
+    <label className="min-w-0">
+      <span className="sr-only">{label}</span>
+      <select
+        aria-label={label}
+        className={cx(adminTheme.control, "w-full")}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        <option value="">{label}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function StudentTableState({
+  colSpan,
+  text,
+}: {
+  colSpan: number;
+  text: string;
+}) {
+  return (
+    <tr>
+      <td className="px-5 py-10 text-center text-sm text-slate-500" colSpan={colSpan}>
+        {text}
+      </td>
+    </tr>
+  );
+}
+
+function StudentMobileState({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-[#F8FAFA] px-4 py-8 text-center text-sm text-slate-500">
+      {text}
+    </div>
+  );
+}
+
+function compactJoin(values: Array<string | null | undefined>) {
+  return values.filter(Boolean).join(" • ");
 }
 
 export function ReenrollmentsPanel() {
