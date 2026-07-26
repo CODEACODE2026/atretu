@@ -40,6 +40,7 @@ import {
 import { StudentInvoicesForStudent } from "./finance-panel";
 import { adminTheme, cx } from "./admin-theme";
 import { StudentCardsForStudent } from "./student-cards-panel";
+import { StudentCreateView } from "./students/student-create-view";
 
 const emptyPerson: StudentPayload["person"] = {
   fullName: "",
@@ -66,6 +67,7 @@ const emptyEnrollment: StudentPayload["enrollment"] = {
 };
 
 export function StudentsPanel({ user }: { user: ApiUser }) {
+  const [view, setView] = useState<"list" | "create">("list");
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
@@ -684,6 +686,29 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     search || academicYearId || institutionId || shiftId || statusFilter !== "active",
   );
 
+  async function handleCreated() {
+    setView("list");
+    setMessage("Academico cadastrado com sucesso.");
+    setError("");
+    if (page !== 1) {
+      setPage(1);
+      return;
+    }
+    await loadStudents();
+  }
+
+  if (view === "create") {
+    return (
+      <StudentCreateView
+        institutions={institutions}
+        onCancel={() => setView("list")}
+        onCreated={handleCreated}
+        shifts={shifts}
+        years={years}
+      />
+    );
+  }
+
   return (
     <div className="grid gap-5">
       <section
@@ -722,9 +747,11 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
           </div>
           <button
             className={adminTheme.primaryButton}
-            onClick={() =>
-              setMessage("Cadastro dedicado sera implementado na proxima etapa.")
-            }
+            onClick={() => {
+              setMessage("");
+              setError("");
+              setView("create");
+            }}
             type="button"
           >
             <Plus size={17} strokeWidth={2.2} />
