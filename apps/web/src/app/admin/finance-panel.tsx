@@ -1500,6 +1500,10 @@ export function StudentInvoicesForStudent({
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const issueBankSlipInFlightRef = useRef("");
+  const [dialog, setDialog] = useState<{
+    invoice: InvoiceRecord;
+    mode: "cancel-invoice" | "issue-slip" | "cancel-slip";
+  } | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -1599,16 +1603,15 @@ export function StudentInvoicesForStudent({
     }
   }
 
-  async function handleCancel(invoice: InvoiceRecord) {
-    const reason = promptOption(
-      "Selecione o motivo do cancelamento da fatura:",
-      invoiceCancellationOptions,
-    );
+  async function handleCancel(
+    invoice: InvoiceRecord,
+    reason: InvoiceCancellationReason,
+    note: string,
+  ) {
     if (!reason) {
       setError("Selecione um motivo valido para cancelar a fatura.");
       return;
     }
-    const note = window.prompt("Observacao opcional") ?? undefined;
     setSaving(true);
     setMessage("");
     setError("");
@@ -1620,6 +1623,7 @@ export function StudentInvoicesForStudent({
       setMessage("Fatura cancelada");
       await loadInvoices();
       await onChanged();
+      setDialog(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao cancelar");
     } finally {
@@ -1632,23 +1636,17 @@ export function StudentInvoicesForStudent({
       return;
     }
     issueBankSlipInFlightRef.current = invoice.id;
+    setSaving(true);
+    setMessage("");
+    setError("");
     try {
-      if (
-        !window.confirm(
-          `Emitir boleto NORMAL sem juros, multa, desconto, QR Code ou Pix?\nValor: ${invoice.amountFormatted}\nVencimento: ${formatDate(invoice.dueDate)}\nPagador: ${invoice.student.person.fullName}`,
-        )
-      ) {
-        return;
-      }
-      setSaving(true);
-      setMessage("");
-      setError("");
       const bankSlip = await api.issueInvoiceBankSlip(invoice.id);
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
       setMessage("Boleto emitido");
       await loadInvoices();
       await onChanged();
+      setDialog(null);
     } catch (caught) {
       const text = caught instanceof Error ? caught.message : "Erro ao emitir boleto";
       setError(
@@ -1682,21 +1680,13 @@ export function StudentInvoicesForStudent({
     }
   }
 
-  async function handleCancelBankSlip(invoice: InvoiceRecord) {
-    const reason = promptOption(
-      "Selecione o motivo da solicitacao de baixa do boleto:",
-      invoiceCancellationOptions,
-    );
+  async function handleCancelBankSlip(
+    invoice: InvoiceRecord,
+    reason: InvoiceCancellationReason,
+    note: string,
+  ) {
     if (!reason) {
       setError("Selecione um motivo valido para solicitar a baixa do boleto.");
-      return;
-    }
-    const note = window.prompt("Observacao opcional") ?? undefined;
-    if (
-      !window.confirm(
-        "Solicitar baixa do boleto?\n\nO pedido sera registrado para o Sicredi, a baixa nao e imediata e a fatura so sera cancelada apos confirmacao bancaria.",
-      )
-    ) {
       return;
     }
     setSaving(true);
@@ -1710,6 +1700,7 @@ export function StudentInvoicesForStudent({
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
       setMessage("Baixa solicitada. Aguarde confirmacao bancaria.");
+      setDialog(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao solicitar baixa");
     } finally {
@@ -1786,10 +1777,10 @@ export function StudentInvoicesForStudent({
                 bankSlip={bankSlip}
                 busy={saving}
                 invoice={invoice}
-                onCancelInvoice={() => void handleCancel(invoice)}
-                onCancelSlip={() => void handleCancelBankSlip(invoice)}
+                onCancelInvoice={() => setDialog({ invoice, mode: "cancel-invoice" })}
+                onCancelSlip={() => setDialog({ invoice, mode: "cancel-slip" })}
                 onCopy={() => void handleCopyLinhaDigitavel(invoice.id)}
-                onIssue={() => void handleIssueBankSlip(invoice)}
+                onIssue={() => setDialog({ invoice, mode: "issue-slip" })}
                 onPdf={() => void handleDownloadPdf(invoice)}
                 onSync={() => void handleSyncBankSlip(invoice)}
                 onToggleDetails={() => void toggleBankSlipDetails(invoice)}
@@ -1798,7 +1789,7 @@ export function StudentInvoicesForStudent({
                 <button
                   className="mt-2 rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
                   disabled={saving}
-                  onClick={() => void handleCancel(invoice)}
+                  onClick={() => setDialog({ invoice, mode: "cancel-invoice" })}
                   type="button"
                 >
                   Cancelar
@@ -1869,6 +1860,132 @@ export function StudentInvoicesForStudent({
       </div>
       {message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}
       {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
+      {dialog ? (
+        <StudentFinanceActionDialog
+          invoice={dialog.invoice}
+          mode={dialog.mode}
+          onClose={() => setDialog(null)}
+          onConfirm={(reason, note) => {
+            if (dialog.mode === "cancel-invoice") {
+              void handleCancel(dialog.invoice, reason, note);
+            } else if (dialog.mode === "cancel-slip") {
+              void handleCancelBankSlip(dialog.invoice, reason, note);
+            } else {
+              void handleIssueBankSlip(dialog.invoice);
+            }
+          }}
+          saving={saving}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function StudentFinanceActionDialog({
+  invoice,
+  mode,
+  onClose,
+  onConfirm,
+  saving,
+}: {
+  invoice: InvoiceRecord;
+  mode: "cancel-invoice" | "issue-slip" | "cancel-slip";
+  onClose: () => void;
+  onConfirm: (reason: InvoiceCancellationReason, note: string) => void;
+  saving: boolean;
+}) {
+  const [reason, setReason] = useState<InvoiceCancellationReason>(
+    invoiceCancellationOptions[0]!.value,
+  );
+  const [note, setNote] = useState("");
+  const needsReason = mode !== "issue-slip";
+  const title =
+    mode === "cancel-invoice"
+      ? "Cancelar fatura"
+      : mode === "cancel-slip"
+        ? "Solicitar baixa do boleto"
+        : "Emitir boleto";
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 px-4 py-6">
+      <section className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-normal text-[#1F6F5F]">
+              Financeiro
+            </p>
+            <h2 className="mt-1 text-xl font-bold text-slate-950">{title}</h2>
+          </div>
+          <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60" disabled={saving} onClick={onClose} type="button">
+            Fechar
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <p className="font-semibold text-slate-950">{invoice.student.person.fullName}</p>
+          <p>Valor: {invoice.amountFormatted}</p>
+          <p>Vencimento: {formatDate(invoice.dueDate)}</p>
+          {mode === "issue-slip" ? (
+            <p className="mt-2 text-amber-800">
+              O boleto sera emitido sem juros, multa, desconto, QR Code ou Pix,
+              preservando a regra financeira atual.
+            </p>
+          ) : null}
+          {mode === "cancel-slip" ? (
+            <p className="mt-2 text-amber-800">
+              O pedido sera registrado para o Sicredi. A baixa nao e imediata e a
+              fatura so sera cancelada apos confirmacao bancaria.
+            </p>
+          ) : null}
+        </div>
+
+        {needsReason ? (
+          <label className="mt-4 block text-sm font-semibold text-slate-700">
+            Motivo
+            <select
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+              disabled={saving}
+              onChange={(event) =>
+                setReason(event.target.value as InvoiceCancellationReason)
+              }
+              value={reason}
+            >
+              {invoiceCancellationOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {needsReason ? (
+          <label className="mt-3 block text-sm font-semibold text-slate-700">
+            Observacao opcional
+            <textarea
+              className="mt-1 min-h-24 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+              disabled={saving}
+              maxLength={300}
+              onChange={(event) => setNote(event.target.value)}
+              value={note}
+            />
+          </label>
+        ) : null}
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60" disabled={saving} onClick={onClose} type="button">
+            Cancelar
+          </button>
+          <button
+            className="rounded-lg bg-[#0F2E2E] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            disabled={saving || (needsReason && !reason)}
+            onClick={() => onConfirm(reason, note)}
+            type="button"
+          >
+            {saving ? "Executando..." : "Confirmar"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

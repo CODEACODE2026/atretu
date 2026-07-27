@@ -1,0 +1,97 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { StudentHistoryEvent } from "../../../lib/api";
+import { api } from "../../../lib/api";
+import { adminTheme, cx } from "../admin-theme";
+import {
+  formatDateTime,
+  historyEventLabel,
+  reasonLabel,
+  terminationLabel,
+} from "./student-profile-utils";
+
+export function StudentHistoryTab({ studentId }: { studentId: string }) {
+  const [events, setEvents] = useState<StudentHistoryEvent[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void loadHistory();
+  }, [studentId]);
+
+  async function loadHistory() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.listStudentHistory(studentId);
+      setEvents(response.data);
+      setLoaded(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao carregar historico");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className={cx(adminTheme.card, "p-5")}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">
+            Historico funcional
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Eventos operacionais registrados para este academico.
+          </p>
+        </div>
+        <button className={adminTheme.secondaryButton} disabled={loading} onClick={() => void loadHistory()} type="button">
+          Atualizar
+        </button>
+      </div>
+      {error ? (
+        <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+      <div className="mt-4 grid gap-3">
+        {loading && !loaded ? (
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            Carregando historico...
+          </p>
+        ) : events.length === 0 ? (
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            Nenhum evento funcional registrado.
+          </p>
+        ) : (
+          events.map((event) => <HistoryItem event={event} key={event.id} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function HistoryItem({ event }: { event: StudentHistoryEvent }) {
+  return (
+    <article className={cx(adminTheme.softPanel, "p-4")}>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="font-semibold text-slate-950">
+          {historyEventLabel(event.eventType)}
+        </p>
+        <span className="text-sm text-slate-500">
+          {formatDateTime(event.occurredAt)}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-1 text-sm text-slate-600">
+        {event.suspensionReason ? <p>Motivo: {reasonLabel(event.suspensionReason)}</p> : null}
+        {event.terminationReason ? <p>Tipo: {terminationLabel(event.terminationReason)}</p> : null}
+        {event.justification ? <p>Observacao: {event.justification}</p> : null}
+        {event.busSeatReleased !== null && event.busSeatReleased !== undefined ? (
+          <p>Vaga de onibus: {event.busSeatReleased ? "liberada" : "mantida"}</p>
+        ) : null}
+        {event.bus ? <p>Onibus: {event.bus.name}</p> : null}
+      </div>
+    </article>
+  );
+}

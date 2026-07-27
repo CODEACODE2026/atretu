@@ -11,13 +11,13 @@ assert.equal(
 );
 
 const guardedHandlers = source.match(
-  /async function handleIssueBankSlip\(invoice: InvoiceRecord\) \{[\s\S]*?if \(issueBankSlipInFlightRef\.current\) \{[\s\S]*?return;[\s\S]*?issueBankSlipInFlightRef\.current = invoice\.id;[\s\S]*?window\.confirm[\s\S]*?api\.issueInvoiceBankSlip\(invoice\.id\)[\s\S]*?finally \{[\s\S]*?issueBankSlipInFlightRef\.current = "";[\s\S]*?\n  \}/g,
+  /async function handleIssueBankSlip\(invoice: InvoiceRecord\) \{[\s\S]*?if \(issueBankSlipInFlightRef\.current\) \{[\s\S]*?return;[\s\S]*?issueBankSlipInFlightRef\.current = invoice\.id;[\s\S]*?api\.issueInvoiceBankSlip\(invoice\.id\)[\s\S]*?finally \{[\s\S]*?issueBankSlipInFlightRef\.current = "";[\s\S]*?\n  \}/g,
 ) ?? [];
 
 assert.equal(
   guardedHandlers.length,
   2,
-  "Finance issue handlers must guard before confirm/fetch and release in finally",
+  "Finance issue handlers must guard before fetch and release in finally",
 );
 
 assert.match(

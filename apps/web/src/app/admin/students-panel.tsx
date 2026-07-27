@@ -41,6 +41,7 @@ import { StudentInvoicesForStudent } from "./finance-panel";
 import { adminTheme, cx } from "./admin-theme";
 import { StudentCardsForStudent } from "./student-cards-panel";
 import { StudentCreateView } from "./students/student-create-view";
+import { StudentProfileView } from "./students/student-profile-view";
 
 const emptyPerson: StudentPayload["person"] = {
   fullName: "",
@@ -67,7 +68,8 @@ const emptyEnrollment: StudentPayload["enrollment"] = {
 };
 
 export function StudentsPanel({ user }: { user: ApiUser }) {
-  const [view, setView] = useState<"list" | "create">("list");
+  const [view, setView] = useState<"list" | "create" | "profile">("list");
+  const [profileStudentId, setProfileStudentId] = useState("");
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
@@ -179,6 +181,16 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function clearListFilters() {
+    setSearch("");
+    setAcademicYearId("");
+    setInstitutionId("");
+    setShiftId("");
+    setStatusFilter("active");
+    setPage(1);
+    void loadStudents("");
   }
 
   async function loadCreateBuses(nextAcademicYearId: string) {
@@ -697,6 +709,10 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
     await loadStudents();
   }
 
+  async function handleProfileChanged() {
+    await loadStudents();
+  }
+
   if (view === "create") {
     return (
       <StudentCreateView
@@ -704,6 +720,23 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
         onCancel={() => setView("list")}
         onCreated={handleCreated}
         shifts={shifts}
+        years={years}
+      />
+    );
+  }
+
+  if (view === "profile" && profileStudentId) {
+    return (
+      <StudentProfileView
+        institutions={institutions}
+        onBack={() => {
+          setView("list");
+          setProfileStudentId("");
+        }}
+        onChanged={handleProfileChanged}
+        shifts={shifts}
+        studentId={profileStudentId}
+        user={user}
         years={years}
       />
     );
@@ -760,17 +793,17 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
         </div>
       </section>
 
-      <section className={cx(adminTheme.card, "grid gap-4 p-4 sm:p-5")}>
+      <section className={cx(adminTheme.card, "relative z-0 grid gap-4 p-4 sm:p-5")}>
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <form
-            className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row"
+            className="relative z-10 flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-end"
             onSubmit={(event) => {
               event.preventDefault();
               setPage(1);
               void loadStudents(search);
             }}
           >
-            <label className="relative min-w-0 flex-1">
+            <label className="relative block min-w-0 flex-1">
               <span className="sr-only">Buscar academico</span>
               <Search
                 aria-hidden="true"
@@ -786,8 +819,15 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
                 value={search}
               />
             </label>
-            <button className={adminTheme.secondaryButton} type="submit">
+            <button className={cx(adminTheme.secondaryButton, "relative z-20 shrink-0 justify-center")} type="submit">
               Buscar
+            </button>
+            <button
+              className={cx(adminTheme.secondaryButton, "relative z-20 shrink-0 justify-center")}
+              onClick={clearListFilters}
+              type="button"
+            >
+              Limpar
             </button>
           </form>
 
@@ -928,9 +968,12 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
                 students.map((student) => (
                   <StudentDesktopRow
                     key={student.id}
-                    onAction={() =>
-                      setMessage("Perfil do academico sera implementado na proxima etapa.")
-                    }
+                    onAction={() => {
+                      setMessage("");
+                      setError("");
+                      setProfileStudentId(student.id);
+                      setView("profile");
+                    }}
                     student={student}
                   />
                 ))
@@ -948,9 +991,12 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
             students.map((student) => (
               <StudentMobileCard
                 key={student.id}
-                onAction={() =>
-                  setMessage("Perfil do academico sera implementado na proxima etapa.")
-                }
+                onAction={() => {
+                  setMessage("");
+                  setError("");
+                  setProfileStudentId(student.id);
+                  setView("profile");
+                }}
                 student={student}
               />
             ))

@@ -568,10 +568,12 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
 }
 
 export function StudentCardsForStudent({
+  disableInvalidation = false,
   student,
   user,
   onChanged,
 }: {
+  disableInvalidation?: boolean;
   student: StudentDetail;
   user: ApiUser;
   onChanged: () => Promise<void>;
@@ -765,7 +767,7 @@ export function StudentCardsForStudent({
                 >
                   {pdfBusyId === `${card.id}:print` ? "Abrindo..." : "Imprimir"}
                 </button>
-                {card.status === "ACTIVE" ? (
+                {card.status === "ACTIVE" && !disableInvalidation ? (
                   <button
                     className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
                     disabled={saving}

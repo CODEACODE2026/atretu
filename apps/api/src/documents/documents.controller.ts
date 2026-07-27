@@ -92,7 +92,7 @@ export class DocumentsController {
     @Param("documentId") documentId: string,
     @Query() query: DownloadStudentDocumentDto,
     @CurrentUser() user: AuthUser,
-    @Res({ passthrough: true }) response: Response,
+    @Res() response: Response,
   ) {
     const file = await this.documents.getDocumentFile(
       studentId,
@@ -111,7 +111,7 @@ export class DocumentsController {
     response.setHeader("Pragma", "no-cache");
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("Content-Security-Policy", "default-src 'none'");
-    return file.buffer;
+    return response.send(file.buffer);
   }
 
   @Patch(":documentId/remove")
