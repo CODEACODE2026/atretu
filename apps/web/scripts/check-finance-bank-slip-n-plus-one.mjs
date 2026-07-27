@@ -8,7 +8,7 @@ const source = readFileSync(
 
 assertIncludes("bankSlipSummary", "Finance views must consume bankSlipSummary");
 assertIncludes("mergeBankSlipSummaries(response.data", "Invoice lists must hydrate bank slip summaries from the list response");
-assertIncludes('UNKNOWN: "Situacao incerta"', "UNKNOWN BankSlip status must remain visible as Situacao incerta");
+assertIncludes('UNKNOWN: "Situação incerta"', "UNKNOWN BankSlip status must remain visible as Situação incerta");
 assertIncludes("api.getInvoiceBankSlip(invoice.id)", "Full BankSlip detail must stay available on demand");
 
 const loadInvoicesBlocks = source.match(/async function loadInvoices\([^]*?\n  \}/g) ?? [];

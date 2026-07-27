@@ -2,6 +2,17 @@
 
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Banknote,
+  CalendarDays,
+  Download,
+  Eye,
+  FileText,
+  Plus,
+  RefreshCw,
+  Search,
+  XCircle,
+} from "lucide-react";
+import {
   api,
   type AcademicYear,
   type ApiUser,
@@ -22,6 +33,7 @@ import {
 import { canAccessRestrictedAdmin } from "../../lib/auth";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
+import { adminTheme, cx } from "./admin-theme";
 import { CollectionsPanel } from "./collections-panel";
 
 type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
@@ -1498,6 +1510,8 @@ export function StudentInvoicesForStudent({
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState(todayDate());
   const [description, setDescription] = useState("");
+  const [createFormOpen, setCreateFormOpen] = useState(false);
+  const [loadingInvoices, setLoadingInvoices] = useState(true);
   const [saving, setSaving] = useState(false);
   const issueBankSlipInFlightRef = useRef("");
   const [dialog, setDialog] = useState<{
@@ -1513,12 +1527,15 @@ export function StudentInvoicesForStudent({
 
   async function loadInvoices() {
     setError("");
+    setLoadingInvoices(true);
     try {
       const response = await api.listInvoicesForStudent(student.id);
       setInvoices(response.data);
       setBankSlips((current) => mergeBankSlipSummaries(response.data, current));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar faturas");
+    } finally {
+      setLoadingInvoices(false);
     }
   }
 
@@ -1555,7 +1572,7 @@ export function StudentInvoicesForStudent({
 
   async function handlePreview() {
     if (!enrollmentId) {
-      setError("Selecione uma matricula");
+      setError("Selecione uma matrícula");
       return;
     }
     setError("");
@@ -1563,20 +1580,20 @@ export function StudentInvoicesForStudent({
       const response = await api.previewInvoice(student.id, { enrollmentId });
       setPreview(response);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro no preview");
+      setError(caught instanceof Error ? caught.message : "Erro ao visualizar prévia");
     }
   }
 
   async function handleCreate() {
     if (!enrollmentId) {
-      setError("Selecione uma matricula");
+      setError("Selecione uma matrícula");
       return;
     }
     let amountCents: number;
     try {
       amountCents = parseMoneyToCents(amount);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Valor invalido");
+      setError(caught instanceof Error ? caught.message : "Valor inválido");
       return;
     }
     setSaving(true);
@@ -1594,6 +1611,7 @@ export function StudentInvoicesForStudent({
       setAmount("");
       setDescription("");
       setPreview(null);
+      setCreateFormOpen(false);
       await loadInvoices();
       await onChanged();
     } catch (caught) {
@@ -1609,7 +1627,7 @@ export function StudentInvoicesForStudent({
     note: string,
   ) {
     if (!reason) {
-      setError("Selecione um motivo valido para cancelar a fatura.");
+      setError("Selecione um motivo válido para cancelar a fatura.");
       return;
     }
     setSaving(true);
@@ -1686,7 +1704,7 @@ export function StudentInvoicesForStudent({
     note: string,
   ) {
     if (!reason) {
-      setError("Selecione um motivo valido para solicitar a baixa do boleto.");
+      setError("Selecione um motivo válido para solicitar a baixa do boleto.");
       return;
     }
     setSaving(true);
@@ -1699,7 +1717,7 @@ export function StudentInvoicesForStudent({
       });
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
-      setMessage("Baixa solicitada. Aguarde confirmacao bancaria.");
+      setMessage("Baixa solicitada. Aguarde confirmação bancária.");
       setDialog(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao solicitar baixa");
@@ -1722,7 +1740,7 @@ export function StudentInvoicesForStudent({
       URL.revokeObjectURL(url);
       setMessage("PDF do boleto baixado");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "PDF indisponivel");
+      setError(caught instanceof Error ? caught.message : "PDF indisponível");
     } finally {
       setSaving(false);
     }
@@ -1736,46 +1754,244 @@ export function StudentInvoicesForStudent({
     }
     try {
       await navigator.clipboard.writeText(line);
-      setMessage("Linha digitavel copiada");
+      setMessage("Linha digitável copiada");
     } catch {
-      setError("Nao foi possivel copiar a linha digitavel");
+      setError("Não foi possível copiar a linha digitável");
     }
   }
 
+  const summary = useMemo(() => studentFinanceSummary(invoices), [invoices]);
+  const amountCents = parseMoneyToCentsSafe(amount);
+  const hasEligibleEnrollment = student.enrollments.length > 0;
+  const isCreateFormValid =
+    Boolean(enrollmentId) && typeof amountCents === "number" && amountCents > 0 && Boolean(dueDate);
+  const selectedEnrollment = student.enrollments.find(
+    (enrollment) => enrollment.id === enrollmentId,
+  );
+  const dueDateLabel = dueDate ? formatDate(dueDate) : "";
+
   return (
-    <div className="mt-5 border-t border-slate-200 pt-4">
-      <h3 className="text-sm font-semibold text-slate-950">Faturas</h3>
-      <div className="mt-3 grid gap-2">
-        {invoices.length === 0 ? (
-          <p className="rounded border border-slate-200 p-3 text-sm text-slate-500">
-            Nenhuma fatura criada
+    <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Financeiro do acadêmico</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Faturas, boletos e situação financeira vinculados às matrículas.
           </p>
+        </div>
+        <button
+          className={adminTheme.primaryButton}
+          onClick={() => {
+            setCreateFormOpen((current) => !current);
+            setPreview(null);
+          }}
+          type="button"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {createFormOpen ? "Fechar formulário" : "Nova fatura"}
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <StudentFinanceSummaryItem
+          label="Total em aberto"
+          tone="open"
+          value={formatCents(summary.openAmountCents)}
+        />
+        <StudentFinanceSummaryItem
+          label="Total vencido"
+          tone="overdue"
+          value={formatCents(summary.overdueAmountCents)}
+        />
+        <StudentFinanceSummaryItem
+          label="Total pago"
+          tone="paid"
+          value={formatCents(summary.paidAmountCents)}
+        />
+        <StudentFinanceSummaryItem
+          label="Faturas"
+          tone="neutral"
+          value={String(summary.totalInvoices)}
+        />
+        <StudentFinanceSummaryItem
+          label="Situação financeira"
+          tone={summary.overdueAmountCents > 0 ? "overdue" : "neutral"}
+          value={summary.situation}
+        />
+      </div>
+
+      {createFormOpen ? (
+        <div className={cx(adminTheme.card, "p-4")}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-950">Criar nova fatura</h4>
+              <p className="mt-1 text-xs text-slate-500">
+                Informe os dados da cobrança antes de visualizar a prévia.
+              </p>
+            </div>
+            {!hasEligibleEnrollment ? (
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                Nenhuma matrícula elegível
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Matrícula/ano letivo
+              <select
+                className={adminTheme.control}
+                onChange={(event) => {
+                  setEnrollmentId(event.target.value);
+                  setPreview(null);
+                }}
+                value={enrollmentId}
+              >
+                <option value="">Selecione uma matrícula</option>
+                {student.enrollments.map((enrollment) => (
+                  <option key={enrollment.id} value={enrollment.id}>
+                    {enrollment.academicYear.year} - {enrollment.institution.name}
+                  </option>
+                ))}
+              </select>
+              {!enrollmentId ? (
+                <span className="text-xs font-normal text-amber-700">
+                  Selecione a matrícula que receberá a fatura.
+                </span>
+              ) : null}
+            </label>
+
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Valor
+              <input
+                className={adminTheme.control}
+                inputMode="decimal"
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="Ex.: 150,00"
+                value={amount}
+              />
+              {amount ? (
+                <span
+                  className={cx(
+                    "text-xs font-normal",
+                    typeof amountCents === "number" && amountCents > 0
+                      ? "text-slate-500"
+                      : "text-red-700",
+                  )}
+                >
+                  {typeof amountCents === "number" && amountCents > 0
+                    ? `Valor em reais: ${formatCents(amountCents)}`
+                    : "Informe um valor válido em reais."}
+                </span>
+              ) : (
+                <span className="text-xs font-normal text-slate-500">
+                  Use vírgula ou ponto para centavos.
+                </span>
+              )}
+            </label>
+
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Vencimento
+              <input
+                className={adminTheme.control}
+                onChange={(event) => setDueDate(event.target.value)}
+                type="date"
+                value={dueDate}
+              />
+              {dueDateLabel ? (
+                <span className="text-xs font-normal text-slate-500">
+                  Data selecionada: {dueDateLabel}
+                </span>
+              ) : (
+                <span className="text-xs font-normal text-red-700">
+                  Informe o vencimento da fatura.
+                </span>
+              )}
+            </label>
+
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Descrição opcional
+              <input
+                className={adminTheme.control}
+                maxLength={300}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Ex.: Mensalidade de julho"
+                value={description}
+              />
+              <span className="text-xs font-normal text-slate-500">
+                Aparece no card e nos detalhes da fatura.
+              </span>
+            </label>
+          </div>
+
+          {selectedEnrollment ? (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Matrícula selecionada: {selectedEnrollment.academicYear.year} -{" "}
+              {selectedEnrollment.institution.name}
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={!enrollmentId || saving}
+              onClick={() => void handlePreview()}
+              type="button"
+            >
+              <Eye className="h-4 w-4" aria-hidden="true" />
+              Visualizar prévia
+            </button>
+            <button
+              className={adminTheme.primaryButton}
+              disabled={!isCreateFormValid || saving}
+              onClick={() => void handleCreate()}
+              type="button"
+            >
+              <FileText className="h-4 w-4" aria-hidden="true" />
+              {saving ? "Criando..." : "Criar fatura"}
+            </button>
+          </div>
+          {preview ? <InvoicePreviewBox preview={preview} /> : null}
+        </div>
+      ) : null}
+
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="text-sm font-semibold text-slate-950">Faturas</h4>
+          {loadingInvoices ? (
+            <span className="text-xs font-medium text-slate-500">Carregando faturas...</span>
+          ) : null}
+        </div>
+
+        {loadingInvoices && invoices.length === 0 ? (
+          <div className={cx(adminTheme.softPanel, "p-4 text-sm text-slate-600")}>
+            Carregando faturas do acadêmico...
+          </div>
+        ) : invoices.length === 0 ? (
+          <div className={cx(adminTheme.card, "grid gap-3 p-5 text-sm text-slate-600")}>
+            <div>
+              <p className="font-semibold text-slate-950">Nenhuma fatura criada</p>
+              <p className="mt-1 text-slate-500">
+                Crie a primeira fatura quando houver uma matrícula elegível.
+              </p>
+            </div>
+            <button
+              className={adminTheme.primaryButton}
+              onClick={() => setCreateFormOpen(true)}
+              type="button"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Criar primeira fatura
+            </button>
+          </div>
         ) : (
           invoices.map((invoice) => {
             const bankSlip = bankSlips[invoice.id];
             return (
-            <div className="rounded border border-slate-200 p-3 text-sm" key={invoice.id}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium text-slate-950">
-                  {invoice.amountFormatted} - {formatDate(invoice.dueDate)}
-                </p>
-                <span className="text-xs text-slate-500">
-                  {invoice.enrollment.academicYear.year}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-slate-600">
-                {invoiceStatusLabel(invoice)}
-                {invoice.description ? ` - ${invoice.description}` : ""}
-              </p>
-              <div className="mt-2">
-                <BankSlipCompact bankSlip={bankSlip} />
-              </div>
-              {expandedInvoiceId === invoice.id ? (
-                <BankSlipDetails bankSlip={bankSlip} invoice={invoice} />
-              ) : null}
-              <InvoiceBankSlipActions
+              <StudentInvoiceCard
                 bankSlip={bankSlip}
                 busy={saving}
+                expanded={expandedInvoiceId === invoice.id}
                 invoice={invoice}
                 onCancelInvoice={() => setDialog({ invoice, mode: "cancel-invoice" })}
                 onCancelSlip={() => setDialog({ invoice, mode: "cancel-slip" })}
@@ -1784,79 +2000,11 @@ export function StudentInvoicesForStudent({
                 onPdf={() => void handleDownloadPdf(invoice)}
                 onSync={() => void handleSyncBankSlip(invoice)}
                 onToggleDetails={() => void toggleBankSlipDetails(invoice)}
+                key={invoice.id}
               />
-              {invoice.status === "OPEN" ? (
-                <button
-                  className="mt-2 rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
-                  disabled={saving}
-                  onClick={() => setDialog({ invoice, mode: "cancel-invoice" })}
-                  type="button"
-                >
-                  Cancelar
-                </button>
-              ) : null}
-            </div>
-          );
+            );
           })
         )}
-      </div>
-
-      <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => {
-              setEnrollmentId(event.target.value);
-              setPreview(null);
-            }}
-            value={enrollmentId}
-          >
-            <option value="">Matricula</option>
-            {student.enrollments.map((enrollment) => (
-              <option key={enrollment.id} value={enrollment.id}>
-                {enrollment.academicYear.year} - {enrollment.institution.name}
-              </option>
-            ))}
-          </select>
-          <input
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            inputMode="decimal"
-            onChange={(event) => setAmount(event.target.value)}
-            placeholder="Valor"
-            value={amount}
-          />
-        </div>
-        <input
-          className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-          onChange={(event) => setDueDate(event.target.value)}
-          type="date"
-          value={dueDate}
-        />
-        <input
-          className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-          maxLength={300}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Descricao opcional"
-          value={description}
-        />
-        <div className="mt-2 flex gap-2">
-          <button
-            className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
-            onClick={() => void handlePreview()}
-            type="button"
-          >
-            Preview
-          </button>
-          <button
-            className="rounded bg-slate-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
-            disabled={saving}
-            onClick={() => void handleCreate()}
-            type="button"
-          >
-            Criar
-          </button>
-        </div>
-        {preview ? <InvoicePreviewBox preview={preview} /> : null}
       </div>
       {message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}
       {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
@@ -1877,6 +2025,229 @@ export function StudentInvoicesForStudent({
           saving={saving}
         />
       ) : null}
+    </div>
+  );
+}
+
+function StudentFinanceSummaryItem({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone: "neutral" | "open" | "overdue" | "paid";
+  value: string;
+}) {
+  const toneClass = {
+    neutral: "border-slate-200 bg-white text-slate-950",
+    open: "border-sky-100 bg-sky-50 text-sky-800",
+    overdue: "border-red-100 bg-red-50 text-red-800",
+    paid: "border-emerald-100 bg-emerald-50 text-emerald-800",
+  }[tone];
+  return (
+    <div className={cx("rounded-xl border px-3 py-3", toneClass)}>
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-base font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function StudentInvoiceCard({
+  bankSlip,
+  busy,
+  expanded,
+  invoice,
+  onCancelInvoice,
+  onCancelSlip,
+  onCopy,
+  onIssue,
+  onPdf,
+  onSync,
+  onToggleDetails,
+}: {
+  bankSlip: BankSlipListRecord | null | undefined;
+  busy: boolean;
+  expanded: boolean;
+  invoice: InvoiceRecord;
+  onCancelInvoice: () => void;
+  onCancelSlip: () => void;
+  onCopy: () => void;
+  onIssue: () => void;
+  onPdf: () => void;
+  onSync: () => void;
+  onToggleDetails: () => void;
+}) {
+  const primaryAction = studentInvoicePrimaryAction(invoice, bankSlip);
+  return (
+    <article className={cx(adminTheme.card, "grid gap-4 p-4 text-sm")}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-lg font-semibold text-slate-950">{invoice.amountFormatted}</p>
+            <span className={invoiceStatusBadgeClass(invoice)}>
+              {invoiceStatusLabel(invoice)}
+            </span>
+          </div>
+          <p className="mt-1 flex items-center gap-1 text-xs font-medium text-slate-500">
+            <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
+            Vencimento em {formatDate(invoice.dueDate)}
+          </p>
+        </div>
+        <div className="rounded-lg bg-slate-50 px-3 py-2 text-right text-xs text-slate-600">
+          <p className="font-semibold text-slate-900">
+            {invoice.enrollment.academicYear.year}
+          </p>
+          <p className="max-w-[15rem] truncate">{invoice.enrollment.institution.name}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <StudentInvoiceField
+          label="Descrição"
+          value={invoice.description?.trim() || "Sem descrição"}
+        />
+        <StudentInvoiceField
+          label="Competência"
+          value={formatMonthYear(invoice.dueDate) ?? "-"}
+        />
+        <StudentInvoiceField
+          label="Boleto"
+          value={studentBankSlipNumberLabel(bankSlip)}
+        />
+        <StudentInvoiceField
+          label="Atualizada em"
+          value={formatDateTime(invoice.updatedAt)}
+        />
+      </div>
+
+      <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 md:grid-cols-2">
+        <div>
+          <p className="font-medium text-slate-500">Situação do boleto</p>
+          <div className="mt-1">
+            <BankSlipCompact bankSlip={bankSlip} />
+          </div>
+        </div>
+        <div>
+          <p className="font-medium text-slate-500">Última consulta</p>
+          <p className="mt-1 text-slate-800">
+            {bankSlip && bankSlip.lastCheckedAt ? formatDateTime(bankSlip.lastCheckedAt) : "-"}
+          </p>
+        </div>
+      </div>
+
+      {expanded ? <BankSlipDetails bankSlip={bankSlip} invoice={invoice} /> : null}
+
+      <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {primaryAction === "issue" ? (
+            <button
+              className={adminTheme.primaryButton}
+              disabled={busy}
+              onClick={onIssue}
+              type="button"
+            >
+              <Banknote className="h-4 w-4" aria-hidden="true" />
+              {busy ? "Emitindo..." : issueBankSlipButtonLabel(bankSlip)}
+            </button>
+          ) : null}
+          {primaryAction === "download" ? (
+            <button
+              className={adminTheme.primaryButton}
+              disabled={busy}
+              onClick={onPdf}
+              type="button"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Baixar boleto
+            </button>
+          ) : null}
+          {primaryAction === "sync" ? (
+            <button
+              className={adminTheme.primaryButton}
+              disabled={busy}
+              onClick={onSync}
+              type="button"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              Consultar boleto
+            </button>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            className={adminTheme.secondaryButton}
+            disabled={busy}
+            onClick={onToggleDetails}
+            type="button"
+          >
+            <Eye className="h-4 w-4" aria-hidden="true" />
+            {expanded ? "Ocultar detalhes" : "Ver detalhes"}
+          </button>
+          {bankSlip && primaryAction !== "sync" ? (
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={busy}
+              onClick={onSync}
+              type="button"
+            >
+              <Search className="h-4 w-4" aria-hidden="true" />
+              Consultar boleto
+            </button>
+          ) : null}
+          {isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={busy}
+              onClick={onCopy}
+              type="button"
+            >
+              Copiar linha
+            </button>
+          ) : null}
+          {canDownloadBankSlipPdf(bankSlip) && primaryAction !== "download" ? (
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={busy}
+              onClick={onPdf}
+              type="button"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Baixar boleto
+            </button>
+          ) : null}
+          {canRequestBankSlipCancellation(invoice, bankSlip) ? (
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-3 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+              disabled={busy}
+              onClick={onCancelSlip}
+              type="button"
+            >
+              Solicitar baixa
+            </button>
+          ) : null}
+          {canCancelInvoiceDirectly(invoice, bankSlip) ? (
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+              disabled={busy}
+              onClick={onCancelInvoice}
+              type="button"
+            >
+              <XCircle className="h-4 w-4" aria-hidden="true" />
+              Cancelar fatura
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function StudentInvoiceField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-100 bg-white px-3 py-2">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-slate-900">{value}</p>
     </div>
   );
 }
@@ -1927,14 +2298,14 @@ function StudentFinanceActionDialog({
           <p>Vencimento: {formatDate(invoice.dueDate)}</p>
           {mode === "issue-slip" ? (
             <p className="mt-2 text-amber-800">
-              O boleto sera emitido sem juros, multa, desconto, QR Code ou Pix,
+              O boleto será emitido sem juros, multa, desconto, QR Code ou Pix,
               preservando a regra financeira atual.
             </p>
           ) : null}
           {mode === "cancel-slip" ? (
             <p className="mt-2 text-amber-800">
-              O pedido sera registrado para o Sicredi. A baixa nao e imediata e a
-              fatura so sera cancelada apos confirmacao bancaria.
+              O pedido será registrado para o Sicredi. A baixa não é imediata e a
+              fatura só será cancelada após confirmação bancária.
             </p>
           ) : null}
         </div>
@@ -1994,18 +2365,18 @@ function InvoicePreviewBox({ preview }: { preview: InvoicePreview }) {
   return (
     <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
       <p className="font-medium text-slate-950">
-        {preview.eligible ? "Elegivel para fatura" : "Bloqueado"}
+        {preview.eligible ? "Elegível para fatura" : "Bloqueado"}
       </p>
       {preview.blockingReason ? (
         <p>Motivo: {mapApiErrorMessage(preview.blockingReason)}</p>
       ) : null}
-      <p>Ano Letivo: {preview.enrollment.academicYear.year}</p>
-      <p>Instituicao: {preview.enrollment.institution.name}</p>
+      <p>Ano letivo: {preview.enrollment.academicYear.year}</p>
+      <p>Instituição: {preview.enrollment.institution.name}</p>
       <p>
-        Curso/serie/turno: {preview.enrollment.course} / {preview.enrollment.grade} /{" "}
+        Curso/série/turno: {preview.enrollment.course} / {preview.enrollment.grade} /{" "}
         {preview.enrollment.shift.name}
       </p>
-      <p>Diretoria ativa: {preview.student.activeBoardMembership ? "sim" : "nao"}</p>
+      <p>Diretoria ativa: {preview.student.activeBoardMembership ? "sim" : "não"}</p>
     </div>
   );
 }
@@ -2027,10 +2398,10 @@ function BankSlipCompact({
         {bankSlipStatusLabel(bankSlip.status)}
       </span>
       {bankSlipNossoNumero(bankSlip) ? (
-        <span>Nosso Numero: {bankSlipNossoNumero(bankSlip)}</span>
+        <span>Nosso número: {bankSlipNossoNumero(bankSlip)}</span>
       ) : null}
       {bankSlip.lastCheckedAt ? (
-        <span>Ultima consulta: {formatDateTime(bankSlip.lastCheckedAt)}</span>
+        <span>Última consulta: {formatDateTime(bankSlip.lastCheckedAt)}</span>
       ) : null}
     </div>
   );
@@ -2049,30 +2420,30 @@ function BankSlipDetails({
   if (!bankSlip) {
     return (
       <div className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-600">
-        Esta fatura ainda nao possui boleto Sicredi.
+        Esta fatura ainda não possui boleto Sicredi.
       </div>
     );
   }
   return (
     <div className="mt-2 grid gap-2 rounded border border-slate-200 bg-white p-3 text-sm text-slate-700 md:grid-cols-2">
-      <p><strong>Estado:</strong> {bankSlipStatusLabel(bankSlip.status)}</p>
+      <p><strong>Situação:</strong> {bankSlipStatusLabel(bankSlip.status)}</p>
       {isFullBankSlip(bankSlip) ? (
         <>
           <p><strong>Ambiente:</strong> {bankSlip.environment}</p>
-          <p><strong>Seu Numero:</strong> {bankSlip.seuNumero}</p>
+          <p><strong>Seu número:</strong> {bankSlip.seuNumero}</p>
         </>
       ) : null}
       <p>
-        <strong>Nosso Numero:</strong>{" "}
+        <strong>Nosso número:</strong>{" "}
         {isFullBankSlip(bankSlip)
           ? (bankSlip.nossoNumero ?? "-")
           : (bankSlip.nossoNumeroMasked ?? "-")}
       </p>
-      <p><strong>Emissao:</strong> {formatOptionalDateTime(bankSlip.issuedAt)}</p>
+      <p><strong>Emissão:</strong> {formatOptionalDateTime(bankSlip.issuedAt)}</p>
       {isFullBankSlip(bankSlip) && bankSlip.pdfStoredAt ? (
         <p><strong>PDF arquivado:</strong> {formatOptionalDateTime(bankSlip.pdfStoredAt)}</p>
       ) : null}
-      <p><strong>Ultima consulta:</strong> {formatOptionalDateTime(bankSlip.lastCheckedAt)}</p>
+      <p><strong>Última consulta:</strong> {formatOptionalDateTime(bankSlip.lastCheckedAt)}</p>
       <p><strong>Pagamento:</strong> {formatOptionalDateTime(bankSlip.paidAt)}</p>
       {isFullBankSlip(bankSlip) ? (
         <>
@@ -2083,12 +2454,12 @@ function BankSlipDetails({
       <p><strong>Baixa confirmada:</strong> {formatOptionalDateTime(bankSlip.cancelledAt)}</p>
       {isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
         <p className="md:col-span-2 break-all">
-          <strong>Linha digitavel:</strong> {formatLinhaDigitavel(bankSlip.linhaDigitavel)}
+          <strong>Linha digitável:</strong> {formatLinhaDigitavel(bankSlip.linhaDigitavel)}
         </p>
       ) : null}
       {isFullBankSlip(bankSlip) && bankSlip.codigoBarras ? (
         <p className="md:col-span-2 break-all">
-          <strong>Codigo de barras:</strong> {bankSlip.codigoBarras}
+          <strong>Código de barras:</strong> {bankSlip.codigoBarras}
         </p>
       ) : null}
       {isFullBankSlip(bankSlip) && bankSlip.providerErrorMessage ? (
@@ -2248,7 +2619,94 @@ function invoiceStatusLabel(invoice: InvoiceRecord) {
   if (invoice.status === "CANCELLED") {
     return "Cancelada";
   }
-  return invoice.overdue ? "Aberta vencida" : "Aberta";
+  return invoice.overdue ? "Vencida" : "Aberta";
+}
+
+function invoiceStatusBadgeClass(invoice: InvoiceRecord) {
+  const base = "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold";
+  if (invoice.status === "PAID") {
+    return `${base} bg-emerald-50 text-emerald-700`;
+  }
+  if (invoice.status === "CANCELLED") {
+    return `${base} bg-slate-100 text-slate-700`;
+  }
+  if (invoice.overdue) {
+    return `${base} bg-red-50 text-red-700`;
+  }
+  return `${base} bg-sky-50 text-sky-700`;
+}
+
+function studentFinanceSummary(invoices: InvoiceRecord[]) {
+  const openAmountCents = invoices
+    .filter((invoice) => invoice.status === "OPEN")
+    .reduce((total, invoice) => total + invoice.amountCents, 0);
+  const overdueAmountCents = invoices
+    .filter((invoice) => invoice.status === "OPEN" && invoice.overdue)
+    .reduce((total, invoice) => total + invoice.amountCents, 0);
+  const paidAmountCents = invoices
+    .filter((invoice) => invoice.status === "PAID")
+    .reduce((total, invoice) => total + invoice.amountCents, 0);
+  let situation = "Sem faturas";
+  if (overdueAmountCents > 0) {
+    situation = "Com vencidas";
+  } else if (openAmountCents > 0) {
+    situation = "Em aberto";
+  } else if (paidAmountCents > 0) {
+    situation = "Regular";
+  }
+  return {
+    openAmountCents,
+    overdueAmountCents,
+    paidAmountCents,
+    situation,
+    totalInvoices: invoices.length,
+  };
+}
+
+function studentInvoicePrimaryAction(
+  invoice: InvoiceRecord,
+  bankSlip: BankSlipListRecord | null | undefined,
+) {
+  if (canIssueBankSlip(invoice, bankSlip)) {
+    return "issue";
+  }
+  if (canDownloadBankSlipPdf(bankSlip)) {
+    return "download";
+  }
+  if (bankSlip) {
+    return "sync";
+  }
+  return "none";
+}
+
+function studentBankSlipNumberLabel(
+  bankSlip: BankSlipListRecord | null | undefined,
+) {
+  if (bankSlip === undefined) {
+    return "Carregando";
+  }
+  if (!bankSlip) {
+    return "Indisponível";
+  }
+  return bankSlipNossoNumero(bankSlip) ?? "Sem número";
+}
+
+function parseMoneyToCentsSafe(value: string) {
+  if (!value.trim()) {
+    return null;
+  }
+  try {
+    return parseMoneyToCents(value);
+  } catch {
+    return null;
+  }
+}
+
+function formatCents(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value / 100);
 }
 
 function mergeBankSlipSummaries(
@@ -2286,9 +2744,9 @@ export function bankSlipStatusLabel(status: BankSlipStatus) {
     PAID: "Pago",
     PENDING_CANCELLATION: "Baixa solicitada",
     CANCELLED: "Baixado",
-    ISSUE_FAILED: "Falha na emissao",
+    ISSUE_FAILED: "Falha na emissão",
     CANCELLATION_FAILED: "Falha na baixa",
-    UNKNOWN: "Situacao incerta",
+    UNKNOWN: "Situação incerta",
   };
   return labels[status];
 }
@@ -2623,7 +3081,7 @@ function syncResultMessage(previous: BankSlipStatus | undefined, next: BankSlipS
   if (next === "CANCELLED" && previous !== "CANCELLED") {
     return "Baixa confirmada";
   }
-  return "Consulta concluida";
+  return "Consulta concluída";
 }
 
 function maskNossoNumero(value: string) {
