@@ -11,21 +11,24 @@ import {
 import type { BusAssignmentRecord, StudentDetail } from "../../../lib/api";
 import { adminTheme, cx } from "../admin-theme";
 import { statusLabel } from "./student-profile-utils";
+import type { StudentCardProfileSummary } from "./cards/student-card-display-utils";
 
 export function StudentProfileSummary({
+  cardSummary,
   documentSummary,
   student,
   transport,
 }: {
+  cardSummary: StudentCardProfileSummary;
   documentSummary?: { active: number; missing: number };
   student: StudentDetail;
   transport?: BusAssignmentRecord | null;
 }) {
-  const card = student.currentStudentCard;
+  const card = cardSummary.activeCard;
   const items = [
     {
       icon: BadgeCheck,
-      label: "Situacao",
+      label: "Situação",
       tone: statusTone(student.status),
       value: statusLabel(student.status),
     },
@@ -33,19 +36,32 @@ export function StudentProfileSummary({
       icon: CircleDollarSign,
       label: "Financeiro",
       tone: student.canReceiveFutureInvoices ? "emerald" : "amber",
-      value: student.canReceiveFutureInvoices ? "Elegivel" : "Bloqueado",
+      value: student.canReceiveFutureInvoices ? "Elegível" : "Bloqueado",
     },
     {
       icon: Bus,
       label: "Transporte",
       tone: transport ? "emerald" : "slate",
-      value: transport?.bus.name ?? "Sem vinculo",
+      value: transport?.bus.name ?? "Sem vínculo",
     },
     {
       icon: IdCard,
       label: "Carteirinha",
-      tone: card ? "emerald" : "slate",
-      value: card?.cardNumber ?? "Nao emitida",
+      helper: card
+        ? card.cardNumber
+        : cardSummary.loading
+          ? "Verificando..."
+          : cardSummary.totalCards > 0
+            ? `${cardSummary.historyCount} no histórico`
+            : "Sem histórico",
+      tone: card ? "emerald" : cardSummary.totalCards > 0 ? "amber" : "slate",
+      value: card
+        ? "Emitida"
+        : cardSummary.loading
+          ? "Carregando"
+          : cardSummary.totalCards > 0
+            ? "Sem ativa"
+            : "Não emitida",
     },
     {
       icon: FileText,
@@ -85,6 +101,9 @@ export function StudentProfileSummary({
                 <p className="mt-1 truncate text-sm font-semibold text-slate-950">
                   {item.value}
                 </p>
+                {"helper" in item ? (
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{item.helper}</p>
+                ) : null}
               </div>
             </div>
           </div>

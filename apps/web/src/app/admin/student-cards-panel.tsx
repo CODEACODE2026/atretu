@@ -15,6 +15,14 @@ import {
   type StudentSummary,
 } from "../../lib/api";
 import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
+import { adminTheme, cx } from "./admin-theme";
+import {
+  StudentActiveCard,
+  StudentCardCurrentSummary,
+  StudentCardHistory,
+  StudentCardNoActiveState,
+} from "./students/cards/student-card-profile-sections";
+import { selectCurrentStudentCard } from "./students/cards/student-card-display-utils";
 
 type PdfAction = "view" | "download" | "print";
 
@@ -59,7 +67,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       setAcademicYearId(current?.id ?? "");
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Erro ao carregar referencias",
+        caught instanceof Error ? caught.message : "Erro ao carregar referências",
       );
     }
   }
@@ -96,7 +104,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       });
       setStudents(response.data);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao buscar academico");
+      setError(caught instanceof Error ? caught.message : "Erro ao buscar acadêmico");
     }
   }
 
@@ -110,13 +118,13 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       setIssueEnrollmentId(defaultEnrollment?.id ?? "");
       setIssueCardType(detail.activeBoardMembership ? "BOARD_MEMBER" : "STUDENT");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao abrir academico");
+      setError(caught instanceof Error ? caught.message : "Erro ao abrir acadêmico");
     }
   }
 
   async function handlePreview() {
     if (!selectedStudent || !issueEnrollmentId) {
-      setError("Selecione academico e matricula");
+      setError("Selecione acadêmico e matrícula");
       return;
     }
     setError("");
@@ -127,14 +135,14 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       });
       setPreview(response);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro no preview");
+      setError(caught instanceof Error ? caught.message : "Erro ao visualizar prévia");
     }
   }
 
   async function handleIssue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedStudent || !issueEnrollmentId) {
-      setError("Selecione academico e matricula");
+      setError("Selecione acadêmico e matrícula");
       return;
     }
     setSaving(true);
@@ -159,19 +167,19 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
 
   async function handleInvalidate(card: StudentCardRecord) {
     const reason = promptOption<StudentCardInvalidationReason>(
-      "Selecione o motivo da invalidacao da carteirinha:",
+      "Selecione o motivo da invalidação da carteirinha:",
       [
-        { label: "Correcao administrativa", value: "MANUAL_CORRECTION" },
+        { label: "Correção administrativa", value: "MANUAL_CORRECTION" },
         { label: "Outro motivo", value: "OTHER" },
-        { label: "Fim de participacao na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
-        { label: "Academico desligado", value: "STUDENT_TERMINATED" },
+        { label: "Fim de participação na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
+        { label: "Acadêmico desligado", value: "STUDENT_TERMINATED" },
       ],
     );
     if (!reason) {
-      setError("Selecione um motivo valido para invalidar a carteirinha.");
+      setError("Selecione um motivo válido para invalidar a carteirinha.");
       return;
     }
-    const invalidationNote = window.prompt("Observacao opcional") ?? undefined;
+    const invalidationNote = window.prompt("Observação opcional") ?? undefined;
     setSaving(true);
     setMessage("");
     setError("");
@@ -217,7 +225,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             <input
               className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por nome, CPF ou numero"
+              placeholder="Buscar por nome, CPF ou número"
               type="search"
               value={search}
             />
@@ -253,7 +261,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               value={cardType}
             >
               <option value="">Tipo</option>
-              <option value="STUDENT">Academico</option>
+              <option value="STUDENT">Acadêmico</option>
               <option value="BOARD_MEMBER">Diretoria</option>
             </select>
             <select
@@ -264,7 +272,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               }}
               value={status}
             >
-              <option value="">Status</option>
+              <option value="">Situação</option>
               <option value="ACTIVE">Ativa</option>
               <option value="INVALIDATED">Invalidada</option>
             </select>
@@ -277,8 +285,8 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               value={validity}
             >
               <option value="all">Todas</option>
-              <option value="usable">Utilizaveis</option>
-              <option value="notUsable">Nao utilizaveis</option>
+              <option value="usable">Utilizáveis</option>
+              <option value="notUsable">Não utilizáveis</option>
             </select>
           </div>
         </div>
@@ -298,15 +306,15 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
           <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Numero</th>
+                <th className="px-4 py-3">Número</th>
                 <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3">Academico</th>
+                <th className="px-4 py-3">Acadêmico</th>
                 <th className="px-4 py-3">CPF</th>
                 <th className="px-4 py-3">Ano</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Situação</th>
                 <th className="px-4 py-3">Validade</th>
-                <th className="px-4 py-3">Emissao</th>
-                <th className="px-4 py-3">Acoes</th>
+                <th className="px-4 py-3">Emissão</th>
+                <th className="px-4 py-3">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -345,7 +353,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                     </td>
                     <td className="px-4 py-3 text-slate-700">
                       {card.validity.usable
-                        ? "Utilizavel"
+                        ? "Utilizável"
                         : validityReasonLabel(card.validity.reason)}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
@@ -362,7 +370,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                           {pdfBusyId === `${card.id}:view`
                             ? "Abrindo..."
                             : card.status === "INVALIDATED"
-                              ? "Visualizar historico"
+                              ? "Visualizar histórico"
                               : "Visualizar"}
                         </button>
                         <button
@@ -429,7 +437,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
             type="button"
           >
-            Proxima
+            Próxima
           </button>
         </div>
       </div>
@@ -437,16 +445,16 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       {canUseAdministrativeIssue ? (
       <details className="rounded border border-amber-200 bg-amber-50 p-4">
         <summary className="cursor-pointer text-sm font-semibold text-amber-950">
-          Emissao administrativa excepcional
+          Emissão administrativa excepcional
         </summary>
         <p className="mt-2 text-xs text-amber-800">
-          Use somente para correcao administrativa. O fluxo normal gera a
-          carteirinha automaticamente no cadastro ou aprovacao do academico.
+          Use somente para correção administrativa. O fluxo normal gera a
+          carteirinha automaticamente no cadastro ou aprovação do acadêmico.
         </p>
         <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_420px]">
         <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-base font-semibold text-slate-950">
-            Localizar academico
+            Localizar acadêmico
           </h2>
           <form
             className="mt-3 flex gap-2"
@@ -458,7 +466,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             <input
               className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
               onChange={(event) => setStudentSearch(event.target.value)}
-              placeholder="Buscar academico"
+              placeholder="Buscar acadêmico"
               type="search"
               value={studentSearch}
             />
@@ -482,7 +490,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 </span>
                 <span className="text-xs text-slate-600">
                   {student.person.cpfMasked} -{" "}
-                  {student.currentEnrollment?.academicYear.year ?? "sem matricula"}
+                  {student.currentEnrollment?.academicYear.year ?? "sem matrícula"}
                 </span>
               </button>
             ))}
@@ -494,7 +502,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
           onSubmit={handleIssue}
         >
           <h2 className="text-base font-semibold text-slate-950">
-            Confirmacao administrativa
+            Confirmação administrativa
           </h2>
           {selectedStudent ? (
             <div className="mt-3 grid gap-3 text-sm">
@@ -510,7 +518,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 required
                 value={issueEnrollmentId}
               >
-                <option value="">Matricula</option>
+                <option value="">Matrícula</option>
                 {selectedStudent.enrollments.map((enrollment) => (
                   <option key={enrollment.id} value={enrollment.id}>
                     {enrollment.academicYear.year} - {enrollment.institution.name}
@@ -525,14 +533,14 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 }}
                 value={issueCardType}
               >
-                <option value="STUDENT">Academico</option>
+                <option value="STUDENT">Acadêmico</option>
                 <option value="BOARD_MEMBER">Diretoria</option>
               </select>
               <input
                 className="rounded border border-slate-300 px-3 py-2 text-sm"
                 maxLength={300}
                 onChange={(event) => setNote(event.target.value)}
-                placeholder="Observacao opcional"
+                placeholder="Observação opcional"
                 value={note}
               />
               <div className="flex gap-2">
@@ -541,7 +549,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                   onClick={() => void handlePreview()}
                   type="button"
                 >
-                  Preview administrativo
+                  Visualizar prévia administrativa
                 </button>
                 <button
                   className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
@@ -554,7 +562,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             </div>
           ) : (
             <p className="mt-3 text-sm text-slate-500">
-              Selecione um academico para a correcao administrativa.
+              Selecione um acadêmico para a correção administrativa.
             </p>
           )}
 
@@ -568,11 +576,13 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
 }
 
 export function StudentCardsForStudent({
+  activeCard,
   disableInvalidation = false,
   student,
   user,
   onChanged,
 }: {
+  activeCard?: StudentCardRecord | null;
   disableInvalidation?: boolean;
   student: StudentDetail;
   user: ApiUser;
@@ -585,6 +595,7 @@ export function StudentCardsForStudent({
     student.activeBoardMembership ? "BOARD_MEMBER" : "STUDENT",
   );
   const [note, setNote] = useState("");
+  const [loadingCards, setLoadingCards] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pdfBusyId, setPdfBusyId] = useState("");
   const [message, setMessage] = useState("");
@@ -598,6 +609,7 @@ export function StudentCardsForStudent({
 
   async function loadCards() {
     setError("");
+    setLoadingCards(true);
     try {
       const response = await api.listStudentCardsForStudent(student.id);
       setCards(response.data);
@@ -605,12 +617,14 @@ export function StudentCardsForStudent({
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar carteirinhas",
       );
+    } finally {
+      setLoadingCards(false);
     }
   }
 
   async function handlePreview() {
     if (!enrollmentId) {
-      setError("Selecione uma matricula");
+      setError("Selecione uma matrícula");
       return;
     }
     setError("");
@@ -621,13 +635,13 @@ export function StudentCardsForStudent({
       });
       setPreview(response);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro no preview");
+      setError(caught instanceof Error ? caught.message : "Erro ao visualizar prévia");
     }
   }
 
   async function handleIssue() {
     if (!enrollmentId) {
-      setError("Selecione uma matricula");
+      setError("Selecione uma matrícula");
       return;
     }
     setSaving(true);
@@ -653,19 +667,19 @@ export function StudentCardsForStudent({
 
   async function handleInvalidate(card: StudentCardRecord) {
     const reason = promptOption<StudentCardInvalidationReason>(
-      "Selecione o motivo da invalidacao da carteirinha:",
+      "Selecione o motivo da invalidação da carteirinha:",
       [
-        { label: "Correcao administrativa", value: "MANUAL_CORRECTION" },
+        { label: "Correção administrativa", value: "MANUAL_CORRECTION" },
         { label: "Outro motivo", value: "OTHER" },
-        { label: "Fim de participacao na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
-        { label: "Academico desligado", value: "STUDENT_TERMINATED" },
+        { label: "Fim de participação na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
+        { label: "Acadêmico desligado", value: "STUDENT_TERMINATED" },
       ],
     );
     if (!reason) {
-      setError("Selecione um motivo valido para invalidar a carteirinha.");
+      setError("Selecione um motivo válido para invalidar a carteirinha.");
       return;
     }
-    const invalidationNote = window.prompt("Observacao opcional") ?? undefined;
+    const invalidationNote = window.prompt("Observação opcional") ?? undefined;
     setSaving(true);
     setMessage("");
     setError("");
@@ -697,112 +711,75 @@ export function StudentCardsForStudent({
     }
   }
 
+  const currentCard = activeCard ?? selectCurrentStudentCard(student, cards);
+  const historyCards = cards.filter((card) => card.id !== currentCard?.id);
+
   return (
-    <div className="mt-5 border-t border-slate-200 pt-4">
-      <h3 className="text-sm font-semibold text-slate-950">Carteirinhas</h3>
-      {cards.length > 0 ? (
-        <p className="mt-1 text-xs text-slate-500">
-          A carteirinha ja foi gerada automaticamente. Use as acoes abaixo para
-          visualizar, baixar ou imprimir o PDF.
-        </p>
-      ) : null}
-      <p className="mt-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-        A foto e opcional. Quando nao houver foto, o PDF sera gerado com uma
-        area padrao no lugar da imagem.
-      </p>
-      <div className="mt-3 grid gap-2">
-        {cards.length === 0 ? (
-          <p className="rounded border border-slate-200 p-3 text-sm text-slate-500">
-            Nenhuma carteirinha emitida
+    <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Carteirinhas</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Carteirinha ativa, PDF e histórico do acadêmico.
           </p>
-        ) : (
-          cards.map((card) => (
-            <div className="rounded border border-slate-200 p-3 text-sm" key={card.id}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium text-slate-950">
-                  {card.cardNumber} - {cardTypeLabel(card.cardType)}
-                </p>
-                <span className="text-xs text-slate-500">
-                  {card.academicYear.year}
-                </span>
-              </div>
-                <p className="mt-1 text-xs text-slate-600">
-                  {card.status === "ACTIVE" ? "Ativa" : "Invalidada"} -{" "}
-                  {card.validity.usable
-                    ? "utilizavel"
-                    : validityReasonLabel(card.validity.reason)}
-                </p>
-              {card.status === "INVALIDATED" ? (
-                <p className="mt-1 text-xs text-amber-700">
-                  Carteirinha invalidada.
-                </p>
-              ) : null}
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-                  disabled={Boolean(pdfBusyId)}
-                  onClick={() => void handlePdf(card, "view")}
-                  type="button"
-                >
-                  {pdfBusyId === `${card.id}:view`
-                    ? "Abrindo..."
-                    : card.status === "INVALIDATED"
-                      ? "Visualizar historico"
-                      : "Visualizar carteirinha"}
-                </button>
-                <button
-                  className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-                  disabled={Boolean(pdfBusyId)}
-                  onClick={() => void handlePdf(card, "download")}
-                  type="button"
-                >
-                  {pdfBusyId === `${card.id}:download` ? "Baixando..." : "Baixar PDF"}
-                </button>
-                <button
-                  className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-                  disabled={Boolean(pdfBusyId) || card.status !== "ACTIVE"}
-                  onClick={() => void handlePdf(card, "print")}
-                  type="button"
-                  title={card.status === "ACTIVE" ? undefined : "Carteirinha invalidada"}
-                >
-                  {pdfBusyId === `${card.id}:print` ? "Abrindo..." : "Imprimir"}
-                </button>
-                {card.status === "ACTIVE" && !disableInvalidation ? (
-                  <button
-                    className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
-                    disabled={saving}
-                    onClick={() => void handleInvalidate(card)}
-                    type="button"
-                  >
-                    Invalidar
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))
-        )}
+        </div>
+        {loadingCards ? (
+          <span className="text-xs font-medium text-slate-500">
+            Carregando carteirinhas...
+          </span>
+        ) : null}
       </div>
 
+      <StudentCardCurrentSummary
+        activeCard={currentCard}
+        student={student}
+        totalCards={cards.length}
+      />
+
+      <p className={cx(adminTheme.softPanel, "px-3 py-2 text-xs text-slate-600")}>
+        Foto opcional: quando a foto estiver indisponível, o PDF usa uma imagem padrão.
+      </p>
+
+      {loadingCards && cards.length === 0 ? (
+        <div className={cx(adminTheme.softPanel, "p-4 text-sm text-slate-600")}>
+          Carregando carteirinhas do acadêmico...
+        </div>
+      ) : currentCard ? (
+        <StudentActiveCard
+          busyAction={pdfBusyId}
+          card={currentCard}
+          onPdf={(card, action) => void handlePdf(card, action)}
+        />
+      ) : (
+        <StudentCardNoActiveState totalCards={cards.length} />
+      )}
+
+      <StudentCardHistory
+        busyAction={pdfBusyId}
+        cards={historyCards}
+        onPdf={(card, action) => void handlePdf(card, action)}
+      />
+
       {canShowAdministrativeIssue ? (
-      <details className="mt-3 rounded border border-amber-200 bg-amber-50 p-3">
+      <details className="rounded-xl border border-amber-200 bg-amber-50 p-3">
         <summary className="cursor-pointer text-xs font-semibold text-amber-950">
-          Correcao administrativa
+          Correção administrativa
         </summary>
         <p className="mt-2 text-xs text-amber-800">
-          Use somente quando for necessario corrigir uma carteirinha fora do
-          fluxo automatico.
+          Use somente quando for necessário corrigir uma carteirinha fora do
+          fluxo automático.
         </p>
-      <div className="mt-3 rounded border border-slate-200 bg-white p-3">
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
         <div className="grid gap-2 sm:grid-cols-2">
           <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className={adminTheme.control}
             onChange={(event) => {
               setEnrollmentId(event.target.value);
               setPreview(null);
             }}
             value={enrollmentId}
           >
-            <option value="">Matricula</option>
+            <option value="">Matrícula</option>
             {student.enrollments.map((enrollment) => (
               <option key={enrollment.id} value={enrollment.id}>
                 {enrollment.academicYear.year} - {enrollment.institution.name}
@@ -810,34 +787,34 @@ export function StudentCardsForStudent({
             ))}
           </select>
           <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className={adminTheme.control}
             onChange={(event) => {
               setCardType(event.target.value as StudentCardType);
               setPreview(null);
             }}
             value={cardType}
           >
-            <option value="STUDENT">Academico</option>
+            <option value="STUDENT">Acadêmico</option>
             <option value="BOARD_MEMBER">Diretoria</option>
           </select>
         </div>
         <input
-          className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          className={cx(adminTheme.control, "mt-2 w-full")}
           maxLength={300}
           onChange={(event) => setNote(event.target.value)}
-          placeholder="Observacao opcional"
+          placeholder="Observação opcional"
           value={note}
         />
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
           <button
-            className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+            className={adminTheme.secondaryButton}
             onClick={() => void handlePreview()}
             type="button"
           >
-            Preview administrativo
+            Visualizar prévia administrativa
           </button>
           <button
-            className="rounded bg-slate-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
+            className={adminTheme.primaryButton}
             disabled={saving}
             onClick={() => void handleIssue()}
             type="button"
@@ -859,18 +836,18 @@ function StudentCardPreviewBox({ preview }: { preview: StudentCardPreview }) {
   return (
     <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
       <p className="font-medium text-slate-950">
-        {preview.eligible ? "Elegivel para emissao" : "Bloqueado"}
+        {preview.eligible ? "Elegível para emissão" : "Bloqueado"}
       </p>
       {preview.blockingReason ? (
         <p>Motivo: {mapApiErrorMessage(preview.blockingReason)}</p>
       ) : null}
-      <p>Ano Letivo: {preview.academicYear.year}</p>
-      <p>Instituicao: {preview.enrollment.institution.name}</p>
+      <p>Ano letivo: {preview.academicYear.year}</p>
+      <p>Instituição: {preview.enrollment.institution.name}</p>
       <p>
-        Curso/serie/turno: {preview.enrollment.course} / {preview.enrollment.grade} /{" "}
+        Curso/série/turno: {preview.enrollment.course} / {preview.enrollment.grade} /{" "}
         {preview.enrollment.shift.name}
       </p>
-      <p>Diretoria ativa: {preview.activeBoardMembership ? "sim" : "nao"}</p>
+      <p>Diretoria ativa: {preview.activeBoardMembership ? "sim" : "não"}</p>
       <p>Tipo: {cardTypeLabel(preview.cardType)}</p>
       <p>
         Carteirinha anterior:{" "}
@@ -885,18 +862,18 @@ function StudentCardPreviewBox({ preview }: { preview: StudentCardPreview }) {
 }
 
 function cardTypeLabel(type: StudentCardType) {
-  return type === "BOARD_MEMBER" ? "Diretoria" : "Academico";
+  return type === "BOARD_MEMBER" ? "Diretoria" : "Acadêmico";
 }
 
 function validityReasonLabel(reason?: string | null) {
   const labels: Record<string, string> = {
-    CARD_INVALIDATED: "invalidada",
-    STUDENT_SUSPENDED: "academico suspenso",
-    STUDENT_TERMINATED: "academico desligado",
-    BOARD_MEMBERSHIP_ENDED: "diretoria encerrada",
-    BOARD_MEMBERSHIP_ACTIVE_REQUIRES_BOARD_CARD: "diretoria ativa",
+    CARD_INVALIDATED: "Invalidada",
+    STUDENT_SUSPENDED: "Acadêmico suspenso",
+    STUDENT_TERMINATED: "Acadêmico desligado",
+    BOARD_MEMBERSHIP_ENDED: "Diretoria encerrada",
+    BOARD_MEMBERSHIP_ACTIVE_REQUIRES_BOARD_CARD: "Substituída por carteirinha de diretoria",
   };
-  return reason ? labels[reason] ?? reason : "nao utilizavel";
+  return reason ? labels[reason] ?? "Não utilizável" : "Não utilizável";
 }
 
 async function openStudentCardPdf(card: StudentCardRecord, action: PdfAction) {
@@ -933,7 +910,7 @@ async function openStudentCardPdf(card: StudentCardRecord, action: PdfAction) {
           popup.focus();
           popup.print();
         } catch {
-          // O navegador pode bloquear impressao automatica em PDFs.
+          // O navegador pode bloquear impressão automática em PDFs.
         }
       }, 1200);
     }
@@ -952,10 +929,10 @@ function pdfErrorMessage(caught: unknown) {
   }
   const message = mapApiErrorMessage(caught.message);
   if (message.includes("foto oficial")) {
-    return "Nao foi possivel usar a foto oficial. A carteirinha tambem pode ser gerada sem foto; tente novamente ou remova a foto invalida.";
+    return "Não foi possível usar a foto oficial. A carteirinha também pode ser gerada sem foto; tente novamente ou remova a foto inválida.";
   }
-  if (message.includes("Nao foi possivel concluir a operacao")) {
-    return "Nao foi possivel gerar o PDF da carteirinha. Confira se a foto oficial e um JPG ou PNG valido e tente novamente.";
+  if (message.includes("Não foi possível concluir a operação")) {
+    return "Não foi possível gerar o PDF da carteirinha. Confira se a foto oficial é um JPG ou PNG válido e tente novamente.";
   }
   return message;
 }

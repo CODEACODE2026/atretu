@@ -28,6 +28,11 @@ import {
   type StudentProfileTab,
 } from "./student-profile-tabs";
 import { StudentTransportTab } from "./student-transport-tab";
+import {
+  buildStudentCardProfileSummary,
+  emptyStudentCardProfileSummary,
+  type StudentCardProfileSummary,
+} from "./cards/student-card-display-utils";
 
 export function StudentProfileView({
   institutions,
@@ -53,6 +58,9 @@ export function StudentProfileView({
   );
   const [summaryTransport, setSummaryTransport] =
     useState<BusAssignmentRecord | null>(null);
+  const [cardSummary, setCardSummary] = useState<StudentCardProfileSummary>(
+    emptyStudentCardProfileSummary,
+  );
   const [documentSummary, setDocumentSummary] =
     useState<{ active: number; missing: number }>();
   const [action, setAction] =
@@ -82,11 +90,29 @@ export function StudentProfileView({
     setLoading(true);
     setError("");
     try {
-      setStudent(await api.getStudent(studentId));
+      const detail = await api.getStudent(studentId);
+      setStudent(detail);
+      await loadCardSummary(detail);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao abrir perfil");
+      setCardSummary((current) => ({ ...current, loading: false }));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadCardSummary(detail: StudentDetail) {
+    setCardSummary((current) => ({ ...current, loading: true }));
+    try {
+      const response = await api.listStudentCardsForStudent(detail.id);
+      setCardSummary(buildStudentCardProfileSummary(detail, response.data));
+    } catch {
+      setCardSummary({
+        activeCard: null,
+        historyCount: 0,
+        loading: false,
+        totalCards: 0,
+      });
     }
   }
 
@@ -159,6 +185,7 @@ export function StudentProfileView({
   return (
     <div className="grid min-w-0 gap-5">
       <StudentProfileHeader
+        activeCard={cardSummary.activeCard}
         menuOpen={menuOpen}
         onAction={handleAction}
         onBack={onBack}
@@ -166,6 +193,7 @@ export function StudentProfileView({
         student={student}
       />
       <StudentProfileSummary
+        cardSummary={cardSummary}
         documentSummary={documentSummary}
         student={student}
         transport={summaryTransport}
@@ -226,6 +254,7 @@ export function StudentProfileView({
             {tab === "cards" ? (
               <section className={cx(adminTheme.card, "p-5")}>
                 <StudentCardsForStudent
+                  activeCard={cardSummary.activeCard}
                   disableInvalidation
                   onChanged={() => refreshStudent("Carteirinhas atualizadas.")}
                   student={student}

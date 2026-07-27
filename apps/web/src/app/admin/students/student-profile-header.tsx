@@ -9,7 +9,7 @@ import {
   PlayCircle,
   UserRound,
 } from "lucide-react";
-import type { StudentDetail } from "../../../lib/api";
+import type { StudentCardRecord, StudentDetail } from "../../../lib/api";
 import { adminTheme, cx } from "../admin-theme";
 import { maskCpf } from "../../../lib/formatters";
 import { statusLabel } from "./student-profile-utils";
@@ -24,12 +24,14 @@ export type StudentProfileAction =
   | "end-board";
 
 export function StudentProfileHeader({
+  activeCard,
   menuOpen,
   onAction,
   onBack,
   onToggleMenu,
   student,
 }: {
+  activeCard?: StudentCardRecord | null;
   menuOpen: boolean;
   onAction: (action: StudentProfileAction) => void;
   onBack: () => void;
@@ -54,7 +56,7 @@ export function StudentProfileHeader({
             type="button"
           >
             <ArrowLeft size={17} strokeWidth={2.2} />
-            Academicos
+            Acadêmicos
           </button>
           <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start">
             <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#EEF7F4] text-[#14534D] ring-1 ring-[#D8E9E4]">
@@ -62,19 +64,22 @@ export function StudentProfileHeader({
             </span>
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-normal text-[#1F6F5F]">
-                Perfil academico
+                Perfil acadêmico
               </p>
               <h1 className="mt-1 truncate text-2xl font-bold tracking-normal text-slate-950 sm:text-3xl">
                 {student.person.fullName}
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Carteirinha {student.currentStudentCard?.cardNumber ?? "nao emitida"} ·{" "}
+                {activeCard
+                  ? `Carteirinha ${activeCard.cardNumber}`
+                  : "Sem carteirinha ativa"}{" "}
+                ·{" "}
                 {maskCpf(student.person.cpf)}
               </p>
               <p className="mt-1 break-words text-sm leading-6 text-slate-600">
                 {enrollment
-                  ? `${enrollment.institution.name} · ${enrollment.course} · Serie ${enrollment.grade} · ${enrollment.shift.name}`
-                  : "Sem matricula atual"}
+                  ? `${enrollment.institution.name} · ${enrollment.course} · Série ${enrollment.grade} · ${enrollment.shift.name}`
+                  : "Sem matrícula atual"}
               </p>
             </div>
           </div>
@@ -82,7 +87,7 @@ export function StudentProfileHeader({
             <HeaderBadge status={student.status} />
             {student.activeBoardMembership ? <NeutralBadge label="Diretoria ativa" /> : null}
             {student.canReceiveFutureInvoices ? (
-              <NeutralBadge label="Financeiro elegivel" />
+              <NeutralBadge label="Financeiro elegível" />
             ) : (
               <WarningBadge label="Financeiro bloqueado" />
             )}
@@ -124,7 +129,7 @@ export function StudentProfileHeader({
               onClick={onToggleMenu}
               type="button"
             >
-              Mais acoes
+              Mais ações
               <ChevronDown size={16} strokeWidth={2.2} />
             </button>
             {menuOpen ? (
