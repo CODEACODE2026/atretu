@@ -773,9 +773,8 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
               </div>
             </div>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              Consulte academicos por ano, instituicao, turno e situacao. Esta
-              tela fica dedicada a busca e leitura rapida; cadastro e perfil entram
-              nas proximas etapas da Sprint 7.3.
+              Consulte e gerencie acadêmicos, matrículas, situação, transporte,
+              documentos e informações financeiras.
             </p>
           </div>
           <button

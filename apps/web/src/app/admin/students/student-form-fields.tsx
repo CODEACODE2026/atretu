@@ -301,13 +301,13 @@ export function StudentTransportFields({
           Transporte no cadastro
         </p>
         <p className="mt-1 text-sm leading-6 text-slate-600">
-          O onibus e opcional nesta etapa. O vinculo operacional depois do cadastro
-          continua fora da Sprint 7.3.2.
+          O ônibus é opcional no cadastro e pode ser ajustado depois no perfil do
+          acadêmico.
         </p>
       </div>
       <LabeledSelect
         disabled={loading || !selectedAcademicYear}
-        label="Onibus opcional"
+        label="Ônibus opcional"
         onChange={setBusId}
         options={buses.map((bus) => ({
           label: `${bus.name} - ${bus.availableSeats ?? bus.capacity}/${bus.capacity} vagas`,
