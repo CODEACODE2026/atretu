@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 
 const api = readFileSync("src/lib/api.ts", "utf8");
 const panel = readFileSync("src/app/admin/collections-panel.tsx", "utf8");
+const detail = readFileSync(
+  "src/app/admin/finance/collections/collection-details.tsx",
+  "utf8",
+);
 const form = readFileSync("src/app/admin/collection-action-form.tsx", "utf8");
 const formatters = readFileSync("src/app/admin/collection-formatters.ts", "utf8");
 const validation = readFileSync(
@@ -89,16 +93,25 @@ for (const value of [
 }
 
 for (const value of [
-  "CollectionActionForm",
+  "CollectionDetails",
   "showActionForm",
   "handleActionCreated",
   "refreshDetail()",
   "onCollectionsChanged()",
-  "detail.invoiceStatus === \"PAID\"",
-  "detail.invoiceStatus === \"CANCELLED\"",
   "canRegisterActions",
 ]) {
   assert.ok(panel.includes(value), `Expected panel integration to include ${value}`);
+}
+
+for (const value of [
+  "CollectionActionForm",
+  "showActionForm",
+  "onActionCreated",
+  "caseDetail.invoiceStatus === \"PAID\"",
+  "caseDetail.invoiceStatus === \"CANCELLED\"",
+  "canRegisterActions",
+]) {
+  assert.ok(detail.includes(value), `Expected detail integration to include ${value}`);
 }
 
 for (const forbidden of [
@@ -114,7 +127,7 @@ for (const forbidden of [
   "Dar baixa",
 ]) {
   assert.equal(
-    `${panel}\n${form}`.includes(forbidden),
+    `${panel}\n${detail}\n${form}`.includes(forbidden),
     false,
     `Collection action UI must not use ${forbidden}`,
   );

@@ -12,22 +12,15 @@ import {
   type CollectionCaseDetail,
   type CollectionSummary,
 } from "../../lib/api";
-import { formatDate, formatDateTime } from "../../lib/formatters/date";
+import { formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage } from "../../lib/formatters";
-import {
-  collectionActionTypeLabel,
-  collectionChannelLabel,
-  collectionOperationalStatusLabel,
-  collectionPriorityLabel,
-} from "./collection-formatters";
-import { CollectionActionForm } from "./collection-action-form";
 import { adminTheme, cx } from "./admin-theme";
+import { CollectionDetails } from "./finance/collections/collection-details";
 import { CollectionFiltersBar } from "./finance/collections/collection-filters";
 import { CollectionList } from "./finance/collections/collection-list";
 import { CollectionSummaryCards } from "./finance/collections/collection-summary";
 import {
   emptyCollectionFilters,
-  formatCents,
   type CollectionFilters,
 } from "./finance/collections/collection-display-utils";
 
@@ -382,167 +375,24 @@ function CollectionCaseDetailModal({
               {error}
             </p>
           ) : detail ? (
-            <div className="grid gap-4">
-              <CollectionCaseDetailView caseDetail={detail} bankSlip={bankSlip} />
-              <div className="rounded border border-slate-200 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-950">
-                      Acoes de cobranca
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Registros manuais ficam no historico operacional.
-                    </p>
-                  </div>
-                  <button
-                    className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                    disabled={
-                      !canRegisterActions ||
-                      detail.invoiceStatus === "PAID" ||
-                      detail.invoiceStatus === "CANCELLED"
-                    }
-                    onClick={() => setShowActionForm(true)}
-                    type="button"
-                  >
-                    Registrar acao
-                  </button>
-                </div>
-                {detail.invoiceStatus === "PAID" ||
-                detail.invoiceStatus === "CANCELLED" ? (
-                  <p className="mt-2 text-sm text-slate-500">
-                    Faturas pagas ou canceladas nao aceitam novas acoes, mas o
-                    historico permanece disponivel.
-                  </p>
-                ) : null}
-                {showActionForm ? (
-                  <div className="mt-3">
-                    <CollectionActionForm
-                      caseDetail={detail}
-                      onCancel={() => setShowActionForm(false)}
-                      onCreated={handleActionCreated}
-                    />
-                  </div>
-                ) : null}
-              </div>
-              <div className="rounded border border-slate-200 p-4">
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-                    disabled={!bankSlip?.linhaDigitavel || busy}
-                    onClick={() => void handleCopyLine()}
-                    type="button"
-                  >
-                    Copiar linha digitavel
-                  </button>
-                  <button
-                    className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-                    disabled={!detail.bankSlip?.pdfStoredAt || busy}
-                    onClick={() => void handleDownloadPdf()}
-                    type="button"
-                  >
-                    Baixar PDF
-                  </button>
-                </div>
-                {!detail.bankSlip ? (
-                  <p className="mt-2 text-sm text-slate-500">Fatura sem boleto.</p>
-                ) : null}
-                {detail.bankSlip && !detail.bankSlip.pdfStoredAt ? (
-                  <p className="mt-2 text-sm text-slate-500">
-                    PDF ainda nao arquivado.
-                  </p>
-                ) : null}
-              </div>
-              <CollectionActionsTimeline actions={actions} />
-            </div>
+            <CollectionDetails
+              actions={actions}
+              bankSlip={bankSlip}
+              busy={busy}
+              canRegisterActions={canRegisterActions}
+              caseDetail={detail}
+              onActionCreated={handleActionCreated}
+              onCopyLine={() => void handleCopyLine()}
+              onDownloadPdf={() => void handleDownloadPdf()}
+              onHideActionForm={() => setShowActionForm(false)}
+              onShowActionForm={() => setShowActionForm(true)}
+              showActionForm={showActionForm}
+            />
           ) : (
             <p className="text-sm text-slate-500">Cobranca nao encontrada.</p>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function CollectionCaseDetailView({
-  bankSlip,
-  caseDetail,
-}: {
-  bankSlip: BankSlipRecord | null | undefined;
-  caseDetail: CollectionCaseDetail;
-}) {
-  return (
-    <div className="grid gap-3 rounded border border-slate-200 p-4 text-sm md:grid-cols-2">
-      <Info label="Aluno" value={caseDetail.student.person.fullName} />
-      <Info label="Responsavel" value={caseDetail.student.guardian?.fullName ?? "Nao informado"} />
-      <Info label="Telefone" value={caseDetail.student.person.phone ?? "Sem telefone"} />
-      <Info label="E-mail" value={caseDetail.student.person.email ?? "Sem e-mail"} />
-      <Info label="Instituicao" value={caseDetail.enrollment.institution.name} />
-      <Info label="Ano letivo" value={String(caseDetail.enrollment.academicYear.year)} />
-      <Info label="Matricula" value={`${caseDetail.enrollment.course} / ${caseDetail.enrollment.grade}`} />
-      <Info label="Status financeiro" value={caseDetail.invoiceStatus} />
-      <Info label="Status bancario" value={bankSlip?.status ?? caseDetail.bankSlip?.status ?? "Sem boleto"} />
-      <Info label="Valor original" value={caseDetail.amountFormatted} />
-      <Info label="Valor pago" value={formatCents(bankSlip?.paidAmountCents ?? caseDetail.bankSlip?.paidAmountCents)} />
-      <Info label="Valor pendente" value={caseDetail.outstandingAmountFormatted ?? formatCents(caseDetail.outstandingAmountCents)} />
-      <Info label="Vencimento" value={formatDate(caseDetail.dueDate)} />
-      <Info label="Dias em atraso" value={`${caseDetail.daysOverdue} dia(s)`} />
-      <Info label="Prioridade" value={collectionPriorityLabel(caseDetail.priority)} />
-      <Info label="Status operacional" value={collectionOperationalStatusLabel(caseDetail.operationalStatus)} />
-      <Info label="Linha digitavel" value={bankSlip?.linhaDigitavel ?? "Nao disponivel"} />
-      <Info label="PDF arquivado" value={caseDetail.bankSlip?.pdfStoredAt ? formatDateTime(caseDetail.bankSlip.pdfStoredAt) : "Nao"} />
-    </div>
-  );
-}
-
-function CollectionActionsTimeline({ actions }: { actions: CollectionAction[] }) {
-  if (actions.length === 0) {
-    return (
-      <div className="rounded border border-slate-200 p-4 text-sm text-slate-500">
-        Nenhuma acao registrada.
-      </div>
-    );
-  }
-  return (
-    <div className="rounded border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-950">Historico de acoes</h3>
-      <div className="mt-3 grid gap-3">
-        {actions.map((action) => (
-          <div className="border-l-2 border-slate-200 pl-3 text-sm" key={action.id}>
-            <p className="font-medium text-slate-950">
-              {collectionActionTypeLabel(action.actionType)}
-            </p>
-            <p className="text-xs text-slate-500">
-              {formatDateTime(action.createdAt)} - {action.createdByUser?.name ?? "Sistema"}
-            </p>
-            <p className="mt-1 text-slate-700">{action.note}</p>
-            <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-              <span>Canal: {collectionChannelLabel(action.channel)}</span>
-              {action.contactedName ? <span>Contato: {action.contactedName}</span> : null}
-              {action.contactedDocumentMasked ? (
-                <span>Documento: {action.contactedDocumentMasked}</span>
-              ) : null}
-              {action.promisedAmountCents ? (
-                <span>Promessa: {formatCents(action.promisedAmountCents)}</span>
-              ) : null}
-              {action.promiseDueDate ? (
-                <span>Data promessa: {formatDate(action.promiseDueDate)}</span>
-              ) : null}
-              {action.nextFollowUpAt ? (
-                <span>Retorno: {formatDateTime(action.nextFollowUpAt)}</span>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="font-medium text-slate-950">{value}</p>
     </div>
   );
 }

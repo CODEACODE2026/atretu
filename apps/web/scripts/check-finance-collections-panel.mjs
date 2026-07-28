@@ -22,6 +22,38 @@ const collectionDisplayUtils = readFileSync(
   "src/app/admin/finance/collections/collection-display-utils.ts",
   "utf8",
 );
+const collectionDetails = readFileSync(
+  "src/app/admin/finance/collections/collection-details.tsx",
+  "utf8",
+);
+const collectionDetailsHeader = readFileSync(
+  "src/app/admin/finance/collections/collection-details-header.tsx",
+  "utf8",
+);
+const collectionFinancialSummary = readFileSync(
+  "src/app/admin/finance/collections/collection-financial-summary.tsx",
+  "utf8",
+);
+const collectionBankSlipSection = readFileSync(
+  "src/app/admin/finance/collections/collection-bank-slip-section.tsx",
+  "utf8",
+);
+const collectionPromiseSection = readFileSync(
+  "src/app/admin/finance/collections/collection-promise-section.tsx",
+  "utf8",
+);
+const collectionFollowUpSection = readFileSync(
+  "src/app/admin/finance/collections/collection-follow-up-section.tsx",
+  "utf8",
+);
+const collectionHistory = readFileSync(
+  "src/app/admin/finance/collections/collection-history.tsx",
+  "utf8",
+);
+const collectionHistoryItem = readFileSync(
+  "src/app/admin/finance/collections/collection-history-item.tsx",
+  "utf8",
+);
 const financePanel = readFileSync("src/app/admin/finance-panel.tsx", "utf8");
 const financeNavigation = readFileSync(
   "src/app/admin/finance/finance-navigation.tsx",
@@ -71,20 +103,15 @@ includesAll(panel, [
   "api.listCollectionFollowUps",
   "api.getInvoiceBankSlip",
   "api.downloadInvoiceBankSlipPdf",
+  "CollectionDetails",
   "setPage(1)",
   "current.search === nextSearch",
   "current === 1 ? current : 1",
   "requestSeq",
   "casesResponse.pagination.total",
   "casesResponse.pagination.totalPages",
-  "Nenhuma acao registrada",
-  "Fatura sem boleto",
-  "PDF ainda nao arquivado",
-  "Sem telefone",
-  "Sem e-mail",
   "Sem permissao para acessar Cobranca e Inadimplencia",
   "Erro ao carregar cobranca",
-  "md:grid-cols",
   "max-w-4xl",
   'role="dialog"',
   'aria-modal="true"',
@@ -123,12 +150,91 @@ includesAll(collectionDisplayUtils, [
   "collectionOperationalStatuses",
   "formatCents",
   "Pagamento parcial em revisao",
+  "collectionInvoiceStatusLabel",
+  "latestPromiseAction",
+  "latestFollowUpAction",
+  "collectionFollowUpState",
 ]);
 
 includesAll(collectionSummary, [
   "Valor vencido",
   "Promessas ativas",
   "Pagamentos parciais",
+]);
+
+includesAll(collectionDetails, [
+  "CollectionDetailsHeader",
+  "CollectionFinancialSummary",
+  "CollectionPromiseSection",
+  "CollectionFollowUpSection",
+  "CollectionBankSlipSection",
+  "CollectionHistory",
+  "CollectionActionForm",
+  "Faturas pagas ou canceladas nao aceitam novas acoes",
+]);
+
+includesAll(collectionDetailsHeader, [
+  "CollectionPriorityBadge",
+  "CollectionStatusBadge",
+  "caseDetail.priority",
+  "caseDetail.operationalStatus",
+  "caseDetail.daysOverdue",
+  "formatOutstanding",
+]);
+
+includesAll(collectionFinancialSummary, [
+  "caseDetail.agingBucket",
+  "caseDetail.partialPaymentReview",
+  "caseDetail.brokenPromise",
+  "collectionOperationalStatusLabel",
+  "collectionInvoiceStatusLabel",
+  "formatCents",
+  "Valor original",
+  "Valor pago",
+  "Valor pendente",
+  "Pagamento parcial",
+]);
+
+includesAll(collectionBankSlipSection, [
+  "Copiar linha digitavel",
+  "Baixar PDF",
+  "Fatura sem boleto",
+  "PDF ainda nao arquivado",
+  "bankSlip?.linhaDigitavel",
+  "summary?.pdfStoredAt",
+  "nossoNumero",
+]);
+
+includesAll(collectionPromiseSection, [
+  "latestPromiseAction",
+  "Promessa ativa",
+  "Promessa vencida",
+  "Sem promessa",
+  "promisedAmountCents",
+  "promiseDueDate",
+]);
+
+includesAll(collectionFollowUpSection, [
+  "Retorno hoje",
+  "Retorno vencido",
+  "Sem follow-up",
+  "caseDetail.nextFollowUpAt",
+  "latestFollowUpAction",
+]);
+
+includesAll(collectionHistory, [
+  "Nenhuma acao registrada",
+  "CollectionHistoryItem",
+  "Linha do tempo somente leitura",
+]);
+
+includesAll(collectionHistoryItem, [
+  "contactedDocumentMasked",
+  "collectionChannelLabel",
+  "action.source",
+  "action.note",
+  "promisedAmountCents",
+  "nextFollowUpAt",
 ]);
 
 includesAll(panel, [
@@ -191,6 +297,31 @@ for (const forbidden of [
     false,
     `The read-only collections panel must not use ${forbidden}`,
   );
+}
+for (const source of [
+  collectionDetails,
+  collectionBankSlipSection,
+  collectionHistory,
+  collectionHistoryItem,
+]) {
+  for (const forbidden of [
+    "api.syncInvoiceBankSlip",
+    "api.issueInvoiceBankSlip",
+    "api.cancelInvoiceBankSlip",
+    "api.cancelInvoice",
+    "api.syncPaidBankSlipsDay",
+    "Consultar Sicredi",
+    "Emitir boleto",
+    "Cancelar boleto",
+    "Dar baixa",
+    "method: \"POST\"",
+  ]) {
+    assert.equal(
+      source.includes(forbidden),
+      false,
+      `The collections detail components must not use ${forbidden}`,
+    );
+  }
 }
 
 console.log("Finance collections panel OK");

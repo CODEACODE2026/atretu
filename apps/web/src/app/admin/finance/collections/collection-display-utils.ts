@@ -1,10 +1,14 @@
 import type {
+  BankSlipRecord,
   CollectionAction,
   CollectionAgingBucket,
   CollectionCase,
+  CollectionCaseDetail,
   CollectionOperationalStatus,
   CollectionPriority,
+  InvoiceStatus,
 } from "../../../../lib/api";
+import { formatDate, formatDateTime } from "../../../../lib/formatters/date";
 
 export type CollectionFilters = {
   institutionId: string;
@@ -119,4 +123,54 @@ export function collectionRiskSignals(caseItem: CollectionCase) {
     signals.push("Retorno agendado");
   }
   return signals;
+}
+
+export function collectionInvoiceStatusLabel(value: InvoiceStatus) {
+  const labels: Record<InvoiceStatus, string> = {
+    OPEN: "Aberta",
+    PAID: "Quitada",
+    CANCELLED: "Cancelada",
+  };
+  return labels[value];
+}
+
+export function formatCollectionDate(value?: string | null) {
+  return value ? formatDate(value) : "Nao informado";
+}
+
+export function formatCollectionDateTime(value?: string | null) {
+  return value ? formatDateTime(value) : "Nao informado";
+}
+
+export function collectionBankSlipValue(
+  bankSlip: BankSlipRecord | null | undefined,
+  caseDetail: CollectionCaseDetail,
+) {
+  return bankSlip?.paidAmountCents ?? caseDetail.bankSlip?.paidAmountCents ?? 0;
+}
+
+export function latestPromiseAction(actions: CollectionAction[]) {
+  return actions.find((action) => action.actionType === "PROMISE_TO_PAY") ?? null;
+}
+
+export function latestFollowUpAction(actions: CollectionAction[]) {
+  return actions.find((action) => Boolean(action.nextFollowUpAt)) ?? null;
+}
+
+export function collectionFollowUpState(value?: string | null) {
+  if (!value) {
+    return "NONE";
+  }
+  const now = new Date();
+  const target = new Date(value);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  if (target >= today && target < tomorrow) {
+    return "TODAY";
+  }
+  if (target < today) {
+    return "OVERDUE";
+  }
+  return "SCHEDULED";
 }
