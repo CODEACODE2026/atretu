@@ -2,6 +2,26 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const panel = readFileSync("src/app/admin/collections-panel.tsx", "utf8");
+const collectionList = readFileSync(
+  "src/app/admin/finance/collections/collection-list.tsx",
+  "utf8",
+);
+const collectionCard = readFileSync(
+  "src/app/admin/finance/collections/collection-card.tsx",
+  "utf8",
+);
+const collectionFilters = readFileSync(
+  "src/app/admin/finance/collections/collection-filters.tsx",
+  "utf8",
+);
+const collectionSummary = readFileSync(
+  "src/app/admin/finance/collections/collection-summary.tsx",
+  "utf8",
+);
+const collectionDisplayUtils = readFileSync(
+  "src/app/admin/finance/collections/collection-display-utils.ts",
+  "utf8",
+);
 const financePanel = readFileSync("src/app/admin/finance-panel.tsx", "utf8");
 const financeNavigation = readFileSync(
   "src/app/admin/finance/finance-navigation.tsx",
@@ -57,23 +77,34 @@ includesAll(panel, [
   "requestSeq",
   "casesResponse.pagination.total",
   "casesResponse.pagination.totalPages",
-  "Nenhuma fatura vencida encontrada",
   "Nenhuma acao registrada",
-  "Pagamento parcial em revisao",
   "Fatura sem boleto",
   "PDF ainda nao arquivado",
   "Sem telefone",
   "Sem e-mail",
   "Sem permissao para acessar Cobranca e Inadimplencia",
   "Erro ao carregar cobranca",
-  "overflow-x-auto",
   "md:grid-cols",
   "max-w-4xl",
   'role="dialog"',
   'aria-modal="true"',
 ]);
 
-includesAll(panel, [
+includesAll(collectionList, [
+  "Nenhuma fatura vencida encontrada",
+  "CollectionCard",
+  "Pagina {page} de {totalPages}",
+]);
+
+includesAll(collectionCard, [
+  "CollectionPriorityBadge",
+  "CollectionStatusBadge",
+  "formatOutstanding",
+  "collectionRiskSignals",
+  "onOpenDetail(caseItem.invoiceId)",
+]);
+
+includesAll(collectionFilters, [
   "institutionId",
   "academicYearId",
   "search",
@@ -84,9 +115,37 @@ includesAll(panel, [
   "actionType",
   "followUpFrom",
   "followUpTo",
+  "hasActiveCollectionFilters",
+]);
+
+includesAll(collectionDisplayUtils, [
+  "collectionAgingBuckets",
+  "collectionOperationalStatuses",
+  "formatCents",
+  "Pagamento parcial em revisao",
+]);
+
+includesAll(collectionSummary, [
+  "Valor vencido",
+  "Promessas ativas",
+  "Pagamentos parciais",
+]);
+
+includesAll(panel, [
   "page",
   "limit: 10",
 ]);
+
+assert.equal(
+  collectionList.includes("overflow-x-auto"),
+  false,
+  "The modernized collections queue must not use horizontal table scrolling",
+);
+assert.equal(
+  collectionList.includes("min-w-["),
+  false,
+  "The modernized collections queue must not use fixed min-width table layouts",
+);
 
 includesAll(formatters, [
   "DAYS_1_30",

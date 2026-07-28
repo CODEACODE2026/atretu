@@ -8,65 +8,28 @@ import {
   type BankSlipRecord,
   type BaseRecord,
   type CollectionAction,
-  type CollectionAgingBucket,
   type CollectionCase,
   type CollectionCaseDetail,
-  type CollectionOperationalStatus,
   type CollectionSummary,
 } from "../../lib/api";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage } from "../../lib/formatters";
 import {
   collectionActionTypeLabel,
-  collectionAgingBucketLabel,
   collectionChannelLabel,
-  collectionActionTypes,
   collectionOperationalStatusLabel,
-  collectionPriorityClass,
   collectionPriorityLabel,
 } from "./collection-formatters";
 import { CollectionActionForm } from "./collection-action-form";
-
-const AGING_BUCKETS: CollectionAgingBucket[] = [
-  "DAYS_1_30",
-  "DAYS_31_60",
-  "DAYS_61_90",
-  "DAYS_90_PLUS",
-];
-const OPERATIONAL_STATUSES: CollectionOperationalStatus[] = [
-  "OVERDUE_NO_ACTION",
-  "CONTACTED",
-  "PROMISE_ACTIVE",
-  "PROMISE_BROKEN",
-  "FOLLOW_UP_SCHEDULED",
-  "NO_CONTACT",
-  "PARTIAL_PAYMENT_REVIEW",
-];
-type CollectionFilters = {
-  institutionId: string;
-  academicYearId: string;
-  search: string;
-  dueDateFrom: string;
-  dueDateTo: string;
-  agingBucket: CollectionAgingBucket | "";
-  operationalStatus: CollectionOperationalStatus | "";
-  actionType: CollectionAction["actionType"] | "";
-  followUpFrom: string;
-  followUpTo: string;
-};
-
-const emptyFilters: CollectionFilters = {
-  institutionId: "",
-  academicYearId: "",
-  search: "",
-  dueDateFrom: "",
-  dueDateTo: "",
-  agingBucket: "",
-  operationalStatus: "",
-  actionType: "",
-  followUpFrom: "",
-  followUpTo: "",
-};
+import { adminTheme, cx } from "./admin-theme";
+import { CollectionFiltersBar } from "./finance/collections/collection-filters";
+import { CollectionList } from "./finance/collections/collection-list";
+import { CollectionSummaryCards } from "./finance/collections/collection-summary";
+import {
+  emptyCollectionFilters,
+  formatCents,
+  type CollectionFilters,
+} from "./finance/collections/collection-display-utils";
 
 export function CollectionsPanel({ user }: { user: ApiUser }) {
   const canUseCollections =
@@ -76,7 +39,7 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
   const [followUps, setFollowUps] = useState<CollectionCase[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
-  const [filters, setFilters] = useState<CollectionFilters>(emptyFilters);
+  const [filters, setFilters] = useState<CollectionFilters>(emptyCollectionFilters);
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -165,6 +128,12 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
     setPage(1);
   }
 
+  function clearFilters() {
+    setFilters(emptyCollectionFilters);
+    setSearchInput("");
+    setPage(1);
+  }
+
   if (!canUseCollections) {
     return (
       <section className="rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -175,7 +144,7 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
 
   return (
     <div className="grid gap-4">
-      <section className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+      <section className={cx(adminTheme.card, "min-w-0 p-4")}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-slate-950">
@@ -186,7 +155,7 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
             </p>
           </div>
           <button
-            className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+            className={adminTheme.secondaryButton}
             disabled={loading}
             onClick={() => void loadCollections()}
             type="button"
@@ -210,6 +179,7 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
         <CollectionFiltersBar
           filters={filters}
           institutions={institutions}
+          onClear={clearFilters}
           searchInput={searchInput}
           setSearchInput={setSearchInput}
           updateFilter={updateFilter}
@@ -217,18 +187,15 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
         />
       </section>
 
-      <section className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-slate-950">Fila de cobranca</h3>
-          <p className="text-xs text-slate-500">{total} caso(s)</p>
-        </div>
-        <CollectionCasesTable
-          cases={cases}
-          loading={loading}
-          onOpenDetail={setDetailInvoiceId}
-        />
-        <Pagination page={page} setPage={setPage} totalPages={totalPages} />
-      </section>
+      <CollectionList
+        cases={cases}
+        loading={loading}
+        onOpenDetail={setDetailInvoiceId}
+        page={page}
+        setPage={setPage}
+        total={total}
+        totalPages={totalPages}
+      />
 
       <CollectionFollowUps cases={followUps} />
 
@@ -241,309 +208,6 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
           onMessage={setMessage}
         />
       ) : null}
-    </div>
-  );
-}
-
-function CollectionSummaryCards({ summary }: { summary: CollectionSummary | null }) {
-  const cards = [
-    ["Valor total vencido", formatCents(summary?.totalOverdueCents)],
-    ["Faturas", String(summary?.invoiceCount ?? 0)],
-    ["Alunos inadimplentes", String(summary?.studentCount ?? 0)],
-    ["Ticket medio vencido", formatCents(summary?.averageOverdueAmountCents)],
-    ["Promessas ativas", String(summary?.promisesActiveCount ?? 0)],
-    ["Promessas quebradas", String(summary?.promisesBrokenCount ?? 0)],
-    ["Retornos de hoje", String(summary?.followUpsTodayCount ?? 0)],
-    ["Pagamentos parciais", String(summary?.partialPaymentReviewCount ?? 0)],
-  ];
-  return (
-    <>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {cards.map(([label, value]) => (
-          <div className="rounded border border-slate-200 bg-slate-50 p-3" key={label}>
-            <p className="text-xs text-slate-500">{label}</p>
-            <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {AGING_BUCKETS.map((bucket) => (
-          <div className="rounded border border-slate-200 p-3 text-sm" key={bucket}>
-            <p className="font-medium text-slate-950">
-              {collectionAgingBucketLabel(bucket)}
-            </p>
-            <p className="text-slate-600">
-              {summary?.agingBuckets[bucket] ?? 0} fatura(s)
-            </p>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function CollectionFiltersBar({
-  filters,
-  institutions,
-  searchInput,
-  setSearchInput,
-  updateFilter,
-  years,
-}: {
-  filters: CollectionFilters;
-  institutions: BaseRecord[];
-  searchInput: string;
-  setSearchInput: (value: string) => void;
-  updateFilter: <K extends keyof CollectionFilters>(
-    key: K,
-    value: CollectionFilters[K],
-  ) => void;
-  years: AcademicYear[];
-}) {
-  return (
-    <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-5">
-      <input
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => setSearchInput(event.target.value)}
-        placeholder="Buscar aluno"
-        type="search"
-        value={searchInput}
-      />
-      <select
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => updateFilter("institutionId", event.target.value)}
-        value={filters.institutionId}
-      >
-        <option value="">Instituicao</option>
-        {institutions.map((institution) => (
-          <option key={institution.id} value={institution.id}>
-            {institution.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => updateFilter("academicYearId", event.target.value)}
-        value={filters.academicYearId}
-      >
-        <option value="">Ano letivo</option>
-        {years.map((year) => (
-          <option key={year.id} value={year.id}>
-            {year.year}
-          </option>
-        ))}
-      </select>
-      <input
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => updateFilter("dueDateFrom", event.target.value)}
-        type="date"
-        value={filters.dueDateFrom}
-      />
-      <input
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => updateFilter("dueDateTo", event.target.value)}
-        type="date"
-        value={filters.dueDateTo}
-      />
-      <select
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) =>
-          updateFilter("agingBucket", event.target.value as CollectionAgingBucket | "")
-        }
-        value={filters.agingBucket}
-      >
-        <option value="">Faixa de atraso</option>
-        {AGING_BUCKETS.map((bucket) => (
-          <option key={bucket} value={bucket}>
-            {collectionAgingBucketLabel(bucket)}
-          </option>
-        ))}
-      </select>
-      <select
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) =>
-          updateFilter(
-            "operationalStatus",
-            event.target.value as CollectionOperationalStatus | "",
-          )
-        }
-        value={filters.operationalStatus}
-      >
-        <option value="">Status operacional</option>
-        {OPERATIONAL_STATUSES.map((status) => (
-          <option key={status} value={status}>
-            {collectionOperationalStatusLabel(status)}
-          </option>
-        ))}
-      </select>
-      <select
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) =>
-          updateFilter(
-            "actionType",
-            event.target.value as CollectionAction["actionType"] | "",
-          )
-        }
-        value={filters.actionType}
-      >
-        <option value="">Tipo da acao</option>
-        {collectionActionTypes.map((type) => (
-          <option key={type} value={type}>
-            {collectionActionTypeLabel(type)}
-          </option>
-        ))}
-      </select>
-      <input
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => updateFilter("followUpFrom", event.target.value)}
-        type="date"
-        value={filters.followUpFrom}
-      />
-      <input
-        className="rounded border border-slate-300 px-3 py-2 text-sm"
-        onChange={(event) => updateFilter("followUpTo", event.target.value)}
-        type="date"
-        value={filters.followUpTo}
-      />
-    </div>
-  );
-}
-
-function CollectionCasesTable({
-  cases,
-  loading,
-  onOpenDetail,
-}: {
-  cases: CollectionCase[];
-  loading: boolean;
-  onOpenDetail: (invoiceId: string) => void;
-}) {
-  return (
-    <div className="mt-3 overflow-x-auto">
-      <table className="w-full min-w-[1180px] text-left text-sm">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-          <tr>
-            <th className="px-4 py-3">Aluno</th>
-            <th className="px-4 py-3">Contato</th>
-            <th className="px-4 py-3">Instituicao</th>
-            <th className="px-4 py-3">Valores</th>
-            <th className="px-4 py-3">Atraso</th>
-            <th className="px-4 py-3">Prioridade</th>
-            <th className="px-4 py-3">Status</th>
-            <th className="px-4 py-3">Ultima acao</th>
-            <th className="px-4 py-3">Boleto</th>
-            <th className="px-4 py-3">Acoes</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {loading ? (
-            <tr>
-              <td className="px-4 py-6 text-slate-500" colSpan={10}>
-                Carregando...
-              </td>
-            </tr>
-          ) : cases.length === 0 ? (
-            <tr>
-              <td className="px-4 py-6 text-slate-500" colSpan={10}>
-                Nenhuma fatura vencida encontrada
-              </td>
-            </tr>
-          ) : (
-            cases.map((item) => (
-              <tr key={item.invoiceId}>
-                <td className="px-4 py-3">
-                  <p className="font-medium text-slate-950">
-                    {item.student.person.fullName}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {item.enrollment.course} / {item.enrollment.grade}
-                  </p>
-                  {item.student.guardian?.fullName ? (
-                    <p className="text-xs text-slate-500">
-                      Resp.: {item.student.guardian.fullName}
-                    </p>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  <p>{item.student.person.phone ?? "Sem telefone"}</p>
-                  <p className="text-xs text-slate-500">
-                    {item.student.person.email ?? "Sem e-mail"}
-                  </p>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  <p>{item.enrollment.institution.name}</p>
-                  <p className="text-xs text-slate-500">
-                    Ano {item.enrollment.academicYear.year}
-                  </p>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  <p>{item.amountFormatted}</p>
-                  <p className="text-xs text-slate-500">
-                    Pendente: {item.outstandingAmountFormatted ?? formatCents(item.outstandingAmountCents)}
-                  </p>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  <p>{formatDate(item.dueDate)}</p>
-                  <p className="text-xs text-slate-500">
-                    {item.daysOverdue} dia(s), {collectionAgingBucketLabel(item.agingBucket)}
-                  </p>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`rounded border px-2 py-1 text-xs ${collectionPriorityClass(item.priority)}`}>
-                    {collectionPriorityLabel(item.priority)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  {collectionOperationalStatusLabel(item.operationalStatus)}
-                  {item.partialPaymentReview ? (
-                    <span className="mt-1 block text-xs text-amber-700">
-                      Pagamento parcial em revisao
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  {item.lastAction ? (
-                    <>
-                      <p>{collectionActionTypeLabel(item.lastAction.actionType)}</p>
-                      <p className="text-xs text-slate-500">
-                        {formatDateTime(item.lastAction.createdAt)}
-                      </p>
-                    </>
-                  ) : (
-                    "Sem historico"
-                  )}
-                  {item.nextFollowUpAt ? (
-                    <p className="text-xs text-slate-500">
-                      Retorno: {formatDateTime(item.nextFollowUpAt)}
-                    </p>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  {item.bankSlip ? (
-                    <>
-                      <p>{item.bankSlip.status}</p>
-                      <p className="text-xs text-slate-500">
-                        {item.bankSlip.pdfStoredAt ? "PDF arquivado" : "Sem PDF"}
-                      </p>
-                    </>
-                  ) : (
-                    "Sem boleto"
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    className="rounded bg-slate-900 px-3 py-2 text-xs font-medium text-white"
-                    onClick={() => onOpenDetail(item.invoiceId)}
-                    type="button"
-                  >
-                    Abrir
-                  </button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -883,40 +547,6 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Pagination({
-  page,
-  setPage,
-  totalPages,
-}: {
-  page: number;
-  setPage: (page: number) => void;
-  totalPages: number;
-}) {
-  return (
-    <div className="mt-4 flex items-center justify-end gap-2">
-      <button
-        className="rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
-        disabled={page <= 1}
-        onClick={() => setPage(page - 1)}
-        type="button"
-      >
-        Anterior
-      </button>
-      <span className="text-sm text-slate-600">
-        Pagina {page} de {totalPages}
-      </span>
-      <button
-        className="rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
-        disabled={page >= totalPages}
-        onClick={() => setPage(page + 1)}
-        type="button"
-      >
-        Proxima
-      </button>
-    </div>
-  );
-}
-
 function groupFollowUps(cases: CollectionCase[]) {
   const now = new Date();
   const startToday = startOfDay(now);
@@ -966,13 +596,6 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
-}
-
-function formatCents(value?: number | null) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format((value ?? 0) / 100);
 }
 
 function readError(caught: unknown, fallback: string) {
