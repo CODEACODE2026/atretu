@@ -7,7 +7,27 @@ const detail = readFileSync(
   "src/app/admin/finance/collections/collection-details.tsx",
   "utf8",
 );
-const form = readFileSync("src/app/admin/collection-action-form.tsx", "utf8");
+const rootForm = readFileSync("src/app/admin/collection-action-form.tsx", "utf8");
+const form = readFileSync(
+  "src/app/admin/finance/collections/collection-action-form.tsx",
+  "utf8",
+);
+const fields = readFileSync(
+  "src/app/admin/finance/collections/collection-action-fields.tsx",
+  "utf8",
+);
+const selector = readFileSync(
+  "src/app/admin/finance/collections/collection-action-type-selector.tsx",
+  "utf8",
+);
+const feedback = readFileSync(
+  "src/app/admin/finance/collections/collection-action-feedback.tsx",
+  "utf8",
+);
+const actionUtils = readFileSync(
+  "src/app/admin/finance/collections/collection-action-display-utils.ts",
+  "utf8",
+);
 const formatters = readFileSync("src/app/admin/collection-formatters.ts", "utf8");
 const validation = readFileSync(
   "src/app/admin/collection-action-validation.ts",
@@ -50,18 +70,52 @@ for (const forbidden of [
   );
 }
 
+assert.ok(
+  rootForm.includes("export { CollectionActionForm }"),
+  "Root action form must remain a compatibility export",
+);
+
 for (const value of [
   "CollectionActionForm",
   "api.createCollectionAction",
   "caseDetail.invoiceId",
   "validation.body",
   "submitting",
+  "submittingRef",
   "setSubmitting(true)",
   "disabled={submitting}",
   "emptyCollectionActionForm",
   "readError(caught",
+  "CollectionActionFeedback",
+  "CollectionActionTypeSelector",
+  "CollectionActionFields",
 ]) {
   assert.ok(form.includes(value), `Expected form to include ${value}`);
+}
+
+for (const value of [
+  "collectionActionShowsChannel",
+  "collectionActionShowsContact",
+  "collectionActionShowsPromise",
+  "collectionActionShowsFollowUp",
+  "promisedAmountReais",
+  "promiseDueDate",
+  "nextFollowUpAt",
+  "contactedDocumentMasked",
+]) {
+  assert.ok(fields.includes(value), `Expected action fields to include ${value}`);
+}
+
+for (const value of [
+  "collectionActionTypes",
+  "collectionActionTypeLabel",
+  "collectionActionHelp",
+]) {
+  assert.ok(selector.includes(value), `Expected selector to include ${value}`);
+}
+
+for (const value of ["AlertCircle", "CheckCircle2"]) {
+  assert.ok(feedback.includes(value), `Expected feedback to include ${value}`);
 }
 
 for (const value of [
@@ -74,6 +128,17 @@ for (const value of [
   "INTERNAL_NOTE",
 ]) {
   assert.ok(formatters.includes(value), `Expected formatter to include ${value}`);
+  assert.ok(actionUtils.includes(value), `Expected action utils to include ${value}`);
+}
+
+for (const value of [
+  "collectionActionShowsChannel",
+  "collectionActionShowsContact",
+  "collectionActionShowsPromise",
+  "collectionActionShowsFollowUp",
+  "collectionActionHelp",
+]) {
+  assert.ok(actionUtils.includes(value), `Expected action utils to include ${value}`);
 }
 
 for (const value of [
@@ -127,7 +192,15 @@ for (const forbidden of [
   "Dar baixa",
 ]) {
   assert.equal(
-    `${panel}\n${detail}\n${form}`.includes(forbidden),
+    [
+      panel,
+      detail,
+      form,
+      fields,
+      selector,
+      feedback,
+      actionUtils,
+    ].join("\n").includes(forbidden),
     false,
     `Collection action UI must not use ${forbidden}`,
   );

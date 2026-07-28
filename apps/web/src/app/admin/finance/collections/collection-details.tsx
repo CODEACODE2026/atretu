@@ -3,7 +3,7 @@ import type {
   CollectionAction,
   CollectionCaseDetail,
 } from "../../../../lib/api";
-import { CollectionActionForm } from "../../collection-action-form";
+import { CollectionActionForm } from "./collection-action-form";
 import { CollectionBankSlipSection } from "./collection-bank-slip-section";
 import { CollectionDetailsHeader } from "./collection-details-header";
 import { CollectionFinancialSummary } from "./collection-financial-summary";

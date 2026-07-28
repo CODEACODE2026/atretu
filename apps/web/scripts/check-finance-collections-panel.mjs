@@ -54,6 +54,34 @@ const collectionHistoryItem = readFileSync(
   "src/app/admin/finance/collections/collection-history-item.tsx",
   "utf8",
 );
+const collectionActionForm = readFileSync(
+  "src/app/admin/finance/collections/collection-action-form.tsx",
+  "utf8",
+);
+const collectionActionFields = readFileSync(
+  "src/app/admin/finance/collections/collection-action-fields.tsx",
+  "utf8",
+);
+const collectionActionTypeSelector = readFileSync(
+  "src/app/admin/finance/collections/collection-action-type-selector.tsx",
+  "utf8",
+);
+const collectionActionFeedback = readFileSync(
+  "src/app/admin/finance/collections/collection-action-feedback.tsx",
+  "utf8",
+);
+const collectionActionDisplayUtils = readFileSync(
+  "src/app/admin/finance/collections/collection-action-display-utils.ts",
+  "utf8",
+);
+const collectionFollowUpList = readFileSync(
+  "src/app/admin/finance/collections/collection-follow-up-list.tsx",
+  "utf8",
+);
+const collectionFollowUpCard = readFileSync(
+  "src/app/admin/finance/collections/collection-follow-up-card.tsx",
+  "utf8",
+);
 const financePanel = readFileSync("src/app/admin/finance-panel.tsx", "utf8");
 const financeNavigation = readFileSync(
   "src/app/admin/finance/finance-navigation.tsx",
@@ -104,6 +132,7 @@ includesAll(panel, [
   "api.getInvoiceBankSlip",
   "api.downloadInvoiceBankSlipPdf",
   "CollectionDetails",
+  "CollectionFollowUpList",
   "setPage(1)",
   "current.search === nextSearch",
   "current === 1 ? current : 1",
@@ -173,6 +202,46 @@ includesAll(collectionDetails, [
   "Faturas pagas ou canceladas nao aceitam novas acoes",
 ]);
 
+includesAll(collectionActionForm, [
+  "api.createCollectionAction",
+  "validateCollectionActionForm",
+  "validation.body",
+  "submittingRef",
+  "disabled={submitting}",
+  "CollectionActionFeedback",
+  "CollectionActionTypeSelector",
+  "CollectionActionFields",
+]);
+
+includesAll(collectionActionFields, [
+  "collectionActionShowsChannel",
+  "collectionActionShowsContact",
+  "collectionActionShowsPromise",
+  "collectionActionShowsFollowUp",
+  "promisedAmountReais",
+  "promiseDueDate",
+  "nextFollowUpAt",
+  "contactedDocumentMasked",
+]);
+
+includesAll(collectionActionTypeSelector, [
+  "collectionActionTypes",
+  "collectionActionTypeLabel",
+  "collectionActionHelp",
+]);
+
+includesAll(collectionActionFeedback, ["AlertCircle", "CheckCircle2"]);
+
+includesAll(collectionActionDisplayUtils, [
+  "CONTACT_ATTEMPT",
+  "CONTACT_MADE",
+  "PROMISE_TO_PAY",
+  "FOLLOW_UP_SCHEDULED",
+  "NO_CONTACT",
+  "PARTIAL_PAYMENT_REVIEW_NOTE",
+  "INTERNAL_NOTE",
+]);
+
 includesAll(collectionDetailsHeader, [
   "CollectionPriorityBadge",
   "CollectionStatusBadge",
@@ -237,6 +306,29 @@ includesAll(collectionHistoryItem, [
   "nextFollowUpAt",
 ]);
 
+includesAll(collectionFollowUpList, [
+  "Retornos agendados",
+  "Atrasados",
+  "Hoje",
+  "Amanha",
+  "Proximos sete dias",
+  "CollectionFollowUpCard",
+  "onOpenDetail",
+  "groupFollowUps",
+  "sameRange",
+]);
+
+includesAll(collectionFollowUpCard, [
+  "CollectionPriorityBadge",
+  "CollectionStatusBadge",
+  "formatOutstanding",
+  "collectionActionTypeLabel",
+  "Abrir detalhe",
+  "onOpenDetail(caseItem.invoiceId)",
+  "caseItem.nextFollowUpAt",
+  "caseItem.daysOverdue",
+]);
+
 includesAll(panel, [
   "page",
   "limit: 10",
@@ -252,6 +344,18 @@ assert.equal(
   false,
   "The modernized collections queue must not use fixed min-width table layouts",
 );
+for (const source of [collectionFollowUpList, collectionFollowUpCard]) {
+  assert.equal(
+    source.includes("overflow-x-auto"),
+    false,
+    "The modernized follow-up panel must not use horizontal table scrolling",
+  );
+  assert.equal(
+    source.includes("min-w-["),
+    false,
+    "The modernized follow-up panel must not use fixed min-width table layouts",
+  );
+}
 
 includesAll(formatters, [
   "DAYS_1_30",
@@ -303,6 +407,13 @@ for (const source of [
   collectionBankSlipSection,
   collectionHistory,
   collectionHistoryItem,
+  collectionActionForm,
+  collectionActionFields,
+  collectionActionTypeSelector,
+  collectionActionFeedback,
+  collectionActionDisplayUtils,
+  collectionFollowUpList,
+  collectionFollowUpCard,
 ]) {
   for (const forbidden of [
     "api.syncInvoiceBankSlip",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type AcademicYear,
@@ -12,11 +12,11 @@ import {
   type CollectionCaseDetail,
   type CollectionSummary,
 } from "../../lib/api";
-import { formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import { CollectionDetails } from "./finance/collections/collection-details";
 import { CollectionFiltersBar } from "./finance/collections/collection-filters";
+import { CollectionFollowUpList } from "./finance/collections/collection-follow-up-list";
 import { CollectionList } from "./finance/collections/collection-list";
 import { CollectionSummaryCards } from "./finance/collections/collection-summary";
 import {
@@ -190,7 +190,10 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
         totalPages={totalPages}
       />
 
-      <CollectionFollowUps cases={followUps} />
+      <CollectionFollowUpList
+        cases={followUps}
+        onOpenDetail={setDetailInvoiceId}
+      />
 
       {detailInvoiceId ? (
         <CollectionCaseDetailModal
@@ -202,40 +205,6 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
         />
       ) : null}
     </div>
-  );
-}
-
-function CollectionFollowUps({ cases }: { cases: CollectionCase[] }) {
-  const grouped = useMemo(() => groupFollowUps(cases), [cases]);
-  return (
-    <section className="rounded border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="text-sm font-semibold text-slate-950">Retornos agendados</h3>
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {grouped.map((group) => (
-          <div className="rounded border border-slate-200 p-3" key={group.label}>
-            <p className="text-xs font-medium uppercase text-slate-500">
-              {group.label}
-            </p>
-            <div className="mt-2 grid gap-2">
-              {group.items.length === 0 ? (
-                <p className="text-sm text-slate-500">Sem retornos</p>
-              ) : (
-                group.items.slice(0, 5).map((item) => (
-                  <div className="text-sm" key={`${group.label}-${item.invoiceId}`}>
-                    <p className="font-medium text-slate-950">
-                      {item.student.person.fullName}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {formatDateTime(item.nextFollowUpAt)}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -397,55 +366,10 @@ function CollectionCaseDetailModal({
   );
 }
 
-function groupFollowUps(cases: CollectionCase[]) {
-  const now = new Date();
-  const startToday = startOfDay(now);
-  const startTomorrow = addDays(startToday, 1);
-  const startAfterTomorrow = addDays(startToday, 2);
-  const sevenDays = addDays(startToday, 8);
-  return [
-    {
-      label: "Atrasados",
-      items: cases.filter((item) => dateOf(item.nextFollowUpAt) < startToday),
-    },
-    {
-      label: "Hoje",
-      items: cases.filter((item) => sameRange(item.nextFollowUpAt, startToday, startTomorrow)),
-    },
-    {
-      label: "Amanha",
-      items: cases.filter((item) => sameRange(item.nextFollowUpAt, startTomorrow, startAfterTomorrow)),
-    },
-    {
-      label: "Proximos sete dias",
-      items: cases.filter((item) => sameRange(item.nextFollowUpAt, startAfterTomorrow, sevenDays)),
-    },
-  ];
-}
-
 function cleanParams<T extends Record<string, unknown>>(params: T) {
   return Object.fromEntries(
     Object.entries(params).filter(([, value]) => value !== "" && value !== undefined),
   );
-}
-
-function dateOf(value?: string | null) {
-  return value ? new Date(value) : new Date(Number.NaN);
-}
-
-function sameRange(value: string | null | undefined, start: Date, end: Date) {
-  const date = dateOf(value);
-  return date >= start && date < end;
-}
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
 }
 
 function readError(caught: unknown, fallback: string) {
