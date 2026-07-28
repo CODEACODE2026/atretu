@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Banknote,
   CalendarDays,
@@ -34,10 +34,23 @@ import { canAccessRestrictedAdmin } from "../../lib/auth";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
+import {
+  BankSlipDialog,
+  type BankSlipDialogState,
+} from "./finance/bank-slip-dialogs";
 import { CollectionsPanel } from "./collections-panel";
+import {
+  type BankSlipListRecord,
+  calculateFinanceSummary,
+  type FinanceArea,
+  hasActiveFinanceFilters,
+} from "./finance/finance-display-utils";
+import { FinanceFilters } from "./finance/finance-filters";
+import { InvoiceList } from "./finance/invoice-list";
+import { FinanceNavigation } from "./finance/finance-navigation";
+import { FinanceSummaryCards } from "./finance/finance-summary";
 
-type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
-type FinanceArea = "invoices" | "collections";
+type FinanceInitialArea = Extract<FinanceArea, "invoices" | "collections">;
 
 const invoiceCancellationOptions: Array<{
   label: string;
@@ -52,7 +65,7 @@ export function FinancePanel({
   initialArea = "invoices",
   user,
 }: {
-  initialArea?: FinanceArea;
+  initialArea?: FinanceInitialArea;
   user: ApiUser;
 }) {
   const [financeArea, setFinanceArea] = useState<FinanceArea>(initialArea);
@@ -86,6 +99,7 @@ export function FinancePanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [bankSlipAction, setBankSlipAction] = useState("");
+  const [bankSlipDialog, setBankSlipDialog] = useState<BankSlipDialogState | null>(null);
   const issueBankSlipInFlightRef = useRef("");
   const issueBatchInFlightRef = useRef(false);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
@@ -108,6 +122,7 @@ export function FinancePanel({
   const [syncPaidSummary, setSyncPaidSummary] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [invoiceLoadError, setInvoiceLoadError] = useState("");
   const issueBatchProgressEvents = useMemo(
     () => latestIssueBatchEvents(issueBatchItems),
     [issueBatchItems],
@@ -120,6 +135,19 @@ export function FinancePanel({
     () => filterIssueBatchDownloads(issueBatchDownloadBatches, issueBatchDownloadSearch),
     [issueBatchDownloadBatches, issueBatchDownloadSearch],
   );
+  const financeSummary = useMemo(
+    () => calculateFinanceSummary(invoices, bankSlips, issueBatch),
+    [bankSlips, invoices, issueBatch],
+  );
+  const hasActiveFilters = hasActiveFinanceFilters({
+    academicYearId,
+    dueDateFrom,
+    dueDateTo,
+    institutionId,
+    overdue,
+    search,
+    status,
+  });
 
   useEffect(() => {
     void loadReferences();
@@ -174,6 +202,7 @@ export function FinancePanel({
   async function loadInvoices(nextSearch = search) {
     setLoading(true);
     setError("");
+    setInvoiceLoadError("");
     try {
       const response = await api.listInvoices({
         page,
@@ -195,7 +224,8 @@ export function FinancePanel({
       );
       setTotalPages(Math.max(response.pagination.totalPages, 1));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao carregar");
+      const message = caught instanceof Error ? caught.message : "Erro ao carregar faturas";
+      setInvoiceLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -211,16 +241,19 @@ export function FinancePanel({
   async function loadFullBankSlip(invoice: InvoiceRecord) {
     const current = bankSlips[invoice.id];
     if (!current || isFullBankSlip(current)) {
-      return;
+      return current;
     }
     updateBankSlip(invoice.id, undefined);
     try {
-      updateBankSlip(invoice.id, await api.getInvoiceBankSlip(invoice.id));
+      const bankSlip = await api.getInvoiceBankSlip(invoice.id);
+      updateBankSlip(invoice.id, bankSlip);
+      return bankSlip;
     } catch (caught) {
       updateBankSlip(invoice.id, invoice.bankSlipSummary);
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar detalhe do boleto",
       );
+      return invoice.bankSlipSummary;
     }
   }
 
@@ -337,18 +370,82 @@ export function FinancePanel({
     }
   }
 
+  function showBankSlipResult(title: string, message: string, tone: "danger" | "success" | "warning") {
+    setBankSlipDialog({
+      message,
+      title,
+      tone,
+      type: "result",
+    });
+  }
+
+  function openIssueBankSlipDialog(invoice: InvoiceRecord) {
+    if (issueBankSlipInFlightRef.current || bankSlipAction) {
+      return;
+    }
+    setBankSlipDialog({
+      invoice,
+      type: "issue",
+    });
+  }
+
+  function openSyncBankSlipDialog(invoice: InvoiceRecord) {
+    if (bankSlipAction) {
+      return;
+    }
+    setBankSlipDialog({
+      bankSlip: bankSlips[invoice.id] ?? invoice.bankSlipSummary,
+      invoice,
+      type: "sync",
+    });
+  }
+
+  function openCancelBankSlipDialog(invoice: InvoiceRecord) {
+    if (bankSlipAction) {
+      return;
+    }
+    setBankSlipDialog({
+      bankSlip: bankSlips[invoice.id] ?? invoice.bankSlipSummary,
+      invoice,
+      type: "cancel",
+    });
+  }
+
+  async function openBankSlipErrorDialog(invoice: InvoiceRecord) {
+    const existingBankSlip = bankSlips[invoice.id] ?? invoice.bankSlipSummary;
+    if (bankSlipAction) {
+      setBankSlipDialog({
+        bankSlip: existingBankSlip,
+        invoice,
+        type: "error",
+      });
+      return;
+    }
+    setBankSlipAction(invoice.id);
+    try {
+      const fullBankSlip = await loadFullBankSlip(invoice);
+      setBankSlipDialog({
+        bankSlip: fullBankSlip ?? existingBankSlip,
+        invoice,
+        type: "error",
+      });
+    } catch {
+      setBankSlipDialog({
+        bankSlip: existingBankSlip,
+        invoice,
+        type: "error",
+      });
+    } finally {
+      setBankSlipAction("");
+    }
+  }
+
   async function handleIssueBankSlip(invoice: InvoiceRecord) {
     if (issueBankSlipInFlightRef.current) {
       return;
     }
     issueBankSlipInFlightRef.current = invoice.id;
     try {
-      const confirmed = window.confirm(
-        `Emitir boleto NORMAL sem juros, multa, desconto, QR Code ou Pix?\nValor: ${invoice.amountFormatted}\nVencimento: ${formatDate(invoice.dueDate)}\nPagador: ${invoice.student.person.fullName}`,
-      );
-      if (!confirmed) {
-        return;
-      }
       setBankSlipAction(invoice.id);
       setMessage("");
       setError("");
@@ -356,14 +453,16 @@ export function FinancePanel({
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
       setMessage("Boleto emitido");
+      showBankSlipResult("Boleto emitido", "O boleto foi emitido e a fatura foi atualizada.", "success");
       await loadInvoices();
     } catch (caught) {
       const text = caught instanceof Error ? caught.message : "Erro ao emitir boleto";
-      setError(
+      const messageText =
         text.includes("incerto") || text.includes("confirmar")
           ? "O sistema não conseguiu confirmar se o boleto foi criado no Sicredi. Não tente emitir novamente. Use a consulta de situação ou procure o administrador."
-          : text,
-      );
+          : text;
+      setError(messageText);
+      showBankSlipResult("Emissão não confirmada", messageText, "danger");
       await loadFullBankSlip(invoice);
     } finally {
       setBankSlipAction("");
@@ -380,31 +479,24 @@ export function FinancePanel({
       const bankSlip = await api.syncInvoiceBankSlip(invoice.id);
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
-      setMessage(syncResultMessage(previous, bankSlip.status));
+      const resultMessage = syncResultMessage(previous, bankSlip.status);
+      setMessage(resultMessage);
+      showBankSlipResult("Consulta concluída", resultMessage, "success");
       await loadInvoices();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao consultar boleto");
+      const messageText = caught instanceof Error ? caught.message : "Erro ao consultar boleto";
+      setError(messageText);
+      showBankSlipResult("Erro ao consultar boleto", messageText, "danger");
     } finally {
       setBankSlipAction("");
     }
   }
 
-  async function handleCancelBankSlip(invoice: InvoiceRecord) {
-    const reason = promptOption(
-      "Selecione o motivo da solicitacao de baixa do boleto:",
-      invoiceCancellationOptions,
-    );
-    if (!reason) {
-      setError("Selecione um motivo valido para solicitar a baixa do boleto.");
-      return;
-    }
-    const note = window.prompt("Observacao opcional") ?? undefined;
-    const confirmed = window.confirm(
-      "Solicitar baixa do boleto?\n\nO pedido sera registrado para o Sicredi, a baixa nao e imediata e a fatura so sera cancelada apos confirmacao bancaria.",
-    );
-    if (!confirmed) {
-      return;
-    }
+  async function handleCancelBankSlip(
+    invoice: InvoiceRecord,
+    reason: InvoiceCancellationReason,
+    note: string,
+  ) {
     setBankSlipAction(invoice.id);
     setMessage("");
     setError("");
@@ -415,9 +507,13 @@ export function FinancePanel({
       });
       updateBankSlip(invoice.id, bankSlip);
       setExpandedInvoiceId(invoice.id);
-      setMessage("Baixa solicitada. Aguarde confirmacao bancaria.");
+      const resultMessage = "Baixa solicitada. Aguarde confirmação bancária.";
+      setMessage(resultMessage);
+      showBankSlipResult("Baixa solicitada", resultMessage, "success");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao solicitar baixa");
+      const messageText = caught instanceof Error ? caught.message : "Erro ao solicitar baixa";
+      setError(messageText);
+      showBankSlipResult("Erro ao solicitar baixa", messageText, "danger");
     } finally {
       setBankSlipAction("");
     }
@@ -436,8 +532,11 @@ export function FinancePanel({
       link.click();
       URL.revokeObjectURL(url);
       setMessage("PDF do boleto baixado");
+      showBankSlipResult("Download iniciado", "O PDF do boleto foi preparado para download.", "success");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "PDF indisponivel");
+      const messageText = caught instanceof Error ? caught.message : "PDF indisponível";
+      setError(messageText);
+      showBankSlipResult("PDF indisponível", messageText, "warning");
     } finally {
       setBankSlipAction("");
     }
@@ -725,151 +824,180 @@ export function FinancePanel({
     });
   }
 
-  const areaTabs = (
-    <div className="flex flex-wrap gap-2">
-      <button
-        className={`rounded border px-3 py-2 text-sm font-medium ${
-          financeArea === "invoices"
-            ? "border-slate-900 bg-slate-900 text-white"
-            : "border-slate-300 bg-white text-slate-700"
-        }`}
-        onClick={() => setFinanceArea("invoices")}
-        type="button"
-      >
-        Faturas
-      </button>
-      {canViewCollections ? (
-        <button
-          className={`rounded border px-3 py-2 text-sm font-medium ${
-            financeArea === "collections"
-              ? "border-slate-900 bg-slate-900 text-white"
-              : "border-slate-300 bg-white text-slate-700"
-          }`}
-          onClick={() => setFinanceArea("collections")}
-          type="button"
-        >
-          Cobranca e Inadimplencia
-        </button>
-      ) : null}
-    </div>
+  function clearFilters() {
+    setSearch("");
+    setAcademicYearId("");
+    setInstitutionId("");
+    setStatus("");
+    setOverdue("all");
+    setDueDateFrom("");
+    setDueDateTo("");
+    setPage(1);
+    void loadInvoices("");
+  }
+
+  function changeFinanceArea(area: FinanceArea) {
+    setFinanceArea(area);
+    if (area === "batches") {
+      window.setTimeout(() => {
+        document.getElementById("finance-batches")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 0);
+    }
+  }
+
+  const financeHeader = (
+    <>
+      <section className={cx(adminTheme.card, "min-w-0 overflow-hidden p-5")}>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex gap-4">
+            <div className={cx(adminTheme.atretuMark, "grid h-12 w-12 shrink-0 place-items-center rounded-xl")}>
+              <Banknote aria-hidden="true" className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-[#1F6F5F]">
+                Administração financeira
+              </p>
+              <h1 className="mt-1 text-2xl font-bold tracking-normal text-slate-950">
+                Financeiro
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                Gerencie faturas, boletos, conciliações, lotes de emissão e cobranças.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={adminTheme.primaryButton}
+              onClick={() => document.getElementById("finance-create-invoice")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              type="button"
+            >
+              <Plus aria-hidden="true" className="h-4 w-4" />
+              Nova fatura
+            </button>
+            {canSyncPaidDay(user) ? (
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={saving}
+                onClick={() => void handleSyncPaidDay()}
+                type="button"
+              >
+                <RefreshCw aria-hidden="true" className="h-4 w-4" />
+                Sincronizar liquidados
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+      <FinanceNavigation
+        activeArea={financeArea}
+        canViewCollections={canViewCollections}
+        onChange={changeFinanceArea}
+      />
+      <FinanceSummaryCards summary={financeSummary} />
+    </>
   );
+
+  function confirmBankSlipIssue() {
+    if (bankSlipDialog?.type !== "issue") {
+      return;
+    }
+    void handleIssueBankSlip(bankSlipDialog.invoice);
+  }
+
+  function confirmBankSlipSync() {
+    if (bankSlipDialog?.type !== "sync") {
+      return;
+    }
+    void handleSyncBankSlip(bankSlipDialog.invoice);
+  }
+
+  function confirmBankSlipCancellation(reason: InvoiceCancellationReason, note: string) {
+    if (bankSlipDialog?.type !== "cancel") {
+      return;
+    }
+    void handleCancelBankSlip(bankSlipDialog.invoice, reason, note);
+  }
 
   if (financeArea === "collections" && canViewCollections) {
     return (
-      <div className="grid gap-4">
-        {areaTabs}
+      <div className="grid min-w-0 gap-5">
+        {financeHeader}
         <CollectionsPanel user={user} />
       </div>
     );
   }
 
   return (
-    <div className="grid gap-4">
-      {areaTabs}
-      <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="grid min-w-0 gap-5">
+      {financeHeader}
+      <BankSlipDialog
+        dialog={bankSlipDialog}
+        onClose={() => {
+          if (!bankSlipAction) {
+            setBankSlipDialog(null);
+          }
+        }}
+        onConfirmCancel={confirmBankSlipCancellation}
+        onConfirmIssue={confirmBankSlipIssue}
+        onConfirmSync={confirmBankSlipSync}
+        reasonOptions={invoiceCancellationOptions}
+        saving={Boolean(bankSlipAction)}
+      />
+      <FinanceFilters
+        academicYearId={academicYearId}
+        dueDateFrom={dueDateFrom}
+        dueDateTo={dueDateTo}
+        hasActiveFilters={hasActiveFilters}
+        institutionId={institutionId}
+        institutions={institutions}
+        loading={loading}
+        onClear={clearFilters}
+        onSubmit={(event) => {
+          event.preventDefault();
+          setPage(1);
+          void loadInvoices(search);
+        }}
+        overdue={overdue}
+        search={search}
+        setAcademicYearId={(value) => {
+          setAcademicYearId(value);
+          setPage(1);
+        }}
+        setDueDateFrom={(value) => {
+          setDueDateFrom(value);
+          setPage(1);
+        }}
+        setDueDateTo={(value) => {
+          setDueDateTo(value);
+          setPage(1);
+        }}
+        setInstitutionId={(value) => {
+          setInstitutionId(value);
+          setPage(1);
+        }}
+        setOverdue={(value) => {
+          setOverdue(value);
+          setPage(1);
+        }}
+        setSearch={setSearch}
+        setStatus={(value) => {
+          setStatus(value);
+          setPage(1);
+        }}
+        status={status}
+        years={years}
+      />
+      <div className={cx(adminTheme.card, "min-w-0 p-4")}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-slate-950">Faturas</h2>
-            <p className="text-xs text-slate-500">Financeiro</p>
+            <p className="text-sm text-slate-600">
+              Lista atual preservada para a próxima etapa de refinamento.
+            </p>
           </div>
-          <form
-            className="flex w-full gap-2 sm:w-auto"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setPage(1);
-              void loadInvoices(search);
-            }}
-          >
-            <input
-              className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por nome ou CPF"
-              type="search"
-              value={search}
-            />
-            <button
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
-              type="submit"
-            >
-              Buscar
-            </button>
-          </form>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => {
-              setAcademicYearId(event.target.value);
-              setPage(1);
-            }}
-            value={academicYearId}
-          >
-            <option value="">Ano</option>
-            {years.map((year) => (
-              <option key={year.id} value={year.id}>
-                {year.year}
-              </option>
-            ))}
-          </select>
-          <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => {
-              setInstitutionId(event.target.value);
-              setPage(1);
-            }}
-            value={institutionId}
-          >
-            <option value="">Instituicao</option>
-            {institutions.map((institution) => (
-              <option key={institution.id} value={institution.id}>
-                {institution.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => {
-              setStatus(event.target.value as InvoiceStatus | "");
-              setPage(1);
-            }}
-            value={status}
-          >
-            <option value="">Status</option>
-            <option value="OPEN">Aberta</option>
-            <option value="PAID">Paga</option>
-            <option value="CANCELLED">Cancelada</option>
-          </select>
-          <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => {
-              setOverdue(event.target.value as "all" | "overdue" | "notOverdue");
-              setPage(1);
-            }}
-            value={overdue}
-          >
-            <option value="all">Todas</option>
-            <option value="overdue">Vencidas</option>
-            <option value="notOverdue">Nao vencidas</option>
-          </select>
-          <input
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => {
-              setDueDateFrom(event.target.value);
-              setPage(1);
-            }}
-            type="date"
-            value={dueDateFrom}
-          />
-          <input
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => {
-              setDueDateTo(event.target.value);
-              setPage(1);
-            }}
-            type="date"
-            value={dueDateTo}
-          />
         </div>
 
         {canSyncPaidDay(user) ? (
@@ -897,7 +1025,7 @@ export function FinancePanel({
           </div>
         ) : null}
 
-        <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+        <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3" id="finance-batches">
           <div className="grid gap-3">
             <span className="text-xs font-medium uppercase text-slate-500">
               Emissao em lote por instituicao
@@ -1139,113 +1267,45 @@ export function FinancePanel({
             {error}
           </p>
         ) : null}
+        {invoiceLoadError ? (
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-sm font-semibold text-red-800">
+              Erro ao carregar faturas
+            </p>
+            <p className="mt-1 text-sm text-red-700">{invoiceLoadError}</p>
+          </div>
+        ) : null}
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Sel.</th>
-                <th className="px-4 py-3">Academico</th>
-                <th className="px-4 py-3">CPF</th>
-                <th className="px-4 py-3">Ano</th>
-                <th className="px-4 py-3">Instituicao</th>
-                <th className="px-4 py-3">Valor</th>
-                <th className="px-4 py-3">Vencimento</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Boleto</th>
-                <th className="px-4 py-3">Acoes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={10}>
-                    Carregando...
-                  </td>
-                </tr>
-              ) : invoices.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={10}>
-                    Nenhuma fatura encontrada
-                  </td>
-                </tr>
-              ) : (
-                invoices.map((invoice) => {
-                  const bankSlip = bankSlips[invoice.id];
-                  return (
-                    <Fragment key={invoice.id}>
-                      <tr>
-                        <td className="px-4 py-3">
-                          <input
-                            checked={selectedInvoiceIds.includes(invoice.id)}
-                            disabled={!canIssueBankSlip(invoice, bankSlip) || saving}
-                            onChange={() => toggleInvoiceSelection(invoice.id)}
-                            type="checkbox"
-                          />
-                        </td>
-                        <td className="px-4 py-3 font-medium text-slate-950">
-                          {invoice.student.person.fullName}
-                          {invoice.description ? (
-                            <span className="block text-xs font-normal text-slate-500">
-                              {invoice.description}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {invoice.student.person.cpfMasked}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {invoice.enrollment.academicYear.year}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {invoice.enrollment.institution.name}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {invoice.amountFormatted}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {formatDate(invoice.dueDate)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {invoiceStatusLabel(invoice)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          <BankSlipCompact bankSlip={bankSlip} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <InvoiceBankSlipActions
-                            bankSlip={bankSlip}
-                            busy={bankSlipAction === invoice.id || saving}
-                            invoice={invoice}
-                            onCancelInvoice={() => void handleCancel(invoice)}
-                            onCancelSlip={() => void handleCancelBankSlip(invoice)}
-                            onCopy={() => void handleCopyLinhaDigitavel(invoice.id)}
-                            onIssue={() => void handleIssueBankSlip(invoice)}
-                            onPdf={() => void handleDownloadPdf(invoice)}
-                            onSync={() => void handleSyncBankSlip(invoice)}
-                            onToggleDetails={() => void toggleBankSlipDetails(invoice)}
-                          />
-                        </td>
-                      </tr>
-                      {expandedInvoiceId === invoice.id ? (
-                        <tr>
-                          <td className="bg-slate-50 px-4 py-3" colSpan={10}>
-                            <BankSlipDetails bankSlip={bankSlip} invoice={invoice} />
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+        <div className="mt-4">
+          <InvoiceList
+            bankSlipAction={bankSlipAction}
+            bankSlips={bankSlips}
+            canCancelInvoice={canCancelInvoiceDirectly}
+            canCancelSlip={canRequestBankSlipCancellation}
+            canDownloadPdf={canDownloadBankSlipPdf}
+            canIssue={canIssueBankSlip}
+            expandedInvoiceId={expandedInvoiceId}
+            hasActiveFilters={hasActiveFilters}
+            invoices={invoices}
+            loading={loading}
+            onCancelInvoice={(invoice) => void handleCancel(invoice)}
+            onCancelSlip={openCancelBankSlipDialog}
+            onCopy={(invoiceId) => void handleCopyLinhaDigitavel(invoiceId)}
+            onIssue={openIssueBankSlipDialog}
+            onPdf={(invoice) => void handleDownloadPdf(invoice)}
+            onSelect={toggleInvoiceSelection}
+            onSync={openSyncBankSlipDialog}
+            onToggleDetails={(invoice) => void toggleBankSlipDetails(invoice)}
+            onViewError={(invoice) => void openBankSlipErrorDialog(invoice)}
+            saving={saving}
+            selectedInvoiceIds={selectedInvoiceIds}
+          />
         </div>
         <Pagination page={page} setPage={setPage} totalPages={totalPages} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
-        <div className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded border border-slate-200 bg-white p-4 shadow-sm" id="finance-create-invoice">
           <h2 className="text-base font-semibold text-slate-950">
             Criar fatura
           </h2>
@@ -1549,16 +1609,19 @@ export function StudentInvoicesForStudent({
   async function loadFullBankSlip(invoice: InvoiceRecord) {
     const current = bankSlips[invoice.id];
     if (!current || isFullBankSlip(current)) {
-      return;
+      return current;
     }
     updateBankSlip(invoice.id, undefined);
     try {
-      updateBankSlip(invoice.id, await api.getInvoiceBankSlip(invoice.id));
+      const bankSlip = await api.getInvoiceBankSlip(invoice.id);
+      updateBankSlip(invoice.id, bankSlip);
+      return bankSlip;
     } catch (caught) {
       updateBankSlip(invoice.id, invoice.bankSlipSummary);
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar detalhe do boleto",
       );
+      return invoice.bankSlipSummary;
     }
   }
 

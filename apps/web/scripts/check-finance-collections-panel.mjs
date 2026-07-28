@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 
 const panel = readFileSync("src/app/admin/collections-panel.tsx", "utf8");
 const financePanel = readFileSync("src/app/admin/finance-panel.tsx", "utf8");
+const financeNavigation = readFileSync(
+  "src/app/admin/finance/finance-navigation.tsx",
+  "utf8",
+);
 const api = readFileSync("src/lib/api.ts", "utf8");
 const formatters = readFileSync("src/app/admin/collection-formatters.ts", "utf8");
 
@@ -14,10 +18,11 @@ const includesAll = (source, values) => {
 
 includesAll(financePanel, [
   "CollectionsPanel",
-  "Cobranca e Inadimplencia",
   "canViewCollections",
   'financeArea === "collections"',
 ]);
+
+includesAll(financeNavigation, ["Cobrança e inadimplência"]);
 
 includesAll(api, [
   "export type CollectionSummary",
