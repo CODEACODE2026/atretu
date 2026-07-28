@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Send,
   XCircle,
 } from "lucide-react";
 import {
@@ -38,6 +39,16 @@ import {
   BankSlipDialog,
   type BankSlipDialogState,
 } from "./finance/bank-slip-dialogs";
+import {
+  BatchDialog,
+  type BatchDialogState,
+} from "./finance/batch-dialogs";
+import {
+  calculateBatchSummary,
+  filterBatches,
+} from "./finance/batch-display-utils";
+import { BatchList } from "./finance/batch-list";
+import { BatchSummaryCards } from "./finance/batch-summary";
 import { CollectionsPanel } from "./collections-panel";
 import {
   type BankSlipListRecord,
@@ -102,6 +113,7 @@ export function FinancePanel({
   const [bankSlipDialog, setBankSlipDialog] = useState<BankSlipDialogState | null>(null);
   const issueBankSlipInFlightRef = useRef("");
   const issueBatchInFlightRef = useRef(false);
+  const issueBatchRetryInFlightRef = useRef(false);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
   const [issueBatchInstitutionId, setIssueBatchInstitutionId] = useState("");
   const [issueBatchAmount, setIssueBatchAmount] = useState("");
@@ -109,12 +121,22 @@ export function FinancePanel({
   const [issueBatchPreview, setIssueBatchPreview] = useState<BankSlipIssueBatchPreview | null>(null);
   const [issueBatch, setIssueBatch] = useState<BankSlipIssueBatch | null>(null);
   const [issueBatchItems, setIssueBatchItems] = useState<BankSlipIssueBatchItem[]>([]);
+  const [issueBatches, setIssueBatches] = useState<BankSlipIssueBatch[]>([]);
+  const [issueBatchesLoading, setIssueBatchesLoading] = useState(false);
+  const [expandedIssueBatchId, setExpandedIssueBatchId] = useState("");
+  const [issueBatchItemsById, setIssueBatchItemsById] = useState<
+    Record<string, BankSlipIssueBatchItem[] | undefined>
+  >({});
+  const [issueBatchItemsLoadingId, setIssueBatchItemsLoadingId] = useState("");
+  const [issueBatchActionId, setIssueBatchActionId] = useState("");
+  const [batchDialog, setBatchDialog] = useState<BatchDialogState | null>(null);
   const [issueBatchDownloadState, setIssueBatchDownloadState] = useState<
     "" | "preparing" | "started" | "partial" | "empty" | "error"
   >("");
   const [issueBatchDownloadSummary, setIssueBatchDownloadSummary] = useState("");
   const [issueBatchDownloadPanelOpen, setIssueBatchDownloadPanelOpen] = useState(false);
   const [issueBatchDownloadBatches, setIssueBatchDownloadBatches] = useState<BankSlipIssueBatch[]>([]);
+  const [issueBatchSearch, setIssueBatchSearch] = useState("");
   const [issueBatchDownloadSearch, setIssueBatchDownloadSearch] = useState("");
   const [issueBatchDownloadLoading, setIssueBatchDownloadLoading] = useState(false);
   const [issueBatchDownloadBatchId, setIssueBatchDownloadBatchId] = useState("");
@@ -132,8 +154,17 @@ export function FinancePanel({
       (isIssueBatchRunning(issueBatch) || issueBatch.progressPercent === 100 || issueBatch.finishedAt),
   );
   const filteredIssueBatchDownloads = useMemo(
-    () => filterIssueBatchDownloads(issueBatchDownloadBatches, issueBatchDownloadSearch),
+    () => filterBatches(issueBatchDownloadBatches, issueBatchDownloadSearch),
     [issueBatchDownloadBatches, issueBatchDownloadSearch],
+  );
+  const filteredIssueBatches = useMemo(
+    () => filterBatches(issueBatches, issueBatchSearch),
+    [issueBatches, issueBatchSearch],
+  );
+  const canRetryIssueBatches = canAccessRestrictedAdmin(user);
+  const batchSummary = useMemo(
+    () => calculateBatchSummary(issueBatches),
+    [issueBatches],
   );
   const financeSummary = useMemo(
     () => calculateFinanceSummary(invoices, bankSlips, issueBatch),
@@ -151,6 +182,7 @@ export function FinancePanel({
 
   useEffect(() => {
     void loadReferences();
+    void loadIssueBatches();
   }, []);
 
   useEffect(() => {
@@ -229,6 +261,33 @@ export function FinancePanel({
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadIssueBatches() {
+    setIssueBatchesLoading(true);
+    try {
+      const response = await api.listBankSlipIssueBatches({
+        limit: 100,
+      });
+      setIssueBatches(response.data);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao carregar lotes");
+    } finally {
+      setIssueBatchesLoading(false);
+    }
+  }
+
+  function mergeIssueBatch(updated: BankSlipIssueBatch) {
+    setIssueBatches((current) => {
+      const exists = current.some((batch) => batch.id === updated.id);
+      const next = exists
+        ? current.map((batch) => (batch.id === updated.id ? updated : batch))
+        : [updated, ...current];
+      return next.sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+      );
+    });
   }
 
   function updateBankSlip(
@@ -632,8 +691,9 @@ export function FinancePanel({
       ]);
       setIssueBatch(batch);
       setIssueBatchItems(items.data);
+      mergeIssueBatch(batch);
+      setIssueBatchItemsById((current) => ({ ...current, [batch.id]: items.data }));
       if (!isIssueBatchRunning(batch)) {
-        await loadInvoices();
         setMessage(issueBatchCompletionMessage(batch));
       }
     } catch (caught) {
@@ -645,8 +705,11 @@ export function FinancePanel({
     if (issueBatchInFlightRef.current || selectedInvoiceIds.length === 0) {
       return;
     }
-    const confirmed = window.confirm(`Emitir boletos para ${selectedInvoiceIds.length} fatura(s) selecionada(s)?`);
-    if (!confirmed) {
+    setBatchDialog({ count: selectedInvoiceIds.length, type: "create-manual" });
+  }
+
+  async function confirmCreateIssueBatch() {
+    if (issueBatchInFlightRef.current || selectedInvoiceIds.length === 0) {
       return;
     }
     issueBatchInFlightRef.current = true;
@@ -657,10 +720,24 @@ export function FinancePanel({
       const batch = await api.createBankSlipIssueBatch(selectedInvoiceIds);
       setMessage("Lote criado. Emitindo boletos...");
       setIssueBatch(batch);
+      mergeIssueBatch(batch);
       setSelectedInvoiceIds([]);
+      setBatchDialog({
+        message: "Lote criado. A emissão foi iniciada e o progresso será atualizado automaticamente.",
+        title: "Emissão iniciada",
+        tone: "success",
+        type: "result",
+      });
       await refreshIssueBatch(batch.id);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao criar lote");
+      const message = caught instanceof Error ? caught.message : "Erro ao criar lote";
+      setError(message);
+      setBatchDialog({
+        message,
+        title: "Erro ao criar lote",
+        tone: "danger",
+        type: "result",
+      });
     } finally {
       setSaving(false);
       issueBatchInFlightRef.current = false;
@@ -671,10 +748,11 @@ export function FinancePanel({
     if (issueBatchInFlightRef.current || !issueBatchPreview || issueBatchPreview.totalEligible === 0) {
       return;
     }
-    const confirmed = window.confirm(
-      `Emitir ${issueBatchPreview.totalEligible} boleto(s) elegivel(is) no valor total de ${issueBatchPreview.eligibleAmountFormatted}?`,
-    );
-    if (!confirmed) {
+    setBatchDialog({ preview: issueBatchPreview, type: "create-institution" });
+  }
+
+  async function confirmCreateInstitutionIssueBatch() {
+    if (issueBatchInFlightRef.current || !issueBatchPreview || issueBatchPreview.totalEligible === 0) {
       return;
     }
     issueBatchInFlightRef.current = true;
@@ -692,10 +770,24 @@ export function FinancePanel({
       });
       setMessage("Lote criado. Emitindo boletos...");
       setIssueBatch(batch);
+      mergeIssueBatch(batch);
+      setBatchDialog({
+        message: "Lote institucional criado. Faturas elegíveis foram enviadas para emissão.",
+        title: "Lote institucional iniciado",
+        tone: "success",
+        type: "result",
+      });
       await refreshIssueBatch(batch.id);
       await loadInvoices();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao criar lote institucional");
+      const message = caught instanceof Error ? caught.message : "Erro ao criar lote institucional";
+      setError(message);
+      setBatchDialog({
+        message,
+        title: "Erro no lote institucional",
+        tone: "danger",
+        type: "result",
+      });
     } finally {
       setSaving(false);
       issueBatchInFlightRef.current = false;
@@ -706,43 +798,104 @@ export function FinancePanel({
     if (!issueBatch) {
       return;
     }
-    const reason = window.prompt("Motivo do cancelamento do lote") ?? undefined;
+    setBatchDialog({ batch: issueBatch, type: "cancel" });
+  }
+
+  async function confirmCancelIssueBatch(reason: string) {
+    const batchToCancel = batchDialog?.type === "cancel" ? batchDialog.batch : issueBatch;
+    if (!batchToCancel) {
+      return;
+    }
+    setIssueBatchActionId(batchToCancel.id);
     setSaving(true);
     setError("");
     setMessage("");
     try {
-      const batch = await api.cancelBankSlipIssueBatch(issueBatch.id, {
+      const batch = await api.cancelBankSlipIssueBatch(batchToCancel.id, {
         reason: emptyToUndefined(reason),
       });
       setIssueBatch(batch);
+      mergeIssueBatch(batch);
       await refreshIssueBatch(batch.id);
       setMessage("Lote cancelado");
+      setBatchDialog({
+        message: "Lote cancelado. Itens já finalizados foram preservados.",
+        title: "Lote cancelado",
+        tone: "warning",
+        type: "result",
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao cancelar lote");
+      const message = caught instanceof Error ? caught.message : "Erro ao cancelar lote";
+      setError(message);
+      setBatchDialog({
+        message,
+        title: "Erro ao cancelar lote",
+        tone: "danger",
+        type: "result",
+      });
     } finally {
       setSaving(false);
+      setIssueBatchActionId("");
     }
   }
 
   async function handleRetryIssueBatch() {
-    if (!issueBatch) {
+    if (!issueBatch || !canRetryIssueBatches) {
       return;
     }
-    const reason = window.prompt("Motivo do retry") ?? undefined;
+    setBatchDialog({ batch: issueBatch, type: "retry" });
+  }
+
+  async function confirmRetryIssueBatch(reason: string) {
+    const batchToRetry = batchDialog?.type === "retry" ? batchDialog.batch : issueBatch;
+    if (!batchToRetry || !canRetryIssueBatches || issueBatchRetryInFlightRef.current) {
+      return;
+    }
+    if (batchToRetry.failedItems === 0) {
+      const message = "Não há itens FAILED neste lote. O retry seguro não inclui itens UNKNOWN para evitar duplicidade.";
+      setMessage(message);
+      setBatchDialog({
+        message,
+        title: "Sem itens seguros para retry",
+        tone: "warning",
+        type: "result",
+      });
+      return;
+    }
+    setIssueBatchActionId(batchToRetry.id);
+    issueBatchRetryInFlightRef.current = true;
     setSaving(true);
     setError("");
     setMessage("");
     try {
-      const batch = await api.retryFailedBankSlipIssueBatch(issueBatch.id, {
+      const batch = await api.retryFailedBankSlipIssueBatch(batchToRetry.id, {
         reason: emptyToUndefined(reason),
       });
       setIssueBatch(batch);
+      mergeIssueBatch(batch);
       await refreshIssueBatch(batch.id);
       setMessage("Itens com falha segura reenfileirados");
+      setBatchDialog({
+        message: "Itens FAILED foram reenfileirados com segurança. Itens UNKNOWN permaneceram fora do retry.",
+        title: "Retry enviado",
+        tone: "success",
+        type: "result",
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao reenfileirar");
+      const message = caught instanceof Error ? caught.message : "Erro ao reenfileirar";
+      setError(message);
+      setBatchDialog({
+        message: message.includes("NO_SAFE_RETRY_ITEMS")
+          ? "Não há itens com falha segura para retry neste lote."
+          : message,
+        title: "Retry não executado",
+        tone: "danger",
+        type: "result",
+      });
     } finally {
+      issueBatchRetryInFlightRef.current = false;
       setSaving(false);
+      setIssueBatchActionId("");
     }
   }
 
@@ -762,6 +915,7 @@ export function FinancePanel({
         limit: 100,
       });
       setIssueBatchDownloadBatches(response.data);
+      setIssueBatches((current) => mergeBatchLists(current, response.data));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar lotes");
     } finally {
@@ -822,6 +976,47 @@ export function FinancePanel({
       behavior: "smooth",
       block: "start",
     });
+  }
+
+  async function toggleIssueBatchDetails(batch: BankSlipIssueBatch) {
+    if (expandedIssueBatchId === batch.id) {
+      setExpandedIssueBatchId("");
+      return;
+    }
+    setExpandedIssueBatchId(batch.id);
+    setIssueBatch(batch);
+    if (issueBatchItemsById[batch.id]) {
+      setIssueBatchItems(issueBatchItemsById[batch.id] ?? []);
+      return;
+    }
+    setIssueBatchItemsLoadingId(batch.id);
+    try {
+      const items = await api.listBankSlipIssueBatchItems(batch.id, { limit: 200 });
+      setIssueBatchItems(items.data);
+      setIssueBatchItemsById((current) => ({ ...current, [batch.id]: items.data }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao carregar itens do lote");
+    } finally {
+      setIssueBatchItemsLoadingId("");
+    }
+  }
+
+  function openCancelIssueBatchDialog(batch: BankSlipIssueBatch) {
+    setIssueBatch(batch);
+    setBatchDialog({ batch, type: "cancel" });
+  }
+
+  function openRetryIssueBatchDialog(batch: BankSlipIssueBatch) {
+    if (!canRetryIssueBatches) {
+      return;
+    }
+    setIssueBatch(batch);
+    setBatchDialog({ batch, type: "retry" });
+  }
+
+  function refreshIssueBatchFromCard(batch: BankSlipIssueBatch) {
+    setIssueBatch(batch);
+    void refreshIssueBatch(batch.id);
   }
 
   function clearFilters() {
@@ -946,6 +1141,19 @@ export function FinancePanel({
         reasonOptions={invoiceCancellationOptions}
         saving={Boolean(bankSlipAction)}
       />
+      <BatchDialog
+        dialog={batchDialog}
+        onClose={() => {
+          if (!saving) {
+            setBatchDialog(null);
+          }
+        }}
+        onConfirmCancel={confirmCancelIssueBatch}
+        onConfirmCreateInstitution={confirmCreateInstitutionIssueBatch}
+        onConfirmCreateManual={confirmCreateIssueBatch}
+        onConfirmRetry={confirmRetryIssueBatch}
+        saving={saving}
+      />
       <FinanceFilters
         academicYearId={academicYearId}
         dueDateFrom={dueDateFrom}
@@ -1025,237 +1233,168 @@ export function FinancePanel({
           </div>
         ) : null}
 
-        <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3" id="finance-batches">
-          <div className="grid gap-3">
-            <span className="text-xs font-medium uppercase text-slate-500">
-              Emissao em lote por instituicao
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
-                onChange={(event) => {
-                  setIssueBatchInstitutionId(event.target.value);
-                  setIssueBatchPreview(null);
-                }}
-                value={issueBatchInstitutionId}
-              >
-                <option value="">Instituicao</option>
-                {institutions.map((institution) => (
-                  <option key={institution.id} value={institution.id}>
-                    {institution.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
-                onChange={(event) => {
-                  setIssueBatchAmount(formatMoneyInput(event.target.value));
-                  setIssueBatchPreview(null);
-                }}
-                inputMode="decimal"
-                placeholder="R$ 150,00"
-                value={issueBatchAmount}
-              />
-              <input
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
-                onChange={(event) => {
-                  setIssueBatchDueDate(event.target.value);
-                  setIssueBatchPreview(null);
-                }}
-                type="date"
-                value={issueBatchDueDate}
-              />
+        <section className="mt-4 grid gap-4" id="finance-batches">
+          <BatchSummaryCards summary={batchSummary} />
+          <div className={cx(adminTheme.card, "min-w-0 p-5")}>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className={cx(adminTheme.titleText, "text-base")}>
+                  Emissão em lote
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Crie lotes por instituição ou envie somente faturas selecionadas.
+                </p>
+              </div>
               <button
-                className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-                disabled={saving || !issueBatchInstitutionId || !issueBatchAmount || !issueBatchDueDate}
-                onClick={() => void handlePreviewInstitutionIssueBatch()}
-                type="button"
-              >
-                Gerar previa
-              </button>
-              <button
-                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                disabled={
-                  saving ||
-                  Boolean(issueBatch && isIssueBatchRunning(issueBatch)) ||
-                  !issueBatchPreview ||
-                  issueBatchPreview.totalEligible === 0
-                }
-                onClick={() => void handleCreateInstitutionIssueBatch()}
-                type="button"
-              >
-                Gerar faturas e emitir boletos
-              </button>
-              <button
-                className="rounded bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+                className={adminTheme.secondaryButton}
                 disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
                 onClick={() => void openIssueBatchDownloadPanel()}
                 type="button"
               >
-                📦 Baixar boletos
+                <Download aria-hidden="true" className="h-4 w-4" />
+                Baixar boletos
               </button>
             </div>
-            {issueBatchPreview ? (
-              <div className="grid gap-2 rounded border border-slate-200 bg-white p-3 text-xs text-slate-700">
-                <div className="flex flex-wrap gap-2">
-                  <span className="font-medium">{issueBatchPreview.institutionName}</span>
-                  <span>Alunos encontrados: {issueBatchPreview.totalStudentsFound}</span>
-                  <span>Faturas a criar: {issueBatchPreview.totalWillCreateInvoices}</span>
-                  <span>Faturas existentes elegiveis: {issueBatchPreview.totalExistingInvoiceEligible}</span>
-                  <span>Bloqueadas: {issueBatchPreview.totalBlocked}</span>
-                  <span>Valor por aluno: {issueBatchPreview.unitAmountFormatted}</span>
-                  <span>Valor total previsto: {issueBatchPreview.eligibleAmountFormatted}</span>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+              <div className={cx(adminTheme.softPanel, "grid gap-3 p-4")}>
+                <span className="text-xs font-semibold uppercase text-slate-500">
+                  Lote institucional
+                </span>
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <select
+                    className={adminTheme.control}
+                    onChange={(event) => {
+                      setIssueBatchInstitutionId(event.target.value);
+                      setIssueBatchPreview(null);
+                    }}
+                    value={issueBatchInstitutionId}
+                  >
+                    <option value="">Instituição</option>
+                    {institutions.map((institution) => (
+                      <option key={institution.id} value={institution.id}>
+                        {institution.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className={adminTheme.control}
+                    onChange={(event) => {
+                      setIssueBatchAmount(formatMoneyInput(event.target.value));
+                      setIssueBatchPreview(null);
+                    }}
+                    inputMode="decimal"
+                    placeholder="R$ 150,00"
+                    value={issueBatchAmount}
+                  />
+                  <input
+                    className={adminTheme.control}
+                    onChange={(event) => {
+                      setIssueBatchDueDate(event.target.value);
+                      setIssueBatchPreview(null);
+                    }}
+                    type="date"
+                    value={issueBatchDueDate}
+                  />
+                  <button
+                    className={adminTheme.secondaryButton}
+                    disabled={saving || !issueBatchInstitutionId || !issueBatchAmount || !issueBatchDueDate}
+                    onClick={() => void handlePreviewInstitutionIssueBatch()}
+                    type="button"
+                  >
+                    <Search aria-hidden="true" className="h-4 w-4" />
+                    Gerar prévia
+                  </button>
                 </div>
-                <div className="flex flex-wrap gap-2 text-slate-500">
-                  <span>Pagas: {issueBatchPreview.totalAlreadyPaid}</span>
-                  <span>Boleto ativo: {issueBatchPreview.totalWithActiveBankSlip}</span>
-                  <span>Conflito de valor: {issueBatchPreview.totalInvoiceAmountConflict}</span>
-                  <span>Cancelado reemitivel: {issueBatchPreview.totalWithCancelledBankSlipAllowsNewIssue}</span>
-                  <span>CPF invalido: {issueBatchPreview.totalInvalidOrMissingCpfCnpj}</span>
-                  <span>Endereco incompleto: {issueBatchPreview.totalIncompleteRequiredAddress}</span>
-                </div>
-                {issueBatchPreview.items.slice(0, 8).map((item) => (
-                  <div className="flex flex-wrap gap-2" key={`${item.enrollmentId}-${item.invoiceId ?? item.eligibilityCode}`}>
-                    <span className="font-medium">{item.studentName}</span>
-                    <span>{item.amountFormatted ?? "Sem fatura"}</span>
-                    <span>{formatDate(item.dueDate)}</span>
-                    <span>{institutionIssueStatusLabel(item.institutionIssueStatus, item.eligible)}</span>
-                    {!item.eligible ? (
-                      <span className="text-slate-500">{item.eligibilityReason}</span>
-                    ) : null}
+                {issueBatchPreview ? (
+                  <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <BatchPreviewMetric label="Alunos" value={String(issueBatchPreview.totalStudentsFound)} />
+                      <BatchPreviewMetric label="Elegíveis" value={String(issueBatchPreview.totalEligible)} />
+                      <BatchPreviewMetric label="Faturas a criar" value={String(issueBatchPreview.totalWillCreateInvoices)} />
+                      <BatchPreviewMetric label="Valor previsto" value={issueBatchPreview.eligibleAmountFormatted} />
+                    </div>
+                    <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+                      <span>Pagas: {issueBatchPreview.totalAlreadyPaid}</span>
+                      <span>Boleto ativo: {issueBatchPreview.totalWithActiveBankSlip}</span>
+                      <span>Conflito de valor: {issueBatchPreview.totalInvoiceAmountConflict}</span>
+                      <span>Cadastro incompleto: {issueBatchPreview.totalIncompleteRequiredAddress}</span>
+                    </div>
+                    <button
+                      className={adminTheme.primaryButton}
+                      disabled={
+                        saving ||
+                        Boolean(issueBatch && isIssueBatchRunning(issueBatch)) ||
+                        issueBatchPreview.totalEligible === 0
+                      }
+                      onClick={() => void handleCreateInstitutionIssueBatch()}
+                      type="button"
+                    >
+                      <Send aria-hidden="true" className="h-4 w-4" />
+                      Gerar faturas e emitir
+                    </button>
                   </div>
-                ))}
+                ) : null}
               </div>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
-              <span className="text-xs font-medium uppercase text-slate-500">
-                Selecionar faturas manualmente
-              </span>
-            <button
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-              disabled={saving || invoices.every((invoice) => !canIssueBankSlip(invoice, bankSlips[invoice.id]))}
-              onClick={selectAllEligibleInvoices}
-              type="button"
-            >
-              Selecionar elegiveis
-            </button>
-            <button
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-              disabled={saving || selectedInvoiceIds.length === 0}
-              onClick={() => void handleCreateIssueBatch()}
-              type="button"
-            >
-              Emitir selecionadas ({selectedInvoiceIds.length})
-            </button>
+
+              <div className={cx(adminTheme.softPanel, "grid content-start gap-3 p-4")}>
+                <span className="text-xs font-semibold uppercase text-slate-500">
+                  Seleção manual
+                </span>
+                <p className="text-sm text-slate-600">
+                  Use as faturas elegíveis carregadas na lista atual.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className={adminTheme.secondaryButton}
+                    disabled={saving || invoices.every((invoice) => !canIssueBankSlip(invoice, bankSlips[invoice.id]))}
+                    onClick={selectAllEligibleInvoices}
+                    type="button"
+                  >
+                    Selecionar elegíveis
+                  </button>
+                  <button
+                    className={adminTheme.primaryButton}
+                    disabled={saving || selectedInvoiceIds.length === 0}
+                    onClick={() => void handleCreateIssueBatch()}
+                    type="button"
+                  >
+                    <Send aria-hidden="true" className="h-4 w-4" />
+                    Emitir selecionadas ({selectedInvoiceIds.length})
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-          {issueBatch && showIssueBatchProgress ? (
-            <IssueBatchProgressPanel
-              batch={issueBatch}
-              events={issueBatchProgressEvents}
-              onViewDetails={handleViewIssueBatchDetails}
-            />
-          ) : null}
-          {issueBatch ? (
-            <div className="mt-3 grid gap-2 text-xs text-slate-700" id="issue-batch-details">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">Lote {issueBatch.id.slice(0, 8)}</span>
-                <span>{issueBatchStatusLabel(issueBatch.status)}</span>
-                <span>Total: {issueBatch.totalItems}</span>
-                <span>Emitidos: {issueBatch.issuedItems}</span>
-                <span>Ignorados: {issueBatch.skippedItems}</span>
-                <span>Falhas: {issueBatch.failedItems}</span>
-                <span>Incertos: {issueBatch.unknownItems}</span>
-                <span>Cancelados: {issueBatch.cancelledItems}</span>
-                <span>Origem: {issueBatch.source === "INSTITUTION" ? "Instituicao" : "Manual"}</span>
-                {issueBatch.institution?.name ? (
-                  <span>Instituicao: {issueBatch.institution.name}</span>
-                ) : null}
-                {issueBatch.shift?.name ? (
-                  <span>Turno: {issueBatch.shift.name}</span>
-                ) : null}
-                <span>Vencimento: {formatDate(issueBatch.dueDate)}</span>
-                {issueBatch.source === "INSTITUTION" ? (
-                  <>
-                    <span>Alunos: {issueBatch.totalStudents}</span>
-                    <span>Faturas: {issueBatch.totalInvoices}</span>
-                    <span>Elegiveis: {issueBatch.totalEligible}</span>
-                    <span>Valor elegivel: {formatOptionalCents(issueBatch.totalValueCents)}</span>
-                  </>
-                ) : null}
-                {issueBatch.metadata?.report?.issuedAmountFormatted ? (
-                  <span>Valor emitido: {issueBatch.metadata.report.issuedAmountFormatted}</span>
-                ) : null}
-                {issueBatch.metadata?.report ? (
-                  <>
-                    <span>Ja pagos: {issueBatch.metadata.report.alreadyPaid ?? 0}</span>
-                    <span>Ja tinham boleto: {issueBatch.metadata.report.alreadyHadBankSlip ?? 0}</span>
-                    <span>Cadastro incompleto: {issueBatch.metadata.report.incompleteRegistration ?? 0}</span>
-                  </>
-                ) : null}
-                <button
-                  className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
-                  disabled={saving}
-                  onClick={() => void refreshIssueBatch(issueBatch.id)}
-                  type="button"
-                >
-                  Atualizar
-                </button>
-                <button
-                  className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
-                  disabled={saving || issueBatchDownloadState === "preparing"}
-                  onClick={() => void handleDownloadIssueBatchPdfs(issueBatch)}
-                  type="button"
-                >
-                  {issueBatchDownloadState === "preparing"
-                    ? "Preparando arquivo..."
-                    : "Baixar boletos do lote"}
-                </button>
-                {isIssueBatchRunning(issueBatch) ? (
-                  <button
-                    className="rounded border border-amber-200 bg-white px-2 py-1 font-medium text-amber-700 disabled:opacity-60"
-                    disabled={saving}
-                    onClick={() => void handleCancelIssueBatch()}
-                    type="button"
-                  >
-                    Cancelar lote
-                  </button>
-                ) : null}
-                {issueBatch.failedItems > 0 ? (
-                  <button
-                    className="rounded border border-slate-300 bg-white px-2 py-1 font-medium disabled:opacity-60"
-                    disabled={saving}
-                    onClick={() => void handleRetryIssueBatch()}
-                    type="button"
-                  >
-                    Retry seguro
-                  </button>
-                ) : null}
-              </div>
-              {issueBatchDownloadSummary ? (
-                <p className="text-xs text-slate-600">{issueBatchDownloadSummary}</p>
-              ) : null}
-              {issueBatchItems.length > 0 ? (
-                <div className="grid gap-1">
-                  {issueBatchItems.slice(0, 8).map((item) => (
-                    <div className="flex flex-wrap gap-2" key={item.id}>
-                      <span>{issueBatchItemStatusLabel(item.status)}</span>
-                      {item.studentName ? <span>{item.studentName}</span> : null}
-                      <span>{item.invoiceId ? item.invoiceId.slice(0, 8) : "Sem fatura"}</span>
-                      {item.nossoNumero ? <span>Nosso numero: {item.nossoNumero}</span> : null}
-                      {item.linhaDigitavel ? <span>Linha digitavel: {item.linhaDigitavel}</span> : null}
-                      {item.skipReason || item.lastErrorMessage ? (
-                        <span className="text-slate-500">
-                          {item.skipReason ?? item.lastErrorMessage}
-                        </span>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+
+          <div className={cx(adminTheme.card, "min-w-0 p-5")}>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Buscar lote
+              <input
+                className={adminTheme.control}
+                onChange={(event) => setIssueBatchSearch(event.target.value)}
+                placeholder="Identificação, origem, instituição ou situação"
+                type="search"
+                value={issueBatchSearch}
+              />
+            </label>
+          </div>
+
+          <BatchList
+            batches={filteredIssueBatches}
+            busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
+            canRetryBatch={canRetryIssueBatches}
+            expandedBatchId={expandedIssueBatchId}
+            itemsByBatchId={issueBatchItemsById}
+            loading={issueBatchesLoading}
+            loadingItemsBatchId={issueBatchItemsLoadingId}
+            onCancel={openCancelIssueBatchDialog}
+            onDownload={(batch) => void handleDownloadIssueBatchPdfs(batch)}
+            onRefresh={refreshIssueBatchFromCard}
+            onRetry={openRetryIssueBatchDialog}
+            onToggle={(batch) => void toggleIssueBatchDetails(batch)}
+          />
+        </section>
 
         {message ? (
           <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -1471,78 +1610,23 @@ export function FinancePanel({
                 {issueBatchDownloadSummary ? <span>{issueBatchDownloadSummary}</span> : null}
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto">
-              {issueBatchDownloadLoading ? (
-                <p className="px-5 py-6 text-sm text-slate-500">Carregando lotes...</p>
-              ) : filteredIssueBatchDownloads.length === 0 ? (
-                <p className="px-5 py-6 text-sm text-slate-500">
-                  Nenhum lote encontrado
-                </p>
-              ) : (
-                <table className="w-full min-w-[1080px] text-left text-sm">
-                  <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">Instituicao</th>
-                      <th className="px-4 py-3">Ano letivo</th>
-                      <th className="px-4 py-3">Competencia</th>
-                      <th className="px-4 py-3">Data de geracao</th>
-                      <th className="px-4 py-3">Vencimento</th>
-                      <th className="px-4 py-3">Alunos</th>
-                      <th className="px-4 py-3">Valor total</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Acoes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredIssueBatchDownloads.map((batch) => {
-                      const preparingThisBatch =
-                        issueBatchDownloadState === "preparing" &&
-                        issueBatchDownloadBatchId === batch.id;
-                      return (
-                        <tr key={batch.id}>
-                          <td className="px-4 py-3 font-medium text-slate-950">
-                            {issueBatchInstitutionName(batch)}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {issueBatchAcademicYearLabel(batch)}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {issueBatchCompetenceLabel(batch)}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {formatDateTime(batch.createdAt)}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {formatDate(batch.dueDate)}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {batch.totalStudents || batch.totalItems}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {formatOptionalCents(issueBatchTotalValueCents(batch))}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {issueBatchStatusLabel(batch.status)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              className="rounded bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                              disabled={
-                                issueBatchDownloadState === "preparing" &&
-                                Boolean(issueBatchDownloadBatchId)
-                              }
-                              onClick={() => void handleDownloadIssueBatchPdfs(batch)}
-                              type="button"
-                            >
-                              {preparingThisBatch ? "Preparando..." : "📥 Baixar boletos"}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
+            <div className="min-h-0 flex-1 overflow-auto p-5">
+              <BatchList
+                batches={filteredIssueBatchDownloads}
+                busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
+                canRetryBatch={canRetryIssueBatches}
+                emptyText="Nenhum lote institucional encontrado."
+                expandedBatchId={expandedIssueBatchId}
+                itemsByBatchId={issueBatchItemsById}
+                loading={issueBatchDownloadLoading}
+                loadingItemsBatchId={issueBatchItemsLoadingId}
+                onCancel={openCancelIssueBatchDialog}
+                onDownload={(batch) => void handleDownloadIssueBatchPdfs(batch)}
+                onRefresh={refreshIssueBatchFromCard}
+                onRetry={openRetryIssueBatchDialog}
+                onToggle={(batch) => void toggleIssueBatchDetails(batch)}
+                title="Lotes disponíveis para download"
+              />
             </div>
           </div>
         </div>
@@ -2843,6 +2927,35 @@ function issueBatchCompletionMessage(batch: BankSlipIssueBatch) {
   }
   const errors = batch.failedItems + batch.unknownItems;
   return `Emissao concluida: ${batch.issuedItems} boleto(s) emitido(s), ${errors} erro(s), ${batch.skippedItems} bloqueado(s).`;
+}
+
+function mergeBatchLists(
+  current: BankSlipIssueBatch[],
+  incoming: BankSlipIssueBatch[],
+) {
+  const byId = new Map(current.map((batch) => [batch.id, batch]));
+  incoming.forEach((batch) => byId.set(batch.id, batch));
+  return [...byId.values()].sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  );
+}
+
+function BatchPreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <span className="block text-xs font-semibold uppercase text-slate-500">{label}</span>
+      <span className="block truncate font-semibold text-slate-950">{value}</span>
+    </p>
+  );
+}
+
+function issueBatchItemInvoiceLabel(item: BankSlipIssueBatchItem) {
+  return item.invoiceId ? item.invoiceId.slice(0, 8) : "Sem fatura";
+}
+
+function issueBatchDueDateLabel(issueBatch: BankSlipIssueBatch) {
+  return formatDate(issueBatch.dueDate);
 }
 
 function filterIssueBatchDownloads(
