@@ -1,5 +1,5 @@
 import { FormEvent } from "react";
-import { Search, XCircle } from "lucide-react";
+import { SlidersHorizontal, Search, XCircle } from "lucide-react";
 import { type AcademicYear, type BaseRecord, type InvoiceStatus } from "../../../lib/api";
 import { adminTheme, cx } from "../admin-theme";
 
@@ -102,23 +102,31 @@ export function FinanceFilters({
             <option value="CANCELLED">Cancelada</option>
           </select>
         </label>
-        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-          Vencimento
-          <select className={adminTheme.control} onChange={(event) => setOverdue(event.target.value as "all" | "overdue" | "notOverdue")} value={overdue}>
-            <option value="all">Todas</option>
-            <option value="overdue">Vencidas</option>
-            <option value="notOverdue">Não vencidas</option>
-          </select>
-        </label>
-        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-          Período inicial
-          <input className={adminTheme.control} onChange={(event) => setDueDateFrom(event.target.value)} type="date" value={dueDateFrom} />
-        </label>
-        <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-          Período final
-          <input className={adminTheme.control} onChange={(event) => setDueDateTo(event.target.value)} type="date" value={dueDateTo} />
-        </label>
-        <div className="flex flex-wrap items-end gap-2 lg:col-span-full">
+        <details className="min-w-0 md:col-span-2 xl:col-span-4">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#8DB7AD] [&::-webkit-details-marker]:hidden">
+            <SlidersHorizontal aria-hidden className="h-4 w-4" />
+            Mais filtros
+          </summary>
+          <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              Vencimento
+              <select className={adminTheme.control} onChange={(event) => setOverdue(event.target.value as "all" | "overdue" | "notOverdue")} value={overdue}>
+                <option value="all">Todas</option>
+                <option value="overdue">Vencidas</option>
+                <option value="notOverdue">Não vencidas</option>
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              Período inicial
+              <input className={adminTheme.control} onChange={(event) => setDueDateFrom(event.target.value)} type="date" value={dueDateFrom} />
+            </label>
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              Período final
+              <input className={adminTheme.control} onChange={(event) => setDueDateTo(event.target.value)} type="date" value={dueDateTo} />
+            </label>
+          </div>
+        </details>
+        <div className="flex flex-wrap items-end gap-2 md:col-span-2 xl:col-span-4">
           <button className={adminTheme.primaryButton} disabled={loading} type="submit">
             <Search aria-hidden="true" className="h-4 w-4" />
             Buscar

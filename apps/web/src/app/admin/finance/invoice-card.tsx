@@ -15,6 +15,10 @@ import {
 } from "./finance-display-utils";
 import { InvoiceDetails } from "./invoice-details";
 import { BankSlipStatusBadge, InvoiceStatusBadge } from "./invoice-status-badge";
+import {
+  invoiceOperationalLabel,
+  invoiceOperationalTone,
+} from "./invoice-display-utils";
 
 export function InvoiceCard({
   bankSlip,
@@ -60,27 +64,38 @@ export function InvoiceCard({
   const canSelect = canIssue && !saving;
   const primaryAction = getBankSlipPrimaryAction({ bankSlip, canDownloadPdf, canIssue });
   const bankSlipInfo = bankSlipPresentation(bankSlip);
+  const operationalTone = invoiceOperationalTone(invoice, bankSlip);
+  const operationalLabel = invoiceOperationalLabel(invoice, bankSlip);
 
   return (
-    <article className={cx(adminTheme.card, adminTheme.cardHover, "min-w-0 overflow-hidden p-4")}>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 flex-1">
+    <article className={cx(adminTheme.card, adminTheme.cardHover, "min-w-0 overflow-hidden border-l-4 p-3", toneBorderClass(operationalTone))}>
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
+        <div className="grid min-w-0 gap-2">
           <div className="flex flex-wrap items-center gap-2">
+            <span className={cx("rounded-full border px-2.5 py-1 text-xs font-semibold", tonePillClass(operationalTone))}>
+              {operationalLabel}
+            </span>
             <InvoiceStatusBadge invoice={invoice} />
             <BankSlipStatusBadge bankSlip={bankSlip} />
           </div>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+
+          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div className="min-w-0">
-              <p className="text-2xl font-bold tracking-normal text-slate-950">{invoice.amountFormatted}</p>
-              <h3 className="mt-1 truncate text-base font-semibold text-slate-950">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <p className="text-xl font-bold tracking-normal text-slate-950">{invoice.amountFormatted}</p>
+                <p className="text-sm font-semibold text-slate-700">Vence {formatDate(invoice.dueDate)}</p>
+              </div>
+              <h3 className="mt-1 truncate text-sm font-semibold text-slate-950">
                 {invoice.student.person.fullName}
               </h3>
-              <p className="text-sm text-slate-600">{invoice.student.person.cpfMasked}</p>
+              <p className="truncate text-xs text-slate-600">
+                {invoice.student.person.cpfMasked} · {invoice.enrollment.institution.name} · {invoice.enrollment.academicYear.year}
+              </p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:text-right">
-              <span className="block text-xs font-semibold uppercase text-slate-500">Vencimento</span>
-              <span className="font-semibold text-slate-950">{formatDate(invoice.dueDate)}</span>
-            </div>
+            <p className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <span className="block font-semibold text-slate-950">{invoice.enrollment.course} · {invoice.enrollment.grade}</span>
+              <span className="block truncate">{invoice.enrollment.shift.name}</span>
+            </p>
           </div>
         </div>
 
@@ -95,36 +110,26 @@ export function InvoiceCard({
             />
             Selecionar
           </label>
-          <PrimaryAction
-            action={primaryAction}
-            busy={busy}
-            onIssue={onIssue}
-            onPdf={onPdf}
-            onSync={onSync}
-            onViewError={onViewError}
-          />
           <button className={adminTheme.secondaryButton} disabled={busy} onClick={onToggleDetails} type="button">
             {expanded ? <ChevronUp aria-hidden="true" className="h-4 w-4" /> : <ChevronDown aria-hidden="true" className="h-4 w-4" />}
             {expanded ? "Ocultar detalhes" : "Ver detalhes"}
           </button>
+          {primaryAction === "download" ? (
+            <button className={adminTheme.primaryButton} disabled={busy} onClick={onPdf} type="button">
+              <FileDown aria-hidden="true" className="h-4 w-4" />
+              Baixar PDF
+            </button>
+          ) : null}
+          {primaryAction === "error" ? (
+            <button className={adminTheme.primaryButton} disabled={busy} onClick={onViewError} type="button">
+              <AlertTriangle aria-hidden="true" className="h-4 w-4" />
+              Ver erro
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetaItem label="Descrição" value={invoice.description || "Sem descrição"} />
-        <MetaItem
-          label="Instituição"
-          value={`${invoice.enrollment.institution.name} · ${invoice.enrollment.academicYear.year}`}
-        />
-        <MetaItem label="Competência" value={`${invoice.enrollment.course} · ${invoice.enrollment.grade} · ${invoice.enrollment.shift.name}`} />
-        <MetaItem label="Boleto" value={`${bankSlipInfo.label} · ${bankSlipDisplayNumber(bankSlip)}`} />
-        <MetaItem label="Última atualização" value={formatDateTime(invoice.updatedAt)} />
-        {bankSlip && isFullBankSlipRecord(bankSlip) && bankSlip.lastCheckedAt ? (
-          <MetaItem label="Última consulta" value={formatDateTime(bankSlip.lastCheckedAt)} />
-        ) : null}
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+      <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
         <SecondaryActions
           bankSlip={bankSlip}
           busy={busy}
@@ -133,13 +138,26 @@ export function InvoiceCard({
           onCancelInvoice={onCancelInvoice}
           onCancelSlip={onCancelSlip}
           onCopy={onCopy}
+          onIssue={onIssue}
           onSync={onSync}
           onViewError={onViewError}
           primaryAction={primaryAction}
         />
       </div>
 
-      {expanded ? <InvoiceDetails bankSlip={bankSlip} invoice={invoice} /> : null}
+      {expanded ? (
+        <>
+          <div className="mt-3 grid min-w-0 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+            <MetaItem label="Descrição" value={invoice.description || "Sem descrição"} />
+            <MetaItem label="Boleto" value={`${bankSlipInfo.label} · ${bankSlipDisplayNumber(bankSlip)}`} />
+            <MetaItem label="Última atualização" value={formatDateTime(invoice.updatedAt)} />
+            {bankSlip && isFullBankSlipRecord(bankSlip) && bankSlip.lastCheckedAt ? (
+              <MetaItem label="Última consulta" value={formatDateTime(bankSlip.lastCheckedAt)} />
+            ) : null}
+          </div>
+          <InvoiceDetails bankSlip={bankSlip} invoice={invoice} />
+        </>
+      ) : null}
     </article>
   );
 }
@@ -153,56 +171,6 @@ function MetaItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PrimaryAction({
-  action,
-  busy,
-  onIssue,
-  onPdf,
-  onSync,
-  onViewError,
-}: {
-  action: BankSlipPrimaryAction;
-  busy: boolean;
-  onIssue: () => void;
-  onPdf: () => void;
-  onSync: () => void;
-  onViewError: () => void;
-}) {
-  if (action === "error") {
-    return (
-      <button className={adminTheme.primaryButton} disabled={busy} onClick={onViewError} type="button">
-        <AlertTriangle aria-hidden="true" className="h-4 w-4" />
-        Ver erro
-      </button>
-    );
-  }
-  if (action === "issue") {
-    return (
-      <button className={adminTheme.primaryButton} disabled={busy} onClick={onIssue} type="button">
-        <Send aria-hidden="true" className="h-4 w-4" />
-        {busy ? "Processando..." : "Emitir boleto"}
-      </button>
-    );
-  }
-  if (action === "download") {
-    return (
-      <button className={adminTheme.primaryButton} disabled={busy} onClick={onPdf} type="button">
-        <FileDown aria-hidden="true" className="h-4 w-4" />
-        Baixar PDF
-      </button>
-    );
-  }
-  if (action === "sync") {
-    return (
-      <button className={adminTheme.primaryButton} disabled={busy} onClick={onSync} type="button">
-        <Search aria-hidden="true" className="h-4 w-4" />
-        Consultar boleto
-      </button>
-    );
-  }
-  return null;
-}
-
 function SecondaryActions({
   bankSlip,
   busy,
@@ -211,6 +179,7 @@ function SecondaryActions({
   onCancelInvoice,
   onCancelSlip,
   onCopy,
+  onIssue,
   onSync,
   onViewError,
   primaryAction,
@@ -222,6 +191,7 @@ function SecondaryActions({
   onCancelInvoice: () => void;
   onCancelSlip: () => void;
   onCopy: () => void;
+  onIssue: () => void;
   onSync: () => void;
   onViewError: () => void;
   primaryAction: BankSlipPrimaryAction;
@@ -229,7 +199,9 @@ function SecondaryActions({
   const hasCopy = isFullBankSlipRecord(bankSlip) && Boolean(bankSlip.linhaDigitavel);
   const hasSync = Boolean(bankSlip) && primaryAction !== "sync";
   const hasError = primaryAction !== "error" && hasBankSlipProviderProblem(bankSlip);
-  const hasActions = hasSync || hasCopy || hasError || canCancelSlip || canCancelInvoice;
+  const hasIssue = primaryAction === "issue";
+  const hasPrimarySync = primaryAction === "sync";
+  const hasActions = hasIssue || hasPrimarySync || hasSync || hasCopy || hasError || canCancelSlip || canCancelInvoice;
 
   if (!hasActions) {
     return null;
@@ -242,6 +214,18 @@ function SecondaryActions({
         Mais ações
       </summary>
       <div className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:min-w-56">
+        {hasIssue ? (
+          <button className={adminTheme.secondaryButton} disabled={busy} onClick={onIssue} type="button">
+            <Send aria-hidden="true" className="h-4 w-4" />
+            Emitir boleto
+          </button>
+        ) : null}
+        {hasPrimarySync ? (
+          <button className={adminTheme.secondaryButton} disabled={busy} onClick={onSync} type="button">
+            <Search aria-hidden="true" className="h-4 w-4" />
+            Consultar boleto
+          </button>
+        ) : null}
         {hasSync ? (
           <button className={adminTheme.secondaryButton} disabled={busy} onClick={onSync} type="button">
             <Search aria-hidden="true" className="h-4 w-4" />
@@ -280,4 +264,20 @@ function SecondaryActions({
       </div>
     </details>
   );
+}
+
+function toneBorderClass(tone: string) {
+  if (tone === "danger") return "border-l-red-500";
+  if (tone === "warning") return "border-l-amber-400";
+  if (tone === "success") return "border-l-emerald-500";
+  if (tone === "info") return "border-l-sky-400";
+  return "border-l-slate-300";
+}
+
+function tonePillClass(tone: string) {
+  if (tone === "danger") return "border-red-200 bg-red-50 text-red-700";
+  if (tone === "warning") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (tone === "info") return "border-sky-200 bg-sky-50 text-sky-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
 }

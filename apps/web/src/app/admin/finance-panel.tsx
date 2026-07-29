@@ -33,7 +33,7 @@ import {
 } from "../../lib/api";
 import { canAccessRestrictedAdmin } from "../../lib/auth";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
-import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
+import { mapApiErrorMessage } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import {
   BankSlipDialog,
@@ -57,7 +57,16 @@ import {
   hasActiveFinanceFilters,
 } from "./finance/finance-display-utils";
 import { FinanceFilters } from "./finance/finance-filters";
+import { InvoiceActiveFilterChips } from "./finance/invoice-active-filter-chips";
+import { InvoiceBulkActionBar } from "./finance/invoice-bulk-action-bar";
+import {
+  calculateInvoiceOperationalSummary,
+  filterInvoicesByQuickFilter,
+  sortInvoicesOperationally,
+  type InvoiceQuickFilter,
+} from "./finance/invoice-display-utils";
 import { InvoiceList } from "./finance/invoice-list";
+import { InvoiceOperationalSummaryCards } from "./finance/invoice-operational-summary";
 import { FinanceNavigation } from "./finance/finance-navigation";
 import { FinanceSummaryCards } from "./finance/finance-summary";
 
@@ -98,6 +107,8 @@ export function FinancePanel({
   const [institutionId, setInstitutionId] = useState("");
   const [status, setStatus] = useState<InvoiceStatus | "">("");
   const [overdue, setOverdue] = useState<"all" | "overdue" | "notOverdue">("all");
+  const [invoiceQuickFilter, setInvoiceQuickFilter] =
+    useState<InvoiceQuickFilter>("all");
   const defaultMonth = useMemo(() => currentMonthRange(), []);
   const [dueDateFrom, setDueDateFrom] = useState(defaultMonth.from);
   const [dueDateTo, setDueDateTo] = useState(defaultMonth.to);
@@ -111,6 +122,10 @@ export function FinancePanel({
   const [saving, setSaving] = useState(false);
   const [bankSlipAction, setBankSlipAction] = useState("");
   const [bankSlipDialog, setBankSlipDialog] = useState<BankSlipDialogState | null>(null);
+  const [invoiceActionDialog, setInvoiceActionDialog] = useState<{
+    invoice: InvoiceRecord;
+    mode: "cancel-invoice";
+  } | null>(null);
   const issueBankSlipInFlightRef = useRef("");
   const issueBatchInFlightRef = useRef(false);
   const issueBatchRetryInFlightRef = useRef(false);
@@ -141,6 +156,7 @@ export function FinancePanel({
   const [issueBatchDownloadLoading, setIssueBatchDownloadLoading] = useState(false);
   const [issueBatchDownloadBatchId, setIssueBatchDownloadBatchId] = useState("");
   const [syncPaidDate, setSyncPaidDate] = useState(todayDate());
+  const [syncPaidDialogOpen, setSyncPaidDialogOpen] = useState(false);
   const [syncPaidSummary, setSyncPaidSummary] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -170,15 +186,27 @@ export function FinancePanel({
     () => calculateFinanceSummary(invoices, bankSlips, issueBatch),
     [bankSlips, invoices, issueBatch],
   );
+  const invoiceOperationalSummary = useMemo(
+    () => calculateInvoiceOperationalSummary(invoices, bankSlips),
+    [bankSlips, invoices],
+  );
+  const visibleInvoices = useMemo(
+    () =>
+      sortInvoicesOperationally(
+        filterInvoicesByQuickFilter(invoices, bankSlips, invoiceQuickFilter),
+        bankSlips,
+      ),
+    [bankSlips, invoiceQuickFilter, invoices],
+  );
   const hasActiveFilters = hasActiveFinanceFilters({
     academicYearId,
     dueDateFrom,
     dueDateTo,
     institutionId,
     overdue,
-    search,
-    status,
-  });
+      search,
+      status,
+  }) || invoiceQuickFilter !== "all";
 
   useEffect(() => {
     void loadReferences();
@@ -402,16 +430,15 @@ export function FinancePanel({
     }
   }
 
-  async function handleCancel(invoice: InvoiceRecord) {
-    const reason = promptOption(
-      "Selecione o motivo do cancelamento da fatura:",
-      invoiceCancellationOptions,
-    );
+  async function handleCancel(
+    invoice: InvoiceRecord,
+    reason: InvoiceCancellationReason,
+    note: string,
+  ) {
     if (!reason) {
       setError("Selecione um motivo valido para cancelar a fatura.");
       return;
     }
-    const note = window.prompt("Observacao opcional") ?? undefined;
     setSaving(true);
     setMessage("");
     setError("");
@@ -422,6 +449,7 @@ export function FinancePanel({
       });
       setMessage("Fatura cancelada");
       await loadInvoices();
+      setInvoiceActionDialog(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao cancelar");
     } finally {
@@ -616,10 +644,7 @@ export function FinancePanel({
   }
 
   async function handleSyncPaidDay() {
-    const confirmed = window.confirm(`Sincronizar liquidados em ${formatDate(syncPaidDate)}?`);
-    if (!confirmed) {
-      return;
-    }
+    setSyncPaidDialogOpen(false);
     setSaving(true);
     setMessage("");
     setError("");
@@ -646,7 +671,7 @@ export function FinancePanel({
   }
 
   function selectAllEligibleInvoices() {
-    const eligible = invoices
+    const eligible = visibleInvoices
       .filter((invoice) => canIssueBankSlip(invoice, bankSlips[invoice.id]))
       .map((invoice) => invoice.id);
     setSelectedInvoiceIds(eligible);
@@ -1025,10 +1050,38 @@ export function FinancePanel({
     setInstitutionId("");
     setStatus("");
     setOverdue("all");
+    setInvoiceQuickFilter("all");
     setDueDateFrom("");
     setDueDateTo("");
     setPage(1);
     void loadInvoices("");
+  }
+
+  function applyInvoiceQuickFilter(filter: InvoiceQuickFilter) {
+    setInvoiceQuickFilter(filter);
+    setPage(1);
+    if (filter === "open") {
+      setStatus("OPEN");
+      setOverdue("all");
+    } else if (filter === "overdue") {
+      setStatus("OPEN");
+      setOverdue("overdue");
+    } else if (filter === "paid") {
+      setStatus("PAID");
+      setOverdue("all");
+    } else if (filter === "cancelled") {
+      setStatus("CANCELLED");
+      setOverdue("all");
+    } else if (filter === "dueToday") {
+      const today = todayDate();
+      setStatus("OPEN");
+      setOverdue("all");
+      setDueDateFrom(today);
+      setDueDateTo(today);
+    } else if (filter === "upcoming") {
+      setStatus("OPEN");
+      setOverdue("notOverdue");
+    }
   }
 
   function changeFinanceArea(area: FinanceArea) {
@@ -1076,7 +1129,7 @@ export function FinancePanel({
               <button
                 className={adminTheme.secondaryButton}
                 disabled={saving}
-                onClick={() => void handleSyncPaidDay()}
+                onClick={() => setSyncPaidDialogOpen(true)}
                 type="button"
               >
                 <RefreshCw aria-hidden="true" className="h-4 w-4" />
@@ -1091,7 +1144,6 @@ export function FinancePanel({
         canViewCollections={canViewCollections}
         onChange={changeFinanceArea}
       />
-      <FinanceSummaryCards summary={financeSummary} />
     </>
   );
 
@@ -1115,6 +1167,160 @@ export function FinancePanel({
     }
     void handleCancelBankSlip(bankSlipDialog.invoice, reason, note);
   }
+
+  const batchManagementSection = (
+    <section className="grid gap-4" id="finance-batches">
+      <BatchSummaryCards summary={batchSummary} />
+      <div className={cx(adminTheme.card, "min-w-0 p-5")}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className={cx(adminTheme.titleText, "text-base")}>
+              Emissão em lote
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Crie lotes por instituição ou envie somente faturas selecionadas.
+            </p>
+          </div>
+          <button
+            className={adminTheme.secondaryButton}
+            disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
+            onClick={() => void openIssueBatchDownloadPanel()}
+            type="button"
+          >
+            <Download aria-hidden="true" className="h-4 w-4" />
+            Baixar boletos
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+          <div className={cx(adminTheme.softPanel, "grid gap-3 p-4")}>
+            <span className="text-xs font-semibold uppercase text-slate-500">
+              Lote institucional
+            </span>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <select
+                className={adminTheme.control}
+                onChange={(event) => {
+                  setIssueBatchInstitutionId(event.target.value);
+                  setIssueBatchPreview(null);
+                }}
+                value={issueBatchInstitutionId}
+              >
+                <option value="">Instituição</option>
+                {institutions.map((institution) => (
+                  <option key={institution.id} value={institution.id}>
+                    {institution.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className={adminTheme.control}
+                inputMode="decimal"
+                onChange={(event) => {
+                  setIssueBatchAmount(formatMoneyInput(event.target.value));
+                  setIssueBatchPreview(null);
+                }}
+                placeholder="R$ 150,00"
+                value={issueBatchAmount}
+              />
+              <input
+                className={adminTheme.control}
+                onChange={(event) => {
+                  setIssueBatchDueDate(event.target.value);
+                  setIssueBatchPreview(null);
+                }}
+                type="date"
+                value={issueBatchDueDate}
+              />
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={saving || !issueBatchInstitutionId || !issueBatchAmount || !issueBatchDueDate}
+                onClick={() => void handlePreviewInstitutionIssueBatch()}
+                type="button"
+              >
+                <Search aria-hidden="true" className="h-4 w-4" />
+                Gerar prévia
+              </button>
+            </div>
+            {issueBatchPreview ? (
+              <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <BatchPreviewMetric label="Alunos" value={String(issueBatchPreview.totalStudentsFound)} />
+                  <BatchPreviewMetric label="Elegíveis" value={String(issueBatchPreview.totalEligible)} />
+                  <BatchPreviewMetric label="Faturas a criar" value={String(issueBatchPreview.totalWillCreateInvoices)} />
+                  <BatchPreviewMetric label="Valor previsto" value={issueBatchPreview.eligibleAmountFormatted} />
+                </div>
+                <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+                  <span>Pagas: {issueBatchPreview.totalAlreadyPaid}</span>
+                  <span>Boleto ativo: {issueBatchPreview.totalWithActiveBankSlip}</span>
+                  <span>Conflito de valor: {issueBatchPreview.totalInvoiceAmountConflict}</span>
+                  <span>Cadastro incompleto: {issueBatchPreview.totalIncompleteRequiredAddress}</span>
+                </div>
+                <button
+                  className={adminTheme.primaryButton}
+                  disabled={
+                    saving ||
+                    Boolean(issueBatch && isIssueBatchRunning(issueBatch)) ||
+                    issueBatchPreview.totalEligible === 0
+                  }
+                  onClick={() => void handleCreateInstitutionIssueBatch()}
+                  type="button"
+                >
+                  <Send aria-hidden="true" className="h-4 w-4" />
+                  Gerar faturas e emitir
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className={cx(adminTheme.softPanel, "grid content-start gap-3 p-4")}>
+            <span className="text-xs font-semibold uppercase text-slate-500">
+              Seleção manual
+            </span>
+            <p className="text-sm text-slate-600">
+              Use a barra contextual na lista de faturas para selecionar e emitir boletos em lote.
+            </p>
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={saving || selectedInvoiceIds.length === 0}
+              onClick={() => setSelectedInvoiceIds([])}
+              type="button"
+            >
+              Limpar seleção ({selectedInvoiceIds.length})
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className={cx(adminTheme.card, "min-w-0 p-5")}>
+        <label className="grid gap-1 text-sm font-semibold text-slate-700">
+          Buscar lote
+          <input
+            className={adminTheme.control}
+            onChange={(event) => setIssueBatchSearch(event.target.value)}
+            placeholder="Identificação, origem, instituição ou situação"
+            type="search"
+            value={issueBatchSearch}
+          />
+        </label>
+      </div>
+
+      <BatchList
+        batches={filteredIssueBatches}
+        busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
+        canRetryBatch={canRetryIssueBatches}
+        expandedBatchId={expandedIssueBatchId}
+        itemsByBatchId={issueBatchItemsById}
+        loading={issueBatchesLoading}
+        loadingItemsBatchId={issueBatchItemsLoadingId}
+        onCancel={openCancelIssueBatchDialog}
+        onDownload={(batch) => void handleDownloadIssueBatchPdfs(batch)}
+        onRefresh={refreshIssueBatchFromCard}
+        onRetry={openRetryIssueBatchDialog}
+        onToggle={(batch) => void toggleIssueBatchDetails(batch)}
+      />
+    </section>
+  );
 
   if (financeArea === "collections" && canViewCollections) {
     return (
@@ -1141,6 +1347,62 @@ export function FinancePanel({
         reasonOptions={invoiceCancellationOptions}
         saving={Boolean(bankSlipAction)}
       />
+      {invoiceActionDialog ? (
+        <StudentFinanceActionDialog
+          invoice={invoiceActionDialog.invoice}
+          mode={invoiceActionDialog.mode}
+          onClose={() => setInvoiceActionDialog(null)}
+          onConfirm={(reason, note) =>
+            void handleCancel(invoiceActionDialog.invoice, reason, note)
+          }
+          saving={saving}
+        />
+      ) : null}
+      {syncPaidDialogOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 px-4 py-6">
+          <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-normal text-[#1F6F5F]">
+                  Financeiro
+                </p>
+                <h2 className="mt-1 text-xl font-bold text-slate-950">
+                  Sincronizar liquidados
+                </h2>
+              </div>
+              <button
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                disabled={saving}
+                onClick={() => setSyncPaidDialogOpen(false)}
+                type="button"
+              >
+                Fechar
+              </button>
+            </div>
+            <p className="mt-4 text-sm text-slate-700">
+              Confirmar sincronização de boletos liquidados em {formatDate(syncPaidDate)}.
+            </p>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                disabled={saving}
+                onClick={() => setSyncPaidDialogOpen(false)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-lg bg-[#1F6F5F] px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+                disabled={saving}
+                onClick={() => void handleSyncPaidDay()}
+                type="button"
+              >
+                Sincronizar
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       <BatchDialog
         dialog={batchDialog}
         onClose={() => {
@@ -1153,6 +1415,16 @@ export function FinancePanel({
         onConfirmCreateManual={confirmCreateIssueBatch}
         onConfirmRetry={confirmRetryIssueBatch}
         saving={saving}
+      />
+      {financeArea === "batches" ? (
+        batchManagementSection
+      ) : (
+        <>
+      {financeArea === "overview" ? <FinanceSummaryCards summary={financeSummary} /> : null}
+      <InvoiceOperationalSummaryCards
+        activeFilter={invoiceQuickFilter}
+        onSelect={applyInvoiceQuickFilter}
+        summary={invoiceOperationalSummary}
       />
       <FinanceFilters
         academicYearId={academicYearId}
@@ -1198,12 +1470,25 @@ export function FinancePanel({
         status={status}
         years={years}
       />
+      <InvoiceActiveFilterChips
+        academicYearId={academicYearId}
+        dueDateFrom={dueDateFrom}
+        dueDateTo={dueDateTo}
+        institutionId={institutionId}
+        institutions={institutions}
+        onClear={clearFilters}
+        overdue={overdue}
+        quickFilter={invoiceQuickFilter}
+        search={search}
+        status={status}
+        years={years}
+      />
       <div className={cx(adminTheme.card, "min-w-0 p-4")}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">Faturas</h2>
+            <h2 className="text-base font-semibold text-slate-950">Fila de faturas</h2>
             <p className="text-sm text-slate-600">
-              Lista atual preservada para a próxima etapa de refinamento.
+              Itens ordenados visualmente por atenção operacional sobre os resultados carregados.
             </p>
           </div>
         </div>
@@ -1222,7 +1507,7 @@ export function FinancePanel({
             <button
               className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
               disabled={saving}
-              onClick={() => void handleSyncPaidDay()}
+              onClick={() => setSyncPaidDialogOpen(true)}
               type="button"
             >
               Sincronizar liquidados
@@ -1232,169 +1517,6 @@ export function FinancePanel({
             ) : null}
           </div>
         ) : null}
-
-        <section className="mt-4 grid gap-4" id="finance-batches">
-          <BatchSummaryCards summary={batchSummary} />
-          <div className={cx(adminTheme.card, "min-w-0 p-5")}>
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className={cx(adminTheme.titleText, "text-base")}>
-                  Emissão em lote
-                </h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Crie lotes por instituição ou envie somente faturas selecionadas.
-                </p>
-              </div>
-              <button
-                className={adminTheme.secondaryButton}
-                disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
-                onClick={() => void openIssueBatchDownloadPanel()}
-                type="button"
-              >
-                <Download aria-hidden="true" className="h-4 w-4" />
-                Baixar boletos
-              </button>
-            </div>
-
-            <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]">
-              <div className={cx(adminTheme.softPanel, "grid gap-3 p-4")}>
-                <span className="text-xs font-semibold uppercase text-slate-500">
-                  Lote institucional
-                </span>
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <select
-                    className={adminTheme.control}
-                    onChange={(event) => {
-                      setIssueBatchInstitutionId(event.target.value);
-                      setIssueBatchPreview(null);
-                    }}
-                    value={issueBatchInstitutionId}
-                  >
-                    <option value="">Instituição</option>
-                    {institutions.map((institution) => (
-                      <option key={institution.id} value={institution.id}>
-                        {institution.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className={adminTheme.control}
-                    onChange={(event) => {
-                      setIssueBatchAmount(formatMoneyInput(event.target.value));
-                      setIssueBatchPreview(null);
-                    }}
-                    inputMode="decimal"
-                    placeholder="R$ 150,00"
-                    value={issueBatchAmount}
-                  />
-                  <input
-                    className={adminTheme.control}
-                    onChange={(event) => {
-                      setIssueBatchDueDate(event.target.value);
-                      setIssueBatchPreview(null);
-                    }}
-                    type="date"
-                    value={issueBatchDueDate}
-                  />
-                  <button
-                    className={adminTheme.secondaryButton}
-                    disabled={saving || !issueBatchInstitutionId || !issueBatchAmount || !issueBatchDueDate}
-                    onClick={() => void handlePreviewInstitutionIssueBatch()}
-                    type="button"
-                  >
-                    <Search aria-hidden="true" className="h-4 w-4" />
-                    Gerar prévia
-                  </button>
-                </div>
-                {issueBatchPreview ? (
-                  <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm">
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <BatchPreviewMetric label="Alunos" value={String(issueBatchPreview.totalStudentsFound)} />
-                      <BatchPreviewMetric label="Elegíveis" value={String(issueBatchPreview.totalEligible)} />
-                      <BatchPreviewMetric label="Faturas a criar" value={String(issueBatchPreview.totalWillCreateInvoices)} />
-                      <BatchPreviewMetric label="Valor previsto" value={issueBatchPreview.eligibleAmountFormatted} />
-                    </div>
-                    <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
-                      <span>Pagas: {issueBatchPreview.totalAlreadyPaid}</span>
-                      <span>Boleto ativo: {issueBatchPreview.totalWithActiveBankSlip}</span>
-                      <span>Conflito de valor: {issueBatchPreview.totalInvoiceAmountConflict}</span>
-                      <span>Cadastro incompleto: {issueBatchPreview.totalIncompleteRequiredAddress}</span>
-                    </div>
-                    <button
-                      className={adminTheme.primaryButton}
-                      disabled={
-                        saving ||
-                        Boolean(issueBatch && isIssueBatchRunning(issueBatch)) ||
-                        issueBatchPreview.totalEligible === 0
-                      }
-                      onClick={() => void handleCreateInstitutionIssueBatch()}
-                      type="button"
-                    >
-                      <Send aria-hidden="true" className="h-4 w-4" />
-                      Gerar faturas e emitir
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className={cx(adminTheme.softPanel, "grid content-start gap-3 p-4")}>
-                <span className="text-xs font-semibold uppercase text-slate-500">
-                  Seleção manual
-                </span>
-                <p className="text-sm text-slate-600">
-                  Use as faturas elegíveis carregadas na lista atual.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className={adminTheme.secondaryButton}
-                    disabled={saving || invoices.every((invoice) => !canIssueBankSlip(invoice, bankSlips[invoice.id]))}
-                    onClick={selectAllEligibleInvoices}
-                    type="button"
-                  >
-                    Selecionar elegíveis
-                  </button>
-                  <button
-                    className={adminTheme.primaryButton}
-                    disabled={saving || selectedInvoiceIds.length === 0}
-                    onClick={() => void handleCreateIssueBatch()}
-                    type="button"
-                  >
-                    <Send aria-hidden="true" className="h-4 w-4" />
-                    Emitir selecionadas ({selectedInvoiceIds.length})
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className={cx(adminTheme.card, "min-w-0 p-5")}>
-            <label className="grid gap-1 text-sm font-semibold text-slate-700">
-              Buscar lote
-              <input
-                className={adminTheme.control}
-                onChange={(event) => setIssueBatchSearch(event.target.value)}
-                placeholder="Identificação, origem, instituição ou situação"
-                type="search"
-                value={issueBatchSearch}
-              />
-            </label>
-          </div>
-
-          <BatchList
-            batches={filteredIssueBatches}
-            busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
-            canRetryBatch={canRetryIssueBatches}
-            expandedBatchId={expandedIssueBatchId}
-            itemsByBatchId={issueBatchItemsById}
-            loading={issueBatchesLoading}
-            loadingItemsBatchId={issueBatchItemsLoadingId}
-            onCancel={openCancelIssueBatchDialog}
-            onDownload={(batch) => void handleDownloadIssueBatchPdfs(batch)}
-            onRefresh={refreshIssueBatchFromCard}
-            onRetry={openRetryIssueBatchDialog}
-            onToggle={(batch) => void toggleIssueBatchDetails(batch)}
-          />
-        </section>
 
         {message ? (
           <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -1416,6 +1538,16 @@ export function FinancePanel({
         ) : null}
 
         <div className="mt-4">
+          <InvoiceBulkActionBar
+            disabled={saving || loading}
+            onClear={() => setSelectedInvoiceIds([])}
+            onCreateBatch={() => void handleCreateIssueBatch()}
+            onSelectEligible={selectAllEligibleInvoices}
+            selectedCount={selectedInvoiceIds.length}
+          />
+        </div>
+
+        <div className="mt-3">
           <InvoiceList
             bankSlipAction={bankSlipAction}
             bankSlips={bankSlips}
@@ -1425,9 +1557,11 @@ export function FinancePanel({
             canIssue={canIssueBankSlip}
             expandedInvoiceId={expandedInvoiceId}
             hasActiveFilters={hasActiveFilters}
-            invoices={invoices}
+            invoices={visibleInvoices}
             loading={loading}
-            onCancelInvoice={(invoice) => void handleCancel(invoice)}
+            onCancelInvoice={(invoice) =>
+              setInvoiceActionDialog({ invoice, mode: "cancel-invoice" })
+            }
             onCancelSlip={openCancelBankSlipDialog}
             onCopy={(invoiceId) => void handleCopyLinhaDigitavel(invoiceId)}
             onIssue={openIssueBankSlipDialog}
@@ -1565,6 +1699,8 @@ export function FinancePanel({
           {preview ? <InvoicePreviewBox preview={preview} /> : null}
         </form>
       </div>
+        </>
+      )}
 
       {issueBatchDownloadPanelOpen ? (
         <div className="fixed inset-0 z-50 bg-slate-950/40">
