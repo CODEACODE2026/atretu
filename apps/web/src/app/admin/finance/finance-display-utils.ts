@@ -1,5 +1,6 @@
 import {
   type BankSlipIssueBatch,
+  type InvoiceListSummary,
   type BankSlipRecord,
   type BankSlipStatus,
   type BankSlipSummary,
@@ -11,14 +12,18 @@ export type FinanceArea = "overview" | "invoices" | "batches" | "collections";
 export type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
 export type BadgeTone = "danger" | "info" | "neutral" | "success" | "warning";
 
-export type FinanceSummary = {
-  openAmountCents: number;
-  overdueAmountCents: number;
-  paidAmountCents: number;
-  cancelledAmountCents: number;
-  invoiceCount: number;
-  failedBankSlips: number;
+export type FinanceSummary = Pick<
+  InvoiceListSummary,
+  | "cancelledAmountCents"
+  | "failedBankSlips"
+  | "loadedInvoiceCount"
+  | "openAmountCents"
+  | "overdueAmountCents"
+  | "paidAmountCents"
+  | "totalFilteredInvoiceCount"
+> & {
   processingBatches: number;
+  scope: "filtered" | "loaded";
 };
 
 export function calculateFinanceSummary(
@@ -31,7 +36,8 @@ export function calculateFinanceSummary(
       const bankSlip = bankSlips[invoice.id] ?? invoice.bankSlipSummary;
       const amount = invoice.amountCents;
 
-      summary.invoiceCount += 1;
+      summary.loadedInvoiceCount += 1;
+      summary.totalFilteredInvoiceCount += 1;
       if (invoice.status === "OPEN") {
         summary.openAmountCents += amount;
       }
@@ -54,9 +60,11 @@ export function calculateFinanceSummary(
       overdueAmountCents: 0,
       paidAmountCents: 0,
       cancelledAmountCents: 0,
-      invoiceCount: 0,
+      loadedInvoiceCount: 0,
+      totalFilteredInvoiceCount: 0,
       failedBankSlips: 0,
       processingBatches: currentBatch && isBatchProcessing(currentBatch) ? 1 : 0,
+      scope: "loaded",
     },
   );
 }

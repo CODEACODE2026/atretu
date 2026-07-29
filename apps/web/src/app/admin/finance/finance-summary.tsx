@@ -9,49 +9,69 @@ const toneClass = {
   warning: "border-amber-200 bg-amber-50 text-amber-700",
 };
 
-export function FinanceSummaryCards({ summary }: { summary: FinanceSummary }) {
+export function FinanceSummaryCards({
+  loading = false,
+  summary,
+}: {
+  loading?: boolean;
+  summary: FinanceSummary;
+}) {
+  const isFilteredSummary = summary.scope === "filtered";
+  const displayValue = (value: string) => (loading ? "..." : value);
   const items = [
     {
       icon: CircleDollarSign,
       label: "Total em aberto",
       tone: "neutral" as const,
-      value: formatFinanceCurrency(summary.openAmountCents),
+      value: displayValue(formatFinanceCurrency(summary.openAmountCents)),
     },
     {
       icon: AlertTriangle,
       label: "Total vencido",
       tone: summary.overdueAmountCents > 0 ? ("danger" as const) : ("neutral" as const),
-      value: formatFinanceCurrency(summary.overdueAmountCents),
+      value: displayValue(formatFinanceCurrency(summary.overdueAmountCents)),
     },
     {
       icon: WalletCards,
       label: "Total pago",
       tone: "success" as const,
-      value: formatFinanceCurrency(summary.paidAmountCents),
+      value: displayValue(formatFinanceCurrency(summary.paidAmountCents)),
     },
     {
       icon: ReceiptText,
-      label: "Faturas carregadas",
+      label: isFilteredSummary ? "Faturas filtradas" : "Faturas carregadas",
       tone: "neutral" as const,
-      value: String(summary.invoiceCount),
+      value: displayValue(
+        String(
+          isFilteredSummary
+            ? summary.totalFilteredInvoiceCount
+            : summary.loadedInvoiceCount,
+        ),
+      ),
+    },
+    {
+      icon: ReceiptText,
+      label: "Itens nesta pagina",
+      tone: "neutral" as const,
+      value: displayValue(String(summary.loadedInvoiceCount)),
     },
     {
       icon: CircleDollarSign,
       label: "Total cancelado",
       tone: "warning" as const,
-      value: formatFinanceCurrency(summary.cancelledAmountCents),
+      value: displayValue(formatFinanceCurrency(summary.cancelledAmountCents)),
     },
     {
       icon: AlertTriangle,
       label: "Boletos com erro",
       tone: summary.failedBankSlips > 0 ? ("danger" as const) : ("neutral" as const),
-      value: String(summary.failedBankSlips),
+      value: displayValue(String(summary.failedBankSlips)),
     },
     {
       icon: ReceiptText,
       label: "Lotes em processamento",
       tone: summary.processingBatches > 0 ? ("warning" as const) : ("neutral" as const),
-      value: String(summary.processingBatches),
+      value: displayValue(String(summary.processingBatches)),
     },
   ];
 
@@ -63,11 +83,15 @@ export function FinanceSummaryCards({ summary }: { summary: FinanceSummary }) {
             Resumo financeiro
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Resumo referente aos resultados carregados com os filtros atuais.
+            {loading
+              ? "Atualizando totais para os filtros atuais."
+              : isFilteredSummary
+              ? "Totais de todas as faturas correspondentes aos filtros atuais."
+              : "Totais das faturas carregadas nesta pagina enquanto o resumo global nao esta disponivel."}
           </p>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         {items.map((item) => {
           const Icon = item.icon;
           return (

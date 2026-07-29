@@ -222,6 +222,16 @@ export type ListResponse<T> = {
   };
 };
 
+export type InvoiceListSummary = {
+  openAmountCents: number;
+  overdueAmountCents: number;
+  paidAmountCents: number;
+  cancelledAmountCents: number;
+  loadedInvoiceCount: number;
+  totalFilteredInvoiceCount: number;
+  failedBankSlips: number;
+};
+
 export type ListRecordsParams = {
   page?: number;
   limit?: number;
@@ -1335,7 +1345,7 @@ export const api = {
   },
 
   listInvoices(params?: ListInvoicesParams) {
-    return request<ListResponse<InvoiceRecord>>(
+    return request<ListResponse<InvoiceRecord> & { summary?: InvoiceListSummary }>(
       withParams("/finance/invoices", params),
     );
   },

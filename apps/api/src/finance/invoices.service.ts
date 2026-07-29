@@ -76,7 +76,7 @@ export class InvoicesService {
     );
     const pagination = this.resolvePagination(query);
     const orderBy = this.buildOrderBy(query);
-    const [records, total] = await Promise.all([
+    const [records, total, summary] = await Promise.all([
       this.prisma.invoice.findMany({
         where,
         orderBy,
@@ -85,6 +85,7 @@ export class InvoicesService {
         include: this.invoiceInclude(),
       }),
       this.prisma.invoice.count({ where }),
+      this.buildInvoiceSummary(where),
     ]);
     const data = records.map((record) => this.toInvoiceSummary(record));
 
@@ -95,6 +96,11 @@ export class InvoicesService {
         limit: pagination.limit,
         total,
         totalPages: Math.ceil(total / pagination.limit),
+      },
+      summary: {
+        ...summary,
+        loadedInvoiceCount: data.length,
+        totalFilteredInvoiceCount: total,
       },
     };
   }
@@ -434,6 +440,53 @@ export class InvoicesService {
 
   private resolvePagination(query: ListInvoicesDto) {
     return resolvePagination(query);
+  }
+
+  private async buildInvoiceSummary(where: Prisma.InvoiceWhereInput) {
+    const [statusTotals, overdue, failedBankSlips] = await Promise.all([
+      this.prisma.invoice.groupBy({
+        by: ["status"],
+        where,
+        _sum: { amountCents: true },
+      }),
+      this.sumInvoiceAmounts(
+        combineInvoiceWhere(
+          where,
+          buildInvoiceOverdueWhere(InvoiceOverdueFilter.OVERDUE),
+        ),
+      ),
+      this.prisma.bankSlip.count({
+        where: {
+          status: {
+            in: [
+              BankSlipStatus.ISSUE_FAILED,
+              BankSlipStatus.CANCELLATION_FAILED,
+              BankSlipStatus.UNKNOWN,
+            ],
+          },
+          invoice: where,
+        },
+      }),
+    ]);
+    const amountByStatus = new Map(
+      statusTotals.map((item) => [item.status, item._sum.amountCents ?? 0]),
+    );
+
+    return {
+      openAmountCents: amountByStatus.get(InvoiceStatus.OPEN) ?? 0,
+      overdueAmountCents: overdue,
+      paidAmountCents: amountByStatus.get(InvoiceStatus.PAID) ?? 0,
+      cancelledAmountCents: amountByStatus.get(InvoiceStatus.CANCELLED) ?? 0,
+      failedBankSlips,
+    };
+  }
+
+  private async sumInvoiceAmounts(where: Prisma.InvoiceWhereInput) {
+    const result = await this.prisma.invoice.aggregate({
+      where,
+      _sum: { amountCents: true },
+    });
+    return result._sum.amountCents ?? 0;
   }
 
   private invoiceInclude() {

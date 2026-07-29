@@ -55,7 +55,7 @@ export function InvoiceOperationalSummaryCards({
             Fila operacional
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Atalhos sobre as faturas carregadas com os filtros atuais.
+            Atalhos sobre as faturas carregadas nesta pagina.
           </p>
         </div>
         {activeFilter !== "all" ? (

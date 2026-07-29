@@ -25,6 +25,7 @@ import {
   type BankSlipSummary,
   type BankSlipStatus,
   type InvoiceCancellationReason,
+  type InvoiceListSummary,
   type InvoicePreview,
   type InvoiceRecord,
   type InvoiceStatus,
@@ -92,6 +93,8 @@ export function FinancePanel({
   const canViewCollections =
     user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [invoiceSummary, setInvoiceSummary] = useState<InvoiceListSummary | null>(null);
+  const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<
     Record<string, BankSlipListRecord | null | undefined>
   >({});
@@ -183,8 +186,13 @@ export function FinancePanel({
     [issueBatches],
   );
   const financeSummary = useMemo(
-    () => calculateFinanceSummary(invoices, bankSlips, issueBatch),
-    [bankSlips, invoices, issueBatch],
+    () => ({
+      ...(invoiceSummary
+        ? { ...invoiceSummary, scope: "filtered" as const }
+        : calculateFinanceSummary(invoices, bankSlips, issueBatch)),
+      processingBatches: issueBatch && isIssueBatchRunning(issueBatch) ? 1 : 0,
+    }),
+    [bankSlips, invoices, invoiceSummary, issueBatch],
   );
   const invoiceOperationalSummary = useMemo(
     () => calculateInvoiceOperationalSummary(invoices, bankSlips),
@@ -260,6 +268,8 @@ export function FinancePanel({
   }
 
   async function loadInvoices(nextSearch = search) {
+    const requestId = invoiceRequestIdRef.current + 1;
+    invoiceRequestIdRef.current = requestId;
     setLoading(true);
     setError("");
     setInvoiceLoadError("");
@@ -277,17 +287,31 @@ export function FinancePanel({
         sort: "dueDate",
         order: "asc",
       });
+      if (requestId !== invoiceRequestIdRef.current) {
+        return;
+      }
       setInvoices(response.data);
+      setInvoiceSummary(response.summary ?? null);
       setBankSlips((current) => mergeBankSlipSummaries(response.data, current));
       setSelectedInvoiceIds((current) =>
         current.filter((invoiceId) => response.data.some((invoice) => invoice.id === invoiceId)),
       );
       setTotalPages(Math.max(response.pagination.totalPages, 1));
     } catch (caught) {
+      if (requestId !== invoiceRequestIdRef.current) {
+        return;
+      }
       const message = caught instanceof Error ? caught.message : "Erro ao carregar faturas";
+      setInvoices([]);
+      setInvoiceSummary(null);
+      setBankSlips({});
+      setSelectedInvoiceIds([]);
+      setTotalPages(1);
       setInvoiceLoadError(message);
     } finally {
-      setLoading(false);
+      if (requestId === invoiceRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -1420,7 +1444,9 @@ export function FinancePanel({
         batchManagementSection
       ) : (
         <>
-      {financeArea === "overview" ? <FinanceSummaryCards summary={financeSummary} /> : null}
+      {financeArea === "overview" ? (
+        <FinanceSummaryCards loading={loading} summary={financeSummary} />
+      ) : null}
       <InvoiceOperationalSummaryCards
         activeFilter={invoiceQuickFilter}
         onSelect={applyInvoiceQuickFilter}
@@ -1488,7 +1514,7 @@ export function FinancePanel({
           <div>
             <h2 className="text-base font-semibold text-slate-950">Fila de faturas</h2>
             <p className="text-sm text-slate-600">
-              Itens ordenados visualmente por atenção operacional sobre os resultados carregados.
+              Itens desta pagina ordenados visualmente por atencao operacional.
             </p>
           </div>
         </div>
