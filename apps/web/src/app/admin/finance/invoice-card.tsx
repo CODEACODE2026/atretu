@@ -66,10 +66,11 @@ export function InvoiceCard({
   const bankSlipInfo = bankSlipPresentation(bankSlip);
   const operationalTone = invoiceOperationalTone(invoice, bankSlip);
   const operationalLabel = invoiceOperationalLabel(invoice, bankSlip);
+  const academicInfo = formatAcademicInfo(invoice);
 
   return (
     <article className={cx(adminTheme.card, adminTheme.cardHover, "min-w-0 overflow-hidden border-l-4 p-3", toneBorderClass(operationalTone))}>
-      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
         <div className="grid min-w-0 gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cx("rounded-full border px-2.5 py-1 text-xs font-semibold", tonePillClass(operationalTone))}>
@@ -79,27 +80,24 @@ export function InvoiceCard({
             <BankSlipStatusBadge bankSlip={bankSlip} />
           </div>
 
-          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <p className="text-xl font-bold tracking-normal text-slate-950">{invoice.amountFormatted}</p>
-                <p className="text-sm font-semibold text-slate-700">Vence {formatDate(invoice.dueDate)}</p>
-              </div>
-              <h3 className="mt-1 truncate text-sm font-semibold text-slate-950">
-                {invoice.student.person.fullName}
-              </h3>
-              <p className="truncate text-xs text-slate-600">
-                {invoice.student.person.cpfMasked} · {invoice.enrollment.institution.name} · {invoice.enrollment.academicYear.year}
-              </p>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p className="text-xl font-bold tracking-normal text-slate-950">{invoice.amountFormatted}</p>
+              <p className="text-sm font-semibold text-slate-700">Vence {formatDate(invoice.dueDate)}</p>
             </div>
-            <p className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              <span className="block font-semibold text-slate-950">{invoice.enrollment.course} · {invoice.enrollment.grade}</span>
-              <span className="block truncate">{invoice.enrollment.shift.name}</span>
+            <h3 className="mt-1 break-words text-sm font-semibold leading-5 text-slate-950">
+              {invoice.student.person.fullName}
+            </h3>
+            <p className="truncate text-xs text-slate-600">
+              {invoice.student.person.cpfMasked}
+            </p>
+            <p className="mt-1 max-w-full break-words text-xs font-normal leading-5 text-slate-500">
+              {academicInfo}
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+        <div className="flex flex-wrap items-center gap-2 lg:max-w-md lg:justify-end">
           <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">
             <input
               checked={checked}
@@ -169,6 +167,18 @@ function MetaItem({ label, value }: { label: string; value: string }) {
       <span className="block truncate font-medium text-slate-950">{value}</span>
     </p>
   );
+}
+
+function formatAcademicInfo(invoice: InvoiceRecord) {
+  const grade = invoice.enrollment.grade.trim();
+  const classGroup = /^sistema\b/i.test(grade) ? grade : `Sistema ${grade}`;
+  return [
+    invoice.enrollment.institution.name,
+    invoice.enrollment.course,
+    classGroup,
+    invoice.enrollment.shift.name,
+    String(invoice.enrollment.academicYear.year),
+  ].join(" • ");
 }
 
 function SecondaryActions({
