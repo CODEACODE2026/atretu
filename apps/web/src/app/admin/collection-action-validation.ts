@@ -46,6 +46,15 @@ export function validateCollectionActionForm(
   const contactedDocumentMasked = form.contactedDocumentMasked.trim();
   const promiseDueDate = form.promiseDueDate.trim();
   const nextFollowUpAt = form.nextFollowUpAt.trim();
+  const allowsChannel =
+    actionType === "PROMISE_TO_PAY" ||
+    (actionType ? contactActionTypes.includes(actionType) : false);
+  const allowsContact = allowsChannel;
+  const allowsPromise = actionType === "PROMISE_TO_PAY";
+  const allowsFollowUp =
+    actionType === "FOLLOW_UP_SCHEDULED" ||
+    actionType === "PROMISE_TO_PAY" ||
+    actionType === "NO_CONTACT";
   let promisedAmountCents: number | undefined;
 
   if (!actionType) {
@@ -65,16 +74,20 @@ export function validateCollectionActionForm(
   if (actionType === "FOLLOW_UP_SCHEDULED" && !isDateTimeLocal(nextFollowUpAt)) {
     errors.nextFollowUpAt = "Informe data e hora do retorno";
   }
-  if (nextFollowUpAt && !isDateTimeLocal(nextFollowUpAt)) {
+  if (allowsFollowUp && nextFollowUpAt && !isDateTimeLocal(nextFollowUpAt)) {
     errors.nextFollowUpAt = "Informe data e hora validas";
   }
-  if (promiseDueDate && !isDateOnly(promiseDueDate)) {
+  if (allowsPromise && promiseDueDate && !isDateOnly(promiseDueDate)) {
     errors.promiseDueDate = "Informe uma data valida";
   }
-  if (contactedDocumentMasked && looksLikeFullDocument(contactedDocumentMasked)) {
+  if (
+    allowsContact &&
+    contactedDocumentMasked &&
+    looksLikeFullDocument(contactedDocumentMasked)
+  ) {
     errors.contactedDocumentMasked = "Informe apenas documento mascarado";
   }
-  if (form.promisedAmountReais.trim()) {
+  if (allowsPromise && form.promisedAmountReais.trim()) {
     const parsed = parseMoneyToCents(form.promisedAmountReais);
     if (parsed === null) {
       errors.promisedAmountReais = "Informe um valor positivo em reais";
@@ -91,13 +104,17 @@ export function validateCollectionActionForm(
     ok: true,
     body: {
       actionType,
-      ...(form.channel ? { channel: form.channel } : {}),
-      ...(contactedName ? { contactedName } : {}),
-      ...(contactedDocumentMasked ? { contactedDocumentMasked } : {}),
+      ...(allowsChannel && form.channel ? { channel: form.channel } : {}),
+      ...(allowsContact && contactedName ? { contactedName } : {}),
+      ...(allowsContact && contactedDocumentMasked
+        ? { contactedDocumentMasked }
+        : {}),
       note,
-      ...(promisedAmountCents ? { promisedAmountCents } : {}),
-      ...(promiseDueDate ? { promiseDueDate } : {}),
-      ...(nextFollowUpAt ? { nextFollowUpAt: toIsoDateTime(nextFollowUpAt) } : {}),
+      ...(allowsPromise && promisedAmountCents ? { promisedAmountCents } : {}),
+      ...(allowsPromise && promiseDueDate ? { promiseDueDate } : {}),
+      ...(allowsFollowUp && nextFollowUpAt
+        ? { nextFollowUpAt: toIsoDateTime(nextFollowUpAt) }
+        : {}),
     },
   };
 }

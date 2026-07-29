@@ -18,6 +18,12 @@ import {
 import { CollectionActionFeedback } from "./collection-action-feedback";
 import { CollectionActionFields } from "./collection-action-fields";
 import { CollectionActionTypeSelector } from "./collection-action-type-selector";
+import {
+  collectionActionShowsChannel,
+  collectionActionShowsContact,
+  collectionActionShowsFollowUp,
+  collectionActionShowsPromise,
+} from "./collection-action-display-utils";
 
 type FieldName = keyof CollectionActionFormState;
 
@@ -44,7 +50,30 @@ export function CollectionActionForm({
     key: K,
     value: CollectionActionFormState[K],
   ) {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => {
+      if (key !== "actionType") {
+        return { ...current, [key]: value };
+      }
+      const actionType = value as CollectionActionFormState["actionType"];
+      const next: CollectionActionFormState = { ...current, actionType };
+
+      if (!collectionActionShowsChannel(actionType)) {
+        next.channel = "";
+      }
+      if (!collectionActionShowsContact(actionType)) {
+        next.contactedName = "";
+        next.contactedDocumentMasked = "";
+      }
+      if (!collectionActionShowsPromise(actionType)) {
+        next.promisedAmountReais = "";
+        next.promiseDueDate = "";
+      }
+      if (!collectionActionShowsFollowUp(actionType)) {
+        next.nextFollowUpAt = "";
+      }
+
+      return next;
+    });
     setErrors((current) => ({ ...current, [key]: undefined }));
     setApiError("");
     setSuccess("");
