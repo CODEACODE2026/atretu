@@ -625,6 +625,18 @@ ADMIN_SETUP_TOKEN=... DATABASE_URL=... npm --prefix apps/api run smoke:invoices
 ADMIN_SETUP_TOKEN=... DATABASE_URL=... JWT_SECRET=... npm --prefix apps/api run smoke:bank-slips
 ```
 
+Regra operacional para massas QA e smokes locais:
+
+- Registrar os IDs criados pela propria massa antes de iniciar a validacao.
+- Limpar fixtures somente por IDs registrados ou por prefixos unicos da massa.
+- Nao limpar por ano generico quando o ano letivo ja tiver vinculos
+  preexistentes.
+- Nao executar `updateMany` global em `academic_years`.
+- Se a massa alterar o ano letivo atual, salvar antes o `academicYearId`
+  corrente e restaurar somente esse registro ao final.
+- Executar a limpeza em transacao e conferir contadores antes/depois,
+  garantindo que nenhum registro fora da fixture foi modificado.
+
 ## Limites atuais
 - Nao ha PDF de alunos por onibus.
 - Nao ha rematricula em lote.
