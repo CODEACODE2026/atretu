@@ -119,17 +119,37 @@ export function FinancePanel({
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [search, setSearch] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
-  const [academicYearId, setAcademicYearId] = useState("");
-  const [institutionId, setInstitutionId] = useState("");
-  const [status, setStatus] = useState<InvoiceStatus | "">("");
-  const [overdue, setOverdue] = useState<"all" | "overdue" | "notOverdue">("all");
-  const [invoiceQuickFilter, setInvoiceQuickFilter] =
-    useState<InvoiceQuickFilter>("all");
   const defaultMonth = useMemo(() => currentMonthRange(), []);
-  const [dueDateFrom, setDueDateFrom] = useState(defaultMonth.from);
-  const [dueDateTo, setDueDateTo] = useState(defaultMonth.to);
-  const [paidAtFrom, setPaidAtFrom] = useState("");
-  const [paidAtTo, setPaidAtTo] = useState("");
+  const [academicYearId, setAcademicYearId] = useState(
+    initialInvoiceFilters?.academicYearId ?? "",
+  );
+  const [institutionId, setInstitutionId] = useState(
+    initialInvoiceFilters?.institutionId ?? "",
+  );
+  const [status, setStatus] = useState<InvoiceStatus | "">(
+    initialInvoiceFilters?.status ?? "",
+  );
+  const [overdue, setOverdue] = useState<"all" | "overdue" | "notOverdue">(
+    initialInvoiceFilters?.overdue ?? "all",
+  );
+  const [invoiceQuickFilter, setInvoiceQuickFilter] =
+    useState<InvoiceQuickFilter>(() =>
+      initialInvoiceFilters
+        ? quickFilterFromInitialFilters(initialInvoiceFilters)
+        : "all",
+    );
+  const [dueDateFrom, setDueDateFrom] = useState(
+    initialInvoiceFilters ? "" : defaultMonth.from,
+  );
+  const [dueDateTo, setDueDateTo] = useState(
+    initialInvoiceFilters ? "" : defaultMonth.to,
+  );
+  const [paidAtFrom, setPaidAtFrom] = useState(
+    initialInvoiceFilters?.paidAtFrom ?? "",
+  );
+  const [paidAtTo, setPaidAtTo] = useState(
+    initialInvoiceFilters?.paidAtTo ?? "",
+  );
   const [invoiceEnrollmentId, setInvoiceEnrollmentId] = useState("");
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState(todayDate());

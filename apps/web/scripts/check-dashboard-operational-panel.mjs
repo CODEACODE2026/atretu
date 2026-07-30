@@ -59,6 +59,9 @@ assertIncludes(adminShell, "baseDomain");
 
 assertIncludes(financePanel, "initialInvoiceFilters");
 assertIncludes(financePanel, "quickFilterFromInitialFilters");
+assertIncludes(financePanel, "initialInvoiceFilters?.academicYearId ?? \"\"");
+assertIncludes(financePanel, "initialInvoiceFilters ? \"\" : defaultMonth.from");
+assertIncludes(financePanel, "initialInvoiceFilters?.paidAtFrom ?? \"\"");
 assertIncludes(financePanel, "setDueDateFrom(\"\")");
 assertIncludes(financePanel, "initialCollectionFilters");
 
