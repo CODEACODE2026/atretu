@@ -3,6 +3,7 @@ import {
   AcademicYearStatus,
   BankSlipStatus,
   EnrollmentStatus,
+  InvoiceStatus,
   Prisma,
   PreRegistrationStatus,
   RecordStatus,
@@ -23,6 +24,7 @@ import type {
   DashboardChart,
   DashboardListItem,
   DashboardMetric,
+  DashboardOperationalBlock,
   DashboardOverviewResponse,
   DashboardQuickShortcut,
 } from "./dto/dashboard.dto.js";
@@ -38,6 +40,18 @@ const BANK_SLIP_ATTENTION_STATUSES = [
   BankSlipStatus.UNKNOWN,
   BankSlipStatus.PENDING_CANCELLATION,
 ] as const;
+
+const BANK_SLIP_ERROR_STATUSES = [
+  BankSlipStatus.ISSUE_FAILED,
+  BankSlipStatus.CANCELLATION_FAILED,
+  BankSlipStatus.UNKNOWN,
+] as const;
+
+type DashboardPart<T> = {
+  data: T;
+  error: string | null;
+  ok: boolean;
+};
 
 @Injectable()
 export class DashboardService {
@@ -56,6 +70,8 @@ export class DashboardService {
     const academicYearId = query.academicYearId ?? academicYear?.id;
     const institutionIds = this.institutionIds(query, currentUser);
     const collectionFilters = this.collectionFilters(academicYearId, query);
+    const href = (params: Record<string, string | undefined>) =>
+      this.dashboardHref(params, academicYearId, query.institutionId);
 
     const enrollmentWhere = this.enrollmentWhere(academicYearId, institutionIds);
     const studentWhere = this.studentWhere(enrollmentWhere);
@@ -69,136 +85,292 @@ export class DashboardService {
     );
 
     const [
-      collectionsSummary,
-      collectionCases,
-      collectionFollowUps,
-      activeStudents,
-      studentStatusCounts,
-      pendingPreRegistrations,
-      preRegistrationStatusCounts,
-      recentPreRegistrations,
-      bankSlipsAttention,
-      bankSlipAttentionItems,
-      activeBusAggregate,
-      activeAssignmentsByBus,
-      activeBuses,
-      pendingCards,
-      pendingCardItems,
-      documentSnapshot,
-      studentsByInstitution,
-      preRegistrationsByMonth,
+      collectionsSummaryPart,
+      collectionCasesPart,
+      collectionFollowUpsPart,
+      activeStudentsPart,
+      studentStatusCountsPart,
+      pendingPreRegistrationsPart,
+      preRegistrationStatusCountsPart,
+      recentPreRegistrationsPart,
+      bankSlipsAttentionPart,
+      bankSlipAttentionItemsPart,
+      activeBusAggregatePart,
+      activeAssignmentsByBusPart,
+      activeBusesPart,
+      pendingCardsPart,
+      pendingCardItemsPart,
+      documentSnapshotPart,
+      studentsByInstitutionPart,
+      preRegistrationsByMonthPart,
+      invoiceStatusSummaryPart,
+      paidThisMonthSummaryPart,
+      bankSlipErrorsPart,
+      overdueFollowUpsPart,
     ] = await Promise.all([
-      this.collections.getSummary(collectionFilters, currentUser),
-      this.collections.listCases(
-        {
-          ...collectionFilters,
-          page: 1,
-          limit: 20,
-        } as ListCollectionCasesDto,
-        { page: 1, limit: 20 },
-        currentUser,
+      this.readDashboardPart(
+        () => this.collections.getSummary(collectionFilters, currentUser),
+        this.emptyCollectionSummary(),
       ),
-      this.collections.listFollowUps(
-        {
-          ...collectionFilters,
-          followUpFrom: this.toDateOnly(today),
-          followUpTo: this.toDateOnly(today),
-        },
-        currentUser,
+      this.readDashboardPart(
+        () =>
+          this.collections.listCases(
+            {
+              ...collectionFilters,
+              page: 1,
+              limit: 20,
+            } as ListCollectionCasesDto,
+            { page: 1, limit: 20 },
+            currentUser,
+          ),
+        this.emptyCollectionCases(),
       ),
-      this.prisma.student.count({ where: studentWhere }),
-      this.prisma.student.groupBy({
-        by: ["status"],
-        where: this.studentWhere(enrollmentWhere, false),
-        _count: { _all: true },
-      }),
-      this.prisma.publicPreRegistration.count({
-        where: { ...preRegistrationWhere, status: PreRegistrationStatus.PENDING },
-      }),
-      this.prisma.publicPreRegistration.groupBy({
-        by: ["status"],
-        where: preRegistrationWhere,
-        _count: { _all: true },
-      }),
-      this.prisma.publicPreRegistration.findMany({
-        where: { ...preRegistrationWhere, status: PreRegistrationStatus.PENDING },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        take: 5,
-        select: {
-          id: true,
-          publicCode: true,
-          fullName: true,
-          createdAt: true,
-          institution: { select: { name: true } },
-        },
-      }),
-      this.prisma.bankSlip.count({
-        where: {
-          status: { in: [...BANK_SLIP_ATTENTION_STATUSES] },
-          invoice: { enrollment: invoiceEnrollmentWhere },
-        },
-      }),
-      this.prisma.bankSlip.findMany({
-        where: {
-          status: { in: [...BANK_SLIP_ATTENTION_STATUSES] },
-          invoice: { enrollment: invoiceEnrollmentWhere },
-        },
-        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-        take: 5,
-        select: {
-          id: true,
-          status: true,
-          updatedAt: true,
-          invoice: {
+      this.readDashboardPart(
+        () =>
+          this.collections.listFollowUps(
+            {
+              ...collectionFilters,
+              followUpFrom: this.toDateOnly(today),
+              followUpTo: this.toDateOnly(today),
+            },
+            currentUser,
+          ),
+        this.emptyCollectionFollowUps(),
+      ),
+      this.readDashboardPart(
+        () => this.prisma.student.count({ where: studentWhere }),
+        0,
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.student.groupBy({
+            by: ["status"],
+            where: this.studentWhere(enrollmentWhere, false),
+            _count: { _all: true },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.publicPreRegistration.count({
+            where: {
+              ...preRegistrationWhere,
+              status: PreRegistrationStatus.PENDING,
+            },
+          }),
+        0,
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.publicPreRegistration.groupBy({
+            by: ["status"],
+            where: preRegistrationWhere,
+            _count: { _all: true },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.publicPreRegistration.findMany({
+            where: {
+              ...preRegistrationWhere,
+              status: PreRegistrationStatus.PENDING,
+            },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            take: 5,
             select: {
               id: true,
-              amountCents: true,
-              dueDate: true,
-              student: { select: { person: { select: { fullName: true } } } },
-              enrollment: {
-                select: { institution: { select: { name: true } } },
+              publicCode: true,
+              fullName: true,
+              createdAt: true,
+              institution: { select: { name: true } },
+            },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.bankSlip.count({
+            where: {
+              status: { in: [...BANK_SLIP_ATTENTION_STATUSES] },
+              invoice: { enrollment: invoiceEnrollmentWhere },
+            },
+          }),
+        0,
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.bankSlip.findMany({
+            where: {
+              status: { in: [...BANK_SLIP_ATTENTION_STATUSES] },
+              invoice: { enrollment: invoiceEnrollmentWhere },
+            },
+            orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+            take: 5,
+            select: {
+              id: true,
+              status: true,
+              updatedAt: true,
+              invoice: {
+                select: {
+                  id: true,
+                  amountCents: true,
+                  dueDate: true,
+                  student: { select: { person: { select: { fullName: true } } } },
+                  enrollment: {
+                    select: { institution: { select: { name: true } } },
+                  },
+                },
               },
             },
-          },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.bus.aggregate({
+            where: { status: RecordStatus.ACTIVE },
+            _count: { _all: true },
+            _sum: { capacity: true },
+          }),
+        { _count: { _all: 0 }, _sum: { capacity: null } },
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.busAssignment.groupBy({
+            by: ["busId"],
+            where: {
+              status: "ACTIVE",
+              enrollment: invoiceEnrollmentWhere,
+            },
+            _count: { _all: true },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.bus.findMany({
+            where: { status: RecordStatus.ACTIVE },
+            orderBy: [{ name: "asc" }, { id: "asc" }],
+            select: { id: true, name: true, capacity: true },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.enrollment.count({
+            where: this.pendingCardEnrollmentWhere(enrollmentWhere),
+          }),
+        0,
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.enrollment.findMany({
+            where: this.pendingCardEnrollmentWhere(enrollmentWhere),
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            take: 5,
+            select: {
+              id: true,
+              createdAt: true,
+              student: {
+                select: { id: true, person: { select: { fullName: true } } },
+              },
+              institution: { select: { name: true } },
+              academicYear: { select: { year: true } },
+            },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () => this.documentSnapshot(studentWhere),
+        { missingCount: 0, items: [] },
+      ),
+      this.readDashboardPart(
+        () => this.studentsByInstitution(enrollmentWhere),
+        this.emptyChart("studentsByInstitution", "Academicos por instituicao"),
+      ),
+      this.readDashboardPart(
+        () => this.preRegistrationsByMonth(preRegistrationWhere),
+        {
+          key: "preRegistrationsByMonth",
+          title: "Pre-cadastros por mes",
+          description: "Entrada mensal de pre-cadastros",
+          type: "line" as const,
+          data: [],
         },
-      }),
-      this.prisma.bus.aggregate({
-        where: { status: RecordStatus.ACTIVE },
-        _count: { _all: true },
-        _sum: { capacity: true },
-      }),
-      this.prisma.busAssignment.groupBy({
-        by: ["busId"],
-        where: {
-          status: "ACTIVE",
-          enrollment: invoiceEnrollmentWhere,
-        },
-        _count: { _all: true },
-      }),
-      this.prisma.bus.findMany({
-        where: { status: RecordStatus.ACTIVE },
-        orderBy: [{ name: "asc" }, { id: "asc" }],
-        select: { id: true, name: true, capacity: true },
-      }),
-      this.prisma.enrollment.count({
-        where: this.pendingCardEnrollmentWhere(enrollmentWhere),
-      }),
-      this.prisma.enrollment.findMany({
-        where: this.pendingCardEnrollmentWhere(enrollmentWhere),
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        take: 5,
-        select: {
-          id: true,
-          createdAt: true,
-          student: { select: { id: true, person: { select: { fullName: true } } } },
-          institution: { select: { name: true } },
-          academicYear: { select: { year: true } },
-        },
-      }),
-      this.documentSnapshot(studentWhere),
-      this.studentsByInstitution(enrollmentWhere),
-      this.preRegistrationsByMonth(preRegistrationWhere),
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.invoice.groupBy({
+            by: ["status"],
+            where: { enrollment: invoiceEnrollmentWhere },
+            _count: { _all: true },
+            _sum: { amountCents: true },
+          }),
+        [],
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.bankSlip.aggregate({
+            where: {
+              status: BankSlipStatus.PAID,
+              paidAt: {
+                gte: this.startOfUtcMonth(today),
+                lt: this.startOfNextUtcMonth(today),
+              },
+              invoice: { enrollment: invoiceEnrollmentWhere },
+            },
+            _count: { _all: true },
+            _sum: { paidAmountCents: true },
+          }),
+        { _count: { _all: 0 }, _sum: { paidAmountCents: null } },
+      ),
+      this.readDashboardPart(
+        () =>
+          this.prisma.bankSlip.count({
+            where: {
+              status: { in: [...BANK_SLIP_ERROR_STATUSES] },
+              invoice: { enrollment: invoiceEnrollmentWhere },
+            },
+          }),
+        0,
+      ),
+      this.readDashboardPart(
+        () =>
+          this.collections.listFollowUps(
+            {
+              ...collectionFilters,
+              followUpTo: this.toDateOnly(
+                new Date(today.getTime() - 24 * 60 * 60 * 1000),
+              ),
+            },
+            currentUser,
+          ),
+        this.emptyCollectionFollowUps(),
+      ),
     ]);
+    const collectionsSummary = collectionsSummaryPart.data;
+    const collectionCases = collectionCasesPart.data;
+    const collectionFollowUps = collectionFollowUpsPart.data;
+    const activeStudents = activeStudentsPart.data;
+    const studentStatusCounts = studentStatusCountsPart.data;
+    const pendingPreRegistrations = pendingPreRegistrationsPart.data;
+    const preRegistrationStatusCounts = preRegistrationStatusCountsPart.data;
+    const recentPreRegistrations = recentPreRegistrationsPart.data;
+    const bankSlipsAttention = bankSlipsAttentionPart.data;
+    const bankSlipAttentionItems = bankSlipAttentionItemsPart.data;
+    const activeBusAggregate = activeBusAggregatePart.data;
+    const activeAssignmentsByBus = activeAssignmentsByBusPart.data;
+    const activeBuses = activeBusesPart.data;
+    const pendingCards = pendingCardsPart.data;
+    const pendingCardItems = pendingCardItemsPart.data;
+    const documentSnapshot = documentSnapshotPart.data;
+    const studentsByInstitution = studentsByInstitutionPart.data;
+    const preRegistrationsByMonth = preRegistrationsByMonthPart.data;
+    const invoiceStatusSummary = invoiceStatusSummaryPart.data;
+    const paidThisMonthSummary = paidThisMonthSummaryPart.data;
+    const bankSlipErrors = bankSlipErrorsPart.data;
+    const overdueFollowUps = overdueFollowUpsPart.data;
 
     const busCapacity = activeBusAggregate._sum.capacity ?? 0;
     const occupiedSeats = activeAssignmentsByBus.reduce(
@@ -207,6 +379,21 @@ export class DashboardService {
     );
     const availableSeats = Math.max(busCapacity - occupiedSeats, 0);
     const busAttention = this.busAttentionItems(activeBuses, activeAssignmentsByBus);
+    const fullBusCount = busAttention.filter((item) => item.status === "FULL").length;
+    const suspendedStudents = this.statusCount(
+      studentStatusCounts,
+      StudentStatus.SUSPENDED,
+    );
+    const terminatedStudents = this.statusCount(
+      studentStatusCounts,
+      StudentStatus.TERMINATED,
+    );
+    const invoiceAmountByStatus = this.invoiceAmountByStatus(invoiceStatusSummary);
+    const openInvoiceCount = this.invoiceCountByStatus(
+      invoiceStatusSummary,
+      InvoiceStatus.OPEN,
+    );
+    const openAmountCents = invoiceAmountByStatus.get(InvoiceStatus.OPEN) ?? 0;
     const criticalCases = collectionCases.data
       .filter((item) => item.priority !== "NORMAL")
       .slice(0, 5)
@@ -325,7 +512,272 @@ export class DashboardService {
       this.formatInteger(documentSnapshot.missingCount),
       "Academicos ativos sem todos os documentos esperados",
       documentSnapshot.missingCount > 0 ? "warning" : "success",
+      href({ area: "students", studentStatus: "active" }),
     );
+    const documentsAttentionOperationalMetric = {
+      ...documentsAttentionMetric,
+      label: "Documentacao pendente",
+    };
+    const suspendedStudentsMetric = this.metric(
+      "suspendedStudents",
+      "Suspensos",
+      suspendedStudents,
+      this.formatInteger(suspendedStudents),
+      "Academicos com matricula no escopo filtrado",
+      suspendedStudents > 0 ? "warning" : "success",
+      href({ area: "students", studentStatus: "suspended" }),
+    );
+    const terminatedStudentsMetric = this.metric(
+      "terminatedStudents",
+      "Desligados",
+      terminatedStudents,
+      this.formatInteger(terminatedStudents),
+      "Academicos encerrados no escopo filtrado",
+      terminatedStudents > 0 ? "neutral" : "success",
+      href({ area: "students", studentStatus: "terminated" }),
+    );
+    const openAmountMetric = this.metric(
+      "openAmount",
+      "Total em aberto",
+      openAmountCents,
+      this.formatCents(openAmountCents),
+      `${this.formatInteger(openInvoiceCount)} fatura(s) aberta(s)`,
+      openAmountCents > 0 ? "warning" : "success",
+      href({ area: "finance", financeArea: "invoices", invoiceStatus: "OPEN" }),
+    );
+    const totalOverdueAmountMetric = {
+      ...overdueAmountMetric,
+      href: href({
+        area: "finance",
+        financeArea: "invoices",
+        invoiceStatus: "OPEN",
+        overdue: "overdue",
+      }),
+      label: "Total vencido",
+    };
+    const paidThisMonthMetric = this.metric(
+      "paidThisMonth",
+      "Pagamentos do mes",
+      paidThisMonthSummary._sum.paidAmountCents ?? 0,
+      this.formatCents(paidThisMonthSummary._sum.paidAmountCents ?? 0),
+      `${this.formatInteger(paidThisMonthSummary._count._all)} pagamento(s) confirmado(s)`,
+      (paidThisMonthSummary._sum.paidAmountCents ?? 0) > 0 ? "success" : "neutral",
+      href({ area: "finance", financeArea: "invoices", invoiceStatus: "PAID" }),
+    );
+    const bankSlipErrorsMetric = this.metric(
+      "bankSlipErrors",
+      "Boletos com erro",
+      bankSlipErrors,
+      this.formatInteger(bankSlipErrors),
+      "Falha de emissao, baixa ou status desconhecido",
+      bankSlipErrors > 0 ? "danger" : "success",
+      href({ area: "finance", financeArea: "invoices" }),
+    );
+    const pendingCollectionsMetric = this.metric(
+      "pendingCollections",
+      "Cobrancas pendentes",
+      collectionsSummary.invoiceCount,
+      this.formatInteger(collectionsSummary.invoiceCount),
+      "Faturas vencidas em acompanhamento",
+      collectionsSummary.invoiceCount > 0 ? "warning" : "success",
+      href({ area: "finance", financeArea: "collections" }),
+    );
+    const promisesActiveMetric = this.metric(
+      "promisesActive",
+      "Promessas de pagamento",
+      collectionsSummary.promisesActiveCount,
+      this.formatInteger(collectionsSummary.promisesActiveCount),
+      "Promessas ainda dentro do prazo",
+      collectionsSummary.promisesActiveCount > 0 ? "warning" : "success",
+      href({
+        area: "finance",
+        financeArea: "collections",
+        collectionOperationalStatus: "PROMISE_ACTIVE",
+      }),
+    );
+    const promisesBrokenMetric = this.metric(
+      "promisesBroken",
+      "Promessas vencidas",
+      collectionsSummary.promisesBrokenCount,
+      this.formatInteger(collectionsSummary.promisesBrokenCount),
+      "Promessas que exigem retomada",
+      collectionsSummary.promisesBrokenCount > 0 ? "danger" : "success",
+      href({
+        area: "finance",
+        financeArea: "collections",
+        collectionOperationalStatus: "PROMISE_BROKEN",
+      }),
+    );
+    const followUpsTodayMetric = this.metric(
+      "followUpsToday",
+      "Follow-ups de hoje",
+      collectionsSummary.followUpsTodayCount,
+      this.formatInteger(collectionsSummary.followUpsTodayCount),
+      "Retornos previstos para hoje",
+      collectionsSummary.followUpsTodayCount > 0 ? "warning" : "success",
+      href({
+        area: "finance",
+        financeArea: "collections",
+        followUpFrom: this.toDateOnly(today),
+        followUpTo: this.toDateOnly(today),
+      }),
+    );
+    const overdueFollowUpsMetric = this.metric(
+      "overdueFollowUps",
+      "Follow-ups atrasados",
+      overdueFollowUps.data.length,
+      this.formatInteger(overdueFollowUps.data.length),
+      "Retornos com data anterior a hoje",
+      overdueFollowUps.data.length > 0 ? "danger" : "success",
+      href({
+        area: "finance",
+        financeArea: "collections",
+        followUpTo: this.toDateOnly(
+          new Date(today.getTime() - 24 * 60 * 60 * 1000),
+        ),
+      }),
+    );
+    const activeBusesMetric = this.metric(
+      "activeBuses",
+      "Onibus ativos",
+      activeBusAggregate._count._all,
+      this.formatInteger(activeBusAggregate._count._all),
+      "Veiculos disponiveis para operacao",
+      activeBusAggregate._count._all > 0 ? "success" : "neutral",
+      href({ area: "base", baseDomain: "buses" }),
+    );
+    const availableSeatsMetric = this.metric(
+      "availableSeats",
+      "Vagas disponiveis",
+      availableSeats,
+      this.formatInteger(availableSeats),
+      `${this.formatInteger(occupiedSeats)}/${this.formatInteger(busCapacity)} vaga(s) ocupada(s)`,
+      availableSeats > 0 ? "success" : "danger",
+      href({ area: "base", baseDomain: "buses" }),
+    );
+    const fullBusesMetric = this.metric(
+      "fullBuses",
+      "Onibus lotados",
+      fullBusCount,
+      this.formatInteger(fullBusCount),
+      "Sem vagas disponiveis",
+      fullBusCount > 0 ? "danger" : "success",
+      href({ area: "base", baseDomain: "buses" }),
+    );
+    const academicsParts = [
+      activeStudentsPart,
+      studentStatusCountsPart,
+      pendingPreRegistrationsPart,
+      preRegistrationStatusCountsPart,
+      recentPreRegistrationsPart,
+      pendingCardsPart,
+      pendingCardItemsPart,
+      documentSnapshotPart,
+      studentsByInstitutionPart,
+      preRegistrationsByMonthPart,
+    ];
+    const financeParts = [
+      collectionsSummaryPart,
+      collectionCasesPart,
+      collectionFollowUpsPart,
+      bankSlipsAttentionPart,
+      bankSlipAttentionItemsPart,
+      invoiceStatusSummaryPart,
+      paidThisMonthSummaryPart,
+      bankSlipErrorsPart,
+    ];
+    const collectionsParts = [
+      collectionsSummaryPart,
+      collectionCasesPart,
+      collectionFollowUpsPart,
+      overdueFollowUpsPart,
+    ];
+    const transportParts = [
+      activeBusAggregatePart,
+      activeAssignmentsByBusPart,
+      activeBusesPart,
+    ];
+    const operationalBlocks: DashboardOperationalBlock[] = [
+      {
+        key: "academics",
+        title: "Academico",
+        description: "Status dos academicos, pre-cadastros e documentos",
+        status: this.blockStatus(academicsParts),
+        error: this.blockError(academicsParts),
+        metrics: [
+          {
+            ...activeStudentsMetric,
+            href: href({ area: "students", studentStatus: "active" }),
+          },
+          suspendedStudentsMetric,
+          terminatedStudentsMetric,
+          {
+            ...pendingPreRegistrationsMetric,
+            href: href({
+              area: "pre-registrations",
+              preRegistrationStatus: "PENDING",
+            }),
+          },
+          documentsAttentionOperationalMetric,
+        ],
+      },
+      {
+        key: "finance",
+        title: "Financeiro",
+        description: "Valores e boletos que exigem acompanhamento",
+        status: this.blockStatus(financeParts),
+        error: this.blockError(financeParts),
+        metrics: [
+          openAmountMetric,
+          totalOverdueAmountMetric,
+          paidThisMonthMetric,
+          {
+            ...overdueInvoicesMetric,
+            href: href({
+              area: "finance",
+              financeArea: "invoices",
+              invoiceStatus: "OPEN",
+              overdue: "overdue",
+            }),
+          },
+          bankSlipErrorsMetric,
+          pendingCollectionsMetric,
+        ],
+      },
+      {
+        key: "collections",
+        title: "Cobranca",
+        description: "Promessas e retornos da rotina diaria",
+        status: this.blockStatus(collectionsParts),
+        error: this.blockError(collectionsParts),
+        metrics: [
+          promisesActiveMetric,
+          promisesBrokenMetric,
+          followUpsTodayMetric,
+          overdueFollowUpsMetric,
+        ],
+      },
+      {
+        key: "transport",
+        title: "Transporte",
+        description: "Capacidade dos onibus no ano letivo selecionado",
+        status: this.blockStatus(transportParts),
+        error: this.blockError(transportParts),
+        metrics: [
+          activeBusesMetric,
+          availableSeatsMetric,
+          fullBusesMetric,
+        ],
+      },
+      {
+        key: "quickActions",
+        title: "Acoes rapidas",
+        description: "Entradas diretas para as operacoes mais frequentes",
+        status: "loaded",
+        metrics: [],
+        shortcuts: this.quickShortcuts(href),
+      },
+    ];
 
     return {
       generatedAt,
@@ -346,6 +798,7 @@ export class DashboardService {
         pendingStudentCards: pendingStudentCardsMetric,
         incompleteDocuments: documentsAttentionMetric,
       },
+      operationalBlocks,
       agendaToday: {
         collectionFollowUps: followUpsToday,
         preRegistrationsToReview: pendingPreRegistrationItems,
@@ -482,7 +935,96 @@ export class DashboardService {
         studentsByInstitution,
         preRegistrationsByMonth,
       },
-      quickShortcuts: this.quickShortcuts(),
+      quickShortcuts: this.quickShortcuts(href),
+    };
+  }
+
+  private dashboardHref(
+    params: Record<string, string | undefined>,
+    academicYearId?: string,
+    institutionId?: string,
+  ): string {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value) {
+        search.set(key, value);
+      }
+    }
+    if (academicYearId) {
+      search.set("academicYearId", academicYearId);
+    }
+    if (institutionId) {
+      search.set("institutionId", institutionId);
+    }
+    return `/admin?${search.toString()}`;
+  }
+
+  private async readDashboardPart<T>(
+    read: () => Promise<T>,
+    fallback: T,
+  ): Promise<DashboardPart<T>> {
+    try {
+      return { data: await read(), error: null, ok: true };
+    } catch (error) {
+      return {
+        data: fallback,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Nao foi possivel carregar este bloco.",
+        ok: false,
+      };
+    }
+  }
+
+  private blockStatus(parts: Array<DashboardPart<unknown>>): "loaded" | "error" {
+    return parts.every((part) => part.ok) ? "loaded" : "error";
+  }
+
+  private blockError(parts: Array<DashboardPart<unknown>>): string | null {
+    const firstError = parts.find((part) => !part.ok)?.error;
+    return firstError
+      ? `Nao foi possivel carregar este bloco: ${firstError}`
+      : null;
+  }
+
+  private emptyCollectionSummary() {
+    return {
+      totalOverdueCents: 0,
+      invoiceCount: 0,
+      studentCount: 0,
+      averageOverdueAmountCents: 0,
+      agingBuckets: {
+        DAYS_1_30: 0,
+        DAYS_31_60: 0,
+        DAYS_61_90: 0,
+        DAYS_90_PLUS: 0,
+      },
+      promisesActiveCount: 0,
+      promisesBrokenCount: 0,
+      followUpsTodayCount: 0,
+      partialPaymentReviewCount: 0,
+    };
+  }
+
+  private emptyCollectionCases() {
+    return {
+      data: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    };
+  }
+
+  private emptyCollectionFollowUps() {
+    return { data: [] };
+  }
+
+  private emptyChart(key: string, title: string): DashboardChart {
+    return {
+      key,
+      title,
+      description: "Dados indisponiveis no momento",
+      type: "bar",
+      data: [],
     };
   }
 
@@ -841,35 +1383,84 @@ export class DashboardService {
     formattedValue: string,
     context: string | null,
     status: DashboardMetric["status"] = "neutral",
+    href?: string,
   ): DashboardMetric {
-    return { key, label, value, formattedValue, context, status };
+    return { key, label, value, formattedValue, context, status, href };
   }
 
   private listItem(input: DashboardListItem): DashboardListItem {
     return input;
   }
 
-  private quickShortcuts(): DashboardQuickShortcut[] {
+  private quickShortcuts(
+    href: (params: Record<string, string | undefined>) => string,
+  ): DashboardQuickShortcut[] {
     return [
-      { key: "students", label: "Academicos", href: "/admin?area=students" },
       {
-        key: "pre-registrations",
-        label: "Pre-cadastros",
-        href: "/admin?area=pre-registrations",
+        key: "students",
+        label: "Novo aluno",
+        href: href({ area: "students", action: "new" }),
       },
-      { key: "finance", label: "Financeiro", href: "/admin?area=finance" },
       {
         key: "collections",
-        label: "Cobranca",
-        href: "/admin?area=finance&financeArea=collections",
+        label: "Nova cobranca",
+        href: href({ area: "finance", financeArea: "collections" }),
       },
       {
-        key: "student-cards",
-        label: "Carteirinhas",
-        href: "/admin?area=student-cards",
+        key: "finance",
+        label: "Emitir boletos",
+        href: href({ area: "finance" }),
       },
-      { key: "buses", label: "Onibus e vagas", href: "/admin?area=base" },
+      {
+        key: "finance-import",
+        label: "Importar retorno",
+        href: href({ area: "finance" }),
+      },
+      {
+        key: "buses",
+        label: "Cadastrar onibus",
+        href: href({ area: "base", baseDomain: "buses" }),
+      },
+      {
+        key: "institutions",
+        label: "Cadastrar instituicao",
+        href: href({ area: "base", baseDomain: "institutions" }),
+      },
+      {
+        key: "reports",
+        label: "Relatorios",
+        href: "/admin?area=dashboard",
+      },
     ];
+  }
+
+  private invoiceAmountByStatus(
+    rows: Array<{
+      status: InvoiceStatus;
+      _sum: { amountCents: number | null };
+    }>,
+  ) {
+    return new Map(
+      rows.map((row) => [row.status, row._sum.amountCents ?? 0] as const),
+    );
+  }
+
+  private invoiceCountByStatus(
+    rows: Array<{
+      status: InvoiceStatus;
+      _count: { _all: number };
+    }>,
+    status: InvoiceStatus,
+  ) {
+    return rows.find((row) => row.status === status)?._count._all ?? 0;
+  }
+
+  private startOfUtcMonth(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  }
+
+  private startOfNextUtcMonth(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
   }
 
   private formatInteger(value: number) {

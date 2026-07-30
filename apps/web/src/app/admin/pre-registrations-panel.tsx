@@ -24,11 +24,21 @@ const documentLabels: Record<string, string> = {
   PROOF_OF_ENROLLMENT: "Comprovante de matricula",
 };
 
-export function PreRegistrationsPanel() {
+export function PreRegistrationsPanel({
+  initialAcademicYearId,
+  initialInstitutionId,
+  initialStatus,
+}: {
+  initialAcademicYearId?: string;
+  initialInstitutionId?: string;
+  initialStatus?: PreRegistrationStatus;
+}) {
   const [items, setItems] = useState<PreRegistrationSummary[]>([]);
   const [selected, setSelected] = useState<PreRegistrationDetail | null>(null);
   const [status, setStatus] = useState<PreRegistrationStatus>("PENDING");
   const [search, setSearch] = useState("");
+  const [academicYearId, setAcademicYearId] = useState("");
+  const [institutionId, setInstitutionId] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -43,7 +53,21 @@ export function PreRegistrationsPanel() {
 
   useEffect(() => {
     void loadItems();
-  }, [status, page]);
+  }, [academicYearId, institutionId, status, page]);
+
+  useEffect(() => {
+    if (initialAcademicYearId) {
+      setAcademicYearId(initialAcademicYearId);
+    }
+    if (initialInstitutionId) {
+      setInstitutionId(initialInstitutionId);
+    }
+    if (!initialStatus) {
+      return;
+    }
+    setStatus(initialStatus);
+    setPage(1);
+  }, [initialAcademicYearId, initialInstitutionId, initialStatus]);
 
   useEffect(() => {
     if (!selected || selected.status !== "PENDING") {
@@ -63,6 +87,8 @@ export function PreRegistrationsPanel() {
         page,
         limit: 10,
         search: nextSearch,
+        academicYearId,
+        institutionId,
         status,
         sort: "createdAt",
         order: "desc",

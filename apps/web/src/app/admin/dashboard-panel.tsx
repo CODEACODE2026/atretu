@@ -17,10 +17,12 @@ import {
   DashboardKpiCard,
   DashboardListCard,
   DashboardMetricStrip,
+  DashboardOperationalCard,
   DashboardQuickShortcuts,
   DashboardSection,
   dashboardSectionIcons,
   type DashboardIndicatorKey,
+  type VisualTone,
 } from "./components/dashboard-primitives";
 
 type LoadState = "loading" | "loaded" | "error";
@@ -84,9 +86,11 @@ function requestDashboard(params: DashboardOverviewParams, force = false) {
 
 export function DashboardPanel({
   isShortcutAvailable = () => true,
+  onNavigateHref,
   onShortcut,
 }: {
   isShortcutAvailable?: (shortcut: DashboardQuickShortcut) => boolean;
+  onNavigateHref?: (href: string) => void;
   onShortcut?: (shortcut: DashboardQuickShortcut) => void;
 }) {
   const [dashboard, setDashboard] = useState<AdminDashboardResponse | null>(null);
@@ -145,6 +149,53 @@ export function DashboardPanel({
     metric: dashboard.indicators[key],
   }));
   const isRefreshing = state === "loading";
+  const operationalBlocks = dashboard.operationalBlocks ?? [];
+
+  const operationalContent =
+    operationalBlocks.length > 0 ? (
+      <>
+        {operationalBlocks.map((block) => (
+          <DashboardSection
+            icon={dashboardSectionIcons[block.key]}
+            key={block.key}
+            subtitle={block.description}
+            title={block.title}
+            tone={blockTone(block.key)}
+          >
+            {block.status === "error" ? (
+              <DashboardEmptyState
+                compact
+                text={block.error ?? "Nao foi possivel carregar este bloco."}
+              />
+            ) : block.key === "quickActions" ? (
+              <DashboardQuickShortcuts
+                isShortcutAvailable={isShortcutAvailable}
+                onShortcut={onShortcut}
+                shortcuts={block.shortcuts ?? dashboard.quickShortcuts}
+              />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {block.metrics.map((metric) => (
+                  <DashboardOperationalCard
+                    key={metric.key}
+                    metric={metric}
+                    onOpen={onNavigateHref}
+                  />
+                ))}
+              </div>
+            )}
+          </DashboardSection>
+        ))}
+
+        <section className="grid gap-4 xl:grid-cols-2">
+          <DashboardChartCard
+            chart={dashboard.charts.occupancyByBus}
+            emptyText="Sem ocupacao de onibus para exibir."
+          />
+          <DashboardChartCard chart={dashboard.charts.studentsByInstitution} />
+        </section>
+      </>
+    ) : null;
 
   return (
     <div className="grid gap-6">
@@ -216,6 +267,10 @@ export function DashboardPanel({
         />
       ) : null}
 
+      {operationalContent ? (
+        operationalContent
+      ) : (
+        <>
       <section aria-label="Indicadores principais" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {primaryKpis.map(({ key, metric }) => (
           <DashboardKpiCard key={key} metric={metric} metricKey={key} priority />
@@ -369,8 +424,20 @@ export function DashboardPanel({
           shortcuts={dashboard.quickShortcuts}
         />
       </DashboardSection>
+        </>
+      )}
     </div>
   );
+}
+
+function blockTone(key: "academics" | "finance" | "collections" | "transport" | "quickActions"): VisualTone {
+  if (key === "finance" || key === "collections") {
+    return "warning";
+  }
+  if (key === "transport" || key === "academics") {
+    return "info";
+  }
+  return "neutral";
 }
 
 function DashboardSkeleton() {

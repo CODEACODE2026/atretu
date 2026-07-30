@@ -8,6 +8,7 @@ import {
 import { Reflector } from "@nestjs/core";
 import {
   BankSlipStatus,
+  InvoiceStatus,
   PreRegistrationStatus,
   RoleCode,
   StudentDocumentType,
@@ -55,6 +56,7 @@ await testControllerPassesQueryAndAuthenticatedUser();
 await testEmptyOverviewStructure();
 await testOverviewWithAggregatedData();
 await testFiltersAreApplied();
+await testOperationalBlockPartialFailures();
 
 async function testControllerRouteGuardsAndRoles() {
   const classGuards = Reflect.getMetadata(
@@ -163,6 +165,9 @@ async function testEmptyOverviewStructure() {
   assert.equal(overview.indicators.busSeats.value, 0);
   assert.equal(overview.indicators.pendingStudentCards.value, 0);
   assert.equal(overview.indicators.incompleteDocuments.value, 0);
+  assert.equal(overview.operationalBlocks.length, 5);
+  assert.equal(overview.operationalBlocks[0]?.key, "academics");
+  assert.equal(overview.operationalBlocks[4]?.key, "quickActions");
   assert.deepEqual(overview.agendaToday.collectionFollowUps, []);
   assert.deepEqual(overview.criticalAlerts, []);
   assert.deepEqual(overview.financeAndCollections.criticalCases, []);
@@ -196,6 +201,37 @@ async function testOverviewWithAggregatedData() {
     overview.indicators.incompleteDocuments.label,
     "Cadastros com documentacao incompleta",
   );
+  const financeBlock = overview.operationalBlocks.find(
+    (block) => block.key === "finance",
+  );
+  assert.equal(financeBlock?.metrics.some((metric) => metric.key === "openAmount"), true);
+  assert.equal(
+    financeBlock?.metrics.find((metric) => metric.key === "overdueAmount")
+      ?.label,
+    "Total vencido",
+  );
+  assert.match(
+    financeBlock?.metrics.find((metric) => metric.key === "overdueAmount")
+      ?.href ?? "",
+    /overdue=overdue/,
+  );
+  assert.equal(
+    financeBlock?.metrics.find((metric) => metric.key === "paidThisMonth")
+      ?.value,
+    8000,
+  );
+  const collectionsBlock = overview.operationalBlocks.find(
+    (block) => block.key === "collections",
+  );
+  assert.equal(
+    collectionsBlock?.metrics.find((metric) => metric.key === "overdueFollowUps")
+      ?.value,
+    1,
+  );
+  const quickActions = overview.operationalBlocks.find(
+    (block) => block.key === "quickActions",
+  );
+  assert.equal(quickActions?.shortcuts?.some((item) => item.label === "Novo aluno"), true);
   assert.equal(overview.agendaToday.collectionFollowUps.length, 1);
   assert.equal(overview.financeAndCollections.criticalCases.length, 1);
   assert.equal(overview.academicsAndDocuments.recentItems.length, 1);
@@ -222,7 +258,7 @@ async function testOverviewWithAggregatedData() {
   assert.equal(overview.charts.preRegistrationsByMonth.data.length, 6);
   assert.equal(calls.collections.getSummary.length, 1);
   assert.equal(calls.collections.listCases.length, 1);
-  assert.equal(calls.collections.listFollowUps.length, 1);
+  assert.equal(calls.collections.listFollowUps.length, 2);
   assert.equal(calls.sicredi.length, 0);
   assert.equal(calls.writes.length, 0);
 }
@@ -263,7 +299,37 @@ async function testFiltersAreApplied() {
   assert.equal(hasNestedValue(calls.prisma.enrollmentCount[0], query.institutionId), true);
 }
 
-function makeDashboardService(mode: "empty" | "populated") {
+async function testOperationalBlockPartialFailures() {
+  const failureScenarios = [
+    { failure: "academics", block: "academics" },
+    { failure: "finance", block: "finance" },
+    { failure: "collections", block: "collections" },
+    { failure: "transport", block: "transport" },
+  ] as const;
+
+  for (const scenario of failureScenarios) {
+    const { service } = makeDashboardService("populated", [scenario.failure]);
+    const overview = await service.getOverview({}, SUPER_ADMIN);
+    const failedBlock = overview.operationalBlocks.find(
+      (block) => block.key === scenario.block,
+    );
+    const loadedBlocks = overview.operationalBlocks.filter(
+      (block) => block.key !== scenario.block,
+    );
+
+    assert.equal(failedBlock?.status, "error");
+    assert.match(failedBlock?.error ?? "", /Nao foi possivel carregar este bloco/);
+    assert.equal(loadedBlocks.every((block) => block.status === "loaded"), true);
+    assert.equal(overview.operationalBlocks.length, 5);
+  }
+}
+
+type DashboardFailure = "academics" | "finance" | "collections" | "transport";
+
+function makeDashboardService(
+  mode: "empty" | "populated",
+  failures: DashboardFailure[] = [],
+) {
   const calls = {
     collections: {
       getSummary: [] as Array<{ filters: unknown; user: AuthUser }>,
@@ -279,11 +345,14 @@ function makeDashboardService(mode: "empty" | "populated") {
       preRegistrationCount: [] as unknown[],
       bankSlipCount: [] as unknown[],
       enrollmentCount: [] as unknown[],
+      invoiceAggregate: [] as unknown[],
+      invoiceGroupBy: [] as unknown[],
     },
     sicredi: [] as unknown[],
     writes: [] as unknown[],
   };
   const empty = mode === "empty";
+  const failed = new Set<DashboardFailure>(failures);
 
   const prisma = {
     academicYear: {
@@ -302,6 +371,9 @@ function makeDashboardService(mode: "empty" | "populated") {
     },
     student: {
       count: async (args: unknown) => {
+        if (failed.has("academics")) {
+          throw new Error("academic metrics unavailable");
+        }
         calls.prisma.studentCount.push(args);
         return empty ? 0 : 12;
       },
@@ -369,6 +441,12 @@ function makeDashboardService(mode: "empty" | "populated") {
         calls.prisma.bankSlipCount.push(args);
         return empty ? 0 : 1;
       },
+      aggregate: async (args: unknown) => {
+        calls.prisma.invoiceAggregate.push(args);
+        return empty
+          ? { _count: { _all: 0 }, _sum: { paidAmountCents: null } }
+          : { _count: { _all: 1 }, _sum: { paidAmountCents: 8000 } };
+      },
       findMany: async () =>
         empty
           ? []
@@ -390,9 +468,45 @@ function makeDashboardService(mode: "empty" | "populated") {
       update: writeTrap(calls),
       delete: writeTrap(calls),
     },
+    invoice: {
+      groupBy: async (args: unknown) => {
+        if (failed.has("finance")) {
+          throw new Error("finance metrics unavailable");
+        }
+        calls.prisma.invoiceGroupBy.push(args);
+        return empty
+          ? []
+          : [
+              {
+                status: InvoiceStatus.OPEN,
+                _count: { _all: 4 },
+                _sum: { amountCents: 32000 },
+              },
+              {
+                status: InvoiceStatus.PAID,
+                _count: { _all: 2 },
+                _sum: { amountCents: 16000 },
+              },
+              {
+                status: InvoiceStatus.CANCELLED,
+                _count: { _all: 1 },
+                _sum: { amountCents: 8000 },
+              },
+            ];
+      },
+      create: writeTrap(calls),
+      update: writeTrap(calls),
+      delete: writeTrap(calls),
+    },
     bus: {
-      aggregate: async () =>
-        empty ? { _count: { _all: 0 }, _sum: { capacity: null } } : { _count: { _all: 2 }, _sum: { capacity: 80 } },
+      aggregate: async () => {
+        if (failed.has("transport")) {
+          throw new Error("transport metrics unavailable");
+        }
+        return empty
+          ? { _count: { _all: 0 }, _sum: { capacity: null } }
+          : { _count: { _all: 2 }, _sum: { capacity: 80 } };
+      },
       findMany: async () =>
         empty
           ? []
@@ -487,6 +601,15 @@ function makeDashboardService(mode: "empty" | "populated") {
       };
     },
     listFollowUps: async (filters: unknown, user: AuthUser) => {
+      if (
+        failed.has("collections") &&
+        typeof filters === "object" &&
+        filters !== null &&
+        "followUpTo" in filters &&
+        !("followUpFrom" in filters)
+      ) {
+        throw new Error("collection follow-ups unavailable");
+      }
       calls.collections.listFollowUps.push({ filters, user });
       return {
         data: empty

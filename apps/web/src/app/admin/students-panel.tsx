@@ -67,7 +67,19 @@ const emptyEnrollment: StudentPayload["enrollment"] = {
   grade: "",
 };
 
-export function StudentsPanel({ user }: { user: ApiUser }) {
+export function StudentsPanel({
+  initialAcademicYearId,
+  initialAction,
+  initialInstitutionId,
+  initialStatusFilter,
+  user,
+}: {
+  initialAcademicYearId?: string;
+  initialAction?: "new";
+  initialInstitutionId?: string;
+  initialStatusFilter?: "active" | "suspended" | "terminated" | "all";
+  user: ApiUser;
+}) {
   const [view, setView] = useState<"list" | "create" | "profile">("list");
   const [profileStudentId, setProfileStudentId] = useState("");
   const [students, setStudents] = useState<StudentSummary[]>([]);
@@ -110,6 +122,27 @@ export function StudentsPanel({ user }: { user: ApiUser }) {
   useEffect(() => {
     void loadReferences();
   }, []);
+
+  useEffect(() => {
+    if (initialAcademicYearId) {
+      setAcademicYearId(initialAcademicYearId);
+    }
+    if (initialInstitutionId) {
+      setInstitutionId(initialInstitutionId);
+    }
+    if (initialStatusFilter) {
+      setStatusFilter(initialStatusFilter);
+    }
+    setPage(1);
+    if (initialAction === "new") {
+      setView("create");
+    }
+  }, [
+    initialAcademicYearId,
+    initialAction,
+    initialInstitutionId,
+    initialStatusFilter,
+  ]);
 
   useEffect(() => {
     void loadStudents();

@@ -24,7 +24,13 @@ import {
   type CollectionFilters,
 } from "./finance/collections/collection-display-utils";
 
-export function CollectionsPanel({ user }: { user: ApiUser }) {
+export function CollectionsPanel({
+  initialFilters,
+  user,
+}: {
+  initialFilters?: Partial<CollectionFilters>;
+  user: ApiUser;
+}) {
   const canUseCollections =
     user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
@@ -49,6 +55,15 @@ export function CollectionsPanel({ user }: { user: ApiUser }) {
     }
     void loadReferences();
   }, [canUseCollections]);
+
+  useEffect(() => {
+    if (!initialFilters) {
+      return;
+    }
+    setFilters({ ...emptyCollectionFilters, ...initialFilters });
+    setSearchInput(initialFilters.search ?? "");
+    setPage(1);
+  }, [initialFilters]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {

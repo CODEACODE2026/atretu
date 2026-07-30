@@ -57,6 +57,7 @@ export type DashboardMetric = {
   formattedValue: string;
   context: string | null;
   status: DashboardMetricStatus;
+  href?: string;
 };
 
 export type DashboardListItemStatus =
@@ -108,16 +109,20 @@ export type DashboardChart = {
 };
 
 export type DashboardQuickShortcut = {
-  key:
-    | "students"
-    | "pre-registrations"
-    | "finance"
-    | "collections"
-    | "student-cards"
-    | "buses";
+  key: string;
   label: string;
   href: string;
   restrictedTo?: ApiUser["roles"];
+};
+
+export type DashboardOperationalBlock = {
+  key: "academics" | "finance" | "collections" | "transport" | "quickActions";
+  title: string;
+  description: string;
+  status: "loaded" | "error";
+  error?: string | null;
+  metrics: DashboardMetric[];
+  shortcuts?: DashboardQuickShortcut[];
 };
 
 export type AdminDashboardResponse = {
@@ -163,6 +168,7 @@ export type AdminDashboardResponse = {
     metrics: DashboardMetric[];
     items: DashboardListItem[];
   };
+  operationalBlocks?: DashboardOperationalBlock[];
   charts: {
     overdueByAgingBucket: DashboardChart & {
       key: "overdueByAgingBucket";
@@ -529,6 +535,8 @@ export type PreRegistrationDetail = PreRegistrationSummary & {
 };
 
 export type ListPreRegistrationsParams = {
+  academicYearId?: string;
+  institutionId?: string;
   page?: number;
   limit?: number;
   search?: string;

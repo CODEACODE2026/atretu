@@ -58,6 +58,7 @@ import {
   hasActiveFinanceFilters,
 } from "./finance/finance-display-utils";
 import { FinanceFilters } from "./finance/finance-filters";
+import { type CollectionFilters } from "./finance/collections/collection-display-utils";
 import { InvoiceActiveFilterChips } from "./finance/invoice-active-filter-chips";
 import { InvoiceBulkActionBar } from "./finance/invoice-bulk-action-bar";
 import {
@@ -72,6 +73,12 @@ import { FinanceNavigation } from "./finance/finance-navigation";
 import { FinanceSummaryCards } from "./finance/finance-summary";
 
 type FinanceInitialArea = Extract<FinanceArea, "invoices" | "collections">;
+type InvoiceInitialFilters = {
+  academicYearId?: string;
+  institutionId?: string;
+  overdue?: "all" | "overdue" | "notOverdue";
+  status?: InvoiceStatus | "";
+};
 
 const invoiceCancellationOptions: Array<{
   label: string;
@@ -84,9 +91,13 @@ const invoiceCancellationOptions: Array<{
 
 export function FinancePanel({
   initialArea = "invoices",
+  initialCollectionFilters,
+  initialInvoiceFilters,
   user,
 }: {
   initialArea?: FinanceInitialArea;
+  initialCollectionFilters?: Partial<CollectionFilters>;
+  initialInvoiceFilters?: InvoiceInitialFilters;
   user: ApiUser;
 }) {
   const [financeArea, setFinanceArea] = useState<FinanceArea>(initialArea);
@@ -226,6 +237,20 @@ export function FinancePanel({
       initialArea === "collections" && !canViewCollections ? "invoices" : initialArea,
     );
   }, [canViewCollections, initialArea]);
+
+  useEffect(() => {
+    if (!initialInvoiceFilters) {
+      return;
+    }
+    setAcademicYearId(initialInvoiceFilters.academicYearId ?? "");
+    setInstitutionId(initialInvoiceFilters.institutionId ?? "");
+    setStatus(initialInvoiceFilters.status ?? "");
+    setOverdue(initialInvoiceFilters.overdue ?? "all");
+    setDueDateFrom("");
+    setDueDateTo("");
+    setInvoiceQuickFilter(quickFilterFromInitialFilters(initialInvoiceFilters));
+    setPage(1);
+  }, [initialInvoiceFilters]);
 
   useEffect(() => {
     void loadInvoices();
@@ -1350,7 +1375,10 @@ export function FinancePanel({
     return (
       <div className="grid min-w-0 gap-5">
         {financeHeader}
-        <CollectionsPanel user={user} />
+        <CollectionsPanel
+          initialFilters={initialCollectionFilters}
+          user={user}
+        />
       </div>
     );
   }
@@ -3535,6 +3563,24 @@ function currentMonthRange() {
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function quickFilterFromInitialFilters(
+  filters: InvoiceInitialFilters,
+): InvoiceQuickFilter {
+  if (filters.status === "OPEN" && filters.overdue === "overdue") {
+    return "overdue";
+  }
+  if (filters.status === "OPEN") {
+    return "open";
+  }
+  if (filters.status === "PAID") {
+    return "paid";
+  }
+  if (filters.status === "CANCELLED") {
+    return "cancelled";
+  }
+  return "all";
 }
 
 function emptyToUndefined(value?: string) {

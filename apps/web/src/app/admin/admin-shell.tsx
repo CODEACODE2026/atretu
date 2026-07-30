@@ -9,6 +9,7 @@ import {
   type BaseRecord,
   type BusAssignmentRecord,
   type BusRecord,
+  type CollectionOperationalStatus,
   type DashboardQuickShortcut,
   type ListRecordsParams,
 } from "../../lib/api";
@@ -31,6 +32,31 @@ type StatusFilter = "active" | "inactive" | "all";
 type SortField = "name" | "status" | "createdAt" | "updatedAt";
 type RecordRow = BaseRecord | BusRecord;
 type FinanceArea = "invoices" | "collections";
+type StudentStatusFilter = "active" | "suspended" | "terminated" | "all";
+type PreRegistrationInitialStatus = "PENDING" | "APPROVED" | "REJECTED";
+type DashboardNavigationTarget = {
+  area: AdminArea;
+  academicYearId?: string;
+  baseDomain?: DomainKey;
+  collectionFilters?: {
+    academicYearId?: string;
+    followUpFrom?: string;
+    followUpTo?: string;
+    institutionId?: string;
+    operationalStatus?: CollectionOperationalStatus;
+  };
+  financeArea?: FinanceArea;
+  invoiceFilters?: {
+    academicYearId?: string;
+    institutionId?: string;
+    overdue?: "all" | "overdue" | "notOverdue";
+    status?: "OPEN" | "PAID" | "CANCELLED" | "";
+  };
+  institutionId?: string;
+  preRegistrationStatus?: PreRegistrationInitialStatus;
+  studentAction?: "new";
+  studentStatus?: StudentStatusFilter;
+};
 type EditingRecord = RecordRow | null;
 type PendingAction = {
   record: RecordRow;
@@ -126,6 +152,8 @@ function AdminWorkspace({
     useState<FinanceArea>("invoices");
   const [baseInitialDomain, setBaseInitialDomain] =
     useState<DomainKey>("institutions");
+  const [dashboardTarget, setDashboardTarget] =
+    useState<DashboardNavigationTarget | null>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tabletViewport, setTabletViewport] = useState(false);
@@ -136,7 +164,7 @@ function AdminWorkspace({
   const currentItem =
     visibleTabs.find((tab) => tab.key === area) ?? ADMIN_NAV_ITEMS[0];
   const shortcutTargets: Record<
-    DashboardQuickShortcut["key"],
+    string,
     { area: AdminArea; baseDomain?: DomainKey; financeArea?: FinanceArea }
   > = {
     buses: { area: "base", baseDomain: "buses" },
@@ -162,6 +190,7 @@ function AdminWorkspace({
   }, []);
 
   function handleAreaChange(nextArea: AdminArea) {
+    setDashboardTarget(null);
     if (nextArea === "finance") {
       setFinanceInitialArea("invoices");
     }
@@ -173,10 +202,31 @@ function AdminWorkspace({
   }
 
   function handleDashboardShortcut(shortcut: DashboardQuickShortcut) {
+    if (shortcut.href) {
+      handleDashboardHref(shortcut.href);
+      return;
+    }
     const target = shortcutTargets[shortcut.key];
     if (!target) {
       return;
     }
+    setDashboardTarget(null);
+    if (target.financeArea) {
+      setFinanceInitialArea(target.financeArea);
+    }
+    if (target.baseDomain) {
+      setBaseInitialDomain(target.baseDomain);
+    }
+    setMobileNavigationOpen(false);
+    setArea(target.area);
+  }
+
+  function handleDashboardHref(href: string) {
+    const target = parseDashboardHref(href);
+    if (!target) {
+      return;
+    }
+    setDashboardTarget(target);
     if (target.financeArea) {
       setFinanceInitialArea(target.financeArea);
     }
@@ -246,22 +296,45 @@ function AdminWorkspace({
           {area === "dashboard" ? (
             <DashboardPanel
               isShortcutAvailable={(shortcut) =>
-                Boolean(shortcutTargets[shortcut.key])
+                Boolean(shortcut.href || shortcutTargets[shortcut.key])
               }
+              onNavigateHref={handleDashboardHref}
               onShortcut={handleDashboardShortcut}
             />
           ) : null}
-          {area === "students" ? <StudentsPanel user={user} /> : null}
+          {area === "students" ? (
+            <StudentsPanel
+              initialAcademicYearId={dashboardTarget?.academicYearId}
+              initialAction={dashboardTarget?.studentAction}
+              initialInstitutionId={dashboardTarget?.institutionId}
+              initialStatusFilter={dashboardTarget?.studentStatus}
+              user={user}
+            />
+          ) : null}
           {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
           {area === "student-cards" ? <StudentCardsPanel user={user} /> : null}
           {area === "finance" ? (
-            <FinancePanel initialArea={financeInitialArea} user={user} />
+            <FinancePanel
+              initialArea={financeInitialArea}
+              initialCollectionFilters={dashboardTarget?.collectionFilters}
+              initialInvoiceFilters={dashboardTarget?.invoiceFilters}
+              user={user}
+            />
           ) : null}
           {area === "jobs" ? <JobsMonitorPanel /> : null}
-          {area === "pre-registrations" ? <PreRegistrationsPanel /> : null}
+          {area === "pre-registrations" ? (
+            <PreRegistrationsPanel
+              initialAcademicYearId={dashboardTarget?.academicYearId}
+              initialInstitutionId={dashboardTarget?.institutionId}
+              initialStatus={dashboardTarget?.preRegistrationStatus}
+            />
+          ) : null}
           {area === "years" ? <AcademicYearsPanel user={user} /> : null}
           {area === "base" ? (
-            <BaseRecordsPanel initialDomain={baseInitialDomain} />
+            <BaseRecordsPanel
+              initialAcademicYearId={dashboardTarget?.academicYearId}
+              initialDomain={baseInitialDomain}
+            />
           ) : null}
         </section>
       </div>
@@ -269,9 +342,115 @@ function AdminWorkspace({
   );
 }
 
+function parseDashboardHref(href: string): DashboardNavigationTarget | null {
+  const url = new URL(href, "http://atretu.local");
+  const area = url.searchParams.get("area") as AdminArea | null;
+  if (!area) {
+    return null;
+  }
+
+  const baseDomain = url.searchParams.get("baseDomain");
+  const financeArea = url.searchParams.get("financeArea");
+  const studentStatus = url.searchParams.get("studentStatus");
+  const action = url.searchParams.get("action");
+  const academicYearId = url.searchParams.get("academicYearId") ?? undefined;
+  const institutionId = url.searchParams.get("institutionId") ?? undefined;
+  const preRegistrationStatus = url.searchParams.get("preRegistrationStatus");
+  const invoiceStatus = url.searchParams.get("invoiceStatus");
+  const overdue = url.searchParams.get("overdue");
+  const operationalStatus = url.searchParams.get("collectionOperationalStatus");
+  const followUpFrom = url.searchParams.get("followUpFrom") ?? undefined;
+  const followUpTo = url.searchParams.get("followUpTo") ?? undefined;
+
+  return {
+    area,
+    academicYearId,
+    baseDomain: isDomainKey(baseDomain) ? baseDomain : undefined,
+    collectionFilters:
+      academicYearId || institutionId || operationalStatus || followUpFrom || followUpTo
+        ? {
+            academicYearId,
+            followUpFrom,
+            followUpTo,
+            institutionId,
+            operationalStatus: isCollectionOperationalStatus(operationalStatus)
+              ? operationalStatus
+              : undefined,
+          }
+        : undefined,
+    financeArea: isFinanceArea(financeArea) ? financeArea : undefined,
+    invoiceFilters:
+      academicYearId || institutionId || invoiceStatus || overdue
+        ? {
+            academicYearId,
+            institutionId,
+            overdue: isOverdueFilter(overdue) ? overdue : undefined,
+            status: isInvoiceStatus(invoiceStatus) ? invoiceStatus : undefined,
+          }
+        : undefined,
+    institutionId,
+    preRegistrationStatus: isPreRegistrationStatus(preRegistrationStatus)
+      ? preRegistrationStatus
+      : undefined,
+    studentAction: action === "new" ? "new" : undefined,
+    studentStatus: isStudentStatusFilter(studentStatus) ? studentStatus : undefined,
+  };
+}
+
+function isDomainKey(value: string | null): value is DomainKey {
+  return value === "institutions" || value === "shifts" || value === "buses";
+}
+
+function isFinanceArea(value: string | null): value is FinanceArea {
+  return value === "invoices" || value === "collections";
+}
+
+function isInvoiceStatus(value: string | null): value is "OPEN" | "PAID" | "CANCELLED" {
+  return value === "OPEN" || value === "PAID" || value === "CANCELLED";
+}
+
+function isOverdueFilter(
+  value: string | null,
+): value is "all" | "overdue" | "notOverdue" {
+  return value === "all" || value === "overdue" || value === "notOverdue";
+}
+
+function isPreRegistrationStatus(
+  value: string | null,
+): value is PreRegistrationInitialStatus {
+  return value === "PENDING" || value === "APPROVED" || value === "REJECTED";
+}
+
+function isStudentStatusFilter(value: string | null): value is StudentStatusFilter {
+  return (
+    value === "active" ||
+    value === "suspended" ||
+    value === "terminated" ||
+    value === "all"
+  );
+}
+
+function isCollectionOperationalStatus(
+  value: string | null,
+): value is CollectionOperationalStatus {
+  return (
+    value === "OVERDUE_NO_ACTION" ||
+    value === "CONTACTED" ||
+    value === "PROMISE_ACTIVE" ||
+    value === "PROMISE_BROKEN" ||
+    value === "FOLLOW_UP_SCHEDULED" ||
+    value === "NO_CONTACT" ||
+    value === "PARTIAL_PAYMENT_REVIEW" ||
+    value === "RESOLVED_BY_PAYMENT" ||
+    value === "CANCELLED"
+  );
+}
+
 function BaseRecordsPanel({
+  initialAcademicYearId,
   initialDomain = "institutions",
 }: {
+  initialAcademicYearId?: string;
   initialDomain?: DomainKey;
 }) {
   const [domain, setDomain] = useState<DomainKey>(initialDomain);
@@ -309,6 +488,14 @@ function BaseRecordsPanel({
   }, [initialDomain]);
 
   useEffect(() => {
+    if (!initialAcademicYearId) {
+      return;
+    }
+    setAcademicYearId(initialAcademicYearId);
+    setPage(1);
+  }, [initialAcademicYearId]);
+
+  useEffect(() => {
     setEditing(null);
     setName("");
     setCapacity("");
@@ -328,7 +515,7 @@ function BaseRecordsPanel({
       const response = await api.listAcademicYears({ status: "all" });
       setYears(response.data);
       const current = response.data.find((year) => year.isCurrent);
-      if (current) {
+      if (current && !initialAcademicYearId) {
         setAcademicYearId(current.id);
       }
     } catch {

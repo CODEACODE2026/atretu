@@ -17,6 +17,17 @@ export type DashboardMetric = {
   formattedValue: string;
   context: string | null;
   status: "neutral" | "success" | "warning" | "danger";
+  href?: string;
+};
+
+export type DashboardOperationalBlock = {
+  key: "academics" | "finance" | "collections" | "transport" | "quickActions";
+  title: string;
+  description: string;
+  status: "loaded" | "error";
+  error?: string | null;
+  metrics: DashboardMetric[];
+  shortcuts?: DashboardQuickShortcut[];
 };
 
 export type DashboardListItem = {
@@ -105,5 +116,6 @@ export type DashboardOverviewResponse = {
     studentsByInstitution: DashboardChart;
     preRegistrationsByMonth: DashboardChart;
   };
+  operationalBlocks: DashboardOperationalBlock[];
   quickShortcuts: DashboardQuickShortcut[];
 };

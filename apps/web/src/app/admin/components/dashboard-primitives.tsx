@@ -93,15 +93,30 @@ const toneClasses: Record<
   },
 };
 
-const metricIcons: Record<DashboardIndicatorKey, LucideIcon> = {
+const metricIcons: Record<string, LucideIcon> = {
   activeStudents: GraduationCap,
+  activeBuses: Bus,
+  availableSeats: Bus,
   bankSlipsAttention: AlertTriangle,
+  bankSlipErrors: AlertTriangle,
   busSeats: Bus,
+  cancelledAmount: Receipt,
   incompleteDocuments: FileWarning,
+  fullBuses: Bus,
+  followUpsToday: CalendarClock,
+  missingDrivers: Route,
+  openAmount: WalletCards,
   overdueAmount: WalletCards,
+  overdueFollowUps: CalendarClock,
   overdueInvoices: Receipt,
+  paidThisMonth: Receipt,
   pendingPreRegistrations: Users,
+  pendingCollections: WalletCards,
   pendingStudentCards: BadgeCheck,
+  promisesActive: CalendarClock,
+  promisesBroken: AlertTriangle,
+  suspendedStudents: Users,
+  terminatedStudents: Users,
 };
 
 export function DashboardKpiCard({
@@ -113,7 +128,7 @@ export function DashboardKpiCard({
   metricKey: DashboardIndicatorKey;
   priority?: boolean;
 }) {
-  const Icon = metricIcons[metricKey];
+  const Icon = metricIcons[metricKey] ?? Receipt;
   const tone = resolveMetricTone(metric, metricKey);
   const classes = toneClasses[tone];
 
@@ -165,6 +180,71 @@ export function DashboardKpiCard({
       </div>
     </article>
   );
+}
+
+export function DashboardOperationalCard({
+  metric,
+  onOpen,
+}: {
+  metric: DashboardMetric;
+  onOpen?: (href: string) => void;
+}) {
+  const Icon = metricIcons[metric.key] ?? Receipt;
+  const tone = resolveMetricTone(metric);
+  const classes = toneClasses[tone];
+  const clickable = Boolean(metric.href && onOpen);
+  const content = (
+    <>
+      <span
+        aria-hidden="true"
+        className={cx("absolute inset-y-0 left-0 w-1", classes.rail)}
+      />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="break-words text-sm font-semibold text-slate-600">
+            {metric.label}
+          </p>
+          <p className="mt-3 break-words text-2xl font-bold tracking-normal text-slate-950">
+            {metric.formattedValue}
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl shadow-sm ring-1 ${classes.icon}`}
+        >
+          <Icon size={20} strokeWidth={2} />
+        </span>
+      </div>
+      <p className="mt-4 min-h-10 break-words text-sm leading-5 text-slate-500">
+        {metric.context ?? "Sem contexto adicional."}
+      </p>
+    </>
+  );
+
+  const className = cx(
+    adminTheme.card,
+    adminTheme.cardHover,
+    "relative min-h-36 overflow-hidden p-4 text-left transition duration-150 motion-reduce:transition-none",
+    clickable
+      ? "cursor-pointer hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 focus:ring-offset-2 motion-reduce:hover:translate-y-0"
+      : "",
+  );
+
+  const href = metric.href;
+  if (clickable && href && onOpen) {
+    return (
+      <button
+        aria-label={`Abrir ${metric.label}`}
+        className={className}
+        onClick={() => onOpen(href)}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <article className={className}>{content}</article>;
 }
 
 export function DashboardSection({
@@ -453,13 +533,16 @@ export function DashboardStatusBadge({
 }
 
 export const dashboardSectionIcons = {
+  academics: GraduationCap,
   agenda: CalendarClock,
   alerts: AlertTriangle,
   cards: BadgeCheck,
+  collections: CalendarClock,
   documents: FileWarning,
   finance: WalletCards,
   institution: Landmark,
   preRegistrations: Users,
+  quickActions: Bell,
   route: MapPinned,
   shortcuts: Bell,
   transport: Bus,

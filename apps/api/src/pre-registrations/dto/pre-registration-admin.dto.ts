@@ -25,6 +25,14 @@ export enum PreRegistrationSortOrder {
 
 export class ListPreRegistrationsDto {
   @IsOptional()
+  @IsUUID()
+  academicYearId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
