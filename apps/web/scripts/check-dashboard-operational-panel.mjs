@@ -70,6 +70,17 @@ assertIncludes(studentsPanel, "initialAction === \"new\"");
 
 assertIncludes(preRegistrationsPanel, "initialStatus?: PreRegistrationStatus");
 assertIncludes(preRegistrationsPanel, "setStatus(initialStatus)");
+assertIncludes(preRegistrationsPanel, "api.listAcademicYears({ status: \"all\" })");
+assertIncludes(preRegistrationsPanel, "api.listInstitutions({ status: \"active\", limit: 100, sort: \"name\" })");
+assertIncludes(preRegistrationsPanel, "Ano letivo");
+assertIncludes(preRegistrationsPanel, "Instituicao");
+assertIncludes(preRegistrationsPanel, "Filtros ativos");
+assertIncludes(preRegistrationsPanel, "Recebidos do Dashboard");
+assertIncludes(preRegistrationsPanel, "Limpar filtros");
+assertIncludes(preRegistrationsPanel, "status !== \"all\"");
+assertIncludes(preRegistrationsPanel, "updateStatusFilter(\"all\")");
+assertIncludes(preRegistrationsPanel, "setDashboardSourceApplied(false)");
+assertIncludes(api, "status?: PreRegistrationStatus | \"all\"");
 
 assertIncludes(dashboardService, "readDashboardPart");
 assertIncludes(dashboardService, "blockStatus(");

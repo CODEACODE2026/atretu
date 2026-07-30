@@ -540,7 +540,7 @@ export type ListPreRegistrationsParams = {
   page?: number;
   limit?: number;
   search?: string;
-  status?: PreRegistrationStatus;
+  status?: PreRegistrationStatus | "all";
   sort?: "createdAt" | "name" | "status";
   order?: "asc" | "desc";
 };

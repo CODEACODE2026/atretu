@@ -649,7 +649,7 @@ export class PreRegistrationsService {
     const where: Prisma.PublicPreRegistrationWhereInput = {
       ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
       ...(query.institutionId ? { institutionId: query.institutionId } : {}),
-      status: query.status,
+      ...(query.status !== "all" ? { status: query.status } : {}),
     };
     if (query.search) {
       const cpf = normalizeCpf(query.search);

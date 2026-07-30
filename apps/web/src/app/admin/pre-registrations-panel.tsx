@@ -1,8 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Search, XCircle } from "lucide-react";
 import {
   api,
+  type AcademicYear,
+  type BaseRecord,
   type BusRecord,
   type PreRegistrationDetail,
   type PreRegistrationDocumentRecord,
@@ -10,8 +13,17 @@ import {
   type PreRegistrationSummary,
 } from "../../lib/api";
 import { maskCpf, maskPhone } from "../../lib/formatters";
+import { adminTheme, cx } from "./admin-theme";
 
-const statuses: Array<{ label: string; value: PreRegistrationStatus }> = [
+type PreRegistrationStatusFilter = PreRegistrationStatus | "all";
+type PreRegistrationFilterChip = {
+  key: "academicYear" | "institution" | "status";
+  label: string;
+  fromDashboard: boolean;
+};
+
+const statuses: Array<{ label: string; value: PreRegistrationStatusFilter }> = [
+  { label: "Todos", value: "all" },
   { label: "Pendentes", value: "PENDING" },
   { label: "Aprovados", value: "APPROVED" },
   { label: "Rejeitados", value: "REJECTED" },
@@ -35,10 +47,15 @@ export function PreRegistrationsPanel({
 }) {
   const [items, setItems] = useState<PreRegistrationSummary[]>([]);
   const [selected, setSelected] = useState<PreRegistrationDetail | null>(null);
-  const [status, setStatus] = useState<PreRegistrationStatus>("PENDING");
+  const [status, setStatus] = useState<PreRegistrationStatusFilter>("PENDING");
   const [search, setSearch] = useState("");
   const [academicYearId, setAcademicYearId] = useState("");
   const [institutionId, setInstitutionId] = useState("");
+  const [years, setYears] = useState<AcademicYear[]>([]);
+  const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
+  const [referencesLoading, setReferencesLoading] = useState(true);
+  const [referencesError, setReferencesError] = useState("");
+  const [dashboardSourceApplied, setDashboardSourceApplied] = useState(false);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -50,10 +67,56 @@ export function PreRegistrationsPanel({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const initialFilterValues = useMemo(
+    () => ({
+      academicYearId: initialAcademicYearId ?? "",
+      institutionId: initialInstitutionId ?? "",
+      status: initialStatus ?? "",
+    }),
+    [initialAcademicYearId, initialInstitutionId, initialStatus],
+  );
+  const activeFilterChips = useMemo(
+    () =>
+      [
+        academicYearId
+          ? {
+              key: "academicYear" as const,
+              label: `Ano letivo: ${yearLabel(years, academicYearId)}`,
+              fromDashboard: academicYearId === initialFilterValues.academicYearId,
+            }
+          : null,
+        institutionId
+          ? {
+              key: "institution" as const,
+              label: `Instituicao: ${institutionLabel(institutions, institutionId)}`,
+              fromDashboard: institutionId === initialFilterValues.institutionId,
+            }
+          : null,
+        status !== "all"
+          ? {
+              key: "status" as const,
+              label: `Status: ${statusLabel(status)}`,
+              fromDashboard: status === initialFilterValues.status,
+            }
+          : null,
+      ].filter(isPreRegistrationFilterChip),
+    [academicYearId, initialFilterValues, institutionId, institutions, status, years],
+  );
+  const hasActiveFilters =
+    Boolean(search.trim()) ||
+    academicYearId !== "" ||
+    institutionId !== "" ||
+    status !== "all";
+  const hasDashboardOrigin =
+    dashboardSourceApplied && activeFilterChips.some((chip) => chip.fromDashboard);
 
   useEffect(() => {
     void loadItems();
   }, [academicYearId, institutionId, status, page]);
+
+  useEffect(() => {
+    void loadReferences();
+  }, []);
 
   useEffect(() => {
     if (initialAcademicYearId) {
@@ -63,10 +126,13 @@ export function PreRegistrationsPanel({
       setInstitutionId(initialInstitutionId);
     }
     if (!initialStatus) {
+      setDashboardSourceApplied(Boolean(initialAcademicYearId || initialInstitutionId));
+      setPage(1);
       return;
     }
     setStatus(initialStatus);
     setPage(1);
+    setDashboardSourceApplied(true);
   }, [initialAcademicYearId, initialInstitutionId, initialStatus]);
 
   useEffect(() => {
@@ -102,6 +168,65 @@ export function PreRegistrationsPanel({
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadReferences() {
+    setReferencesLoading(true);
+    setReferencesError("");
+    try {
+      const [yearsResponse, institutionsResponse] = await Promise.all([
+        api.listAcademicYears({ status: "all" }),
+        api.listInstitutions({ status: "active", limit: 100, sort: "name" }),
+      ]);
+      setYears(yearsResponse.data);
+      setInstitutions(institutionsResponse.data);
+    } catch (caught) {
+      setReferencesError(
+        caught instanceof Error ? caught.message : "Erro ao carregar filtros",
+      );
+    } finally {
+      setReferencesLoading(false);
+    }
+  }
+
+  function updateAcademicYearFilter(value: string) {
+    setAcademicYearId(value);
+    setPage(1);
+    setSelected(null);
+  }
+
+  function updateInstitutionFilter(value: string) {
+    setInstitutionId(value);
+    setPage(1);
+    setSelected(null);
+  }
+
+  function updateStatusFilter(value: PreRegistrationStatusFilter) {
+    setStatus(value);
+    setPage(1);
+    setSelected(null);
+  }
+
+  function removeFilter(key: "academicYear" | "institution" | "status") {
+    if (key === "academicYear") {
+      updateAcademicYearFilter("");
+    }
+    if (key === "institution") {
+      updateInstitutionFilter("");
+    }
+    if (key === "status") {
+      updateStatusFilter("all");
+    }
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setAcademicYearId("");
+    setInstitutionId("");
+    setStatus("all");
+    setPage(1);
+    setSelected(null);
+    setDashboardSourceApplied(false);
   }
 
   async function openItem(id: string) {
@@ -238,46 +363,137 @@ export function PreRegistrationsPanel({
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <section
+        aria-labelledby="pre-registration-filters-title"
+        className={cx(adminTheme.card, "min-w-0 p-5")}
+      >
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2
+              className={cx(adminTheme.titleText, "text-base")}
+              id="pre-registration-filters-title"
+            >
+              Filtros
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Refine os pre-cadastros por busca, ano letivo, instituicao e status.
+            </p>
+          </div>
+          {referencesLoading ? (
+            <span className="text-sm text-slate-500">Carregando filtros...</span>
+          ) : null}
+        </div>
+        {referencesError ? (
+          <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {referencesError}
+          </div>
+        ) : null}
         <form
-          className="flex w-full gap-2 sm:w-auto"
+          className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4"
           onSubmit={(event) => {
             event.preventDefault();
             setPage(1);
+            setSelected(null);
             void loadItems(search);
           }}
         >
-          <input
-            className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por nome, CPF ou protocolo"
-            type="search"
-            value={search}
-          />
-          <button
-            className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
-            type="submit"
-          >
-            Buscar
-          </button>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700 md:col-span-2">
+            Busca
+            <input
+              className={adminTheme.control}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Nome, CPF ou protocolo"
+              type="search"
+              value={search}
+            />
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Ano letivo
+            <select
+              className={adminTheme.control}
+              disabled={referencesLoading}
+              onChange={(event) => updateAcademicYearFilter(event.target.value)}
+              value={academicYearId}
+            >
+              <option value="">Todos</option>
+              {academicYearId && !years.some((year) => year.id === academicYearId) ? (
+                <option value={academicYearId}>
+                  Ano selecionado nao encontrado
+                </option>
+              ) : null}
+              {years.map((year) => (
+                <option key={year.id} value={year.id}>
+                  {year.year}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Instituicao
+            <select
+              className={adminTheme.control}
+              disabled={referencesLoading}
+              onChange={(event) => updateInstitutionFilter(event.target.value)}
+              value={institutionId}
+            >
+              <option value="">Todas</option>
+              {institutionId &&
+              !institutions.some((institution) => institution.id === institutionId) ? (
+                <option value={institutionId}>
+                  Instituicao selecionada nao encontrada
+                </option>
+              ) : null}
+              {institutions.map((institution) => (
+                <option key={institution.id} value={institution.id}>
+                  {institution.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Status
+            <select
+              className={adminTheme.control}
+              onChange={(event) =>
+                updateStatusFilter(event.target.value as PreRegistrationStatusFilter)
+              }
+              value={status}
+            >
+              {statuses.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-wrap items-end gap-2 md:col-span-2 xl:col-span-4">
+            <button
+              className={adminTheme.primaryButton}
+              disabled={loading}
+              type="submit"
+            >
+              <Search aria-hidden="true" className="h-4 w-4" />
+              Buscar
+            </button>
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={!hasActiveFilters || loading}
+              onClick={clearFilters}
+              type="button"
+            >
+              <XCircle aria-hidden="true" className="h-4 w-4" />
+              Limpar filtros
+            </button>
+          </div>
         </form>
 
-        <select
-          className="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-          onChange={(event) => {
-            setStatus(event.target.value as PreRegistrationStatus);
-            setPage(1);
-            setSelected(null);
-          }}
-          value={status}
-        >
-          {statuses.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </div>
+        <PreRegistrationActiveFilterChips
+          chips={activeFilterChips}
+          hasDashboardOrigin={hasDashboardOrigin}
+          onClear={clearFilters}
+          onRemove={removeFilter}
+        />
+      </section>
 
       {message ? (
         <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -290,8 +506,8 @@ export function PreRegistrationsPanel({
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_440px]">
-        <div className="rounded border border-slate-200 bg-white shadow-sm">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
+        <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -381,7 +597,7 @@ export function PreRegistrationsPanel({
           </div>
         </div>
 
-        <aside className="rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <aside className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
           {selected ? (
             <div className="grid gap-4">
               <div className="flex items-start justify-between gap-3">
@@ -613,6 +829,90 @@ function StatusBadge({ status }: { status: PreRegistrationStatus }) {
       {label}
     </span>
   );
+}
+
+function PreRegistrationActiveFilterChips({
+  chips,
+  hasDashboardOrigin,
+  onClear,
+  onRemove,
+}: {
+  chips: PreRegistrationFilterChip[];
+  hasDashboardOrigin: boolean;
+  onClear: () => void;
+  onRemove: (key: "academicYear" | "institution" | "status") => void;
+}) {
+  if (chips.length === 0) {
+    return (
+      <p className="mt-3 text-sm text-slate-500">
+        Nenhum filtro aplicado.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 grid gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase text-slate-500">
+          Filtros ativos
+        </span>
+        {hasDashboardOrigin ? (
+          <span className="rounded-full bg-[#F2F8F6] px-2 py-1 text-xs font-medium text-[#0F2E2E]">
+            Recebidos do Dashboard
+          </span>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {chips.map((chip) => (
+          <span
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+            key={chip.key}
+          >
+            <span className="truncate">{chip.label}</span>
+            <button
+              aria-label={`Remover filtro ${chip.label}`}
+              className="rounded-full p-0.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F6F5F]/25"
+              onClick={() => onRemove(chip.key)}
+              type="button"
+            >
+              <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        ))}
+        <button
+          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
+          onClick={onClear}
+          type="button"
+        >
+          <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
+          Limpar filtros
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function yearLabel(years: AcademicYear[], id: string) {
+  return years.find((year) => year.id === id)?.year ?? "nao encontrado";
+}
+
+function institutionLabel(institutions: BaseRecord[], id: string) {
+  return (
+    institutions.find((institution) => institution.id === id)?.name ??
+    "nao encontrada"
+  );
+}
+
+function statusLabel(status: PreRegistrationStatus) {
+  if (status === "PENDING") return "Pendente";
+  if (status === "APPROVED") return "Aprovado";
+  return "Rejeitado";
+}
+
+function isPreRegistrationFilterChip(
+  chip: PreRegistrationFilterChip | null,
+): chip is PreRegistrationFilterChip {
+  return chip !== null;
 }
 
 function formatDate(value: string) {

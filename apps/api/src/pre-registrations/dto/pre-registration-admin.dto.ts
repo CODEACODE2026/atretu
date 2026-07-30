@@ -1,6 +1,7 @@
 import { Transform, Type } from "class-transformer";
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -22,6 +23,8 @@ export enum PreRegistrationSortOrder {
   ASC = "asc",
   DESC = "desc",
 }
+
+export type PreRegistrationStatusFilter = PreRegistrationStatus | "all";
 
 export class ListPreRegistrationsDto {
   @IsOptional()
@@ -46,8 +49,8 @@ export class ListPreRegistrationsDto {
   limit = 20;
 
   @IsOptional()
-  @IsEnum(PreRegistrationStatus)
-  status: PreRegistrationStatus = PreRegistrationStatus.PENDING;
+  @IsIn([...Object.values(PreRegistrationStatus), "all"])
+  status: PreRegistrationStatusFilter = PreRegistrationStatus.PENDING;
 
   @IsOptional()
   @IsString()
