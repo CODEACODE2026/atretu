@@ -745,6 +745,7 @@ export type BankSlipSummary = {
   status: BankSlipStatus;
   nossoNumeroMasked?: string | null;
   issuedAt?: string | null;
+  paidAmountCents?: number | null;
   paidAt?: string | null;
   cancelledAt?: string | null;
   lastCheckedAt?: string | null;
@@ -976,6 +977,8 @@ export type ListInvoicesParams = {
   overdue?: "all" | "overdue" | "notOverdue";
   dueDateFrom?: string;
   dueDateTo?: string;
+  paidAtFrom?: string;
+  paidAtTo?: string;
   sort?: "dueDate" | "createdAt" | "amount" | "studentName";
   order?: "asc" | "desc";
 };

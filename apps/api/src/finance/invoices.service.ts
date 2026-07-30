@@ -65,6 +65,10 @@ function combineInvoiceWhere(
   return { AND: [base, derived] };
 }
 
+function addUtcDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * 86_400_000);
+}
+
 @Injectable()
 export class InvoicesService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
@@ -405,6 +409,16 @@ export class InvoicesService {
         where.dueDate.lte = parseInvoiceDueDate(query.dueDateTo);
       }
     }
+    if (query.paidAtFrom || query.paidAtTo) {
+      const paidAt: Prisma.DateTimeFilter<"BankSlip"> = {};
+      if (query.paidAtFrom) {
+        paidAt.gte = parseInvoiceDueDate(query.paidAtFrom);
+      }
+      if (query.paidAtTo) {
+        paidAt.lt = addUtcDays(parseInvoiceDueDate(query.paidAtTo), 1);
+      }
+      where.bankSlip = { is: { paidAt } };
+    }
     if (query.search) {
       const normalizedSearch = this.normalizeName(query.search);
       const cpfSearch = normalizeCpf(query.search);
@@ -509,6 +523,7 @@ export class InvoicesService {
           status: true,
           nossoNumero: true,
           issuedAt: true,
+          paidAmountCents: true,
           paidAt: true,
           cancelledAt: true,
           lastCheckedAt: true,
@@ -549,6 +564,7 @@ export class InvoicesService {
             status: invoice.bankSlip.status,
             nossoNumeroMasked: this.maskNossoNumero(invoice.bankSlip.nossoNumero),
             issuedAt: invoice.bankSlip.issuedAt,
+            paidAmountCents: invoice.bankSlip.paidAmountCents,
             paidAt: invoice.bankSlip.paidAt,
             cancelledAt: invoice.bankSlip.cancelledAt,
             lastCheckedAt: invoice.bankSlip.lastCheckedAt,

@@ -71,6 +71,7 @@ async function testListInvoicesIncludesBankSlipSummaryWithoutNPlusOne() {
       "status",
       "nossoNumero",
       "issuedAt",
+      "paidAmountCents",
       "paidAt",
       "cancelledAt",
       "lastCheckedAt",
@@ -323,6 +324,93 @@ async function testListInvoicesSummaryUsesAllFilteredInvoices() {
   assert.equal(overdueOnly.summary.cancelledAmountCents, 0);
 }
 
+async function testListInvoicesFiltersPaidInvoicesByPaymentDate() {
+  const prisma = new FakePrisma(
+    [
+      invoiceRecord({
+        id: "old-year-paid-this-month",
+        amountCents: 10_000,
+        academicYearId: "academic-year-old",
+        bankSlip: bankSlipRecord({
+          invoiceId: "old-year-paid-this-month",
+          paidAmountCents: 9_000,
+          paidAt: new Date("2026-07-05T10:00:00.000Z"),
+          status: BankSlipStatus.PAID,
+        }),
+        status: InvoiceStatus.PAID,
+      }),
+      invoiceRecord({
+        id: "paid-outside-month",
+        amountCents: 20_000,
+        bankSlip: bankSlipRecord({
+          invoiceId: "paid-outside-month",
+          paidAmountCents: 20_000,
+          paidAt: new Date("2026-06-30T23:59:59.000Z"),
+          status: BankSlipStatus.PAID,
+        }),
+        status: InvoiceStatus.PAID,
+      }),
+      invoiceRecord({
+        id: "paid-without-paid-at",
+        amountCents: 30_000,
+        bankSlip: bankSlipRecord({
+          invoiceId: "paid-without-paid-at",
+          paidAmountCents: 30_000,
+          paidAt: null,
+          status: BankSlipStatus.PAID,
+        }),
+        status: InvoiceStatus.PAID,
+      }),
+      invoiceRecord({
+        id: "unpaid-this-month",
+        amountCents: 40_000,
+        bankSlipStatus: BankSlipStatus.ISSUED,
+        status: InvoiceStatus.OPEN,
+      }),
+      invoiceRecord({
+        id: "other-institution",
+        amountCents: 50_000,
+        bankSlip: bankSlipRecord({
+          invoiceId: "other-institution",
+          paidAmountCents: 50_000,
+          paidAt: new Date("2026-07-07T10:00:00.000Z"),
+          status: BankSlipStatus.PAID,
+        }),
+        institutionId: "institution-2",
+        status: InvoiceStatus.PAID,
+      }),
+    ],
+    { applyQuery: true },
+  );
+  const service = new InvoicesService(prisma as never);
+
+  const result = await service.listInvoices({
+    page: 1,
+    limit: 10,
+    institutionId: "institution-1",
+    overdue: "all",
+    paidAtFrom: "2026-07-01",
+    paidAtTo: "2026-07-31",
+    status: InvoiceStatus.PAID,
+    sort: "dueDate",
+    order: "asc",
+  } as never);
+
+  assert.deepEqual(
+    result.data.map((invoice) => invoice.id),
+    ["old-year-paid-this-month"],
+  );
+  assert.equal(result.data[0]?.bankSlipSummary?.paidAmountCents, 9_000);
+  assert.equal(result.pagination.total, 1);
+  assert.equal(result.summary.paidAmountCents, 10_000);
+  assert.equal(hasNestedPaidAtFilter(prisma.invoice.findManyCalls[0]?.where), true);
+  assert.equal(
+    hasNestedValue(prisma.invoice.findManyCalls[0]?.where, "academic-year-old"),
+    false,
+  );
+  assert.equal(hasNestedValue(prisma.invoice.findManyCalls[0]?.where, "institution-1"), true);
+}
+
 class FakePrisma {
   readonly invoiceRecords: ReturnType<typeof invoiceRecord>[];
   readonly applyQuery: boolean;
@@ -480,6 +568,16 @@ function matchesInvoiceWhere(
   ) {
     return false;
   }
+  const bankSlip = input.bankSlip as
+    | { is?: { paidAt?: { gte?: Date; lt?: Date } } }
+    | undefined;
+  const paidAt = bankSlip?.is?.paidAt;
+  if (paidAt?.gte && (!invoice.bankSlip?.paidAt || invoice.bankSlip.paidAt < paidAt.gte)) {
+    return false;
+  }
+  if (paidAt?.lt && (!invoice.bankSlip?.paidAt || invoice.bankSlip.paidAt >= paidAt.lt)) {
+    return false;
+  }
   const or = input.OR;
   if (Array.isArray(or) && !or.some((item) => matchesInvoiceSearch(invoice, item))) {
     return false;
@@ -595,19 +693,24 @@ function invoiceRecord({
 
 function bankSlipRecord({
   invoiceId,
+  paidAmountCents = 12050,
+  paidAt,
   status,
-  now,
+  now = new Date("2026-07-15T12:00:00.000Z"),
 }: {
   invoiceId: string;
+  paidAmountCents?: number | null;
+  paidAt?: Date | null;
   status: BankSlipStatus;
-  now: Date;
+  now?: Date;
 }) {
   return {
     id: `bank-slip-${invoiceId}`,
     status,
     nossoNumero: "251006142",
     issuedAt: now,
-    paidAt: status === BankSlipStatus.PAID ? now : null,
+    paidAmountCents,
+    paidAt: paidAt === undefined ? (status === BankSlipStatus.PAID ? now : null) : paidAt,
     cancelledAt: status === BankSlipStatus.CANCELLED ? now : null,
     lastCheckedAt: now,
   };
@@ -616,3 +719,17 @@ function bankSlipRecord({
 await testListInvoicesIncludesBankSlipSummaryWithoutNPlusOne();
 await testStudentInvoicesReuseAggregatedBankSlipSummary();
 await testListInvoicesSummaryUsesAllFilteredInvoices();
+await testListInvoicesFiltersPaidInvoicesByPaymentDate();
+
+function hasNestedPaidAtFilter(value: unknown) {
+  const serialized = JSON.stringify(value);
+  return (
+    serialized.includes("paidAt") &&
+    serialized.includes("2026-07-01") &&
+    serialized.includes("2026-08-01")
+  );
+}
+
+function hasNestedValue(value: unknown, expected: string) {
+  return JSON.stringify(value).includes(expected);
+}

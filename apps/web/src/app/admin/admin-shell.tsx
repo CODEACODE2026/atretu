@@ -50,6 +50,8 @@ type DashboardNavigationTarget = {
     academicYearId?: string;
     institutionId?: string;
     overdue?: "all" | "overdue" | "notOverdue";
+    paidAtFrom?: string;
+    paidAtTo?: string;
     status?: "OPEN" | "PAID" | "CANCELLED" | "";
   };
   institutionId?: string;
@@ -358,6 +360,8 @@ function parseDashboardHref(href: string): DashboardNavigationTarget | null {
   const preRegistrationStatus = url.searchParams.get("preRegistrationStatus");
   const invoiceStatus = url.searchParams.get("invoiceStatus");
   const overdue = url.searchParams.get("overdue");
+  const paidAtFrom = url.searchParams.get("paidAtFrom") ?? undefined;
+  const paidAtTo = url.searchParams.get("paidAtTo") ?? undefined;
   const operationalStatus = url.searchParams.get("collectionOperationalStatus");
   const followUpFrom = url.searchParams.get("followUpFrom") ?? undefined;
   const followUpTo = url.searchParams.get("followUpTo") ?? undefined;
@@ -380,11 +384,13 @@ function parseDashboardHref(href: string): DashboardNavigationTarget | null {
         : undefined,
     financeArea: isFinanceArea(financeArea) ? financeArea : undefined,
     invoiceFilters:
-      academicYearId || institutionId || invoiceStatus || overdue
+      academicYearId || institutionId || invoiceStatus || overdue || paidAtFrom || paidAtTo
         ? {
             academicYearId,
             institutionId,
             overdue: isOverdueFilter(overdue) ? overdue : undefined,
+            paidAtFrom,
+            paidAtTo,
             status: isInvoiceStatus(invoiceStatus) ? invoiceStatus : undefined,
           }
         : undefined,

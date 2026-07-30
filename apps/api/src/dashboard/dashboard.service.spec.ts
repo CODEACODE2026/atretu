@@ -56,6 +56,7 @@ await testControllerPassesQueryAndAuthenticatedUser();
 await testEmptyOverviewStructure();
 await testOverviewWithAggregatedData();
 await testFiltersAreApplied();
+await testPaidThisMonthIgnoresAcademicScopeAndKeepsInstitutionScope();
 await testOperationalBlockPartialFailures();
 
 async function testControllerRouteGuardsAndRoles() {
@@ -220,6 +221,12 @@ async function testOverviewWithAggregatedData() {
       ?.value,
     8000,
   );
+  const paidThisMonthHref =
+    financeBlock?.metrics.find((metric) => metric.key === "paidThisMonth")?.href ?? "";
+  assert.match(paidThisMonthHref, /invoiceStatus=PAID/);
+  assert.match(paidThisMonthHref, /paidAtFrom=2026-07-01/);
+  assert.match(paidThisMonthHref, /paidAtTo=2026-07-31/);
+  assert.doesNotMatch(paidThisMonthHref, /academicYearId=/);
   const collectionsBlock = overview.operationalBlocks.find(
     (block) => block.key === "collections",
   );
@@ -297,6 +304,56 @@ async function testFiltersAreApplied() {
   assert.equal(hasNestedValue(calls.prisma.bankSlipCount[0], query.institutionId), true);
   assert.equal(hasNestedValue(calls.prisma.enrollmentCount[0], query.academicYearId), true);
   assert.equal(hasNestedValue(calls.prisma.enrollmentCount[0], query.institutionId), true);
+}
+
+async function testPaidThisMonthIgnoresAcademicScopeAndKeepsInstitutionScope() {
+  const { service, calls } = makeDashboardService("populated");
+  const query = {
+    academicYearId: "11111111-1111-4111-8111-111111111111",
+    institutionId: "22222222-2222-4222-8222-222222222222",
+  };
+
+  const overview = await service.getOverview(query, SUPER_ADMIN);
+  const paidMetric = overview.operationalBlocks
+    .find((block) => block.key === "finance")
+    ?.metrics.find((metric) => metric.key === "paidThisMonth");
+  const paidAggregateCall = calls.prisma.invoiceAggregate.find((call) => {
+    const serialized = JSON.stringify(call);
+    return serialized.includes(BankSlipStatus.PAID) && serialized.includes("paidAt");
+  });
+
+  assert.ok(paidAggregateCall);
+  assert.equal(hasNestedValue(paidAggregateCall, query.institutionId), true);
+  assert.equal(hasNestedValue(paidAggregateCall, query.academicYearId), false);
+  assert.match(paidMetric?.href ?? "", /institutionId=22222222-2222-4222-8222-222222222222/);
+  assert.doesNotMatch(paidMetric?.href ?? "", /academicYearId=/);
+
+  const restricted = makeDashboardService("populated");
+  const restrictedUser = {
+    ...SECRETARIA,
+    institutionIds: ["33333333-3333-4333-8333-333333333333"],
+  };
+  const restrictedOverview = await restricted.service.getOverview({}, restrictedUser);
+  const restrictedPaidMetric = restrictedOverview.operationalBlocks
+    .find((block) => block.key === "finance")
+    ?.metrics.find((metric) => metric.key === "paidThisMonth");
+  const restrictedPaidAggregateCall = restricted.calls.prisma.invoiceAggregate.find(
+    (call) => {
+      const serialized = JSON.stringify(call);
+      return serialized.includes(BankSlipStatus.PAID) && serialized.includes("paidAt");
+    },
+  );
+
+  assert.ok(restrictedPaidAggregateCall);
+  assert.equal(
+    hasNestedValue(restrictedPaidAggregateCall, restrictedUser.institutionIds[0]!),
+    true,
+  );
+  assert.doesNotMatch(restrictedPaidMetric?.href ?? "", /academicYearId=/);
+  assert.match(
+    restrictedPaidMetric?.href ?? "",
+    /institutionId=33333333-3333-4333-8333-333333333333/,
+  );
 }
 
 async function testOperationalBlockPartialFailures() {

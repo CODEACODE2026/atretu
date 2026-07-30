@@ -77,6 +77,14 @@ export class ListInvoicesDto {
   dueDateTo?: string;
 
   @IsOptional()
+  @IsDateString()
+  paidAtFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  paidAtTo?: string;
+
+  @IsOptional()
   @IsEnum(InvoiceSort)
   sort = InvoiceSort.DUE_DATE;
 

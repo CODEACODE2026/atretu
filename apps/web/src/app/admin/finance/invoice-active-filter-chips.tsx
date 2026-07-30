@@ -13,6 +13,8 @@ export function InvoiceActiveFilterChips({
   institutions,
   onClear,
   overdue,
+  paidAtFrom,
+  paidAtTo,
   quickFilter,
   search,
   status,
@@ -25,6 +27,8 @@ export function InvoiceActiveFilterChips({
   institutions: BaseRecord[];
   onClear: () => void;
   overdue: OverdueFilter;
+  paidAtFrom: string;
+  paidAtTo: string;
   quickFilter: InvoiceQuickFilter;
   search: string;
   status: InvoiceStatus | "";
@@ -38,6 +42,8 @@ export function InvoiceActiveFilterChips({
     overdue !== "all" ? `Vencimento: ${overdue === "overdue" ? "vencidas" : "não vencidas"}` : "",
     dueDateFrom ? `De: ${dueDateFrom}` : "",
     dueDateTo ? `Até: ${dueDateTo}` : "",
+    paidAtFrom ? `Pagamento de: ${paidAtFrom}` : "",
+    paidAtTo ? `Pagamento até: ${paidAtTo}` : "",
     quickFilter !== "all" ? `Atalho: ${quickFilterLabel(quickFilter)}` : "",
   ].filter(Boolean);
 

@@ -14,12 +14,16 @@ export function FinanceFilters({
   onClear,
   onSubmit,
   overdue,
+  paidAtFrom,
+  paidAtTo,
   search,
   setAcademicYearId,
   setDueDateFrom,
   setDueDateTo,
   setInstitutionId,
   setOverdue,
+  setPaidAtFrom,
+  setPaidAtTo,
   setSearch,
   setStatus,
   status,
@@ -35,12 +39,16 @@ export function FinanceFilters({
   onClear: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   overdue: "all" | "overdue" | "notOverdue";
+  paidAtFrom: string;
+  paidAtTo: string;
   search: string;
   setAcademicYearId: (value: string) => void;
   setDueDateFrom: (value: string) => void;
   setDueDateTo: (value: string) => void;
   setInstitutionId: (value: string) => void;
   setOverdue: (value: "all" | "overdue" | "notOverdue") => void;
+  setPaidAtFrom: (value: string) => void;
+  setPaidAtTo: (value: string) => void;
   setSearch: (value: string) => void;
   setStatus: (value: InvoiceStatus | "") => void;
   status: InvoiceStatus | "";
@@ -123,6 +131,14 @@ export function FinanceFilters({
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
               Período final
               <input className={adminTheme.control} onChange={(event) => setDueDateTo(event.target.value)} type="date" value={dueDateTo} />
+            </label>
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              Pagamento inicial
+              <input className={adminTheme.control} onChange={(event) => setPaidAtFrom(event.target.value)} type="date" value={paidAtFrom} />
+            </label>
+            <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+              Pagamento final
+              <input className={adminTheme.control} onChange={(event) => setPaidAtTo(event.target.value)} type="date" value={paidAtTo} />
             </label>
           </div>
         </details>

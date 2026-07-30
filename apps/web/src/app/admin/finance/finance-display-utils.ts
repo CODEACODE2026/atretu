@@ -75,6 +75,8 @@ export function hasActiveFinanceFilters(filters: {
   dueDateTo: string;
   institutionId: string;
   overdue: "all" | "overdue" | "notOverdue";
+  paidAtFrom: string;
+  paidAtTo: string;
   search: string;
   status: InvoiceStatus | "";
 }) {
@@ -85,7 +87,9 @@ export function hasActiveFinanceFilters(filters: {
       filters.status ||
       filters.overdue !== "all" ||
       filters.dueDateFrom ||
-      filters.dueDateTo,
+      filters.dueDateTo ||
+      filters.paidAtFrom ||
+      filters.paidAtTo,
   );
 }
 

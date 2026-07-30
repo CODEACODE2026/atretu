@@ -66,6 +66,8 @@ export class DashboardService {
   ): Promise<DashboardOverviewResponse> {
     const generatedAt = new Date().toISOString();
     const today = this.utcDateOnly(new Date());
+    const monthStart = this.startOfUtcMonth(today);
+    const nextMonthStart = this.startOfNextUtcMonth(today);
     const academicYear = await this.resolveAcademicYear(query.academicYearId);
     const academicYearId = query.academicYearId ?? academicYear?.id;
     const institutionIds = this.institutionIds(query, currentUser);
@@ -82,6 +84,11 @@ export class DashboardService {
     const preRegistrationWhere = this.preRegistrationWhere(
       academicYearId,
       institutionIds,
+    );
+    const paidThisMonthWhere = this.paidThisMonthWhere(
+      institutionIds,
+      monthStart,
+      nextMonthStart,
     );
 
     const [
@@ -312,14 +319,7 @@ export class DashboardService {
       this.readDashboardPart(
         () =>
           this.prisma.bankSlip.aggregate({
-            where: {
-              status: BankSlipStatus.PAID,
-              paidAt: {
-                gte: this.startOfUtcMonth(today),
-                lt: this.startOfNextUtcMonth(today),
-              },
-              invoice: { enrollment: invoiceEnrollmentWhere },
-            },
+            where: paidThisMonthWhere,
             _count: { _all: true },
             _sum: { paidAmountCents: true },
           }),
@@ -555,6 +555,8 @@ export class DashboardService {
       }),
       label: "Total vencido",
     };
+    const paidThisMonthInstitutionId =
+      query.institutionId ?? (institutionIds?.length === 1 ? institutionIds[0] : undefined);
     const paidThisMonthMetric = this.metric(
       "paidThisMonth",
       "Pagamentos do mes",
@@ -562,7 +564,17 @@ export class DashboardService {
       this.formatCents(paidThisMonthSummary._sum.paidAmountCents ?? 0),
       `${this.formatInteger(paidThisMonthSummary._count._all)} pagamento(s) confirmado(s)`,
       (paidThisMonthSummary._sum.paidAmountCents ?? 0) > 0 ? "success" : "neutral",
-      href({ area: "finance", financeArea: "invoices", invoiceStatus: "PAID" }),
+      this.dashboardHref(
+        {
+          area: "finance",
+          financeArea: "invoices",
+          invoiceStatus: "PAID",
+          paidAtFrom: this.toDateOnly(monthStart),
+          paidAtTo: this.toDateOnly(new Date(nextMonthStart.getTime() - 86_400_000)),
+        },
+        undefined,
+        paidThisMonthInstitutionId,
+      ),
     );
     const bankSlipErrorsMetric = this.metric(
       "bankSlipErrors",
@@ -1083,6 +1095,30 @@ export class DashboardService {
     institutionIds: string[] | undefined,
   ): Prisma.EnrollmentWhereInput {
     return this.enrollmentWhere(academicYearId, institutionIds);
+  }
+
+  private paidThisMonthWhere(
+    institutionIds: string[] | undefined,
+    monthStart: Date,
+    nextMonthStart: Date,
+  ): Prisma.BankSlipWhereInput {
+    return {
+      status: BankSlipStatus.PAID,
+      paidAt: {
+        gte: monthStart,
+        lt: nextMonthStart,
+      },
+      ...(institutionIds
+        ? {
+            invoice: {
+              enrollment: {
+                institutionId:
+                  institutionIds.length === 1 ? institutionIds[0] : { in: institutionIds },
+              },
+            },
+          }
+        : {}),
+    };
   }
 
   private studentWhere(

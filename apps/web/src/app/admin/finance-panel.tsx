@@ -77,6 +77,8 @@ type InvoiceInitialFilters = {
   academicYearId?: string;
   institutionId?: string;
   overdue?: "all" | "overdue" | "notOverdue";
+  paidAtFrom?: string;
+  paidAtTo?: string;
   status?: InvoiceStatus | "";
 };
 
@@ -126,6 +128,8 @@ export function FinancePanel({
   const defaultMonth = useMemo(() => currentMonthRange(), []);
   const [dueDateFrom, setDueDateFrom] = useState(defaultMonth.from);
   const [dueDateTo, setDueDateTo] = useState(defaultMonth.to);
+  const [paidAtFrom, setPaidAtFrom] = useState("");
+  const [paidAtTo, setPaidAtTo] = useState("");
   const [invoiceEnrollmentId, setInvoiceEnrollmentId] = useState("");
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState(todayDate());
@@ -223,8 +227,10 @@ export function FinancePanel({
     dueDateTo,
     institutionId,
     overdue,
-      search,
-      status,
+    paidAtFrom,
+    paidAtTo,
+    search,
+    status,
   }) || invoiceQuickFilter !== "all";
 
   useEffect(() => {
@@ -248,6 +254,8 @@ export function FinancePanel({
     setOverdue(initialInvoiceFilters.overdue ?? "all");
     setDueDateFrom("");
     setDueDateTo("");
+    setPaidAtFrom(initialInvoiceFilters.paidAtFrom ?? "");
+    setPaidAtTo(initialInvoiceFilters.paidAtTo ?? "");
     setInvoiceQuickFilter(quickFilterFromInitialFilters(initialInvoiceFilters));
     setPage(1);
   }, [initialInvoiceFilters]);
@@ -262,6 +270,8 @@ export function FinancePanel({
     overdue,
     dueDateFrom,
     dueDateTo,
+    paidAtFrom,
+    paidAtTo,
   ]);
 
   useEffect(() => {
@@ -284,7 +294,9 @@ export function FinancePanel({
       setYears(yearsResponse.data);
       setInstitutions(institutionsResponse.data);
       const current = yearsResponse.data.find((year) => year.isCurrent);
-      setAcademicYearId(current?.id ?? "");
+      if (!initialInvoiceFilters) {
+        setAcademicYearId(current?.id ?? "");
+      }
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar referencias",
@@ -309,6 +321,8 @@ export function FinancePanel({
         overdue,
         dueDateFrom,
         dueDateTo,
+        paidAtFrom,
+        paidAtTo,
         sort: "dueDate",
         order: "asc",
       });
@@ -1102,6 +1116,8 @@ export function FinancePanel({
     setInvoiceQuickFilter("all");
     setDueDateFrom("");
     setDueDateTo("");
+    setPaidAtFrom("");
+    setPaidAtTo("");
     setPage(1);
     void loadInvoices("");
   }
@@ -1495,6 +1511,8 @@ export function FinancePanel({
           void loadInvoices(search);
         }}
         overdue={overdue}
+        paidAtFrom={paidAtFrom}
+        paidAtTo={paidAtTo}
         search={search}
         setAcademicYearId={(value) => {
           setAcademicYearId(value);
@@ -1516,6 +1534,14 @@ export function FinancePanel({
           setOverdue(value);
           setPage(1);
         }}
+        setPaidAtFrom={(value) => {
+          setPaidAtFrom(value);
+          setPage(1);
+        }}
+        setPaidAtTo={(value) => {
+          setPaidAtTo(value);
+          setPage(1);
+        }}
         setSearch={setSearch}
         setStatus={(value) => {
           setStatus(value);
@@ -1532,6 +1558,8 @@ export function FinancePanel({
         institutions={institutions}
         onClear={clearFilters}
         overdue={overdue}
+        paidAtFrom={paidAtFrom}
+        paidAtTo={paidAtTo}
         quickFilter={invoiceQuickFilter}
         search={search}
         status={status}
