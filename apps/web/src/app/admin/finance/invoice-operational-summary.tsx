@@ -25,7 +25,6 @@ const items: Array<{
   { filter: "dueToday", icon: CalendarClock, tone: "warning" },
   { filter: "upcoming", icon: CalendarDays, tone: "neutral" },
   { filter: "paid", icon: CheckCircle2, tone: "success" },
-  { filter: "receivedPayments", icon: CircleDollarSign, tone: "success" },
   { filter: "cancelled", icon: Ban, tone: "neutral" },
   { filter: "withoutSlip", icon: FileQuestion, tone: "info" },
   { filter: "partialReview", icon: CircleDollarSign, tone: "warning" },
@@ -108,7 +107,6 @@ function summaryValue(
   if (filter === "open") return summary.open;
   if (filter === "overdue") return summary.overdue;
   if (filter === "paid") return summary.paid;
-  if (filter === "receivedPayments") return summary.receivedPayments;
   if (filter === "partialReview") return summary.partialReview;
   if (filter === "upcoming") return summary.upcoming;
   if (filter === "withoutSlip") return summary.withoutSlip;

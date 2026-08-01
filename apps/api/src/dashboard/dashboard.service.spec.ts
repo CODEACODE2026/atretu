@@ -221,11 +221,21 @@ async function testOverviewWithAggregatedData() {
       ?.value,
     8000,
   );
+  assert.equal(
+    financeBlock?.metrics.find((metric) => metric.key === "paidThisMonth")
+      ?.label,
+    `Recebido em ${currentMonthName()}`,
+  );
+  assert.equal(
+    financeBlock?.metrics.find((metric) => metric.key === "paidThisMonth")
+      ?.context,
+    "Pagamentos confirmados pela data de recebimento",
+  );
   const paidThisMonthHref =
     financeBlock?.metrics.find((metric) => metric.key === "paidThisMonth")?.href ?? "";
   assert.match(paidThisMonthHref, /invoiceStatus=PAID/);
-  assert.match(paidThisMonthHref, /paidAtFrom=2026-07-01/);
-  assert.match(paidThisMonthHref, /paidAtTo=2026-07-31/);
+  assert.match(paidThisMonthHref, new RegExp(`paidAtFrom=${currentMonthStart()}`));
+  assert.match(paidThisMonthHref, new RegExp(`paidAtTo=${currentMonthEnd()}`));
   assert.doesNotMatch(paidThisMonthHref, /academicYearId=/);
   const collectionsBlock = overview.operationalBlocks.find(
     (block) => block.key === "collections",
@@ -722,6 +732,30 @@ function writeTrap(calls: { writes: unknown[] }) {
 
 function hasNestedValue(value: unknown, expected: string) {
   return JSON.stringify(value).includes(expected);
+}
+
+function currentMonthName() {
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    timeZone: "UTC",
+  }).format(currentMonthDate(1));
+}
+
+function currentMonthStart() {
+  return currentMonthDate(1).toISOString().slice(0, 10);
+}
+
+function currentMonthEnd() {
+  return new Date(
+    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 0),
+  )
+    .toISOString()
+    .slice(0, 10);
+}
+
+function currentMonthDate(day: number) {
+  const current = new Date();
+  return new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), day));
 }
 
 function httpContext(request: unknown, handler = DashboardController.prototype.overview) {

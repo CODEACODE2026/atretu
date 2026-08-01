@@ -559,10 +559,10 @@ export class DashboardService {
       query.institutionId ?? (institutionIds?.length === 1 ? institutionIds[0] : undefined);
     const paidThisMonthMetric = this.metric(
       "paidThisMonth",
-      "Pagamentos do mes",
+      `Recebido em ${this.monthName(monthStart)}`,
       paidThisMonthSummary._sum.paidAmountCents ?? 0,
       this.formatCents(paidThisMonthSummary._sum.paidAmountCents ?? 0),
-      `${this.formatInteger(paidThisMonthSummary._count._all)} pagamento(s) confirmado(s)`,
+      "Pagamentos confirmados pela data de recebimento",
       (paidThisMonthSummary._sum.paidAmountCents ?? 0) > 0 ? "success" : "neutral",
       this.dashboardHref(
         {
@@ -1510,6 +1510,13 @@ export class DashboardService {
       style: "currency",
       currency: "BRL",
     }).format(value / 100);
+  }
+
+  private monthName(date: Date) {
+    return new Intl.DateTimeFormat("pt-BR", {
+      month: "long",
+      timeZone: "UTC",
+    }).format(date);
   }
 
   private utcDateOnly(date: Date) {
