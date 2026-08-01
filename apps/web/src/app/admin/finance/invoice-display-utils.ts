@@ -11,6 +11,7 @@ export type InvoiceQuickFilter =
   | "dueToday"
   | "upcoming"
   | "paid"
+  | "receivedPayments"
   | "cancelled"
   | "withoutSlip"
   | "partialReview";
@@ -21,6 +22,7 @@ export type InvoiceOperationalSummary = {
   open: number;
   overdue: number;
   paid: number;
+  receivedPayments: number;
   partialReview: number;
   upcoming: number;
   withoutSlip: number;
@@ -48,6 +50,9 @@ export function calculateInvoiceOperationalSummary(
       if (invoice.status === "PAID") {
         summary.paid += 1;
       }
+      if (invoice.status === "PAID" && bankSlip?.status === "PAID" && bankSlip.paidAt) {
+        summary.receivedPayments += 1;
+      }
       if (invoice.status === "CANCELLED") {
         summary.cancelled += 1;
       }
@@ -65,6 +70,7 @@ export function calculateInvoiceOperationalSummary(
       open: 0,
       overdue: 0,
       paid: 0,
+      receivedPayments: 0,
       partialReview: 0,
       upcoming: 0,
       withoutSlip: 0,
@@ -96,6 +102,9 @@ export function filterInvoicesByQuickFilter(
     }
     if (quickFilter === "paid") {
       return invoice.status === "PAID";
+    }
+    if (quickFilter === "receivedPayments") {
+      return invoice.status === "PAID" && bankSlip?.status === "PAID" && Boolean(bankSlip.paidAt);
     }
     if (quickFilter === "cancelled") {
       return invoice.status === "CANCELLED";
@@ -183,8 +192,9 @@ export function quickFilterLabel(filter: InvoiceQuickFilter) {
     dueToday: "Vencem hoje",
     open: "Abertas",
     overdue: "Vencidas",
-    paid: "Pagas",
+    paid: "Pagas por vencimento",
     partialReview: "Pagamento parcial/revisão",
+    receivedPayments: "Pagamentos recebidos",
     upcoming: "Próximos vencimentos",
     withoutSlip: "Sem boleto",
   };

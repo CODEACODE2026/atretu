@@ -1152,8 +1152,22 @@ export function FinancePanel({
       setStatus("OPEN");
       setOverdue("overdue");
     } else if (filter === "paid") {
+      const current = years.find((year) => year.isCurrent);
       setStatus("PAID");
       setOverdue("all");
+      setAcademicYearId(current?.id ?? "");
+      setDueDateFrom(dueDateFrom || defaultMonth.from);
+      setDueDateTo(dueDateTo || defaultMonth.to);
+      setPaidAtFrom("");
+      setPaidAtTo("");
+    } else if (filter === "receivedPayments") {
+      setAcademicYearId("");
+      setStatus("PAID");
+      setOverdue("all");
+      setDueDateFrom("");
+      setDueDateTo("");
+      setPaidAtFrom(paidAtFrom || defaultMonth.from);
+      setPaidAtTo(paidAtTo || defaultMonth.to);
     } else if (filter === "cancelled") {
       setStatus("CANCELLED");
       setOverdue("all");
@@ -3623,6 +3637,9 @@ function quickFilterFromInitialFilters(
     return "open";
   }
   if (filters.status === "PAID") {
+    if (filters.paidAtFrom || filters.paidAtTo) {
+      return "receivedPayments";
+    }
     return "paid";
   }
   if (filters.status === "CANCELLED") {

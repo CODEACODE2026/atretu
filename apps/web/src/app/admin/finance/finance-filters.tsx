@@ -62,7 +62,7 @@ export function FinanceFilters({
             Filtros
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Refine a lista por acadêmico, matrícula, instituição, situação e vencimento.
+            Refine a lista por acadêmico, matrícula, instituição, situação, vencimento e pagamento.
           </p>
         </div>
         {loading ? <span className="text-sm text-slate-500">Carregando resultados...</span> : null}
@@ -125,19 +125,19 @@ export function FinanceFilters({
               </select>
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-              Período inicial
+              Vencimento de
               <input className={adminTheme.control} onChange={(event) => setDueDateFrom(event.target.value)} type="date" value={dueDateFrom} />
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-              Período final
+              Vencimento até
               <input className={adminTheme.control} onChange={(event) => setDueDateTo(event.target.value)} type="date" value={dueDateTo} />
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-              Pagamento inicial
+              Pagamento de
               <input className={adminTheme.control} onChange={(event) => setPaidAtFrom(event.target.value)} type="date" value={paidAtFrom} />
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
-              Pagamento final
+              Pagamento até
               <input className={adminTheme.control} onChange={(event) => setPaidAtTo(event.target.value)} type="date" value={paidAtTo} />
             </label>
           </div>
