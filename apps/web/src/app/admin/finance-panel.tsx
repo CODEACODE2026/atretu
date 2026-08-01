@@ -230,16 +230,23 @@ export function FinancePanel({
     [bankSlips, invoices, invoiceSummary, issueBatch],
   );
   const invoiceOperationalSummary = useMemo(
-    () => calculateInvoiceOperationalSummary(invoices, bankSlips),
-    [bankSlips, invoices],
+    () =>
+      calculateInvoiceOperationalSummary(invoices, bankSlips, {
+        paidAtFrom: paidAtFrom || defaultMonth.from,
+        paidAtTo: paidAtTo || defaultMonth.to,
+      }),
+    [bankSlips, defaultMonth.from, defaultMonth.to, invoices, paidAtFrom, paidAtTo],
   );
   const visibleInvoices = useMemo(
     () =>
       sortInvoicesOperationally(
-        filterInvoicesByQuickFilter(invoices, bankSlips, invoiceQuickFilter),
+        filterInvoicesByQuickFilter(invoices, bankSlips, invoiceQuickFilter, {
+          paidAtFrom: paidAtFrom || defaultMonth.from,
+          paidAtTo: paidAtTo || defaultMonth.to,
+        }),
         bankSlips,
       ),
-    [bankSlips, invoiceQuickFilter, invoices],
+    [bankSlips, defaultMonth.from, defaultMonth.to, invoiceQuickFilter, invoices, paidAtFrom, paidAtTo],
   );
   const hasActiveFilters = hasActiveFinanceFilters({
     academicYearId,
@@ -1148,28 +1155,38 @@ export function FinancePanel({
     if (filter === "open") {
       setStatus("OPEN");
       setOverdue("all");
+      setPaidAtFrom("");
+      setPaidAtTo("");
     } else if (filter === "overdue") {
       setStatus("OPEN");
       setOverdue("overdue");
+      setPaidAtFrom("");
+      setPaidAtTo("");
     } else if (filter === "paid") {
       setStatus("PAID");
       setOverdue("all");
       setDueDateFrom("");
       setDueDateTo("");
-      setPaidAtFrom("");
-      setPaidAtTo("");
+      setPaidAtFrom(paidAtFrom || defaultMonth.from);
+      setPaidAtTo(paidAtTo || defaultMonth.to);
     } else if (filter === "cancelled") {
       setStatus("CANCELLED");
       setOverdue("all");
+      setPaidAtFrom("");
+      setPaidAtTo("");
     } else if (filter === "dueToday") {
       const today = todayDate();
       setStatus("OPEN");
       setOverdue("all");
       setDueDateFrom(today);
       setDueDateTo(today);
+      setPaidAtFrom("");
+      setPaidAtTo("");
     } else if (filter === "upcoming") {
       setStatus("OPEN");
       setOverdue("notOverdue");
+      setPaidAtFrom("");
+      setPaidAtTo("");
     }
   }
 

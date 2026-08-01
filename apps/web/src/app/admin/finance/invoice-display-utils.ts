@@ -26,9 +26,15 @@ export type InvoiceOperationalSummary = {
   withoutSlip: number;
 };
 
+type PaymentPeriod = {
+  paidAtFrom?: string;
+  paidAtTo?: string;
+};
+
 export function calculateInvoiceOperationalSummary(
   invoices: InvoiceRecord[],
   bankSlips: Record<string, BankSlipListRecord | null | undefined>,
+  paymentPeriod: PaymentPeriod = {},
 ): InvoiceOperationalSummary {
   return invoices.reduce<InvoiceOperationalSummary>(
     (summary, invoice) => {
@@ -45,7 +51,7 @@ export function calculateInvoiceOperationalSummary(
       if (invoice.status === "OPEN" && isUpcoming(invoice)) {
         summary.upcoming += 1;
       }
-      if (invoice.status === "PAID") {
+      if (isPaidInPeriod(invoice, bankSlip, paymentPeriod)) {
         summary.paid += 1;
       }
       if (invoice.status === "CANCELLED") {
@@ -76,6 +82,7 @@ export function filterInvoicesByQuickFilter(
   invoices: InvoiceRecord[],
   bankSlips: Record<string, BankSlipListRecord | null | undefined>,
   quickFilter: InvoiceQuickFilter,
+  paymentPeriod: PaymentPeriod = {},
 ) {
   if (quickFilter === "all") {
     return invoices;
@@ -95,7 +102,7 @@ export function filterInvoicesByQuickFilter(
       return invoice.status === "OPEN" && isUpcoming(invoice);
     }
     if (quickFilter === "paid") {
-      return invoice.status === "PAID";
+      return isPaidInPeriod(invoice, bankSlip, paymentPeriod);
     }
     if (quickFilter === "cancelled") {
       return invoice.status === "CANCELLED";
@@ -183,7 +190,7 @@ export function quickFilterLabel(filter: InvoiceQuickFilter) {
     dueToday: "Vencem hoje",
     open: "Abertas",
     overdue: "Vencidas",
-    paid: "Pagas",
+    paid: "Pagos no mês",
     partialReview: "Pagamento parcial/revisão",
     upcoming: "Próximos vencimentos",
     withoutSlip: "Sem boleto",
@@ -224,6 +231,21 @@ function invoiceBankSlip(
   bankSlips: Record<string, BankSlipListRecord | null | undefined>,
 ) {
   return bankSlips[invoice.id] ?? invoice.bankSlipSummary;
+}
+
+function isPaidInPeriod(
+  invoice: InvoiceRecord,
+  bankSlip: BankSlipListRecord | null | undefined,
+  paymentPeriod: PaymentPeriod,
+) {
+  if (invoice.status !== "PAID" || bankSlip?.status !== "PAID" || !bankSlip.paidAt) {
+    return false;
+  }
+  const paidAt = dateKey(bankSlip.paidAt);
+  return (
+    (!paymentPeriod.paidAtFrom || paidAt >= paymentPeriod.paidAtFrom) &&
+    (!paymentPeriod.paidAtTo || paidAt <= paymentPeriod.paidAtTo)
+  );
 }
 
 function isDueToday(invoice: InvoiceRecord) {

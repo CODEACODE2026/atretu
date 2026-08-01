@@ -229,7 +229,7 @@ async function testOverviewWithAggregatedData() {
   assert.equal(
     financeBlock?.metrics.find((metric) => metric.key === "paidThisMonth")
       ?.context,
-    "Pagamentos confirmados pela data de recebimento",
+    "1 boleto(s) pago(s). Pagamentos confirmados pela data de recebimento",
   );
   const paidThisMonthHref =
     financeBlock?.metrics.find((metric) => metric.key === "paidThisMonth")?.href ?? "";

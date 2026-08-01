@@ -417,7 +417,7 @@ export class InvoicesService {
       if (query.paidAtTo) {
         paidAt.lt = addUtcDays(parseInvoiceDueDate(query.paidAtTo), 1);
       }
-      where.bankSlip = { is: { paidAt } };
+      where.bankSlip = { is: { status: BankSlipStatus.PAID, paidAt } };
     }
     if (query.search) {
       const normalizedSearch = this.normalizeName(query.search);
@@ -457,7 +457,7 @@ export class InvoicesService {
   }
 
   private async buildInvoiceSummary(where: Prisma.InvoiceWhereInput) {
-    const [statusTotals, overdue, failedBankSlips] = await Promise.all([
+    const [statusTotals, overdue, paidBankSlips, failedBankSlips] = await Promise.all([
       this.prisma.invoice.groupBy({
         by: ["status"],
         where,
@@ -469,6 +469,13 @@ export class InvoicesService {
           buildInvoiceOverdueWhere(InvoiceOverdueFilter.OVERDUE),
         ),
       ),
+      this.prisma.bankSlip.aggregate({
+        where: {
+          status: BankSlipStatus.PAID,
+          invoice: where,
+        },
+        _sum: { paidAmountCents: true },
+      }),
       this.prisma.bankSlip.count({
         where: {
           status: {
@@ -489,7 +496,7 @@ export class InvoicesService {
     return {
       openAmountCents: amountByStatus.get(InvoiceStatus.OPEN) ?? 0,
       overdueAmountCents: overdue,
-      paidAmountCents: amountByStatus.get(InvoiceStatus.PAID) ?? 0,
+      paidAmountCents: paidBankSlips._sum.paidAmountCents ?? 0,
       cancelledAmountCents: amountByStatus.get(InvoiceStatus.CANCELLED) ?? 0,
       failedBankSlips,
     };

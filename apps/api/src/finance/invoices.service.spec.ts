@@ -42,6 +42,7 @@ async function testListInvoicesIncludesBankSlipSummaryWithoutNPlusOne() {
   assert.equal(prisma.invoice.countCalls.length, 1);
   assert.equal(prisma.invoice.groupByCalls.length, 1);
   assert.equal(prisma.invoice.aggregateCalls.length, 1);
+  assert.equal(prisma.bankSlip.aggregateCalls.length, 1);
   assert.equal(prisma.bankSlip.countCalls.length, 1);
   assert.equal(prisma.bankSlip.findUniqueCalls.length, 0);
   assert.equal(prisma.invoice.findManyCalls[0]?.skip, 2);
@@ -183,7 +184,11 @@ async function testListInvoicesSummaryUsesAllFilteredInvoices() {
       dueDate: "2026-06-06",
       searchName: "Resumo Financeiro 9",
       status: InvoiceStatus.PAID,
-      bankSlipStatus: BankSlipStatus.PAID,
+      bankSlip: bankSlipRecord({
+        invoiceId: "match-paid-1",
+        paidAmountCents: 9_000,
+        status: BankSlipStatus.PAID,
+      }),
     }),
     invoiceRecord({
       id: "match-paid-2",
@@ -191,7 +196,11 @@ async function testListInvoicesSummaryUsesAllFilteredInvoices() {
       dueDate: "2026-06-07",
       searchName: "Resumo Financeiro 10",
       status: InvoiceStatus.PAID,
-      bankSlipStatus: BankSlipStatus.PAID,
+      bankSlip: bankSlipRecord({
+        invoiceId: "match-paid-2",
+        paidAmountCents: 10_000,
+        status: BankSlipStatus.PAID,
+      }),
     }),
     invoiceRecord({
       id: "match-cancelled-1",
@@ -402,8 +411,9 @@ async function testListInvoicesFiltersPaidInvoicesByPaymentDate() {
   );
   assert.equal(result.data[0]?.bankSlipSummary?.paidAmountCents, 9_000);
   assert.equal(result.pagination.total, 1);
-  assert.equal(result.summary.paidAmountCents, 10_000);
+  assert.equal(result.summary.paidAmountCents, 9_000);
   assert.equal(hasNestedPaidAtFilter(prisma.invoice.findManyCalls[0]?.where), true);
+  assert.equal(hasNestedValue(prisma.invoice.findManyCalls[0]?.where, "PAID"), true);
   assert.equal(
     hasNestedValue(prisma.invoice.findManyCalls[0]?.where, "academic-year-old"),
     false,
@@ -496,6 +506,19 @@ class FakePrisma {
       return null;
     },
     findUniqueCalls: [] as Record<string, unknown>[],
+    aggregate: async (args: Record<string, unknown>) => {
+      this.bankSlip.aggregateCalls.push(args);
+      const where = args.where as { invoice?: unknown; status?: BankSlipStatus } | undefined;
+      const total = this.invoiceRecords
+        .filter(
+          (invoice) =>
+            matchesInvoiceWhere(invoice, where?.invoice) &&
+            (!where?.status || invoice.bankSlip?.status === where.status),
+        )
+        .reduce((sum, invoice) => sum + (invoice.bankSlip?.paidAmountCents ?? 0), 0);
+      return { _sum: { paidAmountCents: total } };
+    },
+    aggregateCalls: [] as Record<string, unknown>[],
     count: async (args: Record<string, unknown>) => {
       this.bankSlip.countCalls.push(args);
       const where = args.where as { invoice?: unknown } | undefined;
@@ -569,8 +592,11 @@ function matchesInvoiceWhere(
     return false;
   }
   const bankSlip = input.bankSlip as
-    | { is?: { paidAt?: { gte?: Date; lt?: Date } } }
+    | { is?: { paidAt?: { gte?: Date; lt?: Date }; status?: BankSlipStatus } }
     | undefined;
+  if (bankSlip?.is?.status && invoice.bankSlip?.status !== bankSlip.is.status) {
+    return false;
+  }
   const paidAt = bankSlip?.is?.paidAt;
   if (paidAt?.gte && (!invoice.bankSlip?.paidAt || invoice.bankSlip.paidAt < paidAt.gte)) {
     return false;

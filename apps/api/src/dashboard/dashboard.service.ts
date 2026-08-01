@@ -562,7 +562,7 @@ export class DashboardService {
       `Recebido em ${this.monthName(monthStart)}`,
       paidThisMonthSummary._sum.paidAmountCents ?? 0,
       this.formatCents(paidThisMonthSummary._sum.paidAmountCents ?? 0),
-      "Pagamentos confirmados pela data de recebimento",
+      `${this.formatInteger(paidThisMonthSummary._count._all)} boleto(s) pago(s). Pagamentos confirmados pela data de recebimento`,
       (paidThisMonthSummary._sum.paidAmountCents ?? 0) > 0 ? "success" : "neutral",
       this.dashboardHref(
         {
