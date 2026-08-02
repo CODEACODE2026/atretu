@@ -1,6 +1,17 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Download,
+  Eye,
+  IdCard,
+  ImageOff,
+  Printer,
+  Search,
+  ShieldAlert,
+  XCircle,
+} from "lucide-react";
 import {
   api,
   type AcademicYear,
@@ -14,8 +25,16 @@ import {
   type StudentDetail,
   type StudentSummary,
 } from "../../lib/api";
-import { mapApiErrorMessage, promptOption } from "../../lib/formatters";
+import { mapApiErrorMessage } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
+import {
+  AdminEmptyState,
+  AdminFeedback,
+  AdminModuleHeader,
+  AdminSectionHeader,
+  AdminStatusBadge,
+  AdminSummaryCard,
+} from "./components/admin-ui";
 import {
   StudentActiveCard,
   StudentCardCurrentSummary,
@@ -25,6 +44,9 @@ import {
 import { selectCurrentStudentCard } from "./students/cards/student-card-display-utils";
 
 type PdfAction = "view" | "download" | "print";
+type PendingInvalidation = {
+  card: StudentCardRecord;
+} | null;
 
 export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [cards, setCards] = useState<StudentCardRecord[]>([]);
@@ -46,10 +68,27 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pdfBusyId, setPdfBusyId] = useState("");
+  const [pendingInvalidation, setPendingInvalidation] =
+    useState<PendingInvalidation>(null);
+  const [invalidationReason, setInvalidationReason] =
+    useState<StudentCardInvalidationReason>("MANUAL_CORRECTION");
+  const [invalidationNote, setInvalidationNote] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const canUseAdministrativeIssue = user.roles.includes("SUPER_ADMIN");
   const canShowAdministrativeIssue = canUseAdministrativeIssue && cards.length === 0;
+
+  const summary = useMemo(
+    () => ({
+      active: cards.filter((card) => card.status === "ACTIVE").length,
+      invalidated: cards.filter((card) => card.status === "INVALIDATED").length,
+      noPhoto: cards.filter((card) =>
+        card.validity.reason?.toLowerCase().includes("foto"),
+      ).length,
+      notUsable: cards.filter((card) => !card.validity.usable).length,
+    }),
+    [cards],
+  );
 
   useEffect(() => {
     void loadReferences();
@@ -165,29 +204,31 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
     }
   }
 
-  async function handleInvalidate(card: StudentCardRecord) {
-    const reason = promptOption<StudentCardInvalidationReason>(
-      "Selecione o motivo da invalidação da carteirinha:",
-      [
-        { label: "Correção administrativa", value: "MANUAL_CORRECTION" },
-        { label: "Outro motivo", value: "OTHER" },
-        { label: "Fim de participação na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
-        { label: "Acadêmico desligado", value: "STUDENT_TERMINATED" },
-      ],
-    );
-    if (!reason) {
-      setError("Selecione um motivo válido para invalidar a carteirinha.");
+  function requestInvalidation(card: StudentCardRecord) {
+    setPendingInvalidation({ card });
+    setInvalidationReason("MANUAL_CORRECTION");
+    setInvalidationNote("");
+    setMessage("");
+    setError("");
+  }
+
+  async function confirmInvalidation() {
+    if (!pendingInvalidation) {
       return;
     }
-    const invalidationNote = window.prompt("Observação opcional") ?? undefined;
     setSaving(true);
     setMessage("");
     setError("");
     try {
-      await api.invalidateStudentCard(card.student.id, card.id, {
-        reason,
-        note: emptyToUndefined(invalidationNote),
-      });
+      await api.invalidateStudentCard(
+        pendingInvalidation.card.student.id,
+        pendingInvalidation.card.id,
+        {
+          reason: invalidationReason,
+          note: emptyToUndefined(invalidationNote),
+        },
+      );
+      setPendingInvalidation(null);
       setMessage("Carteirinha invalidada");
       await loadCards();
     } catch (caught) {
@@ -211,8 +252,51 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   }
 
   return (
-    <div className="grid min-w-0 gap-4">
-      <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="grid min-w-0 gap-5">
+      <AdminModuleHeader
+        description="Acompanhe carteirinhas emitidas, validade operacional, histórico e PDF sem alterar os contratos de emissão já homologados."
+        eyebrow="Identificação acadêmica"
+        icon={IdCard}
+        title="Carteirinhas"
+      />
+
+      <div className="grid min-w-0 gap-3 md:grid-cols-4">
+        <AdminSummaryCard
+          description="Aptas para visualização e uso operacional."
+          icon={IdCard}
+          label="Ativas"
+          tone="green"
+          value={summary.active}
+        />
+        <AdminSummaryCard
+          description="Mantidas no histórico do acadêmico."
+          icon={XCircle}
+          label="Inválidas"
+          tone="red"
+          value={summary.invalidated}
+        />
+        <AdminSummaryCard
+          description="PDF usa imagem padrão quando permitido."
+          icon={ImageOff}
+          label="Sem foto"
+          tone="orange"
+          value={summary.noPhoto}
+        />
+        <AdminSummaryCard
+          description="Sem emissão válida no filtro atual."
+          icon={ShieldAlert}
+          label="Pendentes"
+          tone="blue"
+          value={summary.notUsable}
+        />
+      </div>
+
+      <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
+        <AdminSectionHeader
+          description="Filtros rápidos por ano, tipo, situação e validade."
+          title="Carteirinhas emitidas"
+        />
+        <div className="border-b border-slate-200/80 p-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <form
             className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row"
@@ -223,22 +307,23 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             }}
           >
             <input
-              className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+              className={cx(adminTheme.control, "min-w-0 flex-1")}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar por nome, CPF ou número"
               type="search"
               value={search}
             />
             <button
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+              className={adminTheme.primaryButton}
               type="submit"
             >
+              <Search aria-hidden="true" className="h-4 w-4" />
               Buscar
             </button>
           </form>
           <div className="grid w-full min-w-0 gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-4">
             <select
-              className="min-w-0 rounded border border-slate-300 px-3 py-2 text-sm"
+              className={cx(adminTheme.control, "min-w-0")}
               onChange={(event) => {
                 setAcademicYearId(event.target.value);
                 setPage(1);
@@ -253,7 +338,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               ))}
             </select>
             <select
-              className="min-w-0 rounded border border-slate-300 px-3 py-2 text-sm"
+              className={cx(adminTheme.control, "min-w-0")}
               onChange={(event) => {
                 setCardType(event.target.value as StudentCardType | "");
                 setPage(1);
@@ -265,7 +350,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               <option value="BOARD_MEMBER">Diretoria</option>
             </select>
             <select
-              className="min-w-0 rounded border border-slate-300 px-3 py-2 text-sm"
+              className={cx(adminTheme.control, "min-w-0")}
               onChange={(event) => {
                 setStatus(event.target.value as StudentCardStatus | "");
                 setPage(1);
@@ -277,7 +362,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               <option value="INVALIDATED">Invalidada</option>
             </select>
             <select
-              className="min-w-0 rounded border border-slate-300 px-3 py-2 text-sm"
+              className={cx(adminTheme.control, "min-w-0")}
               onChange={(event) => {
                 setValidity(event.target.value as "all" | "usable" | "notUsable");
                 setPage(1);
@@ -290,19 +375,14 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             </select>
           </div>
         </div>
+        </div>
 
         {message ? (
-          <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {message}
-          </p>
+          <AdminFeedback tone="green">{message}</AdminFeedback>
         ) : null}
-        {error ? (
-          <p className="mt-3 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
+        {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
 
-        <div className="mt-4 hidden max-w-full overflow-x-auto lg:block">
+        <div className="hidden max-w-full overflow-x-auto lg:block">
           <table className="w-full min-w-[880px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -321,13 +401,16 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               {loading ? (
                 <tr>
                   <td className="px-4 py-6 text-slate-500" colSpan={9}>
-                    Carregando...
+                    <AdminEmptyState loading title="Carregando carteirinhas" />
                   </td>
                 </tr>
               ) : cards.length === 0 ? (
                 <tr>
                   <td className="px-4 py-6 text-slate-500" colSpan={9}>
-                    Nenhuma carteirinha encontrada
+                    <AdminEmptyState
+                      description="Ajuste os filtros ou busque por nome, CPF ou número da carteirinha."
+                      title="Nenhuma carteirinha encontrada"
+                    />
                   </td>
                 </tr>
               ) : (
@@ -349,12 +432,10 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                       {card.academicYear.year}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
-                      {card.status === "ACTIVE" ? "Ativa" : "Invalidada"}
+                      <StudentCardStatusBadge card={card} />
                     </td>
                     <td className="px-4 py-3 text-slate-700">
-                      {card.validity.usable
-                        ? "Utilizável"
-                        : validityReasonLabel(card.validity.reason)}
+                      <StudentCardValidityBadges card={card} />
                     </td>
                     <td className="px-4 py-3 text-slate-700">
                       {formatDateTime(card.issuedAt)}
@@ -362,11 +443,12 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
                         <button
-                          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                           disabled={Boolean(pdfBusyId)}
                           onClick={() => void handlePdf(card, "view")}
                           type="button"
                         >
+                          <Eye aria-hidden="true" className="h-3.5 w-3.5" />
                           {pdfBusyId === `${card.id}:view`
                             ? "Abrindo..."
                             : card.status === "INVALIDATED"
@@ -374,17 +456,18 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                               : "Visualizar"}
                         </button>
                         <button
-                          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                           disabled={Boolean(pdfBusyId)}
                           onClick={() => void handlePdf(card, "download")}
                           type="button"
                         >
+                          <Download aria-hidden="true" className="h-3.5 w-3.5" />
                           {pdfBusyId === `${card.id}:download`
                             ? "Baixando..."
                             : "Baixar PDF"}
                         </button>
                         <button
-                          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                           disabled={Boolean(pdfBusyId) || card.status !== "ACTIVE"}
                           onClick={() => void handlePdf(card, "print")}
                           type="button"
@@ -394,14 +477,15 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                               : "Carteirinha invalidada"
                           }
                         >
+                          <Printer aria-hidden="true" className="h-3.5 w-3.5" />
                           {pdfBusyId === `${card.id}:print`
                             ? "Abrindo..."
                             : "Imprimir"}
                         </button>
                         <button
-                          className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
+                          className="inline-flex h-8 items-center justify-center rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-60"
                           disabled={saving || card.status !== "ACTIVE"}
-                          onClick={() => void handleInvalidate(card)}
+                          onClick={() => requestInvalidation(card)}
                           type="button"
                         >
                           Invalidar
@@ -421,17 +505,16 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
         </div>
         <div className="mt-4 grid gap-3 lg:hidden">
           {loading ? (
-            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Carregando...
-            </p>
+            <AdminEmptyState loading title="Carregando carteirinhas" />
           ) : cards.length === 0 ? (
-            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Nenhuma carteirinha encontrada
-            </p>
+            <AdminEmptyState
+              description="Ajuste os filtros ou busque por nome, CPF ou número da carteirinha."
+              title="Nenhuma carteirinha encontrada"
+            />
           ) : (
             cards.map((card) => (
               <article
-                className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 text-sm"
+                className={cx(adminTheme.card, "grid min-w-0 gap-3 p-3 text-sm")}
                 key={card.id}
               >
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -446,27 +529,23 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                       {card.student.person.cpfMasked} • {card.academicYear.year}
                     </p>
                   </div>
-                  <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
-                    {card.status === "ACTIVE" ? "Ativa" : "Invalidada"}
-                  </span>
+                  <StudentCardStatusBadge card={card} />
                 </div>
                 <div className="grid gap-1 text-xs text-slate-600">
                   <span>Tipo: {cardTypeLabel(card.cardType)}</span>
                   <span>
-                    Validade:{" "}
-                    {card.validity.usable
-                      ? "Utilizável"
-                      : validityReasonLabel(card.validity.reason)}
+                    Validade: <StudentCardValidityBadges card={card} />
                   </span>
                   <span>Emissão: {formatDateTime(card.issuedAt)}</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                     disabled={Boolean(pdfBusyId)}
                     onClick={() => void handlePdf(card, "view")}
                     type="button"
                   >
+                    <Eye aria-hidden="true" className="h-3.5 w-3.5" />
                     {pdfBusyId === `${card.id}:view`
                       ? "Abrindo..."
                       : card.status === "INVALIDATED"
@@ -474,26 +553,28 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                         : "Visualizar"}
                   </button>
                   <button
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                     disabled={Boolean(pdfBusyId)}
                     onClick={() => void handlePdf(card, "download")}
                     type="button"
                   >
+                    <Download aria-hidden="true" className="h-3.5 w-3.5" />
                     {pdfBusyId === `${card.id}:download` ? "Baixando..." : "Baixar PDF"}
                   </button>
                   <button
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                     disabled={Boolean(pdfBusyId) || card.status !== "ACTIVE"}
                     onClick={() => void handlePdf(card, "print")}
                     type="button"
                     title={card.status === "ACTIVE" ? undefined : "Carteirinha invalidada"}
                   >
+                    <Printer aria-hidden="true" className="h-3.5 w-3.5" />
                     {pdfBusyId === `${card.id}:print` ? "Abrindo..." : "Imprimir"}
                   </button>
                   <button
-                    className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
+                    className="inline-flex h-8 items-center justify-center rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-60"
                     disabled={saving || card.status !== "ACTIVE"}
-                    onClick={() => void handleInvalidate(card)}
+                    onClick={() => requestInvalidation(card)}
                     type="button"
                   >
                     Invalidar
@@ -524,10 +605,10 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             Próxima
           </button>
         </div>
-      </div>
+      </section>
 
       {canUseAdministrativeIssue ? (
-      <details className="rounded border border-amber-200 bg-amber-50 p-4">
+      <details className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <summary className="cursor-pointer text-sm font-semibold text-amber-950">
           Emissão administrativa excepcional
         </summary>
@@ -536,7 +617,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
           carteirinha automaticamente no cadastro ou aprovação do acadêmico.
         </p>
         <div className="mt-4 grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-        <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <div className={cx(adminTheme.card, "min-w-0 p-4")}>
           <h2 className="text-base font-semibold text-slate-950">
             Localizar acadêmico
           </h2>
@@ -548,14 +629,14 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
             }}
           >
             <input
-              className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+              className={cx(adminTheme.control, "min-w-0 flex-1")}
               onChange={(event) => setStudentSearch(event.target.value)}
               placeholder="Buscar acadêmico"
               type="search"
               value={studentSearch}
             />
             <button
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+              className={adminTheme.primaryButton}
               type="submit"
             >
               Buscar
@@ -582,7 +663,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
         </div>
 
         <form
-          className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
+          className={cx(adminTheme.card, "min-w-0 p-4")}
           onSubmit={handleIssue}
         >
           <h2 className="text-base font-semibold text-slate-950">
@@ -594,7 +675,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 {selectedStudent.person.fullName}
               </p>
               <select
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 onChange={(event) => {
                   setIssueEnrollmentId(event.target.value);
                   setPreview(null);
@@ -610,7 +691,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 ))}
               </select>
               <select
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 onChange={(event) => {
                   setIssueCardType(event.target.value as StudentCardType);
                   setPreview(null);
@@ -621,7 +702,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 <option value="BOARD_MEMBER">Diretoria</option>
               </select>
               <input
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 maxLength={300}
                 onChange={(event) => setNote(event.target.value)}
                 placeholder="Observação opcional"
@@ -629,14 +710,14 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               />
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
-                  className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+                  className={adminTheme.secondaryButton}
                   onClick={() => void handlePreview()}
                   type="button"
                 >
                   Visualizar prévia administrativa
                 </button>
                 <button
-                  className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className={adminTheme.primaryButton}
                   disabled={saving}
                   type="submit"
                 >
@@ -654,6 +735,18 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
         </form>
       </div>
       </details>
+      ) : null}
+      {pendingInvalidation ? (
+        <StudentCardInvalidationDialog
+          card={pendingInvalidation.card}
+          disabled={saving}
+          note={invalidationNote}
+          onCancel={() => setPendingInvalidation(null)}
+          onConfirm={() => void confirmInvalidation()}
+          onNoteChange={setInvalidationNote}
+          onReasonChange={setInvalidationReason}
+          reason={invalidationReason}
+        />
       ) : null}
     </div>
   );
@@ -744,39 +837,6 @@ export function StudentCardsForStudent({
       await onChanged();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao emitir");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleInvalidate(card: StudentCardRecord) {
-    const reason = promptOption<StudentCardInvalidationReason>(
-      "Selecione o motivo da invalidação da carteirinha:",
-      [
-        { label: "Correção administrativa", value: "MANUAL_CORRECTION" },
-        { label: "Outro motivo", value: "OTHER" },
-        { label: "Fim de participação na diretoria", value: "BOARD_MEMBERSHIP_ENDED" },
-        { label: "Acadêmico desligado", value: "STUDENT_TERMINATED" },
-      ],
-    );
-    if (!reason) {
-      setError("Selecione um motivo válido para invalidar a carteirinha.");
-      return;
-    }
-    const invalidationNote = window.prompt("Observação opcional") ?? undefined;
-    setSaving(true);
-    setMessage("");
-    setError("");
-    try {
-      await api.invalidateStudentCard(student.id, card.id, {
-        reason,
-        note: emptyToUndefined(invalidationNote),
-      });
-      setMessage("Carteirinha invalidada");
-      await loadCards();
-      await onChanged();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao invalidar");
     } finally {
       setSaving(false);
     }
@@ -941,6 +1001,126 @@ function StudentCardPreviewBox({ preview }: { preview: StudentCardPreview }) {
             )})`
           : "nenhuma"}
       </p>
+    </div>
+  );
+}
+
+function StudentCardStatusBadge({ card }: { card: StudentCardRecord }) {
+  if (card.status === "INVALIDATED") {
+    return <AdminStatusBadge tone="red">Invalidada</AdminStatusBadge>;
+  }
+  if (!card.validity.usable && card.validity.reason) {
+    return <AdminStatusBadge tone="orange">Expirada</AdminStatusBadge>;
+  }
+  return <AdminStatusBadge tone="green">Ativa</AdminStatusBadge>;
+}
+
+function StudentCardValidityBadges({ card }: { card: StudentCardRecord }) {
+  const hasPhotoIssue = card.validity.reason?.toLowerCase().includes("foto");
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <AdminStatusBadge tone={card.validity.usable ? "green" : "orange"}>
+        {card.validity.usable
+          ? "Utilizável"
+          : validityReasonLabel(card.validity.reason)}
+      </AdminStatusBadge>
+      {hasPhotoIssue ? <AdminStatusBadge tone="orange">Sem foto</AdminStatusBadge> : null}
+      {card.status === "INVALIDATED" ? (
+        <AdminStatusBadge tone="red">Sem emissão</AdminStatusBadge>
+      ) : null}
+    </span>
+  );
+}
+
+function StudentCardInvalidationDialog({
+  card,
+  disabled,
+  note,
+  onCancel,
+  onConfirm,
+  onNoteChange,
+  onReasonChange,
+  reason,
+}: {
+  card: StudentCardRecord;
+  disabled?: boolean;
+  note: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  onNoteChange: (value: string) => void;
+  onReasonChange: (value: StudentCardInvalidationReason) => void;
+  reason: StudentCardInvalidationReason;
+}) {
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    confirmButtonRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-[2px]">
+      <section
+        aria-modal="true"
+        className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+        role="dialog"
+      >
+        <div className="flex gap-3 p-5">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-red-200 bg-red-50 text-red-700">
+            <AlertTriangle aria-hidden="true" className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-slate-950">
+              Invalidar carteirinha
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {card.cardNumber} de {card.student.person.fullName}. A regra funcional
+              permanece a mesma; informe o motivo antes de confirmar.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 border-t border-slate-200 px-5 py-4">
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Motivo
+            <select
+              className={adminTheme.control}
+              onChange={(event) =>
+                onReasonChange(event.target.value as StudentCardInvalidationReason)
+              }
+              value={reason}
+            >
+              <option value="MANUAL_CORRECTION">Correção administrativa</option>
+              <option value="OTHER">Outro motivo</option>
+              <option value="BOARD_MEMBERSHIP_ENDED">
+                Fim de participação na diretoria
+              </option>
+              <option value="STUDENT_TERMINATED">Acadêmico desligado</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Observação opcional
+            <input
+              className={adminTheme.control}
+              maxLength={300}
+              onChange={(event) => onNoteChange(event.target.value)}
+              value={note}
+            />
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50/80 px-5 py-4">
+          <button className={adminTheme.secondaryButton} onClick={onCancel} type="button">
+            Cancelar
+          </button>
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-600 bg-red-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-600/20 focus:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
+            disabled={disabled}
+            onClick={onConfirm}
+            ref={confirmButtonRef}
+            type="button"
+          >
+            {disabled ? "Invalidando..." : "Invalidar carteirinha"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

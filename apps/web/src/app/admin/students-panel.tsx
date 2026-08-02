@@ -1,16 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  ClipboardCheck,
   GraduationCap,
   MoreVertical,
   Plus,
   Search,
   SlidersHorizontal,
+  TrafficCone,
   UserRound,
 } from "lucide-react";
 import {
@@ -40,6 +42,15 @@ import {
 import { StudentInvoicesForStudent } from "./finance-panel";
 import { adminTheme, cx } from "./admin-theme";
 import { StudentCardsForStudent } from "./student-cards-panel";
+import {
+  AdminConfirmDialog,
+  AdminEmptyState,
+  AdminFeedback,
+  AdminModuleHeader,
+  AdminSectionHeader,
+  AdminStatusBadge,
+  AdminSummaryCard,
+} from "./components/admin-ui";
 import { StudentCreateView } from "./students/student-create-view";
 import { StudentProfileView } from "./students/student-profile-view";
 
@@ -1271,8 +1282,23 @@ export function ReenrollmentsPanel() {
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pendingReenrollment, setPendingReenrollment] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  const selectedYear = useMemo(
+    () => years.find((year) => year.id === academicYearId),
+    [academicYearId, years],
+  );
+  const summary = useMemo(
+    () => ({
+      eligible: candidates.length,
+      pending: candidates.length,
+      completed: message ? 1 : 0,
+      blocked: preview && !preview.eligible ? 1 : 0,
+    }),
+    [candidates.length, message, preview],
+  );
 
   useEffect(() => {
     void loadReferences();
@@ -1371,13 +1397,16 @@ export function ReenrollmentsPanel() {
   async function handleReenroll(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected || !preview?.eligible) {
-      setError(preview?.blockingReason ?? "Selecione um academico elegivel");
+      setError(preview?.blockingReason ?? "Selecione um acadêmico elegível");
       return;
     }
-    const confirmed = window.confirm(
-      "Confirmar rematricula preservando a matricula anterior? A selecao de onibus e opcional e nao gera boleto, carteirinha ou copia de documentos.",
-    );
-    if (!confirmed) {
+    setPendingReenrollment(true);
+  }
+
+  async function confirmReenrollment() {
+    if (!selected || !preview?.eligible) {
+      setError(preview?.blockingReason ?? "Selecione um acadêmico elegível");
+      setPendingReenrollment(false);
       return;
     }
     setSaving(true);
@@ -1389,7 +1418,8 @@ export function ReenrollmentsPanel() {
         busId: emptyToUndefined(busId),
         note: emptyToUndefined(note),
       });
-      setMessage("Rematricula criada");
+      setMessage("Rematrícula criada");
+      setPendingReenrollment(false);
       setSelected(null);
       setPreview(null);
       setBusId("");
@@ -1405,9 +1435,52 @@ export function ReenrollmentsPanel() {
   }
 
   return (
-    <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-      <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 p-4">
+    <div className="grid min-w-0 gap-5">
+      <AdminModuleHeader
+        description="Prepare rematrículas anuais preservando elegibilidade, vínculos acadêmicos, transporte e validações já homologadas."
+        eyebrow="Fluxo acadêmico"
+        icon={ClipboardCheck}
+        title="Rematrículas"
+      />
+
+      <div className="grid min-w-0 gap-3 md:grid-cols-4">
+        <AdminSummaryCard
+          description={selectedYear ? `Ano de destino ${selectedYear.year}.` : "Ano de destino não selecionado."}
+          icon={GraduationCap}
+          label="Total elegível"
+          tone="blue"
+          value={summary.eligible}
+        />
+        <AdminSummaryCard
+          description="Acadêmicos disponíveis na fila atual."
+          icon={UserRound}
+          label="Pendentes"
+          tone="orange"
+          value={summary.pending}
+        />
+        <AdminSummaryCard
+          description="Criadas nesta sessão da tela."
+          icon={ClipboardCheck}
+          label="Concluídas"
+          tone="green"
+          value={summary.completed}
+        />
+        <AdminSummaryCard
+          description="Bloqueio exibido na prévia selecionada."
+          icon={TrafficCone}
+          label="Com bloqueio"
+          tone="red"
+          value={summary.blocked}
+        />
+      </div>
+
+      <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(340px,430px)]">
+      <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
+        <AdminSectionHeader
+          description="Busque candidatos e escolha o ano letivo de destino."
+          title="Candidatos elegíveis"
+        />
+        <div className="border-b border-slate-200/80 p-4">
           <div className="flex min-w-0 flex-wrap items-end gap-2">
             <form
               className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row"
@@ -1417,16 +1490,17 @@ export function ReenrollmentsPanel() {
               }}
             >
               <input
-                className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+                className={cx(adminTheme.control, "min-w-0 flex-1")}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Buscar candidato"
                 type="search"
                 value={search}
               />
               <button
-                className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+                className={adminTheme.primaryButton}
                 type="submit"
               >
+                <Search aria-hidden="true" className="h-4 w-4" />
                 Buscar
               </button>
             </form>
@@ -1446,18 +1520,10 @@ export function ReenrollmentsPanel() {
           </div>
         </div>
 
-        {message ? (
-          <div className="mx-4 mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {message}
-          </div>
-        ) : null}
-        {error ? (
-          <div className="mx-4 mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
+        {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
+        {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
 
-        <div className="hidden max-w-full overflow-x-auto lg:block">
+        <div className="hidden">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -1473,13 +1539,16 @@ export function ReenrollmentsPanel() {
               {loading ? (
                 <tr>
                   <td className="px-4 py-6 text-slate-500" colSpan={6}>
-                    Carregando...
+                    <AdminEmptyState loading title="Carregando candidatos" />
                   </td>
                 </tr>
               ) : candidates.length === 0 ? (
                 <tr>
                   <td className="px-4 py-6 text-slate-500" colSpan={6}>
-                    Nenhum candidato elegivel
+                    <AdminEmptyState
+                      description="Ajuste a busca ou selecione outro ano de destino."
+                      title="Nenhum candidato elegível"
+                    />
                   </td>
                 </tr>
               ) : (
@@ -1492,7 +1561,9 @@ export function ReenrollmentsPanel() {
                       {candidate.person.cpfMasked}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
-                      {candidate.currentEnrollment?.academicYear.year ?? "-"}
+                      <AdminStatusBadge tone="blue">
+                        {candidate.currentEnrollment?.academicYear.year ?? "-"}
+                      </AdminStatusBadge>
                     </td>
                     <td className="px-4 py-3 text-slate-700">
                       {candidate.currentEnrollment?.institution.name ?? "-"}
@@ -1502,7 +1573,7 @@ export function ReenrollmentsPanel() {
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                        className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                         onClick={() => void selectCandidate(candidate)}
                         type="button"
                       >
@@ -1515,19 +1586,18 @@ export function ReenrollmentsPanel() {
             </tbody>
           </table>
         </div>
-        <div className="grid gap-3 p-4 lg:hidden">
+        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
           {loading ? (
-            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Carregando...
-            </p>
+            <AdminEmptyState loading title="Carregando candidatos" />
           ) : candidates.length === 0 ? (
-            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Nenhum candidato elegivel
-            </p>
+            <AdminEmptyState
+              description="Ajuste a busca ou selecione outro ano de destino."
+              title="Nenhum candidato elegível"
+            />
           ) : (
             candidates.map((candidate) => (
               <article
-                className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 text-sm"
+                className={cx(adminTheme.card, "grid min-w-0 gap-3 p-3 text-sm")}
                 key={candidate.id}
               >
                 <div className="min-w-0">
@@ -1540,8 +1610,7 @@ export function ReenrollmentsPanel() {
                 </div>
                 <div className="grid gap-1 text-xs text-slate-600">
                   <span>
-                    Ano anterior:{" "}
-                    {candidate.currentEnrollment?.academicYear.year ?? "-"}
+                    Ano letivo: {candidate.currentEnrollment?.academicYear.year ?? "-"}
                   </span>
                   <span>
                     Instituicao:{" "}
@@ -1551,7 +1620,7 @@ export function ReenrollmentsPanel() {
                 </div>
                 <div>
                   <button
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
                     onClick={() => void selectCandidate(candidate)}
                     type="button"
                   >
@@ -1562,34 +1631,38 @@ export function ReenrollmentsPanel() {
             ))
           )}
         </div>
-      </div>
+      </section>
 
       <form
-        className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
+        className={cx(adminTheme.card, "min-w-0 overflow-hidden")}
         onSubmit={handleReenroll}
       >
-        <h2 className="text-base font-semibold text-slate-950">
-          Nova rematricula
-        </h2>
+        <AdminSectionHeader
+          description="Confira a prévia e ajuste a nova matrícula anual."
+          title="Nova rematrícula"
+        />
 
         {selected && preview ? (
-          <div className="mt-4 grid gap-3">
-            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+          <div className="grid gap-3 p-4">
+            <div className={cx(adminTheme.softPanel, "p-3 text-sm")}>
               <p className="font-medium text-slate-950">
                 {selected.person.fullName}
               </p>
               <p className="mt-1 text-slate-600">
-                Matricula anterior preservada:{" "}
+                Matrícula anterior preservada:{" "}
                 {preview.previousEnrollment
                   ? `${preview.previousEnrollment.academicYear.year} - ${preview.previousEnrollment.institution.name}`
-                  : "sem matricula anterior"}
+                  : "sem matrícula anterior"}
               </p>
               <p className="mt-1 text-slate-600">
-                Onibus anterior:{" "}
-                {preview.previousBusAssignment?.bus.name ?? "sem referencia"}
+                Instituição: {preview.previousEnrollment?.institution.name ?? "-"}
               </p>
               <p className="mt-1 text-slate-600">
-                Esta rematricula nao gera boleto, carteirinha ou copia documentos.
+                Transporte anterior:{" "}
+                {preview.previousBusAssignment?.bus.name ?? "sem referência"}
+              </p>
+              <p className="mt-1 text-slate-600">
+                Esta rematrícula não gera boleto, carteirinha ou cópia de documentos.
               </p>
               {preview.blockingReason ? (
                 <p className="mt-2 text-red-700">{preview.blockingReason}</p>
@@ -1607,14 +1680,14 @@ export function ReenrollmentsPanel() {
 
             <div className="grid gap-2">
               <h3 className="text-sm font-semibold text-slate-950">
-                Onibus opcional
+                Transporte opcional
               </h3>
               <select
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 onChange={(event) => setBusId(event.target.value)}
                 value={busId}
               >
-                <option value="">Sem onibus nesta rematricula</option>
+                <option value="">Sem ônibus nesta rematrícula</option>
                 {buses.map((bus) => (
                   <option disabled={Boolean(bus.isFull)} key={bus.id} value={bus.id}>
                     {bus.name} - {bus.availableSeats ?? bus.capacity} vagas
@@ -1622,28 +1695,43 @@ export function ReenrollmentsPanel() {
                 ))}
               </select>
               <input
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 maxLength={240}
                 onChange={(event) => setNote(event.target.value)}
-                placeholder="Observacao opcional"
+                placeholder="Observação opcional"
                 value={note}
               />
             </div>
 
             <button
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+              className={cx(adminTheme.primaryButton, "w-full")}
               disabled={saving || !preview.eligible}
               type="submit"
             >
-              {saving ? "Criando..." : "Confirmar rematricula"}
+              {saving ? "Criando..." : "Confirmar rematrícula"}
             </button>
           </div>
         ) : (
-          <p className="mt-4 text-sm text-slate-600">
-            Selecione um candidato elegivel para preparar a nova Enrollment.
-          </p>
+          <div className="p-4">
+            <AdminEmptyState
+              description="Selecione um candidato elegível na lista para montar a prévia da nova matrícula."
+              title="Nenhum candidato selecionado"
+            />
+          </div>
         )}
       </form>
+      </div>
+      {pendingReenrollment ? (
+        <AdminConfirmDialog
+          confirmLabel={saving ? "Criando..." : "Criar rematrícula"}
+          description="A matrícula anterior será preservada. Transporte é opcional, e esta ação não gera boleto, carteirinha ou cópia de documentos."
+          disabled={saving}
+          onCancel={() => setPendingReenrollment(false)}
+          onConfirm={() => void confirmReenrollment()}
+          title="Confirmar rematrícula"
+          tone="orange"
+        />
+      ) : null}
     </div>
   );
 }
