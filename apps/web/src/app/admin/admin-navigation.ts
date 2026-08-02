@@ -77,15 +77,15 @@ export const ADMIN_NAV_ITEMS = [
     label: "Pre-cadastros",
   },
   {
-    description: "Periodos letivos",
+    description: "Períodos letivos",
     icon: CalendarDays,
     key: "years",
-    label: "Anos Letivos",
+    label: "Anos letivos",
   },
   {
-    description: "Instituicoes, turnos e onibus",
+    description: "Instituições, turnos e ônibus",
     icon: Database,
     key: "base",
-    label: "Cadastros Base",
+    label: "Cadastros base",
   },
 ] as const satisfies readonly AdminNavItem[];

@@ -1,23 +1,66 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  Archive,
+  CalendarDays,
+  CheckCircle2,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Star,
+  Trash2,
+} from "lucide-react";
 import { api, type AcademicYear, type ApiUser } from "../../lib/api";
 import { canAccessRestrictedAdmin } from "../../lib/auth";
+import { adminTheme, cx } from "./admin-theme";
+import {
+  AdminConfirmDialog,
+  AdminEmptyState,
+  AdminFeedback,
+  AdminModuleHeader,
+  AdminSectionHeader,
+  AdminStatusBadge,
+  AdminSummaryCard,
+} from "./components/admin-ui";
 
 type YearStatusFilter = "active" | "archived" | "all";
+type YearAction = "set-current" | "archive" | "reactivate" | "delete";
+type PendingYearAction = {
+  action: YearAction;
+  item: AcademicYear;
+} | null;
+
+const yearStatusLabels: Record<YearStatusFilter, string> = {
+  active: "Ativos",
+  archived: "Arquivados",
+  all: "Todos",
+};
 
 export function AcademicYearsPanel({ user }: { user: ApiUser }) {
   const canWrite = canAccessRestrictedAdmin(user);
   const [years, setYears] = useState<AcademicYear[]>([]);
+  const [summaryYears, setSummaryYears] = useState<AcademicYear[]>([]);
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [isCurrent, setIsCurrent] = useState(false);
   const [status, setStatus] = useState<YearStatusFilter>("active");
   const [editingId, setEditingId] = useState("");
   const [editingYear, setEditingYear] = useState("");
+  const [pendingAction, setPendingAction] = useState<PendingYearAction>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  const summary = useMemo(() => {
+    const current = summaryYears.find((item) => item.isCurrent);
+    return {
+      active: summaryYears.filter((item) => item.status === "ACTIVE").length,
+      archived: summaryYears.filter((item) => item.status === "ARCHIVED")
+        .length,
+      current,
+    };
+  }, [summaryYears]);
 
   useEffect(() => {
     void loadYears();
@@ -27,8 +70,12 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
     setLoading(true);
     setError("");
     try {
-      const response = await api.listAcademicYears({ status });
+      const [response, summaryResponse] = await Promise.all([
+        api.listAcademicYears({ status }),
+        api.listAcademicYears({ status: "all" }),
+      ]);
       setYears(response.data);
+      setSummaryYears(summaryResponse.data);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar");
     } finally {
@@ -43,7 +90,7 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
     setError("");
     try {
       await api.createAcademicYear({ year: Number(year), isCurrent });
-      setMessage("Ano Letivo salvo");
+      setMessage("Ano letivo salvo");
       setIsCurrent(false);
       await loadYears();
     } catch (caught) {
@@ -66,7 +113,7 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
     setError("");
     try {
       await api.updateAcademicYear(item.id, { year: Number(editingYear) });
-      setMessage("Ano Letivo atualizado");
+      setMessage("Ano letivo atualizado");
       setEditingId("");
       await loadYears();
     } catch (caught) {
@@ -76,19 +123,30 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
     }
   }
 
-  async function setCurrent(item: AcademicYear) {
-    const confirmed = window.confirm(
-      `Definir ${item.year} como Ano Letivo atual? Os demais deixam de ser atuais.`,
-    );
-    if (!confirmed) {
+  async function confirmYearAction() {
+    if (!pendingAction) {
       return;
     }
+
     setSaving(true);
     setMessage("");
     setError("");
     try {
-      await api.setCurrentAcademicYear(item.id);
-      setMessage("Ano Letivo atual atualizado");
+      const { action, item } = pendingAction;
+      if (action === "set-current") {
+        await api.setCurrentAcademicYear(item.id);
+        setMessage("Ano letivo atual atualizado");
+      } else if (action === "archive") {
+        await api.archiveAcademicYear(item.id);
+        setMessage("Ano letivo arquivado");
+      } else if (action === "reactivate") {
+        await api.reactivateAcademicYear(item.id);
+        setMessage("Ano letivo reativado");
+      } else {
+        await api.deleteAcademicYear(item.id);
+        setMessage("Ano letivo excluído");
+      }
+      setPendingAction(null);
       await loadYears();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao atualizar");
@@ -97,407 +155,462 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
     }
   }
 
-  async function archive(item: AcademicYear) {
-    const confirmed = window.confirm(
-      `Arquivar ${item.year}? Ele continuara nos historicos, mas nao aparecera em novos fluxos.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-    setSaving(true);
-    setMessage("");
-    setError("");
-    try {
-      await api.archiveAcademicYear(item.id);
-      setMessage("Ano Letivo arquivado");
-      await loadYears();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao arquivar");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function reactivate(item: AcademicYear) {
-    const confirmed = window.confirm(
-      `Reativar ${item.year}? Ele voltara a aparecer em novos fluxos, mas nao sera marcado como atual automaticamente.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-    setSaving(true);
-    setMessage("");
-    setError("");
-    try {
-      await api.reactivateAcademicYear(item.id);
-      setMessage("Ano Letivo reativado");
-      await loadYears();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao reativar");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function remove(item: AcademicYear) {
-    const confirmed = window.confirm(
-      `Excluir definitivamente ${item.year}? Esta acao so e permitida para Ano Letivo vazio e nao atual.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-    setSaving(true);
-    setMessage("");
-    setError("");
-    try {
-      await api.deleteAcademicYear(item.id);
-      setMessage("Ano Letivo excluido");
-      await loadYears();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao excluir");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const dialog = pendingAction ? getYearDialog(pendingAction) : null;
 
   return (
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
-      <form
-        className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
-        onSubmit={handleSubmit}
-      >
-        <h2 className="text-base font-semibold text-slate-950">Ano Letivo</h2>
-        {!canWrite ? (
-          <p className="mt-2 text-sm text-slate-600">
-            Secretaria pode consultar e selecionar Anos Letivos.
-          </p>
-        ) : null}
-        <label className="mt-4 block text-sm font-medium text-slate-700">
-          Ano
-          <input
-            className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
-            disabled={!canWrite}
-            max={2100}
-            min={2000}
-            onChange={(event) => setYear(event.target.value)}
-            required
-            type="number"
-            value={year}
-          />
-        </label>
-        <label className="mt-4 flex items-center gap-2 text-sm font-medium text-slate-700">
-          <input
-            checked={isCurrent}
-            disabled={!canWrite}
-            onChange={(event) => setIsCurrent(event.target.checked)}
-            type="checkbox"
-          />
-          Definir como atual
-        </label>
-        <button
-          className="mt-5 rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-          disabled={!canWrite || saving}
-          type="submit"
-        >
-          {saving ? "Salvando..." : "Salvar"}
-        </button>
-      </form>
+    <div className="grid min-w-0 gap-5">
+      <AdminModuleHeader
+        description="Organize os períodos letivos disponíveis para matrículas, rematrículas, carteirinhas e consultas operacionais."
+        eyebrow="Configuração acadêmica"
+        icon={CalendarDays}
+        title="Anos letivos"
+      />
 
-      <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
-        <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200 p-4 md:flex-row md:items-center md:justify-between">
-          <h2 className="text-base font-semibold text-slate-950">
-            Anos cadastrados
-          </h2>
-          <select
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-            onChange={(event) => setStatus(event.target.value as YearStatusFilter)}
-            value={status}
+      <div className="grid min-w-0 gap-3 md:grid-cols-3">
+        <AdminSummaryCard
+          description="Referência principal dos fluxos atuais."
+          icon={Star}
+          label="Ano atual"
+          tone="blue"
+          value={summary.current?.year ?? "-"}
+        />
+        <AdminSummaryCard
+          description="Disponíveis para novos fluxos."
+          icon={CheckCircle2}
+          label="Anos ativos"
+          tone="green"
+          value={summary.active}
+        />
+        <AdminSummaryCard
+          description="Mantidos para histórico e auditoria."
+          icon={Archive}
+          label="Arquivados"
+          tone="slate"
+          value={summary.archived}
+        />
+      </div>
+
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(280px,0.36fr)_minmax(0,1fr)]">
+        <form
+          className={cx(adminTheme.card, "min-w-0 p-4")}
+          onSubmit={handleSubmit}
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700">
+              <Plus aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-slate-950">
+                Novo ano letivo
+              </h2>
+              <p className="mt-1 text-sm leading-5 text-slate-600">
+                Cadastre o período e marque como atual quando ele deve assumir
+                os fluxos principais.
+              </p>
+            </div>
+          </div>
+
+          {!canWrite ? (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Secretaria pode consultar e selecionar anos letivos.
+            </p>
+          ) : null}
+
+          <label className="mt-5 block text-sm font-medium text-slate-700">
+            Ano
+            <input
+              className={cx(adminTheme.control, "mt-1 w-full")}
+              disabled={!canWrite}
+              max={2100}
+              min={2000}
+              onChange={(event) => setYear(event.target.value)}
+              required
+              type="number"
+              value={year}
+            />
+          </label>
+
+          <label className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm font-medium text-slate-700">
+            <input
+              checked={isCurrent}
+              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+              disabled={!canWrite}
+              onChange={(event) => setIsCurrent(event.target.checked)}
+              type="checkbox"
+            />
+            Definir como atual
+          </label>
+
+          <button
+            className={cx(
+              adminTheme.primaryButton,
+              "mt-5 w-full justify-center",
+            )}
+            disabled={!canWrite || saving}
+            type="submit"
           >
-            <option value="active">Ativos</option>
-            <option value="archived">Arquivados</option>
-            <option value="all">Todos</option>
-          </select>
-        </div>
-        {message ? (
-          <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {message}
-          </div>
-        ) : null}
-        {error ? (
-          <div className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
-        <div className="hidden max-w-full overflow-x-auto md:block">
-          <table className="w-full min-w-[660px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Ano</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Atual</th>
-                <th className="px-4 py-3">Arquivado em</th>
-                <th className="px-4 py-3">Acoes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
+            {saving ? "Salvando..." : "Salvar ano letivo"}
+          </button>
+        </form>
+
+        <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
+          <AdminSectionHeader
+            action={
+              <select
+                className={cx(adminTheme.control, "w-full md:w-auto")}
+                onChange={(event) =>
+                  setStatus(event.target.value as YearStatusFilter)
+                }
+                value={status}
+              >
+                <option value="active">Ativos</option>
+                <option value="archived">Arquivados</option>
+                <option value="all">Todos</option>
+              </select>
+            }
+            description={`Mostrando: ${yearStatusLabels[status].toLowerCase()}.`}
+            title="Anos cadastrados"
+          />
+
+          {message ? (
+            <AdminFeedback tone="green">{message}</AdminFeedback>
+          ) : null}
+          {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
+
+          <div className="hidden max-w-full overflow-x-auto md:block">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-[0.08em] text-slate-500">
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={5}>
-                    Carregando...
-                  </td>
+                  <th className="px-4 py-3 font-semibold">Ano</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Atual</th>
+                  <th className="px-4 py-3 font-semibold">Arquivado em</th>
+                  <th className="px-4 py-3 font-semibold">Ações</th>
                 </tr>
-              ) : years.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={5}>
-                    Nenhum Ano Letivo encontrado
-                  </td>
-                </tr>
-              ) : (
-                years.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-4 py-3 font-medium text-slate-950">
-                      {editingId === item.id ? (
-                        <input
-                          className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
-                          max={2100}
-                          min={2000}
-                          onChange={(event) => setEditingYear(event.target.value)}
-                          type="number"
-                          value={editingYear}
-                        />
-                      ) : (
-                        item.year
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={
-                          item.status === "ACTIVE"
-                            ? "rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800"
-                            : "rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700"
-                        }
-                      >
-                        {item.status === "ACTIVE" ? "Ativo" : "Arquivado"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={
-                          item.isCurrent
-                            ? "rounded bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800"
-                            : "rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600"
-                        }
-                      >
-                        {item.isCurrent ? "Atual" : "Nao"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {item.archivedAt
-                        ? new Date(item.archivedAt).toLocaleDateString("pt-BR")
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        {editingId === item.id ? (
-                          <>
-                            <button
-                              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                              disabled={!canWrite || saving}
-                              onClick={() => void saveEdit(item)}
-                              type="button"
-                            >
-                              Salvar
-                            </button>
-                            <button
-                              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
-                              onClick={() => setEditingId("")}
-                              type="button"
-                            >
-                              Cancelar
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                            disabled={!canWrite || saving || !item.canEditYear}
-                            onClick={() => beginEdit(item)}
-                            type="button"
-                          >
-                            Editar
-                          </button>
-                        )}
-                        <button
-                          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                          disabled={!canWrite || saving || !item.canSetCurrent}
-                          onClick={() => void setCurrent(item)}
-                          type="button"
-                        >
-                          Definir atual
-                        </button>
-                        {item.status === "ACTIVE" ? (
-                          <button
-                            className="rounded border border-amber-300 px-2 py-1 text-xs font-medium text-amber-800 disabled:opacity-50"
-                            disabled={!canWrite || saving || !item.canArchive}
-                            onClick={() => void archive(item)}
-                            type="button"
-                          >
-                            Arquivar
-                          </button>
-                        ) : (
-                          <button
-                            className="rounded border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-800 disabled:opacity-50"
-                            disabled={!canWrite || saving || !item.canReactivate}
-                            onClick={() => void reactivate(item)}
-                            type="button"
-                          >
-                            Reativar
-                          </button>
-                        )}
-                        <button
-                          className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-50"
-                          disabled={!canWrite || saving || !item.canDelete}
-                          onClick={() => void remove(item)}
-                          type="button"
-                        >
-                          Excluir
-                        </button>
-                      </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {loading ? (
+                  <tr>
+                    <td className="px-4 py-6" colSpan={5}>
+                      <AdminEmptyState
+                        loading
+                        title="Carregando anos letivos"
+                      />
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="grid gap-3 p-4 md:hidden">
-          {loading ? (
-            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Carregando...
-            </p>
-          ) : years.length === 0 ? (
-            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Nenhum Ano Letivo encontrado
-            </p>
-          ) : (
-            years.map((item) => (
-              <article
-                className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 text-sm"
-                key={item.id}
-              >
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-950">
-                      {editingId === item.id ? (
-                        <input
-                          className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
-                          max={2100}
-                          min={2000}
-                          onChange={(event) => setEditingYear(event.target.value)}
-                          type="number"
-                          value={editingYear}
-                        />
-                      ) : (
-                        item.year
-                      )}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Arquivado em:{" "}
-                      {item.archivedAt
-                        ? new Date(item.archivedAt).toLocaleDateString("pt-BR")
-                        : "-"}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span
-                      className={
-                        item.status === "ACTIVE"
-                          ? "rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800"
-                          : "rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700"
+                ) : years.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-6" colSpan={5}>
+                      <AdminEmptyState
+                        description="Ajuste o filtro ou cadastre um novo ano letivo."
+                        title="Nenhum ano letivo encontrado"
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  years.map((item) => (
+                    <YearDesktopRow
+                      canWrite={canWrite}
+                      editingId={editingId}
+                      editingYear={editingYear}
+                      item={item}
+                      key={item.id}
+                      onBeginEdit={beginEdit}
+                      onCancelEdit={() => setEditingId("")}
+                      onEditYearChange={setEditingYear}
+                      onRequestAction={(action) =>
+                        setPendingAction({ action, item })
                       }
-                    >
-                      {item.status === "ACTIVE" ? "Ativo" : "Arquivado"}
-                    </span>
-                    <span
-                      className={
-                        item.isCurrent
-                          ? "rounded bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800"
-                          : "rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600"
-                      }
-                    >
-                      {item.isCurrent ? "Atual" : "Nao"}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {editingId === item.id ? (
-                    <>
-                      <button
-                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                        disabled={!canWrite || saving}
-                        onClick={() => void saveEdit(item)}
-                        type="button"
-                      >
-                        Salvar
-                      </button>
-                      <button
-                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
-                        onClick={() => setEditingId("")}
-                        type="button"
-                      >
-                        Cancelar
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                      disabled={!canWrite || saving || !item.canEditYear}
-                      onClick={() => beginEdit(item)}
-                      type="button"
-                    >
-                      Editar
-                    </button>
-                  )}
-                  <button
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
-                    disabled={!canWrite || saving || !item.canSetCurrent}
-                    onClick={() => void setCurrent(item)}
-                    type="button"
-                  >
-                    Definir atual
-                  </button>
-                  {item.status === "ACTIVE" ? (
-                    <button
-                      className="rounded border border-amber-300 px-2 py-1 text-xs font-medium text-amber-800 disabled:opacity-50"
-                      disabled={!canWrite || saving || !item.canArchive}
-                      onClick={() => void archive(item)}
-                      type="button"
-                    >
-                      Arquivar
-                    </button>
-                  ) : (
-                    <button
-                      className="rounded border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-800 disabled:opacity-50"
-                      disabled={!canWrite || saving || !item.canReactivate}
-                      onClick={() => void reactivate(item)}
-                      type="button"
-                    >
-                      Reativar
-                    </button>
-                  )}
-                  <button
-                    className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-50"
-                    disabled={!canWrite || saving || !item.canDelete}
-                    onClick={() => void remove(item)}
-                    type="button"
-                  >
-                    Excluir
-                  </button>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
+                      onSaveEdit={saveEdit}
+                      saving={saving}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid gap-3 p-4 md:hidden">
+            {loading ? (
+              <AdminEmptyState loading title="Carregando anos letivos" />
+            ) : years.length === 0 ? (
+              <AdminEmptyState
+                description="Ajuste o filtro ou cadastre um novo ano letivo."
+                title="Nenhum ano letivo encontrado"
+              />
+            ) : (
+              years.map((item) => (
+                <YearMobileCard
+                  canWrite={canWrite}
+                  editingId={editingId}
+                  editingYear={editingYear}
+                  item={item}
+                  key={item.id}
+                  onBeginEdit={beginEdit}
+                  onCancelEdit={() => setEditingId("")}
+                  onEditYearChange={setEditingYear}
+                  onRequestAction={(action) =>
+                    setPendingAction({ action, item })
+                  }
+                  onSaveEdit={saveEdit}
+                  saving={saving}
+                />
+              ))
+            )}
+          </div>
+        </section>
       </div>
+
+      {dialog ? (
+        <AdminConfirmDialog
+          confirmLabel={dialog.confirmLabel}
+          description={dialog.description}
+          disabled={saving}
+          onCancel={() => setPendingAction(null)}
+          onConfirm={() => void confirmYearAction()}
+          title={dialog.title}
+          tone={dialog.tone}
+        />
+      ) : null}
     </div>
   );
+}
+
+function YearDesktopRow({
+  canWrite,
+  editingId,
+  editingYear,
+  item,
+  onBeginEdit,
+  onCancelEdit,
+  onEditYearChange,
+  onRequestAction,
+  onSaveEdit,
+  saving,
+}: YearRowProps) {
+  return (
+    <tr className="align-top transition-colors hover:bg-slate-50/70">
+      <td className="px-4 py-3 font-medium text-slate-950">
+        {editingId === item.id ? (
+          <input
+            className={cx(adminTheme.control, "w-28")}
+            max={2100}
+            min={2000}
+            onChange={(event) => onEditYearChange(event.target.value)}
+            type="number"
+            value={editingYear}
+          />
+        ) : (
+          item.year
+        )}
+      </td>
+      <td className="px-4 py-3">
+        <YearStatusBadge item={item} />
+      </td>
+      <td className="px-4 py-3">
+        <AdminStatusBadge tone={item.isCurrent ? "blue" : "slate"}>
+          {item.isCurrent ? "Atual" : "Não"}
+        </AdminStatusBadge>
+      </td>
+      <td className="px-4 py-3 text-slate-600">{formatArchivedAt(item)}</td>
+      <td className="px-4 py-3">
+        <YearActions
+          canWrite={canWrite}
+          editing={editingId === item.id}
+          item={item}
+          onBeginEdit={onBeginEdit}
+          onCancelEdit={onCancelEdit}
+          onRequestAction={onRequestAction}
+          onSaveEdit={onSaveEdit}
+          saving={saving}
+        />
+      </td>
+    </tr>
+  );
+}
+
+function YearMobileCard(props: YearRowProps) {
+  const { editingId, editingYear, item, onEditYearChange } = props;
+
+  return (
+    <article className="grid min-w-0 gap-4 rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+            Ano letivo
+          </p>
+          <div className="mt-1 font-semibold text-slate-950">
+            {editingId === item.id ? (
+              <input
+                className={cx(adminTheme.control, "w-28")}
+                max={2100}
+                min={2000}
+                onChange={(event) => onEditYearChange(event.target.value)}
+                type="number"
+                value={editingYear}
+              />
+            ) : (
+              item.year
+            )}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Arquivado em: {formatArchivedAt(item)}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <YearStatusBadge item={item} />
+          <AdminStatusBadge tone={item.isCurrent ? "blue" : "slate"}>
+            {item.isCurrent ? "Atual" : "Não"}
+          </AdminStatusBadge>
+        </div>
+      </div>
+      <YearActions {...props} editing={editingId === item.id} />
+    </article>
+  );
+}
+
+type YearRowProps = {
+  canWrite: boolean;
+  editingId: string;
+  editingYear: string;
+  item: AcademicYear;
+  onBeginEdit: (item: AcademicYear) => void;
+  onCancelEdit: () => void;
+  onEditYearChange: (value: string) => void;
+  onRequestAction: (action: YearAction) => void;
+  onSaveEdit: (item: AcademicYear) => Promise<void>;
+  saving: boolean;
+};
+
+function YearActions({
+  canWrite,
+  editing,
+  item,
+  onBeginEdit,
+  onCancelEdit,
+  onRequestAction,
+  onSaveEdit,
+  saving,
+}: Omit<YearRowProps, "editingId" | "editingYear" | "onEditYearChange"> & {
+  editing: boolean;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap gap-2">
+      {editing ? (
+        <>
+          <button
+            className={adminTheme.secondaryButton}
+            disabled={!canWrite || saving}
+            onClick={() => void onSaveEdit(item)}
+            type="button"
+          >
+            Salvar
+          </button>
+          <button
+            className={adminTheme.secondaryButton}
+            onClick={onCancelEdit}
+            type="button"
+          >
+            Cancelar
+          </button>
+        </>
+      ) : (
+        <button
+          className={adminTheme.secondaryButton}
+          disabled={!canWrite || saving || !item.canEditYear}
+          onClick={() => onBeginEdit(item)}
+          type="button"
+        >
+          <Pencil aria-hidden="true" className="h-4 w-4" />
+          Editar
+        </button>
+      )}
+      <button
+        className={adminTheme.secondaryButton}
+        disabled={!canWrite || saving || !item.canSetCurrent}
+        onClick={() => onRequestAction("set-current")}
+        type="button"
+      >
+        <Star aria-hidden="true" className="h-4 w-4" />
+        Definir atual
+      </button>
+      {item.status === "ACTIVE" ? (
+        <button
+          className={adminTheme.secondaryButton}
+          disabled={!canWrite || saving || !item.canArchive}
+          onClick={() => onRequestAction("archive")}
+          type="button"
+        >
+          <Archive aria-hidden="true" className="h-4 w-4" />
+          Arquivar
+        </button>
+      ) : (
+        <button
+          className={adminTheme.secondaryButton}
+          disabled={!canWrite || saving || !item.canReactivate}
+          onClick={() => onRequestAction("reactivate")}
+          type="button"
+        >
+          <RotateCcw aria-hidden="true" className="h-4 w-4" />
+          Reativar
+        </button>
+      )}
+      <button
+        className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={!canWrite || saving || !item.canDelete}
+        onClick={() => onRequestAction("delete")}
+        type="button"
+      >
+        <Trash2 aria-hidden="true" className="h-4 w-4" />
+        Excluir
+      </button>
+    </div>
+  );
+}
+
+function YearStatusBadge({ item }: { item: AcademicYear }) {
+  return (
+    <AdminStatusBadge tone={item.status === "ACTIVE" ? "green" : "slate"}>
+      {item.status === "ACTIVE" ? "Ativo" : "Arquivado"}
+    </AdminStatusBadge>
+  );
+}
+
+function formatArchivedAt(item: AcademicYear) {
+  return item.archivedAt
+    ? new Date(item.archivedAt).toLocaleDateString("pt-BR")
+    : "-";
+}
+
+function getYearDialog({ action, item }: Exclude<PendingYearAction, null>) {
+  if (action === "set-current") {
+    return {
+      confirmLabel: "Definir atual",
+      description: `Definir ${item.year} como ano letivo atual? Os demais deixam de ser atuais.`,
+      title: "Definir ano atual",
+      tone: "blue" as const,
+    };
+  }
+  if (action === "archive") {
+    return {
+      confirmLabel: "Arquivar",
+      description: `Arquivar ${item.year}? Ele continuará nos históricos, mas não aparecerá em novos fluxos.`,
+      title: "Arquivar ano letivo",
+      tone: "orange" as const,
+    };
+  }
+  if (action === "reactivate") {
+    return {
+      confirmLabel: "Reativar",
+      description: `Reativar ${item.year}? Ele voltará a aparecer em novos fluxos, mas não será marcado como atual automaticamente.`,
+      title: "Reativar ano letivo",
+      tone: "green" as const,
+    };
+  }
+  return {
+    confirmLabel: "Excluir",
+    description: `Excluir definitivamente ${item.year}? Esta ação só é permitida para ano letivo vazio e não atual.`,
+    title: "Excluir ano letivo",
+    tone: "red" as const,
+  };
 }
