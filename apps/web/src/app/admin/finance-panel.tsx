@@ -1298,7 +1298,7 @@ export function FinancePanel({
           </button>
         </div>
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+        <div className="mt-4 grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <div className={cx(adminTheme.softPanel, "grid gap-3 p-4")}>
             <span className="text-xs font-semibold uppercase text-slate-500">
               Lote institucional
@@ -1700,13 +1700,13 @@ export function FinancePanel({
         <Pagination page={page} setPage={setPage} totalPages={totalPages} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
-        <div className="rounded border border-slate-200 bg-white p-4 shadow-sm" id="finance-create-invoice">
+      <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+        <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm" id="finance-create-invoice">
           <h2 className="text-base font-semibold text-slate-950">
             Criar fatura
           </h2>
           <form
-            className="mt-3 flex gap-2"
+            className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row"
             onSubmit={(event) => {
               event.preventDefault();
               void searchStudents(studentSearch);
@@ -1747,7 +1747,7 @@ export function FinancePanel({
         </div>
 
         <form
-          className="rounded border border-slate-200 bg-white p-4 shadow-sm"
+          className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
           onSubmit={handleCreate}
         >
           <h2 className="text-base font-semibold text-slate-950">
@@ -1796,7 +1796,7 @@ export function FinancePanel({
                 placeholder="Descricao opcional"
                 value={description}
               />
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <button
                   className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
                   onClick={() => void handlePreview()}

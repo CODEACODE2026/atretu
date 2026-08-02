@@ -148,7 +148,7 @@ export function DashboardKpiCard({
           priority ? classes.rail : "bg-slate-200",
         )}
       />
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-slate-600">
             {metric.label}
@@ -199,7 +199,7 @@ export function DashboardOperationalCard({
         aria-hidden="true"
         className={cx("absolute inset-y-0 left-0 w-1", classes.rail)}
       />
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="break-words text-sm font-semibold text-slate-600">
             {metric.label}
@@ -298,7 +298,7 @@ export function DashboardMetricStrip({ metrics }: { metrics: DashboardMetric[] }
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
       {metrics.map((metric) => {
         const tone = resolveMetricTone(metric);
         return (
@@ -338,8 +338,8 @@ export function DashboardListCard({
   title: string;
 }) {
   return (
-    <div className="grid gap-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className="grid min-w-0 gap-3">
+      <div className="flex min-w-0 items-center justify-between gap-2">
         <h4 className="text-sm font-semibold text-slate-950">{title}</h4>
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200/80">
           {items.length}
@@ -348,7 +348,7 @@ export function DashboardListCard({
       {items.length === 0 ? (
         <DashboardEmptyState compact text={emptyText} />
       ) : (
-        <ul className="grid gap-2">
+        <ul className="grid min-w-0 gap-2">
           {items.map((item) => {
             const tone = resolveListItemTone(item);
             return (
@@ -360,7 +360,7 @@ export function DashboardListCard({
                   aria-hidden="true"
                   className={cx("absolute inset-y-3 left-0 w-1 rounded-r-full", toneClasses[tone].rail)}
                 />
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0 pl-2">
                     <p className="break-words text-sm font-semibold text-slate-950">
                       {item.label}
@@ -419,13 +419,13 @@ export function DashboardChartCard({
       {chart.data.length === 0 || max === 0 ? (
         <DashboardEmptyState compact text={emptyText} />
       ) : (
-        <div className="grid gap-4">
+        <div className="grid min-w-0 gap-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2 text-xs text-slate-500">
             <span>0</span>
             <span>{chart.key === "occupancyByBus" ? "Ocupacao" : "Escala relativa"}</span>
             <span>{formatChartValue(max)}</span>
           </div>
-          <div className="grid gap-3">
+          <div className="grid min-w-0 gap-3">
             {chart.data.map((point) => (
               <DashboardBarRow
                 key={`${chart.key}-${point.busId ?? point.label}`}
@@ -456,7 +456,7 @@ export function DashboardQuickShortcuts({
   }
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-3">
       {shortcuts.map((shortcut) => {
         const available = isShortcutAvailable(shortcut);
         return (
@@ -633,7 +633,7 @@ function DashboardBarRow({
   const width = Math.max(4, Math.min(widthPercent, 100));
 
   return (
-    <div className="grid gap-1.5">
+    <div className="grid min-w-0 gap-1.5">
       <div className="flex items-center justify-between gap-3 text-xs">
         <span className="min-w-0 break-words font-semibold text-slate-700">
           {label}

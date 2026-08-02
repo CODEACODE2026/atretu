@@ -72,7 +72,7 @@ export function FinanceFilters({
         <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700 md:col-span-2">
           Busca
           <input
-            className={adminTheme.control}
+            className={cx(adminTheme.control, "w-full")}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Nome ou CPF"
             type="search"
@@ -81,7 +81,7 @@ export function FinanceFilters({
         </label>
         <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
           Ano letivo
-          <select className={adminTheme.control} onChange={(event) => setAcademicYearId(event.target.value)} value={academicYearId}>
+          <select className={cx(adminTheme.control, "w-full")} onChange={(event) => setAcademicYearId(event.target.value)} value={academicYearId}>
             <option value="">Todos</option>
             {years.map((year) => (
               <option key={year.id} value={year.id}>
@@ -92,7 +92,7 @@ export function FinanceFilters({
         </label>
         <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
           Instituição
-          <select className={adminTheme.control} onChange={(event) => setInstitutionId(event.target.value)} value={institutionId}>
+          <select className={cx(adminTheme.control, "w-full")} onChange={(event) => setInstitutionId(event.target.value)} value={institutionId}>
             <option value="">Todas</option>
             {institutions.map((institution) => (
               <option key={institution.id} value={institution.id}>
@@ -103,7 +103,7 @@ export function FinanceFilters({
         </label>
         <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
           Situação
-          <select className={adminTheme.control} onChange={(event) => setStatus(event.target.value as InvoiceStatus | "")} value={status}>
+          <select className={cx(adminTheme.control, "w-full")} onChange={(event) => setStatus(event.target.value as InvoiceStatus | "")} value={status}>
             <option value="">Todas</option>
             <option value="OPEN">Aberta</option>
             <option value="PAID">Paga</option>
@@ -115,10 +115,10 @@ export function FinanceFilters({
             <SlidersHorizontal aria-hidden className="h-4 w-4" />
             Mais filtros
           </summary>
-          <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+          <div className="mt-3 grid min-w-0 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
               Vencimento
-              <select className={adminTheme.control} onChange={(event) => setOverdue(event.target.value as "all" | "overdue" | "notOverdue")} value={overdue}>
+              <select className={cx(adminTheme.control, "w-full")} onChange={(event) => setOverdue(event.target.value as "all" | "overdue" | "notOverdue")} value={overdue}>
                 <option value="all">Todas</option>
                 <option value="overdue">Vencidas</option>
                 <option value="notOverdue">Não vencidas</option>
@@ -126,19 +126,19 @@ export function FinanceFilters({
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
               Vencimento de
-              <input className={adminTheme.control} onChange={(event) => setDueDateFrom(event.target.value)} type="date" value={dueDateFrom} />
+              <input className={cx(adminTheme.control, "w-full")} onChange={(event) => setDueDateFrom(event.target.value)} type="date" value={dueDateFrom} />
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
               Vencimento até
-              <input className={adminTheme.control} onChange={(event) => setDueDateTo(event.target.value)} type="date" value={dueDateTo} />
+              <input className={cx(adminTheme.control, "w-full")} onChange={(event) => setDueDateTo(event.target.value)} type="date" value={dueDateTo} />
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
               Pagamento de
-              <input className={adminTheme.control} onChange={(event) => setPaidAtFrom(event.target.value)} type="date" value={paidAtFrom} />
+              <input className={cx(adminTheme.control, "w-full")} onChange={(event) => setPaidAtFrom(event.target.value)} type="date" value={paidAtFrom} />
             </label>
             <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
               Pagamento até
-              <input className={adminTheme.control} onChange={(event) => setPaidAtTo(event.target.value)} type="date" value={paidAtTo} />
+              <input className={cx(adminTheme.control, "w-full")} onChange={(event) => setPaidAtTo(event.target.value)} type="date" value={paidAtTo} />
             </label>
           </div>
         </details>

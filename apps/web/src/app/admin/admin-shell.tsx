@@ -263,8 +263,8 @@ function AdminWorkspace({
       <div
         className={
           effectiveSidebarCollapsed
-            ? "min-h-screen transition-[margin] duration-200 md:ml-20"
-            : "min-h-screen transition-[margin] duration-200 md:ml-72"
+            ? "min-h-screen min-w-0 transition-[margin] duration-200 md:ml-20"
+            : "min-h-screen min-w-0 transition-[margin] duration-200 md:ml-72"
         }
       >
         <AdminTopbar
@@ -688,9 +688,9 @@ function BaseRecordsPanel({
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+    <div className="grid min-w-0 gap-4">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap gap-2">
           {DOMAINS.map((item) => (
             <button
               className={
@@ -708,7 +708,7 @@ function BaseRecordsPanel({
         </div>
 
         <form
-          className="flex w-full gap-2 sm:w-auto"
+          className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row"
           onSubmit={(event) => {
             event.preventDefault();
             setPage(1);
@@ -731,9 +731,9 @@ function BaseRecordsPanel({
         </form>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
         <form
-          className="rounded border border-slate-200 bg-white p-4 shadow-sm"
+          className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
           onSubmit={handleSubmit}
         >
           <h2 className="text-base font-semibold text-slate-950">
@@ -785,9 +785,9 @@ function BaseRecordsPanel({
           </div>
         </form>
 
-        <div className="rounded border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
-            <div className="flex flex-wrap gap-2">
+        <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+            <div className="flex min-w-0 flex-wrap gap-2">
               <select
                 className="rounded border border-slate-300 px-3 py-2 text-sm"
                 onChange={(event) => {
@@ -876,8 +876,8 @@ function BaseRecordsPanel({
             </div>
           ) : null}
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+          <div className="hidden max-w-full overflow-x-auto md:block">
+            <table className="w-full min-w-[620px] border-collapse text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Nome</th>
@@ -996,11 +996,88 @@ function BaseRecordsPanel({
               </tbody>
             </table>
           </div>
+          <div className="grid gap-3 p-4 md:hidden">
+            {loading ? (
+              <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                Carregando...
+              </p>
+            ) : records.length === 0 ? (
+              <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                Nenhum registro encontrado
+              </p>
+            ) : (
+              records.map((record) => (
+                <article
+                  className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 text-sm"
+                  key={record.id}
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words font-medium text-slate-950">
+                        {record.name}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Atualizado em{" "}
+                        {new Date(record.updatedAt).toLocaleDateString("pt-BR")}
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        record.status === "ACTIVE"
+                          ? "shrink-0 rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800"
+                          : "shrink-0 rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700"
+                      }
+                    >
+                      {record.status === "ACTIVE" ? "Ativo" : "Inativo"}
+                    </span>
+                  </div>
+                  {currentDomain.hasCapacity && "capacity" in record ? (
+                    <div className="grid grid-cols-3 gap-2 text-xs text-slate-600">
+                      <span>Capacidade: {record.capacity}</span>
+                      <span>Ocupados: {record.occupiedSeats ?? 0}</span>
+                      <span>Livres: {record.availableSeats ?? record.capacity}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                      onClick={() => startEdit(record)}
+                      type="button"
+                    >
+                      Editar
+                    </button>
+                    {currentDomain.hasCapacity ? (
+                      <button
+                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                        onClick={() => void openBus(record)}
+                        type="button"
+                      >
+                        Vinculados
+                      </button>
+                    ) : null}
+                    <button
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                      onClick={() =>
+                        setPendingAction({
+                          record,
+                          nextStatus:
+                            record.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
+                        })
+                      }
+                      type="button"
+                    >
+                      {record.status === "ACTIVE" ? "Inativar" : "Reativar"}
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
       {selectedBus ? (
-        <div className="rounded border border-slate-200 bg-white shadow-sm">
+        <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
             <div>
               <h2 className="text-base font-semibold text-slate-950">
@@ -1023,7 +1100,7 @@ function BaseRecordsPanel({
               Fechar
             </button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="max-w-full overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>

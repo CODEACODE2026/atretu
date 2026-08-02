@@ -174,7 +174,7 @@ export function DashboardPanel({
                 shortcuts={block.shortcuts ?? dashboard.quickShortcuts}
               />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {block.metrics.map((metric) => (
                   <DashboardOperationalCard
                     key={metric.key}
@@ -187,7 +187,7 @@ export function DashboardPanel({
           </DashboardSection>
         ))}
 
-        <section className="grid gap-4 xl:grid-cols-2">
+        <section className="grid min-w-0 gap-4 xl:grid-cols-2">
           <DashboardChartCard
             chart={dashboard.charts.occupancyByBus}
             emptyText="Sem ocupacao de onibus para exibir."
@@ -271,19 +271,19 @@ export function DashboardPanel({
         operationalContent
       ) : (
         <>
-      <section aria-label="Indicadores principais" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Indicadores principais" className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {primaryKpis.map(({ key, metric }) => (
           <DashboardKpiCard key={key} metric={metric} metricKey={key} priority />
         ))}
       </section>
 
-      <section aria-label="Indicadores secundarios" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Indicadores secundarios" className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {secondaryKpis.map(({ key, metric }) => (
           <DashboardKpiCard key={key} metric={metric} metricKey={key} />
         ))}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
         <DashboardSection
           className="xl:min-h-[320px]"
           icon={dashboardSectionIcons.agenda}
@@ -291,7 +291,7 @@ export function DashboardPanel({
           title="Minha Agenda Hoje"
           tone="info"
         >
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid min-w-0 gap-4 lg:grid-cols-3">
             <DashboardListCard
               emptyText="Nenhum retorno de cobranca para hoje."
               items={dashboard.agendaToday.collectionFollowUps}
@@ -325,7 +325,7 @@ export function DashboardPanel({
         </DashboardSection>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-2">
         <DashboardSection
           icon={dashboardSectionIcons.finance}
           subtitle="Inadimplencia, retornos e casos criticos"
@@ -355,7 +355,7 @@ export function DashboardPanel({
         </DashboardSection>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-3">
         <DashboardSection
           icon={dashboardSectionIcons.transport}
           subtitle="Capacidade operacional e onibus em atencao"
@@ -399,7 +399,7 @@ export function DashboardPanel({
         </DashboardSection>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-2">
         <DashboardChartCard
           chart={dashboard.charts.occupancyByBus}
           emptyText="Sem ocupacao de onibus para exibir."
@@ -407,7 +407,7 @@ export function DashboardPanel({
         <DashboardChartCard chart={dashboard.charts.studentsByInstitution} />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-2">
         <DashboardChartCard chart={dashboard.charts.overdueByAgingBucket} />
         <DashboardChartCard chart={dashboard.charts.preRegistrationsByMonth} />
       </section>

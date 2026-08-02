@@ -161,9 +161,9 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+    <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
       <form
-        className="rounded border border-slate-200 bg-white p-4 shadow-sm"
+        className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
         onSubmit={handleSubmit}
       >
         <h2 className="text-base font-semibold text-slate-950">Ano Letivo</h2>
@@ -203,8 +203,8 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
         </button>
       </form>
 
-      <div className="rounded border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
+        <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200 p-4 md:flex-row md:items-center md:justify-between">
           <h2 className="text-base font-semibold text-slate-950">
             Anos cadastrados
           </h2>
@@ -228,8 +228,8 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
             {error}
           </div>
         ) : null}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
+        <div className="hidden max-w-full overflow-x-auto md:block">
+          <table className="w-full min-w-[660px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3">Ano</th>
@@ -368,6 +368,134 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="grid gap-3 p-4 md:hidden">
+          {loading ? (
+            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              Carregando...
+            </p>
+          ) : years.length === 0 ? (
+            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              Nenhum Ano Letivo encontrado
+            </p>
+          ) : (
+            years.map((item) => (
+              <article
+                className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 text-sm"
+                key={item.id}
+              >
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-950">
+                      {editingId === item.id ? (
+                        <input
+                          className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+                          max={2100}
+                          min={2000}
+                          onChange={(event) => setEditingYear(event.target.value)}
+                          type="number"
+                          value={editingYear}
+                        />
+                      ) : (
+                        item.year
+                      )}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Arquivado em:{" "}
+                      {item.archivedAt
+                        ? new Date(item.archivedAt).toLocaleDateString("pt-BR")
+                        : "-"}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span
+                      className={
+                        item.status === "ACTIVE"
+                          ? "rounded bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800"
+                          : "rounded bg-slate-200 px-2 py-1 text-xs font-medium text-slate-700"
+                      }
+                    >
+                      {item.status === "ACTIVE" ? "Ativo" : "Arquivado"}
+                    </span>
+                    <span
+                      className={
+                        item.isCurrent
+                          ? "rounded bg-sky-100 px-2 py-1 text-xs font-medium text-sky-800"
+                          : "rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600"
+                      }
+                    >
+                      {item.isCurrent ? "Atual" : "Nao"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {editingId === item.id ? (
+                    <>
+                      <button
+                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                        disabled={!canWrite || saving}
+                        onClick={() => void saveEdit(item)}
+                        type="button"
+                      >
+                        Salvar
+                      </button>
+                      <button
+                        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                        onClick={() => setEditingId("")}
+                        type="button"
+                      >
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                      disabled={!canWrite || saving || !item.canEditYear}
+                      onClick={() => beginEdit(item)}
+                      type="button"
+                    >
+                      Editar
+                    </button>
+                  )}
+                  <button
+                    className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                    disabled={!canWrite || saving || !item.canSetCurrent}
+                    onClick={() => void setCurrent(item)}
+                    type="button"
+                  >
+                    Definir atual
+                  </button>
+                  {item.status === "ACTIVE" ? (
+                    <button
+                      className="rounded border border-amber-300 px-2 py-1 text-xs font-medium text-amber-800 disabled:opacity-50"
+                      disabled={!canWrite || saving || !item.canArchive}
+                      onClick={() => void archive(item)}
+                      type="button"
+                    >
+                      Arquivar
+                    </button>
+                  ) : (
+                    <button
+                      className="rounded border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-800 disabled:opacity-50"
+                      disabled={!canWrite || saving || !item.canReactivate}
+                      onClick={() => void reactivate(item)}
+                      type="button"
+                    >
+                      Reativar
+                    </button>
+                  )}
+                  <button
+                    className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-50"
+                    disabled={!canWrite || saving || !item.canDelete}
+                    onClick={() => void remove(item)}
+                    type="button"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
         </div>
       </div>
     </div>

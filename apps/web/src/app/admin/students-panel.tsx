@@ -1405,12 +1405,12 @@ export function ReenrollmentsPanel() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
-      <div className="rounded border border-slate-200 bg-white shadow-sm">
+    <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+      <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-4">
-          <div className="flex flex-wrap items-end gap-2">
+          <div className="flex min-w-0 flex-wrap items-end gap-2">
             <form
-              className="flex min-w-[260px] flex-1 gap-2"
+              className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row"
               onSubmit={(event) => {
                 event.preventDefault();
                 void loadCandidates(search);
@@ -1457,7 +1457,7 @@ export function ReenrollmentsPanel() {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
+        <div className="hidden max-w-full overflow-x-auto lg:block">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -1515,10 +1515,57 @@ export function ReenrollmentsPanel() {
             </tbody>
           </table>
         </div>
+        <div className="grid gap-3 p-4 lg:hidden">
+          {loading ? (
+            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              Carregando...
+            </p>
+          ) : candidates.length === 0 ? (
+            <p className="rounded border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              Nenhum candidato elegivel
+            </p>
+          ) : (
+            candidates.map((candidate) => (
+              <article
+                className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-3 text-sm"
+                key={candidate.id}
+              >
+                <div className="min-w-0">
+                  <p className="break-words font-medium text-slate-950">
+                    {candidate.person.fullName}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {candidate.person.cpfMasked}
+                  </p>
+                </div>
+                <div className="grid gap-1 text-xs text-slate-600">
+                  <span>
+                    Ano anterior:{" "}
+                    {candidate.currentEnrollment?.academicYear.year ?? "-"}
+                  </span>
+                  <span>
+                    Instituicao:{" "}
+                    {candidate.currentEnrollment?.institution.name ?? "-"}
+                  </span>
+                  <span>Curso: {candidate.currentEnrollment?.course ?? "-"}</span>
+                </div>
+                <div>
+                  <button
+                    className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
+                    onClick={() => void selectCandidate(candidate)}
+                    type="button"
+                  >
+                    Preparar
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
       </div>
 
       <form
-        className="rounded border border-slate-200 bg-white p-4 shadow-sm"
+        className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
         onSubmit={handleReenroll}
       >
         <h2 className="text-base font-semibold text-slate-950">
