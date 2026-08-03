@@ -69,7 +69,7 @@ export function InvoiceCard({
   const academicInfo = formatAcademicInfo(invoice);
 
   return (
-    <article className={cx(adminTheme.card, adminTheme.cardHover, "min-w-0 overflow-hidden border-l-4 p-3", toneBorderClass(operationalTone))}>
+    <article className={cx(adminTheme.card, adminTheme.cardHover, "min-w-0 overflow-hidden border-l-4 p-4", toneBorderClass(operationalTone))}>
       <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
         <div className="grid min-w-0 gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -90,9 +90,6 @@ export function InvoiceCard({
             </h3>
             <p className="truncate text-xs text-slate-600">
               {invoice.student.person.cpfMasked}
-            </p>
-            <p className="mt-1 max-w-full break-words text-xs font-normal leading-5 text-slate-500">
-              {academicInfo}
             </p>
           </div>
         </div>
@@ -127,7 +124,10 @@ export function InvoiceCard({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+      <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+        <p className="min-w-0 break-words text-xs leading-5 text-slate-500">
+          {academicInfo}
+        </p>
         <SecondaryActions
           bankSlip={bankSlip}
           busy={busy}

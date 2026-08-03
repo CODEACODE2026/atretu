@@ -1606,29 +1606,31 @@ export function FinancePanel({
         status={status}
         years={years}
       />
-      <div className={cx(adminTheme.card, "min-w-0 p-4")}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-slate-950">Fila de faturas</h2>
-            <p className="text-sm text-slate-600">
-              Itens desta pagina ordenados visualmente por atencao operacional.
-            </p>
+      <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
+        <div className="border-b border-slate-200/80 px-4 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">Fila de faturas</h2>
+              <p className="text-sm text-slate-600">
+                Itens desta página ordenados por atenção operacional.
+              </p>
+            </div>
           </div>
         </div>
 
         {canSyncPaidDay(user) ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-50 p-3">
+          <div className="mx-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <span className="text-xs font-medium uppercase text-slate-500">
-              Conciliacao
+              Conciliação
             </span>
             <input
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className={adminTheme.control}
               onChange={(event) => setSyncPaidDate(event.target.value)}
               type="date"
               value={syncPaidDate}
             />
             <button
-              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+              className={adminTheme.secondaryButton}
               disabled={saving}
               onClick={() => setSyncPaidDialogOpen(true)}
               type="button"
@@ -1642,17 +1644,17 @@ export function FinancePanel({
         ) : null}
 
         {message ? (
-          <p className="mt-3 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <p className="mx-4 mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {message}
           </p>
         ) : null}
         {error ? (
-          <p className="mt-3 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="mx-4 mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </p>
         ) : null}
         {invoiceLoadError ? (
-          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <div className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
             <p className="text-sm font-semibold text-red-800">
               Erro ao carregar faturas
             </p>
@@ -1660,7 +1662,7 @@ export function FinancePanel({
           </div>
         ) : null}
 
-        <div className="mt-4">
+        <div className="mt-4 px-4">
           <InvoiceBulkActionBar
             disabled={saving || loading}
             onClear={() => setSelectedInvoiceIds([])}
@@ -1670,7 +1672,7 @@ export function FinancePanel({
           />
         </div>
 
-        <div className="mt-3">
+        <div className="mt-3 px-4">
           <InvoiceList
             bankSlipAction={bankSlipAction}
             bankSlips={bankSlips}
@@ -1698,10 +1700,10 @@ export function FinancePanel({
           />
         </div>
         <Pagination page={page} setPage={setPage} totalPages={totalPages} />
-      </div>
+      </section>
 
       <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-        <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm" id="finance-create-invoice">
+        <div className={cx(adminTheme.card, "min-w-0 p-4")} id="finance-create-invoice">
           <h2 className="text-base font-semibold text-slate-950">
             Criar fatura
           </h2>
@@ -1713,14 +1715,14 @@ export function FinancePanel({
             }}
           >
             <input
-              className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+              className={cx(adminTheme.control, "min-w-0 flex-1")}
               onChange={(event) => setStudentSearch(event.target.value)}
-              placeholder="Buscar academico"
+              placeholder="Buscar acadêmico"
               type="search"
               value={studentSearch}
             />
             <button
-              className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+              className={adminTheme.primaryButton}
               type="submit"
             >
               Buscar
@@ -1739,7 +1741,7 @@ export function FinancePanel({
                 </span>
                 <span className="text-xs text-slate-600">
                   {student.person.cpfMasked} -{" "}
-                  {student.currentEnrollment?.academicYear.year ?? "sem matricula"}
+                  {student.currentEnrollment?.academicYear.year ?? "sem matrícula"}
                 </span>
               </button>
             ))}
@@ -1747,11 +1749,11 @@ export function FinancePanel({
         </div>
 
         <form
-          className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"
+          className={cx(adminTheme.card, "min-w-0 p-4")}
           onSubmit={handleCreate}
         >
           <h2 className="text-base font-semibold text-slate-950">
-            Confirmacao
+            Confirmação
           </h2>
           {selectedStudent ? (
             <div className="mt-3 grid gap-3 text-sm">
@@ -1759,7 +1761,7 @@ export function FinancePanel({
                 {selectedStudent.person.fullName}
               </p>
               <select
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 onChange={(event) => {
                   setInvoiceEnrollmentId(event.target.value);
                   setPreview(null);
@@ -1767,7 +1769,7 @@ export function FinancePanel({
                 required
                 value={invoiceEnrollmentId}
               >
-                <option value="">Matricula</option>
+                <option value="">Matrícula</option>
                 {selectedStudent.enrollments.map((enrollment) => (
                   <option key={enrollment.id} value={enrollment.id}>
                     {enrollment.academicYear.year} - {enrollment.institution.name}
@@ -1775,7 +1777,7 @@ export function FinancePanel({
                 ))}
               </select>
               <input
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 inputMode="decimal"
                 onChange={(event) => setAmount(event.target.value)}
                 placeholder="Valor em reais"
@@ -1783,29 +1785,29 @@ export function FinancePanel({
                 value={amount}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 onChange={(event) => setDueDate(event.target.value)}
                 required
                 type="date"
                 value={dueDate}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className={adminTheme.control}
                 maxLength={300}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="Descricao opcional"
+                placeholder="Descrição opcional"
                 value={description}
               />
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
-                  className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+                  className={adminTheme.secondaryButton}
                   onClick={() => void handlePreview()}
                   type="button"
                 >
                   Preview
                 </button>
                 <button
-                  className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className={adminTheme.primaryButton}
                   disabled={saving}
                   type="submit"
                 >
@@ -1815,7 +1817,7 @@ export function FinancePanel({
             </div>
           ) : (
             <p className="mt-3 text-sm text-slate-500">
-              Selecione um academico para criar fatura.
+              Selecione um acadêmico para criar fatura.
             </p>
           )}
 

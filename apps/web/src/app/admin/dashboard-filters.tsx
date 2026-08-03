@@ -94,7 +94,7 @@ export function DashboardFilters({
           setOptionsError(
             caught instanceof Error
               ? caught.message
-              : "Nao foi possivel carregar os filtros",
+              : "Não foi possível carregar os filtros",
           );
           setOptionsState("error");
         }
@@ -173,7 +173,7 @@ export function DashboardFilters({
           className="text-xs font-semibold text-slate-500"
           htmlFor="dashboard-institution"
         >
-          Instituicao
+          Instituição
         </label>
         <select
           className={adminTheme.control}
@@ -183,11 +183,11 @@ export function DashboardFilters({
           value={institutionId}
         >
           <option value="">
-            {optionsState === "loading" ? "Carregando instituicoes" : "Todas"}
+            {optionsState === "loading" ? "Carregando instituições" : "Todas"}
           </option>
           {institutionId &&
           !options.institutions.some((institution) => institution.id === institutionId) ? (
-            <option value={institutionId}>Instituicao selecionada</option>
+            <option value={institutionId}>Instituição selecionada</option>
           ) : null}
           {options.institutions.map((institution) => (
             <option key={institution.id} value={institution.id}>
@@ -217,7 +217,7 @@ export function DashboardFilters({
 
       {optionsState === "error" ? (
         <p className="text-xs text-amber-700 lg:col-span-4">
-          {optionsError}. Os dados do Dashboard continuam disponiveis.
+          {optionsError}. Os dados do Dashboard continuam disponíveis.
         </p>
       ) : null}
     </form>

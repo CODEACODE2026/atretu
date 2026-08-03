@@ -75,7 +75,9 @@ export function InvoiceOperationalSummaryCards({
               className={cx(
                 "min-w-0 rounded-lg border p-3 text-left transition focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15",
                 toneClass[item.tone],
-                active ? "ring-2 ring-[#1F6F5F]" : "hover:border-[#8DB7AD]",
+                active
+                  ? "shadow-sm ring-2 ring-[#1F6F5F]"
+                  : "opacity-90 hover:border-[#8DB7AD] hover:opacity-100",
               )}
               key={item.filter}
               onClick={() => onSelect(item.filter)}

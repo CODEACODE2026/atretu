@@ -106,7 +106,7 @@ export function DashboardPanel({
       setState("loaded");
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Nao foi possivel carregar o dashboard",
+        caught instanceof Error ? caught.message : "Não foi possível carregar o dashboard",
       );
       setState("error");
     }
@@ -165,7 +165,7 @@ export function DashboardPanel({
             {block.status === "error" ? (
               <DashboardEmptyState
                 compact
-                text={block.error ?? "Nao foi possivel carregar este bloco."}
+                text={block.error ?? "Não foi possível carregar este bloco."}
               />
             ) : block.key === "quickActions" ? (
               <DashboardQuickShortcuts
@@ -217,18 +217,18 @@ export function DashboardPanel({
                 Dashboard administrativo
                 <span className="inline-flex items-center gap-1 rounded-full border border-[#B8D6CF] bg-[#F8FAFA] px-2 py-0.5 normal-case text-[#14534D]">
                   <Route size={12} strokeWidth={2} />
-                  Operacao em rota
+                  Operação em rota
                 </span>
               </p>
               <h2 className="mt-1 text-xl font-bold tracking-normal text-slate-950 sm:text-2xl">
-                Visao operacional
+                Visão operacional
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                Acompanhamento de academicos, cobranca, documentos, transporte e
-                pendencias do dia em uma leitura unica.
+                Acompanhamento de acadêmicos, cobrança, documentos, transporte e
+                pendências do dia em uma leitura única.
               </p>
               <p className="mt-2 text-sm text-slate-500">
-                Ultima atualizacao: {formatDateTime(dashboard.generatedAt)}
+                Última atualização: {formatDateTime(dashboard.generatedAt)}
               </p>
             </div>
           </div>
@@ -262,7 +262,7 @@ export function DashboardPanel({
 
       {empty ? (
         <DashboardEmptyState
-          text="Quando houver registros no periodo selecionado, os indicadores aparecerao aqui."
+          text="Quando houver registros no período selecionado, os indicadores aparecerão aqui."
           title="Nenhum dado operacional encontrado."
         />
       ) : null}
@@ -271,10 +271,23 @@ export function DashboardPanel({
         operationalContent
       ) : (
         <>
-      <section aria-label="Indicadores principais" className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {primaryKpis.map(({ key, metric }) => (
-          <DashboardKpiCard key={key} metric={metric} metricKey={key} priority />
-        ))}
+      <section
+        aria-label="Indicadores principais"
+        className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]"
+      >
+        {primaryKpis[0] ? (
+          <DashboardKpiCard
+            key={primaryKpis[0].key}
+            metric={primaryKpis[0].metric}
+            metricKey={primaryKpis[0].key}
+            priority
+          />
+        ) : null}
+        <div className="grid min-w-0 gap-4 sm:grid-cols-3 lg:grid-cols-1">
+          {primaryKpis.slice(1).map(({ key, metric }) => (
+            <DashboardKpiCard key={key} metric={metric} metricKey={key} priority />
+          ))}
+        </div>
       </section>
 
       <section aria-label="Indicadores secundarios" className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -287,8 +300,8 @@ export function DashboardPanel({
         <DashboardSection
           className="xl:min-h-[320px]"
           icon={dashboardSectionIcons.agenda}
-          subtitle="Retornos, revisoes e filas que pedem acao operacional"
-          title="Minha Agenda Hoje"
+          subtitle="Retornos e filas que pedem ação hoje"
+          title="Agenda de hoje"
           tone="info"
         >
           <div className="grid min-w-0 gap-4 lg:grid-cols-3">
@@ -313,8 +326,8 @@ export function DashboardPanel({
         <DashboardSection
           className="border-red-100 bg-red-50/30"
           icon={dashboardSectionIcons.alerts}
-          subtitle="Alertas que merecem conferencia primeiro"
-          title="Alertas Criticos"
+          subtitle="Casos que merecem conferência antes da rotina"
+          title="Alertas críticos"
           tone={dashboard.criticalAlerts.length > 0 ? "danger" : "success"}
         >
           <DashboardListCard
@@ -328,8 +341,8 @@ export function DashboardPanel({
       <section className="grid min-w-0 gap-4 xl:grid-cols-2">
         <DashboardSection
           icon={dashboardSectionIcons.finance}
-          subtitle="Inadimplencia, retornos e casos criticos"
-          title="Financeiro e Cobranca"
+          subtitle="Inadimplência, retornos e casos críticos"
+          title="Financeiro e cobrança"
           tone="warning"
         >
           <DashboardMetricStrip metrics={dashboard.financeAndCollections.metrics} />
@@ -342,8 +355,8 @@ export function DashboardPanel({
 
         <DashboardSection
           icon={dashboardSectionIcons.documents}
-          subtitle="Situacao cadastral e documentos esperados"
-          title="Academicos e Documentacao"
+          subtitle="Situação cadastral e documentos esperados"
+          title="Acadêmicos e documentação"
           tone="info"
         >
           <DashboardMetricStrip metrics={dashboard.academicsAndDocuments.metrics} />
@@ -358,8 +371,8 @@ export function DashboardPanel({
       <section className="grid min-w-0 gap-4 xl:grid-cols-3">
         <DashboardSection
           icon={dashboardSectionIcons.transport}
-          subtitle="Capacidade operacional e onibus em atencao"
-          title="Onibus e Vagas"
+          subtitle="Capacidade operacional e ônibus em atenção"
+          title="Ônibus e vagas"
           tone="info"
         >
           <DashboardMetricStrip metrics={dashboard.busesAndSeats.metrics} />
@@ -372,8 +385,8 @@ export function DashboardPanel({
 
         <DashboardSection
           icon={dashboardSectionIcons.preRegistrations}
-          subtitle="Solicitacoes aguardando analise"
-          title="Pre-cadastros"
+          subtitle="Solicitações aguardando análise"
+          title="Pré-cadastros"
           tone="warning"
         >
           <DashboardMetricStrip metrics={dashboard.preRegistrations.metrics} />
@@ -386,8 +399,8 @@ export function DashboardPanel({
 
         <DashboardSection
           icon={dashboardSectionIcons.cards}
-          subtitle="Matriculas sem emissao ativa"
-          title="Carteirinhas Pendentes"
+          subtitle="Matrículas sem emissão ativa"
+          title="Carteirinhas pendentes"
           tone="warning"
         >
           <DashboardMetricStrip metrics={dashboard.pendingStudentCards.metrics} />
@@ -414,8 +427,8 @@ export function DashboardPanel({
 
       <DashboardSection
         icon={dashboardSectionIcons.shortcuts}
-        subtitle="Acesso direto aos modulos operacionais"
-        title="Atalhos Rapidos"
+        subtitle="Acesso direto aos módulos operacionais"
+        title="Ações rápidas"
         tone="neutral"
       >
         <DashboardQuickShortcuts

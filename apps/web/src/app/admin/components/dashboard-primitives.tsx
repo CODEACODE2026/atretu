@@ -136,9 +136,10 @@ export function DashboardKpiCard({
     <article
       className={cx(
         adminTheme.card,
-        adminTheme.cardHover,
-        "group relative overflow-hidden",
-        priority ? `p-5 ${classes.border}` : "border-slate-200 p-4",
+        "group relative overflow-hidden transition duration-150 motion-reduce:transition-none",
+        priority
+          ? `min-h-44 p-5 shadow-[0_14px_34px_rgba(15,46,46,0.07)] ${classes.border}`
+          : "border-slate-200/80 bg-white/75 p-4 shadow-sm hover:border-[#B8D6CF]",
       )}
     >
       <span
@@ -172,7 +173,7 @@ export function DashboardKpiCard({
           <Icon size={priority ? 22 : 18} strokeWidth={2} />
         </span>
       </div>
-      <div className="mt-4 flex min-h-8 items-end justify-between gap-3">
+      <div className={cx("mt-4 flex items-end justify-between gap-3", priority ? "min-h-12" : "min-h-8")}>
         <p className="line-clamp-2 text-sm text-slate-500">
           {metric.context ?? "Sem contexto adicional."}
         </p>
@@ -223,8 +224,7 @@ export function DashboardOperationalCard({
 
   const className = cx(
     adminTheme.card,
-    adminTheme.cardHover,
-    "relative min-h-36 overflow-hidden p-4 text-left transition duration-150 motion-reduce:transition-none",
+    "relative min-h-36 overflow-hidden bg-white/80 p-4 text-left shadow-sm transition duration-150 motion-reduce:transition-none",
     clickable
       ? "cursor-pointer hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 focus:ring-offset-2 motion-reduce:hover:translate-y-0"
       : "",
@@ -298,12 +298,12 @@ export function DashboardMetricStrip({ metrics }: { metrics: DashboardMetric[] }
   }
 
   return (
-    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2">
       {metrics.map((metric) => {
         const tone = resolveMetricTone(metric);
         return (
           <div
-            className="rounded-xl border border-slate-200/80 bg-[#F8FAFA]/85 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+            className="rounded-lg border border-slate-200/70 bg-[#F8FAFA]/75 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
             key={metric.key}
           >
             <div className="flex items-start justify-between gap-2">
@@ -349,11 +349,16 @@ export function DashboardListCard({
         <DashboardEmptyState compact text={emptyText} />
       ) : (
         <ul className="grid min-w-0 gap-2">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const tone = resolveListItemTone(item);
             return (
               <li
-                className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white px-3 py-3 transition duration-150 hover:border-[#B8D6CF] hover:bg-[#F8FAFA] motion-reduce:transition-none"
+                className={cx(
+                  "relative overflow-hidden rounded-xl border transition duration-150 hover:border-[#B8D6CF] hover:bg-[#F8FAFA] motion-reduce:transition-none",
+                  index === 0
+                    ? "border-slate-200/90 bg-white px-3 py-3 shadow-sm"
+                    : "border-slate-200/60 bg-white/70 px-3 py-2.5",
+                )}
                 key={item.id}
               >
                 <span
@@ -362,7 +367,7 @@ export function DashboardListCard({
                 />
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0 pl-2">
-                    <p className="break-words text-sm font-semibold text-slate-950">
+                    <p className={cx("break-words font-semibold text-slate-950", index === 0 ? "text-sm" : "text-xs")}>
                       {item.label}
                     </p>
                     <p className="mt-1 break-words text-xs leading-5 text-slate-500">

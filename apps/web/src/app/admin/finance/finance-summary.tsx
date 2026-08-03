@@ -18,7 +18,7 @@ export function FinanceSummaryCards({
 }) {
   const isFilteredSummary = summary.scope === "filtered";
   const displayValue = (value: string) => (loading ? "..." : value);
-  const items = [
+  const primaryItems = [
     {
       icon: CircleDollarSign,
       label: "Total em aberto",
@@ -37,6 +37,8 @@ export function FinanceSummaryCards({
       tone: "success" as const,
       value: displayValue(formatFinanceCurrency(summary.paidAmountCents)),
     },
+  ];
+  const secondaryItems = [
     {
       icon: ReceiptText,
       label: isFilteredSummary ? "Faturas filtradas" : "Faturas carregadas",
@@ -91,16 +93,38 @@ export function FinanceSummaryCards({
           </p>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        {items.map((item) => {
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        {primaryItems.map((item) => {
           const Icon = item.icon;
           return (
-            <div className={cx("rounded-xl border p-4", toneClass[item.tone])} key={item.label}>
+            <div
+              className={cx("rounded-xl border p-4 shadow-sm", toneClass[item.tone])}
+              key={item.label}
+            >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase text-slate-500">{item.label}</p>
                 <Icon aria-hidden="true" className="h-4 w-4" />
               </div>
-              <p className="mt-3 text-xl font-bold text-slate-950">{item.value}</p>
+              <p className="mt-3 text-2xl font-bold text-slate-950">{item.value}</p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {secondaryItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div
+              className={cx("rounded-lg border px-3 py-2.5", toneClass[item.tone])}
+              key={item.label}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-xs font-semibold uppercase text-slate-500">
+                  {item.label}
+                </p>
+                <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+              </div>
+              <p className="mt-2 text-lg font-bold text-slate-950">{item.value}</p>
             </div>
           );
         })}
