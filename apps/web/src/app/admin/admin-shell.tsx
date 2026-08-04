@@ -45,6 +45,7 @@ import { DashboardPanel } from "./dashboard-panel";
 import { FinancePanel } from "./finance-panel";
 import { JobsMonitorPanel } from "./jobs-monitor-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
+import { ReportsPanel } from "./reports-panel";
 import { StudentCardsPanel } from "./student-cards-panel";
 import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
 
@@ -364,6 +365,7 @@ function AdminWorkspace({
               user={user}
             />
           ) : null}
+          {area === "reports" ? <ReportsPanel user={user} /> : null}
           {area === "jobs" ? <JobsMonitorPanel /> : null}
           {area === "pre-registrations" ? (
             <PreRegistrationsPanel

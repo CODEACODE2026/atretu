@@ -1382,6 +1382,9 @@ export class StudentsService {
     if (query.shiftId) {
       enrollmentFilters.shiftId = query.shiftId;
     }
+    if (query.course) {
+      enrollmentFilters.course = { contains: query.course };
+    }
 
     if (Object.keys(enrollmentFilters).length > 0) {
       where.enrollments = { some: enrollmentFilters };
@@ -1520,6 +1523,9 @@ export class StudentsService {
     }
     if (query.shiftId) {
       enrollmentConditions.push(Prisma.sql`e.shift_id = ${query.shiftId}::uuid`);
+    }
+    if (query.course) {
+      enrollmentConditions.push(Prisma.sql`e.course LIKE ${`%${query.course}%`}`);
     }
     if (enrollmentConditions.length > 0) {
       conditions.push(Prisma.sql`EXISTS (

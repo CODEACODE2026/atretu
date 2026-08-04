@@ -584,6 +584,7 @@ export type ListStudentsParams = {
   academicYearId?: string;
   institutionId?: string;
   shiftId?: string;
+  course?: string;
   status?: "active" | "suspended" | "terminated" | "all";
   sort?: "cardNumber" | "name" | "joinedAt" | "createdAt";
   order?: "asc" | "desc";

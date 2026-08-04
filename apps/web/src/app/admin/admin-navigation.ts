@@ -6,6 +6,7 @@ import {
   CalendarDays,
   CreditCard,
   Database,
+  FileBarChart2,
   LayoutDashboard,
   RefreshCw,
   Users,
@@ -19,6 +20,7 @@ export type AdminArea =
   | "reenrollments"
   | "student-cards"
   | "finance"
+  | "reports"
   | "jobs"
   | "pre-registrations"
   | "years"
@@ -62,6 +64,12 @@ export const ADMIN_NAV_ITEMS = [
     icon: WalletCards,
     key: "finance",
     label: "Financeiro",
+  },
+  {
+    description: "Exportacoes operacionais",
+    icon: FileBarChart2,
+    key: "reports",
+    label: "Relatórios",
   },
   {
     description: "Execucoes internas",

@@ -83,6 +83,12 @@ export class ListStudentsDto {
   shiftId?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  course?: string;
+
+  @IsOptional()
   @IsEnum(StudentSort)
   sort = StudentSort.CARD_NUMBER;
 
