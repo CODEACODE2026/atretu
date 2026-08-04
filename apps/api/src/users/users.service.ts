@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { RoleCode, UserStatus, type User } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service.js";
 
@@ -19,19 +25,26 @@ export class UsersService {
   async findByEmailWithPassword(email: string): Promise<
     | (User & {
         roles: Array<{ role: { code: RoleCode } }>;
+        institutions: Array<{ institutionId: string }>;
       })
     | null
   > {
     return this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
-      include: { roles: { include: { role: true } } },
+      include: {
+        roles: { include: { role: true } },
+        institutions: { select: { institutionId: true } },
+      },
     });
   }
 
   async findAuthUserById(id: string): Promise<AuthUser | null> {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: { roles: { include: { role: true } } },
+      include: {
+        roles: { include: { role: true } },
+        institutions: { select: { institutionId: true } },
+      },
     });
 
     if (!user) {
@@ -94,7 +107,10 @@ export class UsersService {
             },
           },
         },
-        include: { roles: { include: { role: true } } },
+        include: {
+          roles: { include: { role: true } },
+          institutions: { select: { institutionId: true } },
+        },
       });
     });
 
@@ -108,19 +124,71 @@ export class UsersService {
     });
   }
 
+  async updateUserInstitutions(
+    userId: string,
+    institutionIds: string[],
+  ): Promise<AuthUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new NotFoundException("Usuario nao encontrado");
+    }
+
+    const uniqueInstitutionIds = Array.from(new Set(institutionIds));
+    const existingInstitutions = uniqueInstitutionIds.length
+      ? await this.prisma.institution.findMany({
+          where: { id: { in: uniqueInstitutionIds } },
+          select: { id: true },
+        })
+      : [];
+    if (existingInstitutions.length !== uniqueInstitutionIds.length) {
+      throw new BadRequestException("Uma ou mais instituicoes nao existem");
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.userInstitution.deleteMany({ where: { userId } });
+      if (uniqueInstitutionIds.length > 0) {
+        await tx.userInstitution.createMany({
+          data: uniqueInstitutionIds.map((institutionId) => ({
+            userId,
+            institutionId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      return tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        include: {
+          roles: { include: { role: true } },
+          institutions: { select: { institutionId: true } },
+        },
+      });
+    });
+
+    return this.toAuthUser(updated);
+  }
+
   toAuthUser(user: {
     id: string;
     name: string;
     email: string;
     status: UserStatus;
     roles: Array<{ role: { code: RoleCode } }>;
+    institutions?: Array<{ institutionId: string }>;
   }): AuthUser {
+    const institutionIds = Array.from(
+      new Set(user.institutions?.map((item) => item.institutionId) ?? []),
+    );
     return {
       id: user.id,
       name: user.name,
       email: user.email,
       status: user.status,
       roles: user.roles.map((userRole) => userRole.role.code),
+      institutionId: institutionIds.length === 1 ? institutionIds[0] : null,
+      institutionIds,
     };
   }
 }

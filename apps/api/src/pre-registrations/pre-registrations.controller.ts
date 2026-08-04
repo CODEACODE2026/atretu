@@ -76,15 +76,21 @@ export class PreRegistrationsController {
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   @Get("pre-registrations")
-  listPreRegistrations(@Query() query: ListPreRegistrationsDto) {
-    return this.preRegistrations.listPreRegistrations(query);
+  listPreRegistrations(
+    @Query() query: ListPreRegistrationsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.preRegistrations.listPreRegistrations(query, user);
   }
 
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   @Get("pre-registrations/:id")
-  getPreRegistration(@Param("id") id: string) {
-    return this.preRegistrations.getPreRegistration(id);
+  getPreRegistration(
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.preRegistrations.getPreRegistration(id, user);
   }
 
   @UseGuards(AuthGuard, RolesGuard)
@@ -101,6 +107,7 @@ export class PreRegistrationsController {
       preRegistrationId: id,
       documentId,
       userId: user.id,
+      currentUser: user,
       disposition: query.disposition,
     });
     response.setHeader("Content-Type", file.mimeType);
@@ -125,7 +132,7 @@ export class PreRegistrationsController {
     @Body() body: ApprovePreRegistrationDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.preRegistrations.approvePreRegistration(id, body, user.id);
+    return this.preRegistrations.approvePreRegistration(id, body, user.id, user);
   }
 
   @UseGuards(AuthGuard, RolesGuard)
@@ -136,6 +143,11 @@ export class PreRegistrationsController {
     @Body() body: RejectPreRegistrationDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.preRegistrations.rejectPreRegistration(id, body.reason, user.id);
+    return this.preRegistrations.rejectPreRegistration(
+      id,
+      body.reason,
+      user.id,
+      user,
+    );
   }
 }

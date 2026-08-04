@@ -325,6 +325,7 @@ model User {
   bankSlipIssueBatches      BankSlipIssueBatch[]     @relation("BankSlipIssueBatchRequestedBy")
   bankSlipIssueBatchCancels BankSlipIssueBatch[]     @relation("BankSlipIssueBatchCancelledBy")
   collectionActionsCreated  CollectionAction[]       @relation("CollectionActionCreatedBy")
+  institutions              UserInstitution[]
 
   @@map("users")
 }
@@ -348,6 +349,20 @@ model UserRole {
 
   @@id([userId, roleId])
   @@map("user_roles")
+}
+
+model UserInstitution {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @map("user_id") @db.Uuid
+  institutionId String      @map("institution_id") @db.Uuid
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, institutionId])
+  @@index([userId])
+  @@index([institutionId])
+  @@map("user_institutions")
 }
 
 model SecurityAuditLog {
@@ -376,6 +391,7 @@ model Institution {
   enrollments          Enrollment[]
   preRegistrations     PublicPreRegistration[]
   bankSlipIssueBatches BankSlipIssueBatch[]
+  users                UserInstitution[]
 
   @@index([status, name])
   @@index([createdAt])

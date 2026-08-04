@@ -14,8 +14,13 @@ import {
   RecordStatus,
 } from "@prisma/client";
 import { resolvePagination } from "../common/pagination.js";
+import {
+  assertInstitutionInScope,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { maskCpf, normalizeCpf } from "../students/cpf.js";
+import type { AuthUser } from "../users/users.service.js";
 import {
   AssignmentStatusFilter,
   ListBusAssignmentsDto,
@@ -26,8 +31,8 @@ import { assertBusHasAvailableSeat, deriveBusAvailability } from "./capacity.js"
 export class BusAssignmentsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async getCurrentAssignment(enrollmentId: string) {
-    await this.ensureEnrollment(enrollmentId);
+  async getCurrentAssignment(enrollmentId: string, currentUser?: AuthUser) {
+    await this.ensureEnrollmentAccess(enrollmentId, currentUser);
     const assignment = await this.prisma.busAssignment.findFirst({
       where: { enrollmentId, status: BusAssignmentStatus.ACTIVE },
       include: this.assignmentInclude(),
@@ -36,7 +41,14 @@ export class BusAssignmentsService {
     return assignment ? this.toAssignment(assignment) : null;
   }
 
-  async assignBus(enrollmentId: string, busId: string, userId: string, note?: string) {
+  async assignBus(
+    enrollmentId: string,
+    busId: string,
+    userId: string,
+    note?: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureEnrollmentAccess(enrollmentId, currentUser);
     try {
       const assignment = await this.prisma.$transaction((tx) =>
         this.assignBusTx(tx, { enrollmentId, busId, userId, note }),
@@ -98,7 +110,13 @@ export class BusAssignmentsService {
     return created;
   }
 
-  async releaseBus(enrollmentId: string, userId: string, note?: string) {
+  async releaseBus(
+    enrollmentId: string,
+    userId: string,
+    note?: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureEnrollmentAccess(enrollmentId, currentUser);
     const assignment = await this.prisma.$transaction(async (tx) => {
       const enrollment = await this.ensureEnrollment(enrollmentId, tx);
       const active = await this.findActiveAssignment(tx, enrollmentId);
@@ -150,7 +168,9 @@ export class BusAssignmentsService {
     newBusId: string,
     userId: string,
     note?: string,
+    currentUser?: AuthUser,
   ) {
+    await this.ensureEnrollmentAccess(enrollmentId, currentUser);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const enrollment = await this.ensureEnrollment(enrollmentId, tx);
@@ -212,12 +232,20 @@ export class BusAssignmentsService {
     }
   }
 
-  async listBusAssignments(busId: string, query: ListBusAssignmentsDto) {
+  async listBusAssignments(
+    busId: string,
+    query: ListBusAssignmentsDto,
+    currentUser?: AuthUser,
+  ) {
     await this.ensureBus(busId);
     const academicYearId = await this.resolveAcademicYearId(query.academicYearId);
     const enrollmentWhere: Prisma.EnrollmentWhereInput = {};
     if (academicYearId) {
       enrollmentWhere.academicYearId = academicYearId;
+    }
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    if (institutionFilter) {
+      enrollmentWhere.institutionId = institutionFilter;
     }
 
     const where: Prisma.BusAssignmentWhereInput = {
@@ -259,7 +287,7 @@ export class BusAssignmentsService {
         take: pagination.limit,
       }),
       this.prisma.busAssignment.count({ where }),
-      this.getBusOccupancy(busId, academicYearId),
+      this.getBusOccupancy(busId, academicYearId, currentUser),
     ]);
 
     return {
@@ -275,8 +303,8 @@ export class BusAssignmentsService {
     };
   }
 
-  async listEnrollmentEvents(enrollmentId: string) {
-    await this.ensureEnrollment(enrollmentId);
+  async listEnrollmentEvents(enrollmentId: string, currentUser?: AuthUser) {
+    await this.ensureEnrollmentAccess(enrollmentId, currentUser);
     const data = await this.prisma.busAssignmentEvent.findMany({
       where: { enrollmentId },
       include: {
@@ -289,13 +317,25 @@ export class BusAssignmentsService {
     return { data };
   }
 
-  private async getBusOccupancy(busId: string, academicYearId: string | null) {
+  private async getBusOccupancy(
+    busId: string,
+    academicYearId: string | null,
+    currentUser?: AuthUser,
+  ) {
     const bus = await this.ensureBus(busId);
+    const institutionFilter = scopedInstitutionFilter(currentUser);
     const occupiedSeats = await this.prisma.busAssignment.count({
       where: {
         busId,
         status: BusAssignmentStatus.ACTIVE,
-        ...(academicYearId ? { enrollment: { academicYearId } } : {}),
+        ...((academicYearId || institutionFilter)
+          ? {
+              enrollment: {
+                ...(academicYearId ? { academicYearId } : {}),
+                ...(institutionFilter ? { institutionId: institutionFilter } : {}),
+              },
+            }
+          : {}),
       },
     });
 
@@ -354,6 +394,16 @@ export class BusAssignmentsService {
     if (!enrollment) {
       throw new NotFoundException("Matricula nao encontrada");
     }
+    return enrollment;
+  }
+
+  private async ensureEnrollmentAccess(
+    id: string,
+    currentUser?: AuthUser,
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const enrollment = await this.ensureEnrollment(id, tx);
+    assertInstitutionInScope(currentUser, enrollment.institutionId);
     return enrollment;
   }
 

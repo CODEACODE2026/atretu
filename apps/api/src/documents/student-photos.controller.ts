@@ -34,8 +34,11 @@ export class StudentPhotosController {
   ) {}
 
   @Get()
-  getPhoto(@Param("studentId") studentId: string) {
-    return this.documents.getStudentPhoto(studentId);
+  getPhoto(
+    @Param("studentId") studentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.documents.getStudentPhoto(studentId, user);
   }
 
   @Post()
@@ -45,7 +48,12 @@ export class StudentPhotosController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.documents.uploadOrReplaceStudentPhoto(studentId, file, user.id);
+    return this.documents.uploadOrReplaceStudentPhoto(
+      studentId,
+      file,
+      user.id,
+      user,
+    );
   }
 
   @Delete()
@@ -53,7 +61,7 @@ export class StudentPhotosController {
     @Param("studentId") studentId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.documents.removeStudentPhoto(studentId, user.id);
+    return this.documents.removeStudentPhoto(studentId, user.id, user);
   }
 
   @Get("file")
@@ -67,6 +75,7 @@ export class StudentPhotosController {
       studentId,
       user.id,
       query.disposition,
+      user,
     );
     response.setHeader("Content-Type", file.mimeType);
     response.setHeader("Content-Length", String(file.sizeBytes));

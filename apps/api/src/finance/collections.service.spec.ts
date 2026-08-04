@@ -20,14 +20,25 @@ import {
 const NOW = new Date("2026-07-21T12:00:00.000Z");
 const USER: AuthUser = {
   id: "user-1",
+  name: "Admin",
+  email: "admin@test",
+  status: UserStatus.ACTIVE,
+  roles: [RoleCode.SUPER_ADMIN],
+};
+const INSTITUTION_USER: AuthUser = {
+  id: "secretaria-1",
   name: "Secretaria",
   email: "secretaria@test",
   status: UserStatus.ACTIVE,
   roles: [RoleCode.SECRETARIA],
-};
-const INSTITUTION_USER: AuthUser = {
-  ...USER,
   institutionId: "institution-1",
+  institutionIds: ["institution-1"],
+};
+const UNLINKED_SECRETARY: AuthUser = {
+  ...INSTITUTION_USER,
+  id: "secretaria-unlinked",
+  institutionId: null,
+  institutionIds: [],
 };
 
 async function testActiveQueueRulesAndNoNPlusOne() {
@@ -574,6 +585,33 @@ async function testInstitutionScopedUserCannotEscapeInstitution() {
   );
   assert.equal(prisma.actions.length, 1);
   assert.equal(prisma.auditLogs.length, 0);
+}
+
+async function testUnlinkedSecretaryDoesNotReceiveGlobalCollections() {
+  const prisma = new FakePrisma([
+    invoiceRecord({ id: "local", institutionId: "institution-1" }),
+    invoiceRecord({ id: "foreign", institutionId: "institution-2" }),
+  ]);
+  const service = newService(prisma);
+
+  const listed = await service.listCases(
+    {},
+    { page: 1, limit: 10 },
+    UNLINKED_SECRETARY,
+  );
+  const summary = await service.getSummary({}, UNLINKED_SECRETARY);
+
+  assert.deepEqual(listed.data, []);
+  assert.equal(summary.invoiceCount, 0);
+  await assert.rejects(
+    () =>
+      service.listCases(
+        { institutionId: "institution-1" },
+        { page: 1, limit: 10 },
+        UNLINKED_SECRETARY,
+      ),
+    /Acesso negado/,
+  );
 }
 
 async function testFiltersAndFollowUps() {
@@ -1607,6 +1645,7 @@ await testCreateActionRollsBackWhenAuditFails();
 await testCreateActionRollsBackWhenActionCreateFails();
 await testPermissionsFollowExistingRoles();
 await testInstitutionScopedUserCannotEscapeInstitution();
+await testUnlinkedSecretaryDoesNotReceiveGlobalCollections();
 await testFiltersAndFollowUps();
 await testDerivedFiltersPaginateAfterFilteringAndUseStableOrder();
 await testAgingBucketBoundariesDoNotOverlap();

@@ -25,7 +25,8 @@ export type StoreBankSlipPdfResult = {
 export class BankSlipPdfStorage {
   private readonly rootPath: string;
 
-  constructor(rootPath = process.env.BANK_SLIP_PDF_STORAGE_PATH ?? "./storage/private/bank-slips") {
+  constructor() {
+    const rootPath = process.env.BANK_SLIP_PDF_STORAGE_PATH ?? "./storage/private/bank-slips";
     this.rootPath = resolve(rootPath);
   }
 

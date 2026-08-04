@@ -12,6 +12,7 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service.js";
+import { scopedInstitutionFilter } from "../auth/institution-scope.js";
 import { DOCUMENT_TYPES } from "../documents/document-file.js";
 import { CollectionsService } from "../finance/collections.service.js";
 import {
@@ -1055,13 +1056,17 @@ export class DashboardService {
   }
 
   private institutionIds(query: DashboardOverviewQueryDto, currentUser: AuthUser) {
-    const scopedIds =
-      currentUser.institutionIds ??
-      (currentUser.institutionId ? [currentUser.institutionId] : null);
-    if (query.institutionId) {
-      return [query.institutionId];
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+    if (!institutionFilter) {
+      return undefined;
     }
-    return scopedIds ?? undefined;
+    if (typeof institutionFilter === "string") {
+      return [institutionFilter];
+    }
+    return institutionFilter.in;
   }
 
   private collectionFilters(

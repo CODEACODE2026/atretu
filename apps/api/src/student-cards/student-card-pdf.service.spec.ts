@@ -115,7 +115,7 @@ function makeService(options?: { card?: unknown; photo?: unknown; photoBuffer?: 
   let storageReads = 0;
   const prisma = {
     studentCard: {
-      findUnique: async () =>
+      findFirst: async () =>
         Object.hasOwn(options ?? {}, "card") ? options?.card : card,
     },
     studentDocument: {

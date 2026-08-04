@@ -14,8 +14,10 @@ import {
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import { scopedInstitutionFilter } from "../auth/institution-scope.js";
 import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
+import type { AuthUser } from "../users/users.service.js";
 import {
   DOCUMENT_TYPES,
   PHOTO_DOCUMENT_TYPES,
@@ -43,8 +45,9 @@ export class DocumentsService {
   async listStudentDocuments(
     studentId: string,
     status?: StudentDocumentStatus | "all",
+    currentUser?: AuthUser,
   ) {
-    await this.ensureStudent(studentId);
+    await this.ensureStudent(studentId, currentUser);
     const documents = await this.prisma.studentDocument.findMany({
       where: {
         studentId,
@@ -69,8 +72,9 @@ export class DocumentsService {
     documentType: StudentDocumentType,
     file: UploadedDocumentFile | undefined,
     userId: string,
+    currentUser?: AuthUser,
   ) {
-    await this.ensureStudent(studentId);
+    await this.ensureStudent(studentId, currentUser);
     const active = await this.prisma.studentDocument.findFirst({
       where: { studentId, documentType, status: StudentDocumentStatus.ACTIVE },
     });
@@ -123,8 +127,8 @@ export class DocumentsService {
     }
   }
 
-  async getStudentPhoto(studentId: string) {
-    await this.ensureStudent(studentId);
+  async getStudentPhoto(studentId: string, currentUser?: AuthUser) {
+    await this.ensureStudent(studentId, currentUser);
     const photo = await this.findActiveStudentPhoto(studentId);
     return { photo: photo ? this.toMetadata(photo) : null };
   }
@@ -133,8 +137,9 @@ export class DocumentsService {
     studentId: string,
     file: UploadedDocumentFile | undefined,
     userId: string,
+    currentUser?: AuthUser,
   ) {
-    await this.ensureStudent(studentId);
+    await this.ensureStudent(studentId, currentUser);
     const active = await this.findActiveStudentPhoto(studentId);
     if (active) {
       return this.replaceStudentDocument(studentId, active.id, file, userId);
@@ -144,33 +149,53 @@ export class DocumentsService {
       StudentDocumentType.PHOTO,
       file,
       userId,
+      currentUser,
     );
   }
 
-  async removeStudentPhoto(studentId: string, userId: string) {
-    await this.ensureStudent(studentId);
+  async removeStudentPhoto(
+    studentId: string,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(studentId, currentUser);
     const active = await this.findActiveStudentPhoto(studentId);
     if (!active) {
       throw new NotFoundException("Foto oficial nao encontrada");
     }
-    return this.removeStudentDocument(studentId, active.id, userId);
+    return this.removeStudentDocument(studentId, active.id, userId, currentUser);
   }
 
   async getStudentPhotoFile(
     studentId: string,
     userId: string,
     disposition: FileDisposition,
+    currentUser?: AuthUser,
   ) {
-    await this.ensureStudent(studentId);
+    await this.ensureStudent(studentId, currentUser);
     const active = await this.findActiveStudentPhoto(studentId);
     if (!active) {
       throw new NotFoundException("Foto oficial nao encontrada");
     }
-    return this.getDocumentFile(studentId, active.id, userId, disposition);
+    return this.getDocumentFile(
+      studentId,
+      active.id,
+      userId,
+      disposition,
+      currentUser,
+    );
   }
 
-  async getStudentDocument(studentId: string, documentId: string) {
-    const document = await this.getDocumentForStudent(studentId, documentId);
+  async getStudentDocument(
+    studentId: string,
+    documentId: string,
+    currentUser?: AuthUser,
+  ) {
+    const document = await this.getDocumentForStudent(
+      studentId,
+      documentId,
+      currentUser,
+    );
     return this.toMetadata(document);
   }
 
@@ -179,8 +204,13 @@ export class DocumentsService {
     documentId: string,
     file: UploadedDocumentFile | undefined,
     userId: string,
+    currentUser?: AuthUser,
   ) {
-    const current = await this.getDocumentForStudent(studentId, documentId);
+    const current = await this.getDocumentForStudent(
+      studentId,
+      documentId,
+      currentUser,
+    );
     if (current.status !== StudentDocumentStatus.ACTIVE) {
       throw new BadRequestException("Somente documento ativo pode ser substituido");
     }
@@ -247,8 +277,13 @@ export class DocumentsService {
     studentId: string,
     documentId: string,
     userId: string,
+    currentUser?: AuthUser,
   ) {
-    const current = await this.getDocumentForStudent(studentId, documentId);
+    const current = await this.getDocumentForStudent(
+      studentId,
+      documentId,
+      currentUser,
+    );
     if (current.status !== StudentDocumentStatus.ACTIVE) {
       throw new BadRequestException("Somente documento ativo pode ser removido");
     }
@@ -286,8 +321,13 @@ export class DocumentsService {
     documentId: string,
     userId: string,
     disposition: FileDisposition,
+    currentUser?: AuthUser,
   ) {
-    const document = await this.getDocumentForStudent(studentId, documentId);
+    const document = await this.getDocumentForStudent(
+      studentId,
+      documentId,
+      currentUser,
+    );
     if (document.status === StudentDocumentStatus.REMOVED) {
       throw new GoneException("Documento removido");
     }
@@ -347,15 +387,28 @@ export class DocumentsService {
     };
   }
 
-  private async ensureStudent(studentId: string) {
-    const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+  private async ensureStudent(studentId: string, currentUser?: AuthUser) {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const student = await this.prisma.student.findFirst({
+      where: {
+        id: studentId,
+        ...(institutionFilter
+          ? { enrollments: { some: { institutionId: institutionFilter } } }
+          : {}),
+      },
+    });
     if (!student) {
       throw new NotFoundException("Academico nao encontrado");
     }
     return student;
   }
 
-  private async getDocumentForStudent(studentId: string, documentId: string) {
+  private async getDocumentForStudent(
+    studentId: string,
+    documentId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(studentId, currentUser);
     const document = await this.prisma.studentDocument.findFirst({
       where: { id: documentId, studentId },
     });

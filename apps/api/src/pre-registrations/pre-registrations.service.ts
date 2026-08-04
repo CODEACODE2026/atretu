@@ -18,6 +18,10 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { BusAssignmentsService } from "../bus-assignments/bus-assignments.service.js";
 import { resolvePagination } from "../common/pagination.js";
+import {
+  assertInstitutionInScope,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import {
@@ -30,6 +34,7 @@ import { DocumentStorageService } from "../documents/document-storage.service.js
 import { RateLimitService } from "../security/rate-limit.service.js";
 import { StudentCardsService } from "../student-cards/student-cards.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "../students/cpf.js";
+import type { AuthUser } from "../users/users.service.js";
 import {
   ApprovePreRegistrationDto,
   ListPreRegistrationsDto,
@@ -213,8 +218,11 @@ export class PreRegistrationsService {
     }
   }
 
-  async listPreRegistrations(query: ListPreRegistrationsDto) {
-    const where = this.buildListWhere(query);
+  async listPreRegistrations(
+    query: ListPreRegistrationsDto,
+    currentUser?: AuthUser,
+  ) {
+    const where = this.buildListWhere(query, currentUser);
     const orderBy = this.buildListOrderBy(query);
     const pagination = resolvePagination(query);
     const [data, total] = await Promise.all([
@@ -239,9 +247,13 @@ export class PreRegistrationsService {
     };
   }
 
-  async getPreRegistration(id: string) {
-    const record = await this.prisma.publicPreRegistration.findUnique({
-      where: { id },
+  async getPreRegistration(id: string, currentUser?: AuthUser) {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const record = await this.prisma.publicPreRegistration.findFirst({
+      where: {
+        id,
+        ...(institutionFilter ? { institutionId: institutionFilter } : {}),
+      },
       include: this.detailInclude(),
     });
     if (!record) {
@@ -254,8 +266,13 @@ export class PreRegistrationsService {
     preRegistrationId: string;
     documentId: string;
     userId: string;
+    currentUser?: AuthUser;
     disposition: FileDisposition;
   }) {
+    await this.ensurePreRegistrationAccessible(
+      input.preRegistrationId,
+      input.currentUser,
+    );
     const document = await this.prisma.preRegistrationDocument.findFirst({
       where: { id: input.documentId, preRegistrationId: input.preRegistrationId },
     });
@@ -304,7 +321,9 @@ export class PreRegistrationsService {
     id: string,
     body: ApprovePreRegistrationDto | undefined,
     userId: string,
+    currentUser?: AuthUser,
   ) {
+    await this.ensurePreRegistrationAccessible(id, currentUser);
     try {
       const approvedId = await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "public_pre_registrations" WHERE "id" = ${id}::uuid FOR UPDATE`;
@@ -457,13 +476,19 @@ export class PreRegistrationsService {
         return record.id;
       });
 
-      return this.getPreRegistration(approvedId);
+      return this.getPreRegistration(approvedId, currentUser);
     } catch (error) {
       this.handleCreateError(error);
     }
   }
 
-  async rejectPreRegistration(id: string, reason: string, userId: string) {
+  async rejectPreRegistration(
+    id: string,
+    reason: string,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensurePreRegistrationAccessible(id, currentUser);
     const trimmedReason = reason.trim();
     if (trimmedReason.length < 3) {
       throw new BadRequestException("Motivo da rejeicao obrigatorio");
@@ -504,7 +529,7 @@ export class PreRegistrationsService {
       return rejected.id;
     });
 
-    return this.getPreRegistration(rejectedId);
+    return this.getPreRegistration(rejectedId, currentUser);
   }
 
   private async preparePreRegistration(
@@ -645,10 +670,17 @@ export class PreRegistrationsService {
     }
   }
 
-  private buildListWhere(query: ListPreRegistrationsDto) {
+  private buildListWhere(
+    query: ListPreRegistrationsDto,
+    currentUser?: AuthUser,
+  ) {
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
     const where: Prisma.PublicPreRegistrationWhereInput = {
       ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
-      ...(query.institutionId ? { institutionId: query.institutionId } : {}),
+      ...(institutionFilter ? { institutionId: institutionFilter } : {}),
       ...(query.status !== "all" ? { status: query.status } : {}),
     };
     if (query.search) {
@@ -661,6 +693,20 @@ export class PreRegistrationsService {
       ];
     }
     return where;
+  }
+
+  private async ensurePreRegistrationAccessible(
+    id: string,
+    currentUser?: AuthUser,
+  ) {
+    const record = await this.prisma.publicPreRegistration.findUnique({
+      where: { id },
+      select: { institutionId: true },
+    });
+    if (!record) {
+      throw new NotFoundException("Pre-cadastro nao encontrado");
+    }
+    assertInstitutionInScope(currentUser, record.institutionId);
   }
 
   private buildListOrderBy(

@@ -39,14 +39,20 @@ export class StudentCardsController {
 
   @Get("student-cards")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listStudentCards(@Query() query: ListStudentCardsDto) {
-    return this.studentCards.listStudentCards(query);
+  listStudentCards(
+    @Query() query: ListStudentCardsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.studentCards.listStudentCards(query, user);
   }
 
   @Get("students/:studentId/cards")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listStudentCardsForStudent(@Param("studentId") studentId: string) {
-    return this.studentCards.listStudentCardsForStudent(studentId);
+  listStudentCardsForStudent(
+    @Param("studentId") studentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.studentCards.listStudentCardsForStudent(studentId, user);
   }
 
   @Get("student-cards/:cardId/pdf")
@@ -54,13 +60,14 @@ export class StudentCardsController {
   async getStudentCardPdf(
     @Param("cardId") cardId: string,
     @Query() query: StudentCardPdfDto,
+    @CurrentUser() user: AuthUser,
     @Res() response: Response,
   ) {
     const disposition = query.disposition ?? "inline";
     if (disposition !== "inline" && disposition !== "attachment") {
       throw new BadRequestException("Disposicao do PDF invalida");
     }
-    const pdf = await this.studentCardPdf.generate(cardId, disposition);
+    const pdf = await this.studentCardPdf.generate(cardId, disposition, user);
     response.setHeader("Content-Type", "application/pdf");
     response.setHeader("Content-Length", String(pdf.sizeBytes));
     response.setHeader(
@@ -79,8 +86,9 @@ export class StudentCardsController {
   previewStudentCard(
     @Param("studentId") studentId: string,
     @Query() query: StudentCardPreviewDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.studentCards.previewStudentCard(studentId, query);
+    return this.studentCards.previewStudentCard(studentId, query, user);
   }
 
   @Post("students/:studentId/cards")
@@ -90,7 +98,7 @@ export class StudentCardsController {
     @Body() body: IssueStudentCardDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.studentCards.issueStudentCard(studentId, body, user.id);
+    return this.studentCards.issueStudentCard(studentId, body, user.id, user);
   }
 
   @Post("students/:studentId/cards/:cardId/invalidate")
@@ -106,6 +114,7 @@ export class StudentCardsController {
       cardId,
       body,
       user.id,
+      user,
     );
   }
 }

@@ -35,13 +35,17 @@ export class BusAssignmentsController {
   listBusAssignments(
     @Param("id") id: string,
     @Query() query: ListBusAssignmentsDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.busAssignments.listBusAssignments(id, query);
+    return this.busAssignments.listBusAssignments(id, query, user);
   }
 
   @Get("enrollments/:enrollmentId/bus-assignment")
-  getCurrentAssignment(@Param("enrollmentId") enrollmentId: string) {
-    return this.busAssignments.getCurrentAssignment(enrollmentId);
+  getCurrentAssignment(
+    @Param("enrollmentId") enrollmentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.busAssignments.getCurrentAssignment(enrollmentId, user);
   }
 
   @Post("enrollments/:enrollmentId/bus-assignment")
@@ -55,6 +59,7 @@ export class BusAssignmentsController {
       body.busId,
       user.id,
       body.note,
+      user,
     );
   }
 
@@ -64,7 +69,7 @@ export class BusAssignmentsController {
     @Body() body: ReleaseBusDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.busAssignments.releaseBus(enrollmentId, user.id, body.note);
+    return this.busAssignments.releaseBus(enrollmentId, user.id, body.note, user);
   }
 
   @Post("enrollments/:enrollmentId/bus-assignment/switch")
@@ -78,11 +83,15 @@ export class BusAssignmentsController {
       body.newBusId,
       user.id,
       body.note,
+      user,
     );
   }
 
   @Get("enrollments/:enrollmentId/bus-assignment-events")
-  listEnrollmentEvents(@Param("enrollmentId") enrollmentId: string) {
-    return this.busAssignments.listEnrollmentEvents(enrollmentId);
+  listEnrollmentEvents(
+    @Param("enrollmentId") enrollmentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.busAssignments.listEnrollmentEvents(enrollmentId, user);
   }
 }

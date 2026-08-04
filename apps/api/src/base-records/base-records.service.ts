@@ -12,9 +12,14 @@ import {
   RecordStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import {
+  assertInstitutionInScope,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { assertCapacityCanFitOccupancy, deriveBusAvailability } from "../bus-assignments/capacity.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
+import type { AuthUser } from "../users/users.service.js";
 import {
   BaseRecordSort,
   ListBaseRecordsDto,
@@ -48,39 +53,68 @@ export class BaseRecordsService {
     private readonly audit: AdministrativeAuditService,
   ) {}
 
-  listInstitutions(query: ListBaseRecordsDto) {
-    return this.list(this.prisma.institution, "institutions", query);
+  async listInstitutions(query: ListBaseRecordsDto, currentUser?: AuthUser) {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const where = {
+      ...this.buildWhere(query),
+      ...(institutionFilter ? { id: institutionFilter } : {}),
+    } satisfies Prisma.InstitutionWhereInput;
+    const orderBy = this.buildOrderBy(query);
+    const pagination = resolvePagination(query);
+    const [data, total] = await Promise.all([
+      this.prisma.institution.findMany({
+        where,
+        orderBy,
+        skip: pagination.skip,
+        take: pagination.limit,
+      }),
+      this.prisma.institution.count({ where }),
+    ]);
+
+    return {
+      data,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
   }
 
   createInstitution(data: { name: string }, userId: string) {
     return this.create(this.prisma.institution, "institutions", data, userId);
   }
 
-  getInstitution(id: string) {
+  async getInstitution(id: string, currentUser?: AuthUser) {
+    assertInstitutionInScope(currentUser, id);
     return this.get(this.prisma.institution, "institutions", id);
   }
 
-  updateInstitution(id: string, data: { name?: string }, userId: string) {
-    return this.update(this.prisma.institution, "institutions", id, data, userId);
+  updateInstitution(id: string, data: { name?: string }, user: AuthUser) {
+    assertInstitutionInScope(user, id);
+    return this.update(this.prisma.institution, "institutions", id, data, user.id);
   }
 
-  inactivateInstitution(id: string, userId: string) {
+  inactivateInstitution(id: string, user: AuthUser) {
+    assertInstitutionInScope(user, id);
     return this.setStatus(
       this.prisma.institution,
       "institutions",
       id,
       RecordStatus.INACTIVE,
-      userId,
+      user.id,
     );
   }
 
-  reactivateInstitution(id: string, userId: string) {
+  reactivateInstitution(id: string, user: AuthUser) {
+    assertInstitutionInScope(user, id);
     return this.setStatus(
       this.prisma.institution,
       "institutions",
       id,
       RecordStatus.ACTIVE,
-      userId,
+      user.id,
     );
   }
 

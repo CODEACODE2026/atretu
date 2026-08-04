@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -22,6 +23,11 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import {
+  getInstitutionScope,
+  scopedInstitutionFilter,
+  type InstitutionScopeFilter,
+} from "../auth/institution-scope.js";
 import { BusAssignmentsService } from "../bus-assignments/bus-assignments.service.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -275,12 +281,12 @@ export class StudentsService {
     return { deleted: true, id: deleted.id };
   }
 
-  async listStudents(query: ListStudentsDto) {
-    const where = this.buildStudentWhere(query);
+  async listStudents(query: ListStudentsDto, currentUser?: AuthUser) {
+    const where = this.buildStudentWhere(query, currentUser);
     const pagination = this.resolvePagination(query);
     const [data, total] =
       query.sort === StudentSort.CARD_NUMBER
-        ? await this.listStudentsByCardNumber(query, pagination)
+        ? await this.listStudentsByCardNumber(query, pagination, currentUser)
         : await Promise.all([
             this.prisma.student.findMany({
               where,
@@ -303,7 +309,12 @@ export class StudentsService {
     };
   }
 
-  async createStudent(body: CreateStudentDto, userId: string) {
+  async createStudent(
+    body: CreateStudentDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    scopedInstitutionFilter(currentUser, body.enrollment.institutionId);
     const personData = this.preparePerson(body.person);
     const guardianData = body.guardian
       ? this.prepareGuardian(body.guardian)
@@ -374,9 +385,9 @@ export class StudentsService {
     }
   }
 
-  async getStudent(id: string) {
-    const student = await this.prisma.student.findUnique({
-      where: { id },
+  async getStudent(id: string, currentUser?: AuthUser) {
+    const student = await this.prisma.student.findFirst({
+      where: { id, ...this.studentScopeWhere(currentUser) },
       include: this.studentDetailInclude(),
     });
     if (!student) {
@@ -386,16 +397,22 @@ export class StudentsService {
     return this.toStudentDetail(student);
   }
 
-  async listReenrollmentCandidates(query: ListStudentsDto) {
+  async listReenrollmentCandidates(query: ListStudentsDto, currentUser?: AuthUser) {
     const academicYear = await this.resolveTargetAcademicYear(query.academicYearId);
     const where = this.buildStudentWhere({
       ...query,
       status: StudentStatusFilter.ACTIVE,
       academicYearId: undefined,
-    });
+    }, currentUser);
     where.status = StudentStatus.ACTIVE;
+    const visibleEnrollmentFilter =
+      typeof where.enrollments === "object" &&
+      where.enrollments !== null &&
+      "some" in where.enrollments
+        ? where.enrollments.some
+        : {};
     where.enrollments = {
-      some: {},
+      some: visibleEnrollmentFilter,
       none: { academicYearId: academicYear.id },
     };
 
@@ -424,9 +441,13 @@ export class StudentsService {
     };
   }
 
-  async previewReenrollment(id: string, academicYearId?: string) {
-    const student = await this.prisma.student.findUnique({
-      where: { id },
+  async previewReenrollment(
+    id: string,
+    academicYearId?: string,
+    currentUser?: AuthUser,
+  ) {
+    const student = await this.prisma.student.findFirst({
+      where: { id, ...this.studentScopeWhere(currentUser) },
       include: this.studentDetailInclude(),
     });
     if (!student) {
@@ -473,8 +494,13 @@ export class StudentsService {
     };
   }
 
-  async updatePerson(id: string, body: UpdatePersonDto, userId: string) {
-    const student = await this.ensureStudent(id);
+  async updatePerson(
+    id: string,
+    body: UpdatePersonDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    const student = await this.ensureStudent(id, currentUser);
     const personData = this.preparePerson(body);
 
     try {
@@ -492,14 +518,19 @@ export class StudentsService {
           changedFields: Object.keys(personData).join(","),
         },
       );
-      return this.getStudent(id);
+      return this.getStudent(id, currentUser);
     } catch (error) {
       this.handleWriteError(error, "CPF ja cadastrado");
     }
   }
 
-  async updateGuardian(id: string, body: UpdateGuardianDto, userId: string) {
-    await this.ensureStudent(id);
+  async updateGuardian(
+    id: string,
+    body: UpdateGuardianDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(id, currentUser);
 
     if (body.clear) {
       await this.prisma.studentGuardian.deleteMany({ where: { studentId: id } });
@@ -521,15 +552,17 @@ export class StudentsService {
       userId,
       { studentId: id },
     );
-    return this.getStudent(id);
+    return this.getStudent(id, currentUser);
   }
 
   async createEnrollment(
     studentId: string,
     body: CreateEnrollmentDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
-    await this.ensureStudent(studentId);
+    await this.ensureStudent(studentId, currentUser);
+    scopedInstitutionFilter(currentUser, body.institutionId);
     try {
       const enrollment = await this.prisma.$transaction(async (tx) => {
         await this.ensureEnrollmentReferences(tx, body);
@@ -556,8 +589,9 @@ export class StudentsService {
     enrollmentId: string,
     body: UpdateEnrollmentDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
-    await this.ensureStudent(studentId);
+    await this.ensureStudent(studentId, currentUser);
     const current = await this.prisma.enrollment.findFirst({
       where: { id: enrollmentId, studentId },
     });
@@ -571,6 +605,7 @@ export class StudentsService {
       data.academicYearId = body.academicYearId;
     }
     if (body.institutionId) {
+      scopedInstitutionFilter(currentUser, body.institutionId);
       await this.ensureActiveInstitution(body.institutionId);
       data.institutionId = body.institutionId;
     }
@@ -612,7 +647,14 @@ export class StudentsService {
     }
   }
 
-  async reenrollStudent(id: string, body: ReenrollStudentDto, userId: string) {
+  async reenrollStudent(
+    id: string,
+    body: ReenrollStudentDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(id, currentUser);
+    scopedInstitutionFilter(currentUser, body.institutionId);
     try {
       const enrollment = await this.prisma.$transaction(async (tx) => {
         const student = await this.lockStudent(tx, id);
@@ -760,7 +802,13 @@ export class StudentsService {
     }
   }
 
-  async suspendStudent(id: string, body: SuspendStudentDto, userId: string) {
+  async suspendStudent(
+    id: string,
+    body: SuspendStudentDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(id, currentUser);
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await this.lockStudent(tx, id);
       if (student.status !== StudentStatus.ACTIVE) {
@@ -835,10 +883,16 @@ export class StudentsService {
     });
 
     await result;
-    return this.getStudent(id);
+    return this.getStudent(id, currentUser);
   }
 
-  async reactivateStudent(id: string, body: ReactivateStudentDto, userId: string) {
+  async reactivateStudent(
+    id: string,
+    body: ReactivateStudentDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(id, currentUser);
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await this.lockStudent(tx, id);
       if (student.status !== StudentStatus.SUSPENDED) {
@@ -931,10 +985,16 @@ export class StudentsService {
     });
 
     await result;
-    return this.getStudent(id);
+    return this.getStudent(id, currentUser);
   }
 
-  async reinstateStudent(id: string, body: ReinstateStudentDto, userId: string) {
+  async reinstateStudent(
+    id: string,
+    body: ReinstateStudentDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(id, currentUser);
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await this.lockStudent(tx, id);
       if (student.status !== StudentStatus.TERMINATED) {
@@ -1051,10 +1111,16 @@ export class StudentsService {
     });
 
     await result;
-    return this.getStudent(id);
+    return this.getStudent(id, currentUser);
   }
 
-  async terminateStudent(id: string, body: TerminateStudentDto, userId: string) {
+  async terminateStudent(
+    id: string,
+    body: TerminateStudentDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(id, currentUser);
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await this.lockStudent(tx, id);
       if (student.status === StudentStatus.TERMINATED) {
@@ -1133,11 +1199,11 @@ export class StudentsService {
     });
 
     await result;
-    return this.getStudent(id);
+    return this.getStudent(id, currentUser);
   }
 
-  async listStudentHistory(id: string) {
-    await this.ensureStudent(id);
+  async listStudentHistory(id: string, currentUser?: AuthUser) {
+    await this.ensureStudent(id, currentUser);
     const data = await this.prisma.studentHistoryEvent.findMany({
       where: { studentId: id },
       include: {
@@ -1150,8 +1216,8 @@ export class StudentsService {
     return { data };
   }
 
-  async listBoardMemberships(id: string) {
-    await this.ensureStudent(id);
+  async listBoardMemberships(id: string, currentUser?: AuthUser) {
+    await this.ensureStudent(id, currentUser);
     const data = await this.prisma.boardMembership.findMany({
       where: { studentId: id },
       orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
@@ -1163,7 +1229,9 @@ export class StudentsService {
     id: string,
     body: StartBoardMembershipDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
+    await this.ensureStudent(id, currentUser);
     const membership = await this.prisma.$transaction(async (tx) => {
       const student = await this.lockStudent(tx, id);
       if (student.status !== StudentStatus.ACTIVE) {
@@ -1213,7 +1281,9 @@ export class StudentsService {
     membershipId: string,
     body: EndBoardMembershipDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
+    await this.ensureStudent(studentId, currentUser);
     const membership = await this.prisma.$transaction(async (tx) => {
       await this.lockStudent(tx, studentId);
       const active = await tx.boardMembership.findFirst({
@@ -1274,7 +1344,10 @@ export class StudentsService {
     }
   }
 
-  private buildStudentWhere(query: ListStudentsDto): Prisma.StudentWhereInput {
+  private buildStudentWhere(
+    query: ListStudentsDto,
+    currentUser?: AuthUser,
+  ): Prisma.StudentWhereInput {
     const where: Prisma.StudentWhereInput = {};
     if (query.status !== StudentStatusFilter.ALL) {
       where.status =
@@ -1299,8 +1372,12 @@ export class StudentsService {
     if (query.academicYearId) {
       enrollmentFilters.academicYearId = query.academicYearId;
     }
-    if (query.institutionId) {
-      enrollmentFilters.institutionId = query.institutionId;
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+    if (institutionFilter) {
+      enrollmentFilters.institutionId = institutionFilter;
     }
     if (query.shiftId) {
       enrollmentFilters.shiftId = query.shiftId;
@@ -1316,8 +1393,9 @@ export class StudentsService {
   private async listStudentsByCardNumber(
     query: ListStudentsDto,
     pagination: { skip: number; limit: number },
+    currentUser?: AuthUser,
   ): Promise<[StudentWithSummary[], number]> {
-    const where = this.buildStudentSqlWhere(query);
+    const where = this.buildStudentSqlWhere(query, currentUser);
     const direction = query.order === SortOrder.DESC ? Prisma.sql`DESC` : Prisma.sql`ASC`;
     const [idRows, totalRows] = await Promise.all([
       this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -1384,7 +1462,7 @@ export class StudentsService {
     ];
   }
 
-  private buildStudentSqlWhere(query: ListStudentsDto) {
+  private buildStudentSqlWhere(query: ListStudentsDto, currentUser?: AuthUser) {
     const conditions: Prisma.Sql[] = [];
     if (query.status !== StudentStatusFilter.ALL) {
       const status =
@@ -1419,9 +1497,25 @@ export class StudentsService {
         Prisma.sql`e.academic_year_id = ${query.academicYearId}::uuid`,
       );
     }
+    const institutionScope = getInstitutionScope(currentUser);
     if (query.institutionId) {
+      if (
+        institutionScope.type === "denied" ||
+        (institutionScope.type === "restricted" &&
+          !institutionScope.institutionIds.includes(query.institutionId))
+      ) {
+        throw new ForbiddenException("Acesso negado");
+      }
       enrollmentConditions.push(
         Prisma.sql`e.institution_id = ${query.institutionId}::uuid`,
+      );
+    } else if (institutionScope.type === "denied") {
+      enrollmentConditions.push(Prisma.sql`FALSE`);
+    } else if (institutionScope.type === "restricted") {
+      enrollmentConditions.push(
+        Prisma.sql`e.institution_id IN (${Prisma.join(
+          institutionScope.institutionIds.map((id) => Prisma.sql`${id}::uuid`),
+        )})`,
       );
     }
     if (query.shiftId) {
@@ -1443,6 +1537,13 @@ export class StudentsService {
 
   private resolvePagination(query: ListStudentsDto) {
     return resolvePagination(query);
+  }
+
+  private studentScopeWhere(currentUser?: AuthUser): Prisma.StudentWhereInput {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    return institutionFilter
+      ? { enrollments: { some: { institutionId: institutionFilter } } }
+      : {};
   }
 
   private buildStudentOrderBy(
@@ -1623,8 +1724,10 @@ export class StudentsService {
     return record;
   }
 
-  private async ensureStudent(id: string) {
-    const student = await this.prisma.student.findUnique({ where: { id } });
+  private async ensureStudent(id: string, currentUser?: AuthUser) {
+    const student = await this.prisma.student.findFirst({
+      where: { id, ...this.studentScopeWhere(currentUser) },
+    });
     if (!student) {
       throw new NotFoundException("Academico nao encontrado");
     }

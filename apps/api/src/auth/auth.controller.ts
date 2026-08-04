@@ -7,8 +7,10 @@ import {
   HttpCode,
   Inject,
   Post,
+  Put,
   Req,
   Res,
+  Param,
   UseGuards,
 } from "@nestjs/common";
 import { AuditEventType, RoleCode } from "@prisma/client";
@@ -17,6 +19,8 @@ import { AppConfigService } from "../config/app-config.service.js";
 import { RateLimitService } from "../security/rate-limit.service.js";
 import { SecurityAuditService } from "../security/security-audit.service.js";
 import type { AuthUser } from "../users/users.service.js";
+import { UsersService } from "../users/users.service.js";
+import { UpdateUserInstitutionsDto } from "../users/dto/user-institutions.dto.js";
 import { AUTH_COOKIE_NAME } from "./auth.constants.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
@@ -39,6 +43,8 @@ export class AuthController {
     private readonly config: AppConfigService,
     @Inject(RateLimitService)
     private readonly rateLimit: RateLimitService,
+    @Inject(UsersService)
+    private readonly usersService: UsersService,
   ) {}
 
   @Post("login")
@@ -109,6 +115,16 @@ export class AuthController {
   @UseGuards(AuthGuard)
   me(@CurrentUser() user: AuthUser) {
     return { user };
+  }
+
+  @Put("users/:id/institutions")
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(RoleCode.SUPER_ADMIN)
+  updateUserInstitutions(
+    @Param("id") id: string,
+    @Body() body: UpdateUserInstitutionsDto,
+  ) {
+    return this.usersService.updateUserInstitutions(id, body.institutionIds);
   }
 
   @Post("bootstrap/super-admin")

@@ -15,8 +15,13 @@ import {
   StudentHistoryEventType,
 } from "@prisma/client";
 import { resolvePagination } from "../common/pagination.js";
+import {
+  assertInstitutionInScope,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { maskCpf, normalizeCpf } from "../students/cpf.js";
+import type { AuthUser } from "../users/users.service.js";
 import { getFutureInvoiceBlockingReason } from "../students/lifecycle.js";
 import {
   isInvoiceOverdue,
@@ -73,9 +78,9 @@ function addUtcDays(date: Date, days: number) {
 export class InvoicesService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async listInvoices(query: ListInvoicesDto) {
+  async listInvoices(query: ListInvoicesDto, currentUser?: AuthUser) {
     const where = combineInvoiceWhere(
-      this.buildInvoiceWhere(query),
+      this.buildInvoiceWhere(query, currentUser),
       buildInvoiceOverdueWhere(query.overdue),
     );
     const pagination = this.resolvePagination(query);
@@ -109,9 +114,9 @@ export class InvoicesService {
     };
   }
 
-  async getInvoice(id: string) {
-    const record = await this.prisma.invoice.findUnique({
-      where: { id },
+  async getInvoice(id: string, currentUser?: AuthUser) {
+    const record = await this.prisma.invoice.findFirst({
+      where: { id, ...this.invoiceScopeWhere(currentUser) },
       include: this.invoiceInclude(),
     });
     if (!record) {
@@ -120,18 +125,27 @@ export class InvoicesService {
     return this.toInvoiceSummary(record);
   }
 
-  async listStudentInvoices(studentId: string) {
-    await this.ensureStudent(studentId);
+  async listStudentInvoices(studentId: string, currentUser?: AuthUser) {
+    await this.ensureStudent(studentId, currentUser);
     const records = await this.prisma.invoice.findMany({
-      where: { studentId },
+      where: { studentId, ...this.invoiceScopeWhere(currentUser) },
       include: this.invoiceInclude(),
       orderBy: [{ createdAt: "desc" }],
     });
     return { data: records.map((record) => this.toInvoiceSummary(record)) };
   }
 
-  async previewInvoice(studentId: string, query: InvoicePreviewDto) {
-    const result = await this.evaluateEligibility(this.prisma, studentId, query);
+  async previewInvoice(
+    studentId: string,
+    query: InvoicePreviewDto,
+    currentUser?: AuthUser,
+  ) {
+    const result = await this.evaluateEligibility(
+      this.prisma,
+      studentId,
+      query,
+      currentUser,
+    );
     return {
       student: this.toStudentPreview(result.student),
       enrollment: this.toEnrollment(result.enrollment),
@@ -144,7 +158,9 @@ export class InvoicesService {
     studentId: string,
     body: CreateInvoiceDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
+    await this.ensureStudent(studentId, currentUser);
     const normalized = this.normalizeCreateBody(body);
 
     try {
@@ -160,7 +176,12 @@ export class InvoicesService {
           return existing;
         }
 
-        const eligibility = await this.evaluateEligibility(tx, studentId, body);
+        const eligibility = await this.evaluateEligibility(
+          tx,
+          studentId,
+          body,
+          currentUser,
+        );
         if (eligibility.blockingReason) {
           throw new BadRequestException(eligibility.blockingReason);
         }
@@ -224,10 +245,16 @@ export class InvoicesService {
     }
   }
 
-  async cancelInvoice(id: string, body: CancelInvoiceDto, userId: string) {
+  async cancelInvoice(
+    id: string,
+    body: CancelInvoiceDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
     const note = this.optional(body.note);
     const updated = await this.prisma.$transaction(async (tx) => {
       const invoice = await this.lockInvoice(tx, id);
+      assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
       if (invoice.status !== InvoiceStatus.OPEN) {
         throw new BadRequestException("Somente fatura aberta pode ser cancelada");
       }
@@ -306,6 +333,7 @@ export class InvoicesService {
     tx: PrismaTx,
     studentId: string,
     input: InvoicePreviewDto,
+    currentUser?: AuthUser,
   ) {
     const student = await tx.student.findUnique({
       where: { id: studentId },
@@ -328,6 +356,7 @@ export class InvoicesService {
     if (!enrollment) {
       throw new BadRequestException("Matricula nao encontrada para o academico");
     }
+    assertInstitutionInScope(currentUser, enrollment.institutionId);
 
     return {
       student,
@@ -383,7 +412,10 @@ export class InvoicesService {
     }
   }
 
-  private buildInvoiceWhere(query: ListInvoicesDto): Prisma.InvoiceWhereInput {
+  private buildInvoiceWhere(
+    query: ListInvoicesDto,
+    currentUser?: AuthUser,
+  ): Prisma.InvoiceWhereInput {
     const where: Prisma.InvoiceWhereInput = {};
     if (query.status) {
       where.status = query.status;
@@ -394,10 +426,14 @@ export class InvoicesService {
         academicYearId: query.academicYearId,
       };
     }
-    if (query.institutionId) {
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+    if (institutionFilter) {
       where.enrollment = {
         ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
-        institutionId: query.institutionId,
+        institutionId: institutionFilter,
       };
     }
     if (query.dueDateFrom || query.dueDateTo) {
@@ -454,6 +490,13 @@ export class InvoicesService {
 
   private resolvePagination(query: ListInvoicesDto) {
     return resolvePagination(query);
+  }
+
+  private invoiceScopeWhere(currentUser?: AuthUser): Prisma.InvoiceWhereInput {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    return institutionFilter
+      ? { enrollment: { institutionId: institutionFilter } }
+      : {};
   }
 
   private async buildInvoiceSummary(where: Prisma.InvoiceWhereInput) {
@@ -607,8 +650,25 @@ export class InvoicesService {
     };
   }
 
-  private async ensureStudent(studentId: string) {
-    const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+  private async ensureStudent(studentId: string, currentUser?: AuthUser) {
+    if (!currentUser) {
+      const student = await this.prisma.student.findUnique({
+        where: { id: studentId },
+      });
+      if (!student) {
+        throw new NotFoundException("Academico nao encontrado");
+      }
+      return student;
+    }
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const student = await this.prisma.student.findFirst({
+      where: {
+        id: studentId,
+        ...(institutionFilter
+          ? { enrollments: { some: { institutionId: institutionFilter } } }
+          : {}),
+      },
+    });
     if (!student) {
       throw new NotFoundException("Academico nao encontrado");
     }

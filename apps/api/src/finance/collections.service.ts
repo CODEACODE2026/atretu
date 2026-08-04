@@ -17,6 +17,10 @@ import {
   RoleCode,
 } from "@prisma/client";
 import { resolvePagination } from "../common/pagination.js";
+import {
+  assertInstitutionInScope,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { maskCpf } from "../students/cpf.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -348,20 +352,24 @@ export class CollectionsService {
       );
     }
     if (filters.institutionId) {
-      where.enrollment = {
-        ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
-        institutionId: filters.institutionId,
-      };
-    }
-    const scopedInstitutionIds = this.scopedInstitutionIds(options.currentUser);
-    if (scopedInstitutionIds) {
-      where.enrollment = {
-        ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
-        institutionId:
-          scopedInstitutionIds.length === 1
-            ? scopedInstitutionIds[0]
-            : { in: scopedInstitutionIds },
-      };
+      const institutionId = scopedInstitutionFilter(
+        options.currentUser,
+        filters.institutionId,
+      );
+      if (institutionId) {
+        where.enrollment = {
+          ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
+          institutionId,
+        };
+      }
+    } else {
+      const institutionId = scopedInstitutionFilter(options.currentUser);
+      if (institutionId) {
+        where.enrollment = {
+          ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
+          institutionId,
+        };
+      }
     }
     if (filters.academicYearId) {
       where.enrollment = {
@@ -905,38 +913,14 @@ export class CollectionsService {
     filters: CollectionFiltersDto,
     currentUser: AuthUser,
   ) {
-    const scopedInstitutionIds = this.scopedInstitutionIds(currentUser);
-    if (
-      scopedInstitutionIds &&
-      filters.institutionId &&
-      !scopedInstitutionIds.includes(filters.institutionId)
-    ) {
-      throw new ForbiddenException("Acesso negado");
-    }
+    scopedInstitutionFilter(currentUser, filters.institutionId);
   }
 
   private ensureInvoiceAccessible(
     invoice: { enrollment: { institutionId: string } },
     currentUser: AuthUser,
   ) {
-    const scopedInstitutionIds = this.scopedInstitutionIds(currentUser);
-    if (
-      scopedInstitutionIds &&
-      !scopedInstitutionIds.includes(invoice.enrollment.institutionId)
-    ) {
-      throw new ForbiddenException("Acesso negado");
-    }
-  }
-
-  private scopedInstitutionIds(currentUser: AuthUser) {
-    if (currentUser.roles.includes(RoleCode.SUPER_ADMIN)) {
-      return null;
-    }
-    const ids = [
-      ...(currentUser.institutionId ? [currentUser.institutionId] : []),
-      ...(currentUser.institutionIds ?? []),
-    ];
-    return ids.length > 0 ? Array.from(new Set(ids)) : null;
+    assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
   }
 
   private invoiceListInclude() {

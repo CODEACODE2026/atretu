@@ -34,8 +34,11 @@ export class BaseRecordsController {
   ) {}
 
   @Get("institutions")
-  listInstitutions(@Query() query: ListBaseRecordsDto) {
-    return this.baseRecords.listInstitutions(query);
+  listInstitutions(
+    @Query() query: ListBaseRecordsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.baseRecords.listInstitutions(query, user);
   }
 
   @Post("institutions")
@@ -47,8 +50,8 @@ export class BaseRecordsController {
   }
 
   @Get("institutions/:id")
-  getInstitution(@Param("id") id: string) {
-    return this.baseRecords.getInstitution(id);
+  getInstitution(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.baseRecords.getInstitution(id, user);
   }
 
   @Patch("institutions/:id")
@@ -57,17 +60,17 @@ export class BaseRecordsController {
     @Body() body: UpdateNamedRecordDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.baseRecords.updateInstitution(id, body, user.id);
+    return this.baseRecords.updateInstitution(id, body, user);
   }
 
   @Patch("institutions/:id/inactivate")
   inactivateInstitution(@Param("id") id: string, @CurrentUser() user: AuthUser) {
-    return this.baseRecords.inactivateInstitution(id, user.id);
+    return this.baseRecords.inactivateInstitution(id, user);
   }
 
   @Patch("institutions/:id/reactivate")
   reactivateInstitution(@Param("id") id: string, @CurrentUser() user: AuthUser) {
-    return this.baseRecords.reactivateInstitution(id, user.id);
+    return this.baseRecords.reactivateInstitution(id, user);
   }
 
   @Get("shifts")

@@ -17,9 +17,14 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import {
+  assertInstitutionInScope,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { maskCpf, normalizeCpf } from "../students/cpf.js";
+import type { AuthUser } from "../users/users.service.js";
 import { buildStudentCardNumber } from "./card-number.js";
 import {
   InvalidateStudentCardDto,
@@ -34,9 +39,9 @@ import {
 type PrismaTx = Prisma.TransactionClient | PrismaService;
 
 export function buildStudentCardValidityWhere(
-  filter: StudentCardValidityFilter,
+  filter?: StudentCardValidityFilter,
 ): Prisma.StudentCardWhereInput | null {
-  if (filter === StudentCardValidityFilter.ALL) {
+  if (!filter || filter === StudentCardValidityFilter.ALL) {
     return null;
   }
   const usableWhere: Prisma.StudentCardWhereInput = {
@@ -91,9 +96,9 @@ export class StudentCardsService {
     private readonly audit: AdministrativeAuditService,
   ) {}
 
-  async listStudentCards(query: ListStudentCardsDto) {
+  async listStudentCards(query: ListStudentCardsDto, currentUser?: AuthUser) {
     const where = combineStudentCardWhere(
-      this.buildCardWhere(query),
+      this.buildCardWhere(query, currentUser),
       buildStudentCardValidityWhere(query.validity),
     );
     const pagination = this.resolvePagination(query);
@@ -121,18 +126,27 @@ export class StudentCardsService {
     };
   }
 
-  async listStudentCardsForStudent(studentId: string) {
-    await this.ensureStudent(studentId);
+  async listStudentCardsForStudent(studentId: string, currentUser?: AuthUser) {
+    await this.ensureStudent(studentId, currentUser);
     const records = await this.prisma.studentCard.findMany({
-      where: { studentId },
+      where: { studentId, ...this.cardScopeWhere(currentUser) },
       include: this.cardInclude(),
       orderBy: [{ academicYear: { year: "desc" } }, { issuedAt: "desc" }],
     });
     return { data: records.map((record) => this.toCardSummary(record)) };
   }
 
-  async previewStudentCard(studentId: string, query: StudentCardPreviewDto) {
-    const result = await this.evaluateEligibility(this.prisma, studentId, query);
+  async previewStudentCard(
+    studentId: string,
+    query: StudentCardPreviewDto,
+    currentUser?: AuthUser,
+  ) {
+    const result = await this.evaluateEligibility(
+      this.prisma,
+      studentId,
+      query,
+      currentUser,
+    );
     return {
       student: this.toStudentPreview(result.student),
       enrollment: this.toEnrollment(result.enrollment),
@@ -153,10 +167,12 @@ export class StudentCardsService {
     studentId: string,
     body: IssueStudentCardDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
+    await this.ensureStudent(studentId, currentUser);
     try {
       const created = await this.prisma.$transaction((tx) =>
-        this.issueStudentCardTx(tx, studentId, body, userId),
+        this.issueStudentCardTx(tx, studentId, body, userId, currentUser),
       );
       return this.toCardSummary(created);
     } catch (error) {
@@ -190,10 +206,13 @@ export class StudentCardsService {
     cardId: string,
     body: InvalidateStudentCardDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
+    await this.ensureStudent(studentId, currentUser);
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.lockStudent(tx, studentId);
       const card = await this.lockStudentCard(tx, cardId);
+      assertInstitutionInScope(currentUser, card.enrollment.institutionId);
       if (card.studentId !== studentId) {
         throw new NotFoundException("Carteirinha nao encontrada");
       }
@@ -223,6 +242,7 @@ export class StudentCardsService {
     tx: PrismaTx,
     studentId: string,
     input: StudentCardPreviewDto,
+    currentUser?: AuthUser,
   ) {
     const student = await tx.student.findUnique({
       where: { id: studentId },
@@ -245,6 +265,7 @@ export class StudentCardsService {
     if (!enrollment) {
       throw new BadRequestException("Matricula nao encontrada para o academico");
     }
+    assertInstitutionInScope(currentUser, enrollment.institutionId);
 
     const activeCard = await tx.studentCard.findFirst({
       where: {
@@ -306,9 +327,15 @@ export class StudentCardsService {
     studentId: string,
     body: IssueStudentCardDto,
     userId: string,
+    currentUser?: AuthUser,
   ) {
     await this.lockStudent(tx, studentId);
-    const eligibility = await this.evaluateEligibility(tx, studentId, body);
+    const eligibility = await this.evaluateEligibility(
+      tx,
+      studentId,
+      body,
+      currentUser,
+    );
     if (eligibility.blockingReason) {
       throw new BadRequestException(eligibility.blockingReason);
     }
@@ -456,8 +483,15 @@ export class StudentCardsService {
     });
   }
 
-  private buildCardWhere(query: ListStudentCardsDto): Prisma.StudentCardWhereInput {
+  private buildCardWhere(
+    query: ListStudentCardsDto,
+    currentUser?: AuthUser,
+  ): Prisma.StudentCardWhereInput {
     const where: Prisma.StudentCardWhereInput = {};
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    if (institutionFilter) {
+      where.enrollment = { institutionId: institutionFilter };
+    }
     if (query.academicYearId) {
       where.academicYearId = query.academicYearId;
     }
@@ -493,6 +527,13 @@ export class StudentCardsService {
 
   private resolvePagination(query: ListStudentCardsDto) {
     return resolvePagination(query);
+  }
+
+  private cardScopeWhere(currentUser?: AuthUser): Prisma.StudentCardWhereInput {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    return institutionFilter
+      ? { enrollment: { institutionId: institutionFilter } }
+      : {};
   }
 
   private deriveValidity(card: StudentCardWithRelations) {
@@ -599,8 +640,16 @@ export class StudentCardsService {
     };
   }
 
-  private async ensureStudent(studentId: string) {
-    const student = await this.prisma.student.findUnique({ where: { id: studentId } });
+  private async ensureStudent(studentId: string, currentUser?: AuthUser) {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const student = await this.prisma.student.findFirst({
+      where: {
+        id: studentId,
+        ...(institutionFilter
+          ? { enrollments: { some: { institutionId: institutionFilter } } }
+          : {}),
+      },
+    });
     if (!student) {
       throw new NotFoundException("Academico nao encontrado");
     }

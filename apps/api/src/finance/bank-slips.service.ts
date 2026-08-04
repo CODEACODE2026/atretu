@@ -29,8 +29,14 @@ import {
   RecordStatus,
   StudentHistoryEventType,
 } from "@prisma/client";
+import {
+  assertInstitutionInScope,
+  scopedInstitutionFilter,
+  scopedInstitutionIds,
+} from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { isValidCpf, maskCpf } from "../students/cpf.js";
+import type { AuthUser } from "../users/users.service.js";
 import { isInvoiceOverdue, parseInvoiceDueDate } from "./due-date.js";
 import {
   assertValidInvoiceAmountCents,
@@ -170,13 +176,17 @@ export class BankSlipsService {
     @Inject(BankSlipPdfStorage) private readonly pdfStorage: BankSlipPdfStorage = new BankSlipPdfStorage(),
   ) {}
 
-  async issueForInvoice(invoiceId: string, userId: string) {
+  async issueForInvoice(
+    invoiceId: string,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
     this.assertSicrediConfigurationAvailable();
     logIssueDiagnostic({
       etapa: "issue-start",
       invoiceId,
     });
-    const prepared = await this.prepareIssue(invoiceId, userId);
+    const prepared = await this.prepareIssue(invoiceId, userId, currentUser);
     if (prepared.kind === "already-issued") {
       return this.toBankSlipSummary(prepared.bankSlip);
     }
@@ -261,8 +271,9 @@ export class BankSlipsService {
     invoiceId: string,
     userId: string,
     body: RecoverIssuedBankSlipDto,
+    currentUser?: AuthUser,
   ) {
-    const bankSlip = await this.getBankSlipByInvoice(invoiceId);
+    const bankSlip = await this.getBankSlipByInvoice(invoiceId, currentUser);
     if (body.bankSlipId && body.bankSlipId !== bankSlip.id) {
       throw new BadRequestException({
         code: "BANK_SLIP_RECOVERY_MISMATCH",
@@ -464,13 +475,17 @@ export class BankSlipsService {
     });
   }
 
-  async getByInvoice(invoiceId: string) {
-    const bankSlip = await this.getBankSlipByInvoice(invoiceId);
+  async getByInvoice(invoiceId: string, currentUser?: AuthUser) {
+    const bankSlip = await this.getBankSlipByInvoice(invoiceId, currentUser);
     return this.toBankSlipSummary(bankSlip);
   }
 
-  async syncByInvoice(invoiceId: string, userId: string) {
-    const bankSlip = await this.getBankSlipByInvoice(invoiceId);
+  async syncByInvoice(
+    invoiceId: string,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    const bankSlip = await this.getBankSlipByInvoice(invoiceId, currentUser);
     if (!bankSlip.nossoNumero) {
       throw new BadRequestException({
         code: "BANK_SLIP_NOT_ISSUED",
@@ -736,10 +751,15 @@ export class BankSlipsService {
     };
   }
 
-  async previewIssueBatch(body: PreviewBankSlipIssueBatchDto) {
+  async previewIssueBatch(
+    body: PreviewBankSlipIssueBatchDto,
+    currentUser?: AuthUser,
+  ) {
+    scopedInstitutionFilter(currentUser, body.institutionId);
     const plan = await this.buildInstitutionIssueBatchPlan(body, {
       includeAllItems: true,
       resolveStalePendingIssue: false,
+      currentUser,
     });
     const pagination = resolvePagination(body, { defaultLimit: 50, maxLimit: 200 });
     const pagedItems = plan.items.slice(pagination.skip, pagination.skip + pagination.limit);
@@ -759,11 +779,13 @@ export class BankSlipsService {
     body: CreateBankSlipIssueBatchDto,
     userId: string,
     options: CreateIssueBatchOptions = {},
+    currentUser?: AuthUser,
   ) {
+    scopedInstitutionFilter(currentUser, body.institutionId);
     const source = body.source ?? (body.institutionId ? BankSlipIssueBatchSource.INSTITUTION : BankSlipIssueBatchSource.MANUAL);
     const batch = source === BankSlipIssueBatchSource.INSTITUTION
-      ? await this.createInstitutionIssueBatch(body, userId)
-      : await this.createManualIssueBatch(body, userId);
+      ? await this.createInstitutionIssueBatch(body, userId, currentUser)
+      : await this.createManualIssueBatch(body, userId, currentUser);
     if (options.processImmediately) {
       this.dispatchIssueBatchProcessing(batch.id);
     }
@@ -787,7 +809,11 @@ export class BankSlipsService {
     return this.processIssueBatchQueue({ batchId });
   }
 
-  private async createManualIssueBatch(body: CreateBankSlipIssueBatchDto, userId: string) {
+  private async createManualIssueBatch(
+    body: CreateBankSlipIssueBatchDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
     if (!body.invoiceIds || body.invoiceIds.length === 0) {
       throw new BadRequestException({
         code: "INVOICE_IDS_REQUIRED",
@@ -806,6 +832,9 @@ export class BankSlipsService {
         code: "INVOICE_NOT_FOUND",
         message: "Uma ou mais faturas nao foram encontradas",
       });
+    }
+    for (const invoice of invoices) {
+      assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
     }
     const activeIssueBatchInvoiceIds = await this.findActiveIssueBatchInvoiceIds(invoiceIds);
 
@@ -860,7 +889,11 @@ export class BankSlipsService {
     return this.recalculateIssueBatch(batch.id);
   }
 
-  private async createInstitutionIssueBatch(body: CreateBankSlipIssueBatchDto, userId: string) {
+  private async createInstitutionIssueBatch(
+    body: CreateBankSlipIssueBatchDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
     if (!body.createMissingInvoices) {
       throw new BadRequestException({
         code: "CREATE_MISSING_INVOICES_REQUIRED",
@@ -871,6 +904,7 @@ export class BankSlipsService {
       includeAllItems: true,
       resolveStalePendingIssue: true,
       userId,
+      currentUser,
     });
     const candidateItems = plan.items.filter((item) => item.eligible === true);
     if (candidateItems.length === 0) {
@@ -960,9 +994,12 @@ export class BankSlipsService {
     return this.recalculateIssueBatch(batch.id);
   }
 
-  async listIssueBatches(query: ListBankSlipIssueBatchesDto) {
+  async listIssueBatches(
+    query: ListBankSlipIssueBatchesDto,
+    currentUser?: AuthUser,
+  ) {
     const pagination = resolvePagination(query, { defaultLimit: 20, maxLimit: 100 });
-    const where = this.buildIssueBatchWhere(query);
+    const where = this.buildIssueBatchWhere(query, currentUser);
     const [records, total] = await Promise.all([
       this.prisma.bankSlipIssueBatch.findMany({
         where,
@@ -984,7 +1021,7 @@ export class BankSlipsService {
     };
   }
 
-  async getIssueBatch(id: string) {
+  async getIssueBatch(id: string, currentUser?: AuthUser) {
     const batch = await this.prisma.bankSlipIssueBatch.findUnique({
       where: { id },
       include: this.issueBatchInclude(),
@@ -992,16 +1029,30 @@ export class BankSlipsService {
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
+    await this.ensureIssueBatchAccessible(id, currentUser);
     return this.toIssueBatchResponse(batch);
   }
 
-  private buildIssueBatchWhere(query: ListBankSlipIssueBatchesDto): Prisma.BankSlipIssueBatchWhereInput {
+  private buildIssueBatchWhere(
+    query: ListBankSlipIssueBatchesDto,
+    currentUser?: AuthUser,
+  ): Prisma.BankSlipIssueBatchWhereInput {
     const where: Prisma.BankSlipIssueBatchWhereInput = {};
     if (query.source) {
       where.source = query.source;
     }
     if (query.institutionId) {
-      where.institutionId = query.institutionId;
+      where.institutionId = scopedInstitutionFilter(
+        currentUser,
+        query.institutionId,
+      );
+    } else {
+      const ids = scopedInstitutionIds(currentUser);
+      if (ids) {
+        where.items = {
+          some: { enrollment: { institutionId: { in: ids } } },
+        };
+      }
     }
     if (query.competence) {
       where.competence = query.competence;
@@ -1015,12 +1066,21 @@ export class BankSlipsService {
     return where;
   }
 
-  async listIssueBatchItems(batchId: string, query: ListBankSlipIssueBatchItemsDto) {
-    await this.getIssueBatch(batchId);
+  async listIssueBatchItems(
+    batchId: string,
+    query: ListBankSlipIssueBatchItemsDto,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureIssueBatchAccessible(batchId, currentUser);
+    const ids = scopedInstitutionIds(currentUser);
     const pagination = resolvePagination(query, { defaultLimit: 50, maxLimit: 200 });
+    const where: Prisma.BankSlipIssueBatchItemWhereInput = {
+      batchId,
+      ...(ids ? { enrollment: { institutionId: { in: ids } } } : {}),
+    };
     const [records, total] = await Promise.all([
       this.prisma.bankSlipIssueBatchItem.findMany({
-        where: { batchId },
+        where,
         include: {
           student: { include: { person: true } },
           bankSlip: {
@@ -1036,7 +1096,7 @@ export class BankSlipsService {
         skip: pagination.skip,
         take: pagination.limit,
       }),
-      this.prisma.bankSlipIssueBatchItem.count({ where: { batchId } }),
+      this.prisma.bankSlipIssueBatchItem.count({ where }),
     ]);
     return {
       data: records.map((record) => this.toIssueBatchItemResponse(record)),
@@ -1053,8 +1113,9 @@ export class BankSlipsService {
     batchId: string,
     userId: string,
     body: CancelBankSlipIssueBatchDto,
+    currentUser?: AuthUser,
   ) {
-    await this.getIssueBatch(batchId);
+    await this.ensureIssueBatchAccessible(batchId, currentUser);
     await this.prisma.$transaction(async (tx) => {
       await tx.bankSlipIssueBatchItem.updateMany({
         where: { batchId, status: BankSlipIssueBatchItemStatus.QUEUED },
@@ -1129,6 +1190,7 @@ export class BankSlipsService {
     invoiceId: string,
     userId: string,
     body: RequestBankSlipCancellationDto,
+    currentUser?: AuthUser,
   ) {
     if (!body.reason) {
       throw new BadRequestException({
@@ -1136,7 +1198,12 @@ export class BankSlipsService {
         message: "Motivo administrativo e obrigatorio para baixa bancaria",
       });
     }
-    const prepared = await this.prepareCancellation(invoiceId, userId, body);
+    const prepared = await this.prepareCancellation(
+      invoiceId,
+      userId,
+      body,
+      currentUser,
+    );
     try {
       const response = await this.sicredi.requestCancellation(prepared.nossoNumero);
       const updated = await this.prisma.$transaction(async (tx) => {
@@ -1233,12 +1300,12 @@ export class BankSlipsService {
     }
   }
 
-  async getPdf(invoiceId: string) {
-    return this.getPdfByInvoiceId(invoiceId);
+  async getPdf(invoiceId: string, currentUser?: AuthUser) {
+    return this.getPdfByInvoiceId(invoiceId, currentUser);
   }
 
-  async getPdfByInvoiceId(invoiceId: string) {
-    const bankSlip = await this.getBankSlipByInvoice(invoiceId);
+  async getPdfByInvoiceId(invoiceId: string, currentUser?: AuthUser) {
+    const bankSlip = await this.getBankSlipByInvoice(invoiceId, currentUser);
     return this.getPdfForBankSlip(bankSlip, { invoiceId, bankSlipId: bankSlip.id });
   }
 
@@ -1528,7 +1595,8 @@ export class BankSlipsService {
     }
   }
 
-  async downloadIssueBatchPdfs(batchId: string) {
+  async downloadIssueBatchPdfs(batchId: string, currentUser?: AuthUser) {
+    await this.ensureIssueBatchAccessible(batchId, currentUser);
     const batch = await this.prisma.bankSlipIssueBatch.findUnique({
       where: { id: batchId },
       include: this.issueBatchInclude(),
@@ -1536,8 +1604,12 @@ export class BankSlipsService {
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
+    const ids = scopedInstitutionIds(currentUser);
     const records = await this.prisma.bankSlipIssueBatchItem.findMany({
-      where: { batchId },
+      where: {
+        batchId,
+        ...(ids ? { enrollment: { institutionId: { in: ids } } } : {}),
+      },
       include: {
         invoice: true,
         enrollment: true,
@@ -1556,6 +1628,22 @@ export class BankSlipsService {
       stream: createZipArchiveStream(archive.entries),
       totals: archive.totals,
     };
+  }
+
+  private async ensureIssueBatchAccessible(
+    batchId: string,
+    currentUser?: AuthUser,
+  ) {
+    const ids = scopedInstitutionIds(currentUser);
+    if (!ids) {
+      return;
+    }
+    const allowedItems = await this.prisma.bankSlipIssueBatchItem.count({
+      where: { batchId, enrollment: { institutionId: { in: ids } } },
+    });
+    if (allowedItems === 0) {
+      throw new NotFoundException("Lote de emissao nao encontrado");
+    }
   }
 
   private prepareIssueBatchZipItems(
@@ -1846,9 +1934,11 @@ export class BankSlipsService {
   private async prepareIssue(
     invoiceId: string,
     userId: string,
+    currentUser?: AuthUser,
   ): Promise<IssuePreparationResult> {
     return this.prisma.$transaction(async (tx) => {
       const invoice = await this.lockInvoice(tx, invoiceId);
+      assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
       if (invoice.status !== InvoiceStatus.OPEN) {
         throw new BadRequestException({
           code:
@@ -2041,9 +2131,11 @@ export class BankSlipsService {
     invoiceId: string,
     userId: string,
     body: RequestBankSlipCancellationDto,
+    currentUser?: AuthUser,
   ): Promise<CancellationPreparation> {
     return this.prisma.$transaction(async (tx) => {
       const invoice = await this.lockInvoice(tx, invoiceId);
+      assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
       const bankSlip = invoice.bankSlip;
       if (!bankSlip) {
         throw new NotFoundException("Boleto nao encontrado para esta fatura");
@@ -2530,8 +2622,14 @@ export class BankSlipsService {
       classId?: string;
       dueDate?: string;
     },
-    options: { includeAllItems: boolean; resolveStalePendingIssue: boolean; userId?: string },
+    options: {
+      includeAllItems: boolean;
+      resolveStalePendingIssue: boolean;
+      userId?: string;
+      currentUser?: AuthUser;
+    },
   ) {
+    scopedInstitutionFilter(options.currentUser, input.institutionId);
     if (!input.institutionId || !input.dueDate) {
       throw new BadRequestException({
         code: "INSTITUTION_BATCH_FILTERS_REQUIRED",
@@ -3576,7 +3674,10 @@ export class BankSlipsService {
     return bankSlip;
   }
 
-  private async getBankSlipByInvoice(invoiceId: string) {
+  private async getBankSlipByInvoice(
+    invoiceId: string,
+    currentUser?: AuthUser,
+  ) {
     const bankSlip = await this.prisma.bankSlip.findUnique({
       where: { invoiceId },
       include: this.bankSlipInclude(),
@@ -3584,6 +3685,10 @@ export class BankSlipsService {
     if (!bankSlip) {
       throw new NotFoundException("Boleto nao encontrado para esta fatura");
     }
+    assertInstitutionInScope(
+      currentUser,
+      bankSlip.invoice.enrollment.institutionId,
+    );
     return bankSlip;
   }
 

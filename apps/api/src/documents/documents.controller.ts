@@ -42,8 +42,9 @@ export class DocumentsController {
   listDocuments(
     @Param("studentId") studentId: string,
     @Query() query: ListStudentDocumentsDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.documents.listStudentDocuments(studentId, query.status);
+    return this.documents.listStudentDocuments(studentId, query.status, user);
   }
 
   @Post()
@@ -59,6 +60,7 @@ export class DocumentsController {
       body.documentType,
       file,
       user.id,
+      user,
     );
   }
 
@@ -66,8 +68,9 @@ export class DocumentsController {
   getDocument(
     @Param("studentId") studentId: string,
     @Param("documentId") documentId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.documents.getStudentDocument(studentId, documentId);
+    return this.documents.getStudentDocument(studentId, documentId, user);
   }
 
   @Post(":documentId/replace")
@@ -83,6 +86,7 @@ export class DocumentsController {
       documentId,
       file,
       user.id,
+      user,
     );
   }
 
@@ -99,6 +103,7 @@ export class DocumentsController {
       documentId,
       user.id,
       query.disposition,
+      user,
     );
     response.setHeader("Content-Type", file.mimeType);
     response.setHeader("Content-Length", String(file.sizeBytes));
@@ -120,6 +125,11 @@ export class DocumentsController {
     @Param("documentId") documentId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.documents.removeStudentDocument(studentId, documentId, user.id);
+    return this.documents.removeStudentDocument(
+      studentId,
+      documentId,
+      user.id,
+      user,
+    );
   }
 }

@@ -31,20 +31,23 @@ export class InvoicesController {
 
   @Get("finance/invoices")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listInvoices(@Query() query: ListInvoicesDto) {
-    return this.invoices.listInvoices(query);
+  listInvoices(@Query() query: ListInvoicesDto, @CurrentUser() user: AuthUser) {
+    return this.invoices.listInvoices(query, user);
   }
 
   @Get("finance/invoices/:id")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  getInvoice(@Param("id") id: string) {
-    return this.invoices.getInvoice(id);
+  getInvoice(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.invoices.getInvoice(id, user);
   }
 
   @Get("students/:studentId/invoices")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listStudentInvoices(@Param("studentId") studentId: string) {
-    return this.invoices.listStudentInvoices(studentId);
+  listStudentInvoices(
+    @Param("studentId") studentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.invoices.listStudentInvoices(studentId, user);
   }
 
   @Get("students/:studentId/invoice-preview")
@@ -52,8 +55,9 @@ export class InvoicesController {
   previewInvoice(
     @Param("studentId") studentId: string,
     @Query() query: InvoicePreviewDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.invoices.previewInvoice(studentId, query);
+    return this.invoices.previewInvoice(studentId, query, user);
   }
 
   @Post("students/:studentId/invoices")
@@ -63,7 +67,7 @@ export class InvoicesController {
     @Body() body: CreateInvoiceDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.invoices.createInvoice(studentId, body, user.id);
+    return this.invoices.createInvoice(studentId, body, user.id, user);
   }
 
   @Post("finance/invoices/:id/cancel")
@@ -73,6 +77,6 @@ export class InvoicesController {
     @Body() body: CancelInvoiceDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.invoices.cancelInvoice(id, body, user.id);
+    return this.invoices.cancelInvoice(id, body, user.id, user);
   }
 }

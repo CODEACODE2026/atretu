@@ -49,19 +49,22 @@ export class BankSlipsController {
     @Param() params: InvoiceBankSlipParamsDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bankSlips.issueForInvoice(params.invoiceId, user.id);
+    return this.bankSlips.issueForInvoice(params.invoiceId, user.id, user);
   }
 
   @Get("finance/invoices/:invoiceId/bank-slip")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  getByInvoice(@Param() params: InvoiceBankSlipParamsDto) {
-    return this.bankSlips.getByInvoice(params.invoiceId);
+  getByInvoice(
+    @Param() params: InvoiceBankSlipParamsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.getByInvoice(params.invoiceId, user);
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/sync")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   syncByInvoice(@Param() params: InvoiceBankSlipParamsDto, @CurrentUser() user: AuthUser) {
-    return this.bankSlips.syncByInvoice(params.invoiceId, user.id);
+    return this.bankSlips.syncByInvoice(params.invoiceId, user.id, user);
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/recover-issued")
@@ -71,7 +74,12 @@ export class BankSlipsController {
     @Body() body: RecoverIssuedBankSlipDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bankSlips.recoverIssuedFromProviderResponse(params.invoiceId, user.id, body);
+    return this.bankSlips.recoverIssuedFromProviderResponse(
+      params.invoiceId,
+      user.id,
+      body,
+      user,
+    );
   }
 
   @Post("finance/bank-slips/sync-paid-day")
@@ -122,27 +130,41 @@ export class BankSlipsController {
     @Body() body: CreateBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bankSlips.createIssueBatch(body, user.id, {
-      processImmediately: true,
-    });
+    return this.bankSlips.createIssueBatch(
+      body,
+      user.id,
+      {
+        processImmediately: true,
+      },
+      user,
+    );
   }
 
   @Post("finance/bank-slip-issue-batches/preview")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  previewIssueBatch(@Body() body: PreviewBankSlipIssueBatchDto) {
-    return this.bankSlips.previewIssueBatch(body);
+  previewIssueBatch(
+    @Body() body: PreviewBankSlipIssueBatchDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.previewIssueBatch(body, user);
   }
 
   @Get("finance/bank-slip-issue-batches")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listIssueBatches(@Query() query: ListBankSlipIssueBatchesDto) {
-    return this.bankSlips.listIssueBatches(query);
+  listIssueBatches(
+    @Query() query: ListBankSlipIssueBatchesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.listIssueBatches(query, user);
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  getIssueBatch(@Param() params: BankSlipIssueBatchParamsDto) {
-    return this.bankSlips.getIssueBatch(params.batchId);
+  getIssueBatch(
+    @Param() params: BankSlipIssueBatchParamsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bankSlips.getIssueBatch(params.batchId, user);
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/items")
@@ -150,8 +172,9 @@ export class BankSlipsController {
   listIssueBatchItems(
     @Param() params: BankSlipIssueBatchParamsDto,
     @Query() query: ListBankSlipIssueBatchItemsDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.bankSlips.listIssueBatchItems(params.batchId, query);
+    return this.bankSlips.listIssueBatchItems(params.batchId, query, user);
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/download")
@@ -160,9 +183,13 @@ export class BankSlipsController {
   @Header("X-Content-Type-Options", "nosniff")
   async downloadIssueBatchPdfs(
     @Param() params: BankSlipIssueBatchParamsDto,
+    @CurrentUser() user: AuthUser,
     @Res() response: Response,
   ) {
-    const archive = await this.bankSlips.downloadIssueBatchPdfs(params.batchId);
+    const archive = await this.bankSlips.downloadIssueBatchPdfs(
+      params.batchId,
+      user,
+    );
     response.setHeader("Content-Type", "application/zip");
     response.setHeader(
       "Content-Disposition",
@@ -188,7 +215,7 @@ export class BankSlipsController {
     @Body() body: CancelBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bankSlips.cancelIssueBatch(params.batchId, user.id, body);
+    return this.bankSlips.cancelIssueBatch(params.batchId, user.id, body, user);
   }
 
   @Post("finance/bank-slip-issue-batches/:batchId/retry-failed")
@@ -208,15 +235,24 @@ export class BankSlipsController {
     @Body() body: RequestBankSlipCancellationDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bankSlips.requestCancellation(params.invoiceId, user.id, body);
+    return this.bankSlips.requestCancellation(
+      params.invoiceId,
+      user.id,
+      body,
+      user,
+    );
   }
 
   @Get("finance/invoices/:invoiceId/bank-slip/pdf")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
-  async getPdf(@Param() params: InvoiceBankSlipParamsDto, @Res() response: Response) {
-    const pdf = await this.bankSlips.getPdf(params.invoiceId);
+  async getPdf(
+    @Param() params: InvoiceBankSlipParamsDto,
+    @CurrentUser() user: AuthUser,
+    @Res() response: Response,
+  ) {
+    const pdf = await this.bankSlips.getPdf(params.invoiceId, user);
     response.setHeader("Content-Type", "application/pdf");
     response.setHeader("Content-Length", String(pdf.sizeBytes));
     response.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);

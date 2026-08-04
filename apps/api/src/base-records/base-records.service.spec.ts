@@ -3,6 +3,8 @@ import { BadRequestException } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
   RecordStatus,
+  RoleCode,
+  UserStatus,
 } from "@prisma/client";
 import { BaseRecordsService } from "./base-records.service.js";
 import {
@@ -132,12 +134,20 @@ const created = await service.createInstitution(
   { name: " Universidade Central " },
   "user-id",
 );
+const superAdminUser = {
+  id: "user-id",
+  name: "Super Admin",
+  email: "admin@example.com",
+  status: UserStatus.ACTIVE,
+  roles: [RoleCode.SUPER_ADMIN],
+  institutionIds: [],
+};
 
 assert.equal(created.name, " Universidade Central ");
 assert.equal(created.normalizedName, "universidade central");
 assert.equal(auditEvents[0]?.eventType, "BASE_RECORD_CREATED");
 
-const inactive = await service.inactivateInstitution(created.id, "user-id");
+const inactive = await service.inactivateInstitution(created.id, superAdminUser);
 assert.equal(inactive.status, RecordStatus.INACTIVE);
 assert.equal(auditEvents.at(-1)?.eventType, "BASE_RECORD_INACTIVATED");
 

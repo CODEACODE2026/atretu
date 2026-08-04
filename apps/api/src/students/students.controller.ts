@@ -106,35 +106,39 @@ export class StudentsController {
 
   @Get("students")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listStudents(@Query() query: ListStudentsDto) {
-    return this.students.listStudents(query);
+  listStudents(@Query() query: ListStudentsDto, @CurrentUser() user: AuthUser) {
+    return this.students.listStudents(query, user);
   }
 
   @Post("students")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   createStudent(@Body() body: CreateStudentDto, @CurrentUser() user: AuthUser) {
-    return this.students.createStudent(body, user.id);
+    return this.students.createStudent(body, user.id, user);
   }
 
   @Get("students/reenrollment-candidates")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listReenrollmentCandidates(@Query() query: ListStudentsDto) {
-    return this.students.listReenrollmentCandidates(query);
+  listReenrollmentCandidates(
+    @Query() query: ListStudentsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.listReenrollmentCandidates(query, user);
   }
 
   @Get("students/:id")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  getStudent(@Param("id") id: string) {
-    return this.students.getStudent(id);
+  getStudent(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.students.getStudent(id, user);
   }
 
   @Get("students/:id/reenrollment-preview")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   previewReenrollment(
     @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
     @Query("academicYearId") academicYearId?: string,
   ) {
-    return this.students.previewReenrollment(id, academicYearId);
+    return this.students.previewReenrollment(id, academicYearId, user);
   }
 
   @Patch("students/:id/person")
@@ -144,7 +148,7 @@ export class StudentsController {
     @Body() body: UpdatePersonDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.updatePerson(id, body, user.id);
+    return this.students.updatePerson(id, body, user.id, user);
   }
 
   @Patch("students/:id/guardian")
@@ -154,7 +158,7 @@ export class StudentsController {
     @Body() body: UpdateGuardianDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.updateGuardian(id, body, user.id);
+    return this.students.updateGuardian(id, body, user.id, user);
   }
 
   @Post("students/:id/enrollments")
@@ -164,7 +168,7 @@ export class StudentsController {
     @Body() body: CreateEnrollmentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.createEnrollment(id, body, user.id);
+    return this.students.createEnrollment(id, body, user.id, user);
   }
 
   @Patch("students/:id/enrollments/:enrollmentId")
@@ -175,7 +179,7 @@ export class StudentsController {
     @Body() body: UpdateEnrollmentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.updateEnrollment(id, enrollmentId, body, user.id);
+    return this.students.updateEnrollment(id, enrollmentId, body, user.id, user);
   }
 
   @Post("students/:id/reenroll")
@@ -185,7 +189,7 @@ export class StudentsController {
     @Body() body: ReenrollStudentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.reenrollStudent(id, body, user.id);
+    return this.students.reenrollStudent(id, body, user.id, user);
   }
 
   @Post("students/:id/suspend")
@@ -195,7 +199,7 @@ export class StudentsController {
     @Body() body: SuspendStudentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.suspendStudent(id, body, user.id);
+    return this.students.suspendStudent(id, body, user.id, user);
   }
 
   @Post("students/:id/reactivate")
@@ -205,7 +209,7 @@ export class StudentsController {
     @Body() body: ReactivateStudentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.reactivateStudent(id, body, user.id);
+    return this.students.reactivateStudent(id, body, user.id, user);
   }
 
   @Post("students/:id/reinstate")
@@ -215,7 +219,7 @@ export class StudentsController {
     @Body() body: ReinstateStudentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.reinstateStudent(id, body, user.id);
+    return this.students.reinstateStudent(id, body, user.id, user);
   }
 
   @Post("students/:id/terminate")
@@ -225,19 +229,19 @@ export class StudentsController {
     @Body() body: TerminateStudentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.terminateStudent(id, body, user.id);
+    return this.students.terminateStudent(id, body, user.id, user);
   }
 
   @Get("students/:id/history")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listStudentHistory(@Param("id") id: string) {
-    return this.students.listStudentHistory(id);
+  listStudentHistory(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.students.listStudentHistory(id, user);
   }
 
   @Get("students/:id/board-memberships")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  listBoardMemberships(@Param("id") id: string) {
-    return this.students.listBoardMemberships(id);
+  listBoardMemberships(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.students.listBoardMemberships(id, user);
   }
 
   @Post("students/:id/board-memberships")
@@ -247,7 +251,7 @@ export class StudentsController {
     @Body() body: StartBoardMembershipDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.startBoardMembership(id, body, user.id);
+    return this.students.startBoardMembership(id, body, user.id, user);
   }
 
   @Post("students/:id/board-memberships/:membershipId/end")
@@ -258,6 +262,6 @@ export class StudentsController {
     @Body() body: EndBoardMembershipDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.students.endBoardMembership(id, membershipId, body, user.id);
+    return this.students.endBoardMembership(id, membershipId, body, user.id, user);
   }
 }

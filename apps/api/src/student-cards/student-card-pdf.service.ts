@@ -15,7 +15,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
+import { scopedInstitutionFilter } from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
+import type { AuthUser } from "../users/users.service.js";
 
 const A4 = { width: 595.28, height: 841.89 };
 // PDFKit uses points. 360 x 230 px at 96 DPI equals 270 x 172.5 pt.
@@ -50,9 +52,19 @@ export class StudentCardPdfService {
     private readonly storage: DocumentStorageService,
   ) {}
 
-  async generate(cardId: string, disposition: FileDisposition) {
-    const card = await this.prisma.studentCard.findUnique({
-      where: { id: cardId },
+  async generate(
+    cardId: string,
+    disposition: FileDisposition,
+    currentUser?: AuthUser,
+  ) {
+    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const card = await this.prisma.studentCard.findFirst({
+      where: {
+        id: cardId,
+        ...(institutionFilter
+          ? { enrollment: { institutionId: institutionFilter } }
+          : {}),
+      },
       include: this.cardInclude(),
     });
     if (!card) {
