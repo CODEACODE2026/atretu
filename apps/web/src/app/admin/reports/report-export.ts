@@ -22,7 +22,7 @@ export type GeneratedReport = {
 
 export function downloadReportPdf(report: GeneratedReport, user: ApiUser) {
   downloadBlob(
-    buildPdf(report, user),
+    buildReportPdf(report, user),
     `${slugify(report.title)}.pdf`,
     "application/pdf",
   );
@@ -30,7 +30,7 @@ export function downloadReportPdf(report: GeneratedReport, user: ApiUser) {
 
 export function downloadReportXlsx(report: GeneratedReport, user: ApiUser) {
   downloadBlob(
-    buildXlsx(report, user),
+    buildReportXlsx(report, user),
     `${slugify(report.title)}.xlsx`,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   );
@@ -124,78 +124,289 @@ function buildPrintHtml(report: GeneratedReport, user: ApiUser) {
 </html>`;
 }
 
-function buildPdf(report: GeneratedReport, user: ApiUser) {
-  const pageWidth = 595;
-  const pageHeight = 842;
+export function buildReportPdf(report: GeneratedReport, user: ApiUser) {
+  const landscape = report.columns.length >= 6;
+  const pageWidth = landscape ? 842 : 595;
+  const pageHeight = landscape ? 595 : 842;
   const margin = 36;
   const usableWidth = pageWidth - margin * 2;
-  const columnWidth = usableWidth / report.columns.length;
-  const rowsPerPage = 22;
-  const pages = chunk(report.rows, rowsPerPage);
-  const contentObjects: string[] = [];
+  const footerY = 26;
+  const bottomLimit = 54;
+  const columns = buildPdfColumns(report.columns, usableWidth);
+  const pages: string[][] = [];
+  let lines = createPdfPage(report, user, pageWidth, pageHeight, margin, columns);
+  const firstDataY = pageHeight - (report.summary.length > 0 ? 210 : 184);
+  let y = firstDataY;
 
-  (pages.length ? pages : [[]]).forEach((rows, pageIndex) => {
-    const lines: string[] = [];
-    drawText(lines, "ATRETU", margin, 800, 16, true, usableWidth);
-    drawText(lines, report.title, margin, 778, 15, true, usableWidth);
-    drawText(lines, `${report.category} · Emitido em ${formatDateTime(report.generatedAt)} · Usuário: ${user.name}`, margin, 760, 9, false, usableWidth);
-    drawText(lines, `Filtros: ${report.filters.map((item) => `${item.label}: ${item.value}`).join(" · ") || "Nenhum filtro aplicado"}`, margin, 744, 8, false, usableWidth);
-    drawText(lines, report.summary.map((item) => `${item.label}: ${item.value}`).join("   "), margin, 724, 9, true, usableWidth);
-    lines.push("0.06 w 15 46 46 RG 36 712 m 559 712 l S");
+  const appendPage = () => {
+    pages.push(lines);
+    lines = createPdfPage(report, user, pageWidth, pageHeight, margin, columns);
+    y = firstDataY;
+  };
 
-    let y = 692;
-    report.columns.forEach((column, index) => {
-      drawText(lines, column.label, margin + index * columnWidth, y, 8, true, columnWidth - 4);
-    });
-    y -= 14;
-    rows.forEach((row) => {
-      report.columns.forEach((column, index) => {
-        drawText(lines, formatCell(row[column.key], column.type), margin + index * columnWidth, y, 8, false, columnWidth - 4);
+  if (report.rows.length === 0) {
+    drawPdfRect(lines, margin, y - 18, usableWidth, 28, "248 250 252");
+    drawPdfText(lines, "Nenhum registro encontrado.", margin + 8, y - 2, 9, { maxWidth: usableWidth - 16 });
+  } else {
+    report.rows.forEach((row, rowIndex) => {
+      const cellLines = columns.map((column) => wrapPdfText(formatCell(row[column.key], column.type), column.width - 12, 8));
+      const rowHeight = Math.max(24, Math.max(...cellLines.map((items) => items.length)) * 10 + 12);
+      if (y - rowHeight < bottomLimit) {
+        appendPage();
+      }
+      drawPdfRect(lines, margin, y - rowHeight + 8, usableWidth, rowHeight, rowIndex % 2 === 0 ? "255 255 255" : "248 250 252");
+      let x = margin;
+      columns.forEach((column, columnIndex) => {
+        const align = column.type === "currency" || column.type === "number" ? "right" : column.type === "date" ? "center" : "left";
+        cellLines[columnIndex]!.forEach((text, lineIndex) => {
+          drawPdfText(lines, text, x + 6, y - 6 - lineIndex * 10, 8, {
+            align,
+            color: "15 23 42",
+            maxWidth: column.width - 12,
+          });
+        });
+        drawPdfLine(lines, x, y + 8, x, y - rowHeight + 8, "226 232 240", 0.3);
+        x += column.width;
       });
-      y -= 24;
+      drawPdfLine(lines, margin + usableWidth, y + 8, margin + usableWidth, y - rowHeight + 8, "226 232 240", 0.3);
+      drawPdfLine(lines, margin, y - rowHeight + 8, margin + usableWidth, y - rowHeight + 8, "226 232 240", 0.4);
+      y -= rowHeight;
     });
+  }
 
-    drawText(lines, `Atretu · Relatório operacional · Página ${pageIndex + 1} de ${pages.length || 1}`, margin, 30, 8, false, usableWidth);
-    contentObjects.push(lines.join("\n"));
+  pages.push(lines);
+  const pageContents = pages.map((pageLines, index) => {
+    drawPdfFooter(pageLines, report, pageWidth, margin, footerY, index + 1, pages.length);
+    return pageLines.join("\n");
   });
 
-  return createPdf(contentObjects, pageWidth, pageHeight);
+  return createPdf(pageContents, pageWidth, pageHeight);
+}
+
+function createPdfPage(
+  report: GeneratedReport,
+  user: ApiUser,
+  pageWidth: number,
+  pageHeight: number,
+  margin: number,
+  columns: PdfColumn[],
+) {
+  const lines: string[] = [];
+  const usableWidth = pageWidth - margin * 2;
+  drawPdfRect(lines, margin, pageHeight - 66, 42, 30, "15 46 46");
+  drawPdfText(lines, "AT", margin + 11, pageHeight - 55, 13, { bold: true, color: "255 255 255", maxWidth: 22 });
+  drawPdfText(lines, "ATRETU", margin + 54, pageHeight - 45, 10, { bold: true, color: "15 46 46", maxWidth: 120 });
+  drawPdfText(lines, report.title, margin + 54, pageHeight - 62, 15, { bold: true, color: "15 23 42", maxWidth: usableWidth * 0.58 });
+  drawPdfText(lines, report.category, margin + 54, pageHeight - 77, 9, { color: "71 85 105", maxWidth: usableWidth * 0.58 });
+  drawPdfText(lines, `Emitido em ${formatDateTime(report.generatedAt)}`, margin, pageHeight - 48, 8, { align: "right", color: "71 85 105", maxWidth: usableWidth });
+  drawPdfText(lines, `Usuário: ${user.name}`, margin, pageHeight - 61, 8, { align: "right", color: "71 85 105", maxWidth: usableWidth });
+  drawPdfLine(lines, margin, pageHeight - 92, pageWidth - margin, pageHeight - 92, "15 46 46", 1.2);
+
+  const filterText = report.filters.map((item) => `${item.label}: ${item.value}`).join(" - ") || "Nenhum filtro aplicado";
+  drawPdfText(lines, `Filtros: ${filterText} - Registros: ${report.rows.length}`, margin, pageHeight - 112, 8, { color: "71 85 105", maxWidth: usableWidth });
+
+  let y = pageHeight - 136;
+  if (report.summary.length > 0) {
+    const summaryWidth = Math.min(170, usableWidth / Math.min(report.summary.length, 4) - 8);
+    report.summary.slice(0, 4).forEach((item, index) => {
+      const x = margin + index * (summaryWidth + 8);
+      drawPdfRect(lines, x, y - 22, summaryWidth, 34, "241 245 249");
+      drawPdfText(lines, item.label.toUpperCase(), x + 8, y + 1, 6.5, { color: "100 116 139", maxWidth: summaryWidth - 16 });
+      drawPdfText(lines, item.value, x + 8, y - 13, 10, { bold: true, color: "15 23 42", maxWidth: summaryWidth - 16 });
+    });
+    y -= 44;
+  }
+
+  drawPdfTableHeader(lines, columns, margin, y, pageWidth - margin * 2);
+  return lines;
+}
+
+function drawPdfTableHeader(lines: string[], columns: PdfColumn[], margin: number, y: number, usableWidth: number) {
+  drawPdfRect(lines, margin, y - 18, usableWidth, 24, "15 46 46");
+  let x = margin;
+  columns.forEach((column) => {
+    const align = column.type === "currency" || column.type === "number" ? "right" : column.type === "date" ? "center" : "left";
+    drawPdfText(lines, column.label, x + 6, y - 8, 7.2, {
+      align,
+      bold: true,
+      color: "255 255 255",
+      maxWidth: column.width - 12,
+    });
+    x += column.width;
+  });
+}
+
+function drawPdfFooter(
+  lines: string[],
+  report: GeneratedReport,
+  pageWidth: number,
+  margin: number,
+  y: number,
+  page: number,
+  totalPages: number,
+) {
+  drawPdfLine(lines, margin, y + 13, pageWidth - margin, y + 13, "226 232 240", 0.6);
+  drawPdfText(lines, `Atretu - Relatório operacional - ${formatDateTime(report.generatedAt)}`, margin, y, 7.5, {
+    color: "100 116 139",
+    maxWidth: pageWidth - margin * 2,
+  });
+  drawPdfText(lines, `Página ${page} de ${totalPages}`, margin, y, 7.5, {
+    align: "right",
+    color: "100 116 139",
+    maxWidth: pageWidth - margin * 2,
+  });
 }
 
 function createPdf(pageContents: string[], pageWidth: number, pageHeight: number) {
-  const objects: string[] = [];
+  const objects: Array<string | Uint8Array> = [];
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
-  const pageRefs = pageContents.map((_, index) => `${4 + index * 2} 0 R`).join(" ");
+  const pageRefs = pageContents.map((_, index) => `${5 + index * 2} 0 R`).join(" ");
   objects.push(`<< /Type /Pages /Kids [${pageRefs}] /Count ${pageContents.length} >>`);
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
   pageContents.forEach((content, index) => {
-    const pageObject = 4 + index * 2;
+    const pageObject = 5 + index * 2;
     const contentObject = pageObject + 1;
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObject} 0 R >>`);
-    objects.push(`<< /Length ${byteLength(content)} >>\nstream\n${content}\nendstream`);
+    const contentBytes = pdfBytes(content);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObject} 0 R >>`);
+    objects.push(concatBytes([
+      pdfBytes(`<< /Length ${contentBytes.length} >>\nstream\n`),
+      contentBytes,
+      pdfBytes("\nendstream"),
+    ]));
   });
 
-  let output = "%PDF-1.4\n";
-  const offsets = [0];
+  const parts: Uint8Array[] = [pdfBytes("%PDF-1.4\n")];
+  const offsets: number[] = [];
+  let offset = parts[0]!.length;
   objects.forEach((object, index) => {
-    offsets.push(byteLength(output));
-    output += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    offsets.push(offset);
+    const objectBytes = typeof object === "string" ? pdfBytes(object) : object;
+    const part = concatBytes([
+      pdfBytes(`${index + 1} 0 obj\n`),
+      objectBytes,
+      pdfBytes("\nendobj\n"),
+    ]);
+    parts.push(part);
+    offset += part.length;
   });
-  const xrefOffset = byteLength(output);
-  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((offset) => {
-    output += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  });
-  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-  return new Blob([output], { type: "application/pdf" });
+  const xrefOffset = offset;
+  const xref = [
+    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`,
+    ...offsets.map((item) => `${String(item).padStart(10, "0")} 00000 n \n`),
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
+  ].join("");
+  parts.push(pdfBytes(xref));
+  return new Blob([concatBytes(parts)], { type: "application/pdf" });
 }
 
-function drawText(lines: string[], text: string, x: number, y: number, size: number, bold = false, maxWidth = 110) {
-  const clipped = clipText(text, Math.max(8, Math.floor(maxWidth / (size * 0.45))));
-  lines.push(`BT /F1 ${size} Tf ${bold ? "0 0 0 rg" : "71 85 105 rg"} ${x} ${y} Td <${toUtf16Hex(clipped)}> Tj ET`);
+type PdfColumn = ReportColumn & { width: number };
+type PdfTextOptions = {
+  align?: "center" | "left" | "right";
+  bold?: boolean;
+  color?: string;
+  maxWidth?: number;
+};
+
+function buildPdfColumns(columns: ReportColumn[], usableWidth: number): PdfColumn[] {
+  const weights = columns.map((column) => {
+    if (column.type === "currency") return 0.88;
+    if (column.type === "date") return 0.82;
+    if (/cpf|status|ano/i.test(column.label)) return 0.74;
+    if (/institui|acad|ônibus|onibus|cobran/i.test(column.label)) return 1.3;
+    return 1;
+  });
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  return columns.map((column, index) => ({
+    ...column,
+    width: Math.max(54, (usableWidth * weights[index]!) / totalWeight),
+  }));
 }
 
-function buildXlsx(report: GeneratedReport, user: ApiUser) {
+function drawPdfText(lines: string[], text: string, x: number, y: number, size: number, options: PdfTextOptions = {}) {
+  const maxWidth = options.maxWidth ?? 120;
+  const normalized = sanitizePdfText(clipText(text, Math.max(6, Math.floor(maxWidth / (size * 0.48)))));
+  const estimatedWidth = measurePdfText(normalized, size);
+  const alignedX = options.align === "right"
+    ? x + Math.max(0, maxWidth - estimatedWidth)
+    : options.align === "center"
+      ? x + Math.max(0, (maxWidth - estimatedWidth) / 2)
+      : x;
+  lines.push(`BT /${options.bold ? "F2" : "F1"} ${size} Tf ${pdfColor(options.color ?? "71 85 105")} rg ${number(alignedX)} ${number(y)} Td (${escapePdfLiteral(normalized)}) Tj ET`);
+}
+
+function drawPdfRect(lines: string[], x: number, y: number, width: number, height: number, color: string) {
+  lines.push(`q ${pdfColor(color)} rg ${number(x)} ${number(y)} ${number(width)} ${number(height)} re f Q`);
+}
+
+function drawPdfLine(lines: string[], x1: number, y1: number, x2: number, y2: number, color: string, width: number) {
+  lines.push(`q ${width} w ${pdfColor(color)} RG ${number(x1)} ${number(y1)} m ${number(x2)} ${number(y2)} l S Q`);
+}
+
+function wrapPdfText(value: string, width: number, size: number) {
+  const maxChars = Math.max(8, Math.floor(width / (size * 0.46)));
+  const words = sanitizePdfText(value).split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  words.forEach((word) => {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      return;
+    }
+    if (current) {
+      lines.push(current);
+    }
+    current = word.length > maxChars ? clipText(word, maxChars) : word;
+  });
+  if (current) {
+    lines.push(current);
+  }
+  return lines.length ? lines.slice(0, 3) : ["-"];
+}
+
+function measurePdfText(value: string, size: number) {
+  return value.length * size * 0.48;
+}
+
+function escapePdfLiteral(value: string) {
+  return sanitizePdfText(value).replace(/[\\()]/g, "\\$&").replace(/[\r\n\t]/g, " ");
+}
+
+function sanitizePdfText(value: string) {
+  return value
+    .replace(/\u00a0/g, " ")
+    .replace(/[•·]/g, "-")
+    .replace(/[…]/g, "...")
+    .replace(/[–—]/g, "-")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pdfBytes(value: string) {
+  const bytes = new Uint8Array(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    bytes[index] = code <= 255 ? code : 63;
+  }
+  return bytes;
+}
+
+function number(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function pdfColor(value: string) {
+  const parts = value.split(/\s+/).map(Number);
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
+    return "0 0 0";
+  }
+  return parts.map((part) => number(part > 1 ? part / 255 : part)).join(" ");
+}
+
+export function buildReportXlsx(report: GeneratedReport, user: ApiUser) {
   const rows = [
     ["ATRETU", report.title],
     ["Categoria", report.category],
@@ -326,14 +537,6 @@ function downloadBlob(blob: Blob, filename: string, type: string) {
   link.remove();
 }
 
-function chunk<T>(items: T[], size: number) {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
-
 function formatCell(value: ReportRow[string], type?: ReportColumn["type"]) {
   if (value === null || value === undefined || value === "") {
     return "-";
@@ -399,22 +602,9 @@ function escapeXml(value: string) {
   return escapeHtml(value);
 }
 
-function toUtf16Hex(value: string) {
-  const bytes = [0xfe, 0xff];
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    bytes.push((code >> 8) & 0xff, code & 0xff);
-  }
-  return bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
-}
-
 function clipText(value: string, maxLength: number) {
   const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
-}
-
-function byteLength(value: string) {
-  return new TextEncoder().encode(value).length;
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3)}...` : normalized;
 }
 
 function columnName(index: number) {
