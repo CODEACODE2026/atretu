@@ -29,6 +29,12 @@ export enum BaseRecordSort {
   UPDATED_AT = "updatedAt",
 }
 
+export enum BusAvailabilityFilter {
+  ALL = "all",
+  AVAILABLE = "available",
+  FULL = "full",
+}
+
 export class ListBaseRecordsDto {
   @IsOptional()
   @Type(() => Number)
@@ -64,6 +70,14 @@ export class ListBaseRecordsDto {
   @IsOptional()
   @IsUUID()
   academicYearId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
+  @IsEnum(BusAvailabilityFilter)
+  availability?: BusAvailabilityFilter = BusAvailabilityFilter.ALL;
 }
 
 export class CreateNamedRecordDto {

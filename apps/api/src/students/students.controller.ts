@@ -22,6 +22,7 @@ import {
   CreateStudentDto,
   EndBoardMembershipDto,
   ListAcademicYearsDto,
+  ListStudentDocumentationStatusDto,
   ListStudentsDto,
   ReactivateStudentDto,
   ReinstateStudentDto,
@@ -123,6 +124,15 @@ export class StudentsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.students.listReenrollmentCandidates(query, user);
+  }
+
+  @Get("students/documentation-status")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listStudentDocumentationStatus(
+    @Query() query: ListStudentDocumentationStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.listStudentDocumentationStatus(query, user);
   }
 
   @Get("students/:id")

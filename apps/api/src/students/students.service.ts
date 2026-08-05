@@ -19,6 +19,8 @@ import {
   StudentCardInvalidationReason,
   StudentCardStatus,
   StudentCardType,
+  StudentDocumentStatus,
+  StudentDocumentType,
   StudentHistoryEventType,
   StudentStatus,
 } from "@prisma/client";
@@ -31,6 +33,8 @@ import {
 import { BusAssignmentsService } from "../bus-assignments/bus-assignments.service.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { DOCUMENT_TYPES } from "../documents/document-file.js";
+import { deriveDocumentationStatus } from "../documents/documentation-status.js";
 import { StudentCardsService } from "../student-cards/student-cards.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import { isValidCpf, maskCpf, normalizeCpf } from "./cpf.js";
@@ -46,7 +50,9 @@ import {
   EnrollmentInputDto,
   GuardianInputDto,
   AcademicYearStatusFilter,
+  DocumentationStatusFilter,
   ListAcademicYearsDto,
+  ListStudentDocumentationStatusDto,
   ListStudentsDto,
   ReactivateStudentDto,
   ReinstateStudentDto,
@@ -437,6 +443,53 @@ export class StudentsService {
         limit: pagination.limit,
         total,
         totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
+  }
+
+  async listStudentDocumentationStatus(
+    query: ListStudentDocumentationStatusDto,
+    currentUser?: AuthUser,
+  ) {
+    const studentQuery = {
+      ...query,
+      status: StudentStatusFilter.ACTIVE,
+    };
+    const where = this.buildStudentWhere(studentQuery, currentUser);
+    const enrollmentWhere = this.buildEnrollmentFilter(studentQuery, currentUser);
+    const records = await this.prisma.student.findMany({
+      where,
+      orderBy: this.buildStudentOrderBy(studentQuery),
+      include: {
+        person: true,
+        documents: {
+          where: {
+            status: StudentDocumentStatus.ACTIVE,
+            documentType: { in: [...DOCUMENT_TYPES] },
+          },
+          select: { documentType: true },
+        },
+        enrollments: {
+          where: enrollmentWhere,
+          orderBy: { academicYear: { year: "desc" } },
+          take: 1,
+          include: this.enrollmentInclude(),
+        },
+      },
+    });
+    const filtered = records
+      .map((student) => this.toDocumentationStatusRow(student))
+      .filter((student) => student.documentationStatus === query.documentationStatus);
+    const pagination = this.resolvePagination(query);
+    const data = filtered.slice(pagination.skip, pagination.skip + pagination.limit);
+
+    return {
+      data,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total: filtered.length,
+        totalPages: Math.ceil(filtered.length / pagination.limit),
       },
     };
   }
@@ -1393,6 +1446,30 @@ export class StudentsService {
     return where;
   }
 
+  private buildEnrollmentFilter(
+    query: ListStudentsDto,
+    currentUser?: AuthUser,
+  ): Prisma.EnrollmentWhereInput {
+    const enrollmentFilters: Prisma.EnrollmentWhereInput = {};
+    if (query.academicYearId) {
+      enrollmentFilters.academicYearId = query.academicYearId;
+    }
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+    if (institutionFilter) {
+      enrollmentFilters.institutionId = institutionFilter;
+    }
+    if (query.shiftId) {
+      enrollmentFilters.shiftId = query.shiftId;
+    }
+    if (query.course) {
+      enrollmentFilters.course = { contains: query.course };
+    }
+    return enrollmentFilters;
+  }
+
   private async listStudentsByCardNumber(
     query: ListStudentsDto,
     pagination: { skip: number; limit: number },
@@ -2107,6 +2184,34 @@ export class StudentsService {
         cpfMasked: maskCpf(student.person.cpf),
       },
       currentEnrollment: enrollment ? this.toEnrollment(enrollment) : null,
+    };
+  }
+
+  private toDocumentationStatusRow(student: {
+    id: string;
+    joinedAt: Date;
+    person: { fullName: string; cpf: string };
+    documents: Array<{ documentType: StudentDocumentType }>;
+    enrollments: EnrollmentWithRelations[];
+  }) {
+    const documentation = deriveDocumentationStatus(
+      student.documents.map((document) => document.documentType),
+    );
+    const enrollment = student.enrollments[0] ?? null;
+
+    return {
+      studentId: student.id,
+      fullName: student.person.fullName,
+      cpfMasked: maskCpf(student.person.cpf),
+      joinedAt: student.joinedAt,
+      institution: enrollment?.institution ?? null,
+      academicYear: enrollment?.academicYear ?? null,
+      enrollment: enrollment ? this.toEnrollment(enrollment) : null,
+      expectedDocumentCount: documentation.expectedDocumentCount,
+      activeDocumentCount: documentation.activeDocumentCount,
+      missingDocumentCount: documentation.missingDocumentCount,
+      missingTypes: documentation.missingTypes,
+      documentationStatus: documentation.documentationStatus,
     };
   }
 

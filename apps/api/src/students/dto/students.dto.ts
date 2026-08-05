@@ -40,6 +40,12 @@ export enum AcademicYearStatusFilter {
   ALL = "all",
 }
 
+export enum DocumentationStatusFilter {
+  NONE = "none",
+  PARTIAL = "partial",
+  COMPLETE = "complete",
+}
+
 export class ListAcademicYearsDto {
   @IsOptional()
   @IsEnum(AcademicYearStatusFilter)
@@ -95,6 +101,11 @@ export class ListStudentsDto {
   @IsOptional()
   @IsEnum(SortOrder)
   order = SortOrder.ASC;
+}
+
+export class ListStudentDocumentationStatusDto extends ListStudentsDto {
+  @IsEnum(DocumentationStatusFilter)
+  documentationStatus!: DocumentationStatusFilter;
 }
 
 export class PersonInputDto {

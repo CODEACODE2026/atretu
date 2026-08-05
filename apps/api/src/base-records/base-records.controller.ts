@@ -111,8 +111,8 @@ export class BaseRecordsController {
   }
 
   @Get("buses")
-  listBuses(@Query() query: ListBaseRecordsDto) {
-    return this.baseRecords.listBuses(query);
+  listBuses(@Query() query: ListBaseRecordsDto, @CurrentUser() user: AuthUser) {
+    return this.baseRecords.listBuses(query, user);
   }
 
   @Post("buses")

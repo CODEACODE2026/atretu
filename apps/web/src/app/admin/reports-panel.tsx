@@ -20,6 +20,7 @@ import {
   type InvoiceStatus,
   type ListResponse,
   type StudentCardStatus,
+  type StudentDocumentType,
   type StudentStatus,
 } from "../../lib/api";
 import { adminTheme, cx } from "./admin-theme";
@@ -129,6 +130,14 @@ const CARD_COLUMNS: ReportColumn[] = [
   { key: "academicYear", label: "Ano letivo", type: "number" },
 ];
 
+const DOCUMENT_TYPE_LABELS: Record<StudentDocumentType, string> = {
+  CPF: "CPF",
+  RG: "RG",
+  PHOTO: "Foto",
+  PROOF_OF_ADDRESS: "Comprovante de endereço",
+  PROOF_OF_ENROLLMENT: "Comprovante de matrícula",
+};
+
 const REPORT_CATEGORIES: ReportCategory[] = [
   "Acadêmicos",
   "Transporte",
@@ -145,12 +154,12 @@ const REPORTS: ReportDefinition[] = [
   studentReport("students-by-course", "Acadêmicos por curso", "Acadêmicos", "Relação de acadêmicos agrupável por curso.", "active", ["academicYearId", "institutionId", "course", "search"]),
   studentReport("students-by-year", "Acadêmicos por ano letivo", "Acadêmicos", "Acadêmicos filtrados por período letivo.", "active"),
   busAssignmentsReport("students-by-bus", "Acadêmicos por ônibus", "Acadêmicos", "Acadêmicos vinculados ao ônibus selecionado ou a todos os ônibus."),
-  unavailableReport("students-without-documents", "Acadêmicos sem documentação", "Acadêmicos", "Disponível em uma próxima etapa após definição oficial de completude documental.", "SEM DEFINIÇÃO FUNCIONAL"),
-  unavailableReport("students-documents-pending", "Acadêmicos com documentação pendente", "Acadêmicos", "Disponível em uma próxima etapa após definição oficial de documentação pendente.", "SEM DEFINIÇÃO FUNCIONAL"),
+  documentationReport("students-without-documents", "Acadêmicos sem documentação", "Acadêmicos", "Acadêmicos ativos sem documentos esperados ativos.", "none"),
+  documentationReport("students-documents-pending", "Acadêmicos com documentação pendente", "Acadêmicos", "Acadêmicos ativos com parte da documentação esperada ausente.", "partial"),
   busesReport("buses", "Ônibus cadastrados", "Transporte", "Cadastro operacional de ônibus."),
   busesReport("bus-occupancy", "Ocupação dos ônibus", "Transporte", "Ocupação atual e vagas por ônibus."),
-  unavailableReport("available-seats", "Vagas disponíveis", "Transporte", "Disponível em uma próxima etapa com filtro semântico oficial de lotação no backend.", "PRECISA DE ENDPOINT/FILTRO"),
-  unavailableReport("full-buses", "Ônibus lotados", "Transporte", "Disponível em uma próxima etapa com filtro semântico oficial de lotação no backend.", "PRECISA DE ENDPOINT/FILTRO"),
+  busesReport("available-seats", "Vagas disponíveis", "Transporte", "Ônibus ativos com vagas disponíveis conforme ocupação oficial.", "available"),
+  busesReport("full-buses", "Ônibus lotados", "Transporte", "Ônibus com ocupação maior ou igual à capacidade oficial.", "full"),
   invoiceReport("open-invoices", "Faturas abertas", "Financeiro", "Faturas abertas conforme filtros financeiros atuais.", "OPEN"),
   invoiceReport("overdue-invoices", "Faturas vencidas", "Financeiro", "Faturas abertas e vencidas.", "OPEN", "overdue"),
   invoiceReport("paid-invoices", "Faturas pagas", "Financeiro", "Faturas pagas conforme período informado.", "PAID"),
@@ -162,12 +171,12 @@ const REPORTS: ReportDefinition[] = [
   collectionReport("broken-payment-promises", "Promessas vencidas/quebradas", "Financeiro", "Promessas vencidas ou quebradas conforme status oficial da cobrança.", { operationalStatus: "PROMISE_BROKEN" }),
   followUpReport("follow-ups", "Follow-ups", "Financeiro", "Follow-ups de cobrança programados."),
   cardReport("issued-cards", "Emitidas", "Carteirinhas", "Carteirinhas emitidas e ativas.", "ACTIVE"),
-  unavailableReport("pending-cards", "Pendentes", "Carteirinhas", "Disponível em uma próxima etapa com regra oficial de carteirinha pendente.", "SEM DEFINIÇÃO FUNCIONAL"),
+  pendingCardsReport("pending-cards", "Pendentes", "Carteirinhas", "Matrículas ativas de acadêmicos ativos sem carteirinha ativa."),
   cardReport("invalid-cards", "Inválidas", "Carteirinhas", "Carteirinhas invalidadas.", "INVALIDATED"),
   cardReport("expired-cards", "Expiradas", "Carteirinhas", "Carteirinhas não utilizáveis.", "ACTIVE", "notUsable"),
-  unavailableReport("reenrollments-pending", "Pendentes", "Rematrículas", "Disponível em uma próxima etapa com status oficial de rematrícula pendente.", "SEM DEFINIÇÃO FUNCIONAL"),
-  unavailableReport("reenrollments-completed", "Concluídas", "Rematrículas", "Disponível em uma próxima etapa com status oficial de rematrícula concluída.", "SEM DEFINIÇÃO FUNCIONAL"),
-  unavailableReport("reenrollments-not-started", "Não iniciadas", "Rematrículas", "Disponível em uma próxima etapa com status oficial de rematrícula não iniciada.", "SEM DEFINIÇÃO FUNCIONAL"),
+  reenrollmentCandidatesReport("reenrollments-pending", "Candidatos à rematrícula", "Rematrículas", "Acadêmicos elegíveis que ainda não possuem matrícula no ano letivo de destino."),
+  unavailableReport("reenrollments-completed", "Concluídas", "Rematrículas", "Depende de campanha ou status oficial para distinguir rematrícula concluída de matrícula inicial.", "SEM DEFINIÇÃO FUNCIONAL"),
+  unavailableReport("reenrollments-not-started", "Não iniciadas", "Rematrículas", "Depende de campanha de rematrícula e público-alvo persistido.", "SEM DEFINIÇÃO FUNCIONAL"),
 ];
 
 export function ReportsPanel({ user }: { user: ApiUser }) {
@@ -769,6 +778,56 @@ function studentReport(
   };
 }
 
+function documentationReport(
+  id: string,
+  title: string,
+  category: ReportCategory,
+  description: string,
+  documentationStatus: "none" | "partial",
+): ReportDefinition {
+  return {
+    build: async (context) => {
+      const records = await fetchAll((page) => api.listStudentDocumentationStatus({
+        academicYearId: context.filters.academicYearId || undefined,
+        documentationStatus,
+        institutionId: context.filters.institutionId || undefined,
+        limit: 100,
+        order: "asc",
+        page,
+        search: context.filters.search || context.filters.cpf || undefined,
+        sort: "name",
+      }));
+      const rows = records.map((record) => ({
+        academicYear: record.academicYear?.year ?? "",
+        activeDocumentCount: record.activeDocumentCount,
+        cpf: record.cpfMasked,
+        documentationStatus: documentationStatusLabel(record.documentationStatus),
+        expectedDocumentCount: record.expectedDocumentCount,
+        institution: record.institution?.name ?? "",
+        missingDocumentCount: record.missingDocumentCount,
+        missingTypes: record.missingTypes.map(documentTypeLabel).join(", ") || "-",
+        student: record.fullName,
+      }));
+      return makeReport(context, category, title, [
+        { key: "student", label: "Acadêmico" },
+        { key: "cpf", label: "CPF" },
+        { key: "institution", label: "Instituição" },
+        { key: "academicYear", label: "Ano letivo", type: "number" },
+        { key: "activeDocumentCount", label: "Documentos enviados", type: "number" },
+        { key: "missingDocumentCount", label: "Ausentes", type: "number" },
+        { key: "missingTypes", label: "Documentos ausentes" },
+        { key: "documentationStatus", label: "Status documental" },
+      ], rows);
+    },
+    category,
+    description,
+    filterKeys: ["academicYearId", "institutionId", "search", "cpf"],
+    id,
+    status: "CONFIÁVEL",
+    title,
+  };
+}
+
 function unavailableReport(
   id: string,
   title: string,
@@ -795,36 +854,41 @@ function busesReport(
   title: string,
   category: ReportCategory,
   description: string,
+  availability?: "available" | "full",
 ): ReportDefinition {
   return {
     build: async (context) => {
       const buses = await fetchAll((page) => api.listBuses({
         academicYearId: context.filters.academicYearId || undefined,
+        availability,
+        institutionId: context.filters.institutionId || undefined,
         limit: 100,
         order: "asc",
         page,
         search: context.filters.search || undefined,
         sort: "name",
-        status: "all",
+        status: availability ? "active" : "all",
       }));
       const rows = buses.map((bus) => ({
         availableSeats: bus.availableSeats ?? "",
         bus: bus.name,
+        identifier: bus.id,
         capacity: bus.capacity,
         occupiedSeats: bus.occupiedSeats ?? "",
-        status: bus.isFull ? "Lotado" : bus.status === "ACTIVE" ? "Ativo" : "Inativo",
+        status: bus.isFull ? "Lotado" : bus.status === "ACTIVE" ? "Com vagas" : "Inativo",
       }));
       return makeReport(context, category, title, [
         { key: "bus", label: "Ônibus" },
-        { key: "status", label: "Status" },
+        { key: "identifier", label: "Identificação" },
         { key: "capacity", label: "Capacidade", type: "number" },
         { key: "occupiedSeats", label: "Ocupadas", type: "number" },
         { key: "availableSeats", label: "Disponíveis", type: "number" },
+        { key: "status", label: "Situação" },
       ], rows);
     },
     category,
     description,
-    filterKeys: ["academicYearId", "search"],
+    filterKeys: ["academicYearId", "institutionId", "search"],
     id,
     status: "CONFIÁVEL",
     title,
@@ -989,6 +1053,51 @@ function followUpReport(id: string, title: string, category: ReportCategory, des
   };
 }
 
+function pendingCardsReport(
+  id: string,
+  title: string,
+  category: ReportCategory,
+  description: string,
+): ReportDefinition {
+  return {
+    build: async (context) => {
+      const records = await fetchAll((page) => api.listPendingStudentCards({
+        academicYearId: context.filters.academicYearId || undefined,
+        institutionId: context.filters.institutionId || undefined,
+        limit: 100,
+        page,
+        search: context.filters.search || context.filters.cpf || undefined,
+      }));
+      const rows = records.map((record) => ({
+        academicYear: record.academicYear.year,
+        cpf: record.cpfMasked,
+        enrollment: record.enrollmentId,
+        institution: record.institution.name,
+        joinedAt: record.joinedAt,
+        photo: record.photoAvailable ? "Disponível" : "Ausente",
+        reason: record.blockingReason ?? "-",
+        student: record.fullName,
+      }));
+      return makeReport(context, category, title, [
+        { key: "student", label: "Acadêmico" },
+        { key: "cpf", label: "CPF" },
+        { key: "institution", label: "Instituição" },
+        { key: "academicYear", label: "Ano letivo", type: "number" },
+        { key: "enrollment", label: "Matrícula" },
+        { key: "photo", label: "Foto" },
+        { key: "joinedAt", label: "Entrada", type: "date" },
+        { key: "reason", label: "Motivo impeditivo" },
+      ], rows);
+    },
+    category,
+    description,
+    filterKeys: ["academicYearId", "institutionId", "search", "cpf"],
+    id,
+    status: "CONFIÁVEL",
+    title,
+  };
+}
+
 function cardReport(
   id: string,
   title: string,
@@ -1028,6 +1137,53 @@ function cardReport(
   };
 }
 
+function reenrollmentCandidatesReport(
+  id: string,
+  title: string,
+  category: ReportCategory,
+  description: string,
+): ReportDefinition {
+  return {
+    build: async (context) => {
+      const response = await fetchAllWithMeta((page) => api.listReenrollmentCandidates({
+        academicYearId: context.filters.academicYearId || undefined,
+        institutionId: context.filters.institutionId || undefined,
+        limit: 100,
+        order: "asc",
+        page,
+        search: context.filters.search || context.filters.cpf || undefined,
+        sort: "name",
+      }));
+      const rows = response.rows.map((student) => ({
+        academicYear: student.currentEnrollment?.academicYear.year ?? "",
+        cpf: student.person.cpfMasked,
+        eligibility: "Elegível",
+        institution: student.currentEnrollment?.institution.name ?? "",
+        reason: "-",
+        student: student.person.fullName,
+        targetAcademicYear: response.academicYear?.year ?? "",
+        transport: "Conforme rematrícula",
+      }));
+      return makeReport(context, category, title, [
+        { key: "student", label: "Acadêmico" },
+        { key: "cpf", label: "CPF" },
+        { key: "institution", label: "Instituição atual" },
+        { key: "academicYear", label: "Ano letivo atual", type: "number" },
+        { key: "targetAcademicYear", label: "Ano letivo de destino", type: "number" },
+        { key: "eligibility", label: "Elegibilidade" },
+        { key: "reason", label: "Motivo de bloqueio" },
+        { key: "transport", label: "Transporte" },
+      ], rows);
+    },
+    category,
+    description,
+    filterKeys: ["academicYearId", "institutionId", "search", "cpf"],
+    id,
+    status: "CONFIÁVEL",
+    title,
+  };
+}
+
 async function fetchAll<T>(
   loadPage: (page: number) => Promise<ListResponse<T>>,
   maxPages = 10,
@@ -1041,6 +1197,24 @@ async function fetchAll<T>(
     }
   }
   return rows;
+}
+
+async function fetchAllWithMeta<T, TExtra extends object>(
+  loadPage: (page: number) => Promise<ListResponse<T> & TExtra>,
+  maxPages = 10,
+) {
+  let metadata: TExtra | null = null;
+  const rows: T[] = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await loadPage(page);
+    const { data, pagination, ...rest } = response;
+    metadata = rest as TExtra;
+    rows.push(...data);
+    if (page >= pagination.totalPages) {
+      break;
+    }
+  }
+  return { ...(metadata ?? ({} as TExtra)), rows };
 }
 
 function makeReport(
@@ -1077,6 +1251,20 @@ function studentRow(student: Awaited<ReturnType<typeof api.listStudents>>["data"
     status: studentStatusLabel(student.status),
     student: student.person.fullName,
   };
+}
+
+function documentTypeLabel(type: StudentDocumentType) {
+  return DOCUMENT_TYPE_LABELS[type] ?? type;
+}
+
+function documentationStatusLabel(status: "none" | "partial" | "complete") {
+  if (status === "none") {
+    return "Sem documentação";
+  }
+  if (status === "partial") {
+    return "Documentação pendente";
+  }
+  return "Documentação completa";
 }
 
 function collectionColumns(): ReportColumn[] {

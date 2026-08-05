@@ -19,6 +19,7 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   InvalidateStudentCardDto,
+  ListPendingStudentCardsDto,
   IssueStudentCardDto,
   ListStudentCardsDto,
   StudentCardPdfDto,
@@ -53,6 +54,15 @@ export class StudentCardsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.studentCards.listStudentCardsForStudent(studentId, user);
+  }
+
+  @Get("student-cards/pending")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listPendingStudentCards(
+    @Query() query: ListPendingStudentCardsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.studentCards.listPendingStudentCards(query, user);
   }
 
   @Get("student-cards/:cardId/pdf")

@@ -7,7 +7,6 @@ import {
   Prisma,
   PreRegistrationStatus,
   RecordStatus,
-  StudentCardStatus,
   StudentDocumentStatus,
   StudentStatus,
 } from "@prisma/client";
@@ -20,6 +19,7 @@ import {
   CollectionFiltersDto,
   ListCollectionCasesDto,
 } from "../finance/dto/collections.dto.js";
+import { buildPendingCardEnrollmentWhere } from "../student-cards/pending-card.js";
 import type { AuthUser } from "../users/users.service.js";
 import type {
   DashboardChart,
@@ -1154,11 +1154,7 @@ export class DashboardService {
   private pendingCardEnrollmentWhere(
     enrollmentWhere: Prisma.EnrollmentWhereInput,
   ): Prisma.EnrollmentWhereInput {
-    return {
-      ...enrollmentWhere,
-      student: { status: StudentStatus.ACTIVE },
-      studentCards: { none: { status: StudentCardStatus.ACTIVE } },
-    };
+    return buildPendingCardEnrollmentWhere(enrollmentWhere);
   }
 
   private async documentSnapshot(studentWhere: Prisma.StudentWhereInput) {

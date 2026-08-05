@@ -20,6 +20,11 @@ assert.deepEqual(deriveBusAvailability(40, 40), {
   isFull: true,
 });
 
+assert.equal(deriveBusAvailability(40, 39).availableSeats > 0, true);
+assert.equal(deriveBusAvailability(40, 39).isFull, false);
+assert.equal(deriveBusAvailability(40, 41).isFull, true);
+assert.equal(deriveBusAvailability(0, 0).isFull, true);
+
 assert.doesNotThrow(() => assertBusHasAvailableSeat(40, 39));
 assert.throws(() => assertBusHasAvailableSeat(40, 40), ConflictException);
 

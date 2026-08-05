@@ -22,6 +22,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   BaseRecordSort,
+  BusAvailabilityFilter,
   ListBaseRecordsDto,
   RecordStatusFilter,
   SortOrder,
@@ -154,8 +155,8 @@ export class BaseRecordsService {
     );
   }
 
-  listBuses(query: ListBaseRecordsDto) {
-    return this.listBusesWithOccupancy(query);
+  listBuses(query: ListBaseRecordsDto, currentUser?: AuthUser) {
+    return this.listBusesWithOccupancy(query, currentUser);
   }
 
   createBus(data: { name: string; capacity: number }, userId: string) {
@@ -219,12 +220,57 @@ export class BaseRecordsService {
     };
   }
 
-  private async listBusesWithOccupancy(query: ListBaseRecordsDto) {
-    const result = await this.list(this.prisma.bus, "buses", query);
+  private async listBusesWithOccupancy(
+    query: ListBaseRecordsDto,
+    currentUser?: AuthUser,
+  ) {
     const academicYearId = await this.resolveAcademicYearId(query.academicYearId);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+    const hasAvailabilityFilter =
+      query.availability && query.availability !== BusAvailabilityFilter.ALL;
+    const where = {
+      ...this.buildWhere(query),
+      ...(hasAvailabilityFilter ? { status: RecordStatus.ACTIVE } : {}),
+    };
+    const orderBy = this.buildOrderBy(query);
+    const pagination = resolvePagination(query);
+
+    if (hasAvailabilityFilter) {
+      const allBuses = await this.prisma.bus.findMany({ where, orderBy });
+      const occupancy = await this.countActiveAssignmentsByBus(
+        allBuses.map((bus) => bus.id),
+        academicYearId,
+        institutionFilter,
+      );
+      const filtered = allBuses
+        .map((bus) => this.withOccupancy(bus, occupancy.get(bus.id) ?? 0))
+        .filter((bus) => (institutionFilter ? occupancy.has(bus.id) : true))
+        .filter((bus) =>
+          query.availability === BusAvailabilityFilter.FULL
+            ? bus.isFull
+            : bus.availableSeats > 0,
+        );
+
+      return {
+        data: filtered.slice(pagination.skip, pagination.skip + pagination.limit),
+        academicYearId,
+        pagination: {
+          page: pagination.page,
+          limit: pagination.limit,
+          total: filtered.length,
+          totalPages: Math.ceil(filtered.length / pagination.limit),
+        },
+      };
+    }
+
+    const result = await this.list(this.prisma.bus, "buses", query);
     const occupancy = await this.countActiveAssignmentsByBus(
       result.data.map((bus) => bus.id),
       academicYearId,
+      institutionFilter,
     );
 
     return {
@@ -402,9 +448,10 @@ export class BaseRecordsService {
 
   private buildWhere(query: ListBaseRecordsDto): Prisma.JsonObject {
     const where: Prisma.JsonObject = {};
-    if (query.status !== RecordStatusFilter.ALL) {
+    const status = query.status ?? RecordStatusFilter.ACTIVE;
+    if (status !== RecordStatusFilter.ALL) {
       where.status =
-        query.status === RecordStatusFilter.ACTIVE
+        status === RecordStatusFilter.ACTIVE
           ? RecordStatus.ACTIVE
           : RecordStatus.INACTIVE;
     }
@@ -444,6 +491,7 @@ export class BaseRecordsService {
   private async countActiveAssignmentsByBus(
     busIds: string[],
     academicYearId: string | null,
+    institutionFilter?: string | { in: string[] },
   ) {
     if (busIds.length === 0) {
       return new Map<string, number>();
@@ -455,8 +503,10 @@ export class BaseRecordsService {
         busId: { in: busIds },
         status: BusAssignmentStatus.ACTIVE,
         ...(academicYearId
-          ? { enrollment: { academicYearId } }
-          : {}),
+          ? { enrollment: { academicYearId, institutionId: institutionFilter } }
+          : institutionFilter
+            ? { enrollment: { institutionId: institutionFilter } }
+            : {}),
       },
       _count: { _all: true },
     });

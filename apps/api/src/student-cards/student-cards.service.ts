@@ -13,6 +13,8 @@ import {
   StudentCardInvalidationReason,
   StudentCardStatus,
   StudentCardType,
+  StudentDocumentStatus,
+  StudentDocumentType,
   StudentHistoryEventType,
   StudentStatus,
 } from "@prisma/client";
@@ -29,12 +31,14 @@ import { buildStudentCardNumber } from "./card-number.js";
 import {
   InvalidateStudentCardDto,
   IssueStudentCardDto,
+  ListPendingStudentCardsDto,
   ListStudentCardsDto,
   SortOrder,
   StudentCardPreviewDto,
   StudentCardSort,
   StudentCardValidityFilter,
 } from "./dto/student-cards.dto.js";
+import { buildPendingCardEnrollmentWhere } from "./pending-card.js";
 
 type PrismaTx = Prisma.TransactionClient | PrismaService;
 
@@ -117,6 +121,86 @@ export class StudentCardsService {
 
     return {
       data,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
+  }
+
+  async listPendingStudentCards(
+    query: ListPendingStudentCardsDto,
+    currentUser?: AuthUser,
+  ) {
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+    const enrollmentWhere: Prisma.EnrollmentWhereInput = {
+      ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
+      ...(institutionFilter ? { institutionId: institutionFilter } : {}),
+    };
+    if (query.search) {
+      const normalizedSearch = this.normalizeName(query.search);
+      const cpfSearch = normalizeCpf(query.search);
+      enrollmentWhere.student = {
+        person: {
+          OR: [
+            { normalizedName: { contains: normalizedSearch } },
+            ...(cpfSearch ? [{ cpf: { contains: cpfSearch } }] : []),
+          ],
+        },
+      };
+    }
+
+    const where = buildPendingCardEnrollmentWhere(enrollmentWhere);
+    const pagination = resolvePagination(query);
+    const [records, total] = await Promise.all([
+      this.prisma.enrollment.findMany({
+        where,
+        orderBy: [
+          { academicYear: { year: "desc" } },
+          { student: { person: { normalizedName: "asc" } } },
+          { createdAt: "asc" },
+        ],
+        skip: pagination.skip,
+        take: pagination.limit,
+        include: {
+          academicYear: true,
+          institution: true,
+          shift: true,
+          student: {
+            include: {
+              person: true,
+              documents: {
+                where: {
+                  documentType: StudentDocumentType.PHOTO,
+                  status: StudentDocumentStatus.ACTIVE,
+                },
+                take: 1,
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.enrollment.count({ where }),
+    ]);
+
+    return {
+      data: records.map((record) => ({
+        enrollmentId: record.id,
+        studentId: record.studentId,
+        fullName: record.student.person.fullName,
+        cpfMasked: maskCpf(record.student.person.cpf),
+        institution: record.institution,
+        academicYear: record.academicYear,
+        enrollment: this.toEnrollment(record),
+        photoAvailable: record.student.documents.length > 0,
+        joinedAt: record.student.joinedAt,
+        blockingReason: null,
+      })),
       pagination: {
         page: pagination.page,
         limit: pagination.limit,

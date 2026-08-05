@@ -77,6 +77,35 @@ export class ListStudentCardsDto {
   order = SortOrder.DESC;
 }
 
+export class ListPendingStudentCardsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  search?: string;
+
+  @IsOptional()
+  @IsUUID()
+  academicYearId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+}
+
 export class StudentCardPreviewDto {
   @IsUUID()
   enrollmentId!: string;

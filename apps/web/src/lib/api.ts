@@ -217,6 +217,8 @@ export type BusRecord = BaseRecord & {
   isFull?: boolean;
 };
 
+export type BusAvailabilityFilter = "all" | "available" | "full";
+
 export type ListResponse<T> = {
   data: T[];
   academicYearId?: string | null;
@@ -246,6 +248,8 @@ export type ListRecordsParams = {
   sort?: "name" | "status" | "createdAt" | "updatedAt";
   order?: "asc" | "desc";
   academicYearId?: string;
+  institutionId?: string;
+  availability?: BusAvailabilityFilter;
 };
 
 export type AcademicYear = {
@@ -429,6 +433,23 @@ export type StudentDocumentsResponse = {
   missingTypes: StudentDocumentType[];
 };
 
+export type DocumentationStatus = "none" | "partial" | "complete";
+
+export type StudentDocumentationStatusRecord = {
+  studentId: string;
+  fullName: string;
+  cpfMasked: string;
+  joinedAt: string;
+  institution: BaseRecord | null;
+  academicYear: AcademicYear | null;
+  enrollment: EnrollmentRecord | null;
+  expectedDocumentCount: number;
+  activeDocumentCount: number;
+  missingDocumentCount: number;
+  missingTypes: StudentDocumentType[];
+  documentationStatus: DocumentationStatus;
+};
+
 export type StudentPhotoResponse = {
   photo: StudentDocumentRecord | null;
 };
@@ -590,6 +611,10 @@ export type ListStudentsParams = {
   order?: "asc" | "desc";
 };
 
+export type ListStudentDocumentationStatusParams = ListStudentsParams & {
+  documentationStatus: DocumentationStatus;
+};
+
 export type StudentHistoryEvent = {
   id: string;
   eventType:
@@ -683,6 +708,19 @@ export type StudentCardPreview = {
   blockingReason?: string | null;
 };
 
+export type PendingStudentCardRecord = {
+  enrollmentId: string;
+  studentId: string;
+  fullName: string;
+  cpfMasked: string;
+  institution: BaseRecord;
+  academicYear: AcademicYear;
+  enrollment: EnrollmentRecord;
+  photoAvailable: boolean;
+  joinedAt: string;
+  blockingReason: string | null;
+};
+
 export type ListStudentCardsParams = {
   page?: number;
   limit?: number;
@@ -693,6 +731,14 @@ export type ListStudentCardsParams = {
   validity?: "all" | "usable" | "notUsable";
   sort?: "issuedAt" | "cardNumber";
   order?: "asc" | "desc";
+};
+
+export type ListPendingStudentCardsParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  academicYearId?: string;
+  institutionId?: string;
 };
 
 export type StudentCardPdfDisposition = "inline" | "attachment";
@@ -1344,6 +1390,12 @@ export const api = {
     return request<ListResponse<StudentSummary>>(withParams("/students", params));
   },
 
+  listStudentDocumentationStatus(params: ListStudentDocumentationStatusParams) {
+    return request<ListResponse<StudentDocumentationStatusRecord>>(
+      withParams("/students/documentation-status", params),
+    );
+  },
+
   listReenrollmentCandidates(params?: ListStudentsParams) {
     return request<ReenrollmentCandidatesResponse>(
       withParams("/students/reenrollment-candidates", params),
@@ -1353,6 +1405,12 @@ export const api = {
   listStudentCards(params?: ListStudentCardsParams) {
     return request<ListResponse<StudentCardRecord>>(
       withParams("/student-cards", params),
+    );
+  },
+
+  listPendingStudentCards(params?: ListPendingStudentCardsParams) {
+    return request<ListResponse<PendingStudentCardRecord>>(
+      withParams("/student-cards/pending", params),
     );
   },
 
