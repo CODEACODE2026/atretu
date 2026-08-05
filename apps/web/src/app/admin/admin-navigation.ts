@@ -9,12 +9,14 @@ import {
   FileBarChart2,
   LayoutDashboard,
   RefreshCw,
+  UserCog,
   Users,
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
 
 export type AdminArea =
+  | "account"
   | "dashboard"
   | "students"
   | "reenrollments"
@@ -22,6 +24,7 @@ export type AdminArea =
   | "finance"
   | "reports"
   | "jobs"
+  | "users"
   | "pre-registrations"
   | "years"
   | "base";
@@ -76,6 +79,13 @@ export const ADMIN_NAV_ITEMS = [
     icon: BriefcaseBusiness,
     key: "jobs",
     label: "Monitor de Jobs",
+    restricted: true,
+  },
+  {
+    description: "Contas e perfis",
+    icon: UserCog,
+    key: "users",
+    label: "Usuários",
     restricted: true,
   },
   {

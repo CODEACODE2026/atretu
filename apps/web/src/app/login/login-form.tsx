@@ -1,28 +1,43 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "../../lib/api";
+import { api, ApiRequestError } from "../../lib/api";
 
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const message = window.sessionStorage.getItem("atretu_login_notice");
+    if (message) {
+      setNotice(message);
+      window.sessionStorage.removeItem("atretu_login_notice");
+    }
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setNotice("");
     setLoading(true);
 
     try {
-      await api.login(email, password);
-      router.replace("/admin");
+      const response = await api.login(email, password);
+      setPassword("");
+      router.replace(response.user.mustChangePassword ? "/first-access" : "/admin");
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Credenciais invalidas",
-      );
+      if (caught instanceof ApiRequestError && caught.status === 401) {
+        setError("Credenciais invalidas ou acesso indisponivel.");
+      } else {
+        setError(
+          caught instanceof Error ? caught.message : "Credenciais invalidas",
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -64,6 +79,12 @@ export function LoginForm() {
           value={password}
         />
       </label>
+
+      {notice ? (
+        <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          {notice}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

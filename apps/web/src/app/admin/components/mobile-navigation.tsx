@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Route, X } from "lucide-react";
+import { LogOut, Route, UserRound, X } from "lucide-react";
 import { useEffect } from "react";
 import type { ApiUser } from "../../../lib/api";
 import { getPrimaryRoleLabel } from "../../../lib/auth";
@@ -10,6 +10,7 @@ import { adminTheme, cx } from "../admin-theme";
 export function MobileNavigation({
   activeArea,
   items,
+  onAccount,
   onClose,
   onLogout,
   onNavigate,
@@ -18,6 +19,7 @@ export function MobileNavigation({
 }: {
   activeArea: AdminArea;
   items: readonly AdminNavItem[];
+  onAccount: () => void;
   onClose: () => void;
   onLogout: () => void;
   onNavigate: (area: AdminArea) => void;
@@ -124,6 +126,17 @@ export function MobileNavigation({
               <p className="text-xs text-slate-500">{getPrimaryRoleLabel(user)}</p>
             </div>
           </div>
+          <button
+            className={cx(adminTheme.secondaryButton, "mt-3 w-full")}
+            onClick={() => {
+              onAccount();
+              onClose();
+            }}
+            type="button"
+          >
+            <UserRound size={16} />
+            Minha Conta
+          </button>
           <button
             className={cx(adminTheme.secondaryButton, "mt-3 w-full")}
             onClick={onLogout}

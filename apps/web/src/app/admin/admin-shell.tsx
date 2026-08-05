@@ -11,7 +11,9 @@ import {
   Pencil,
   Plus,
   Search,
+  ShieldAlert,
   type LucideIcon,
+  UserRound,
   UsersRound,
 } from "lucide-react";
 import {
@@ -25,7 +27,8 @@ import {
   type DashboardQuickShortcut,
   type ListRecordsParams,
 } from "../../lib/api";
-import { canAccessRestrictedAdmin } from "../../lib/auth";
+import { canAccessOperationalAdmin, canAccessRestrictedAdmin } from "../../lib/auth";
+import { AccountPanel } from "./account-panel";
 import { AcademicYearsPanel } from "./academic-years-panel";
 import { ADMIN_NAV_ITEMS, type AdminArea } from "./admin-navigation";
 import { adminTheme, cx } from "./admin-theme";
@@ -48,6 +51,7 @@ import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { ReportsPanel } from "./reports-panel";
 import { StudentCardsPanel } from "./student-cards-panel";
 import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
+import { UsersPanel } from "./users-panel";
 
 type DomainKey = "institutions" | "shifts" | "buses";
 type StatusFilter = "active" | "inactive" | "all";
@@ -121,6 +125,12 @@ const DOMAINS: Array<{
   },
 ];
 const DEFAULT_DOMAIN = DOMAINS[0]!;
+const ACCOUNT_NAV_ITEM = {
+  description: "Dados pessoais e seguranca",
+  icon: UserRound,
+  key: "account",
+  label: "Minha Conta",
+} as const satisfies { description: string; icon: LucideIcon; key: AdminArea; label: string };
 
 export function AdminShell() {
   const router = useRouter();
@@ -134,6 +144,10 @@ export function AdminShell() {
     api
       .me()
       .then((response) => {
+        if (response.user.mustChangePassword) {
+          router.replace("/first-access");
+          return;
+        }
         if (active) {
           setUser(response.user);
         }
@@ -163,6 +177,14 @@ export function AdminShell() {
     }
   }
 
+  function handleRequireLogin(message?: string) {
+    if (typeof window !== "undefined" && message) {
+      window.sessionStorage.setItem("atretu_login_notice", message);
+    }
+    setUser(null);
+    router.replace("/login");
+  }
+
   if (authLoading) {
     return (
       <main className={`min-h-screen p-6 ${adminTheme.appBackground}`}>
@@ -176,17 +198,27 @@ export function AdminShell() {
   }
 
   return (
-    <AdminWorkspace authError={authError} onLogout={handleLogout} user={user} />
+    <AdminWorkspace
+      authError={authError}
+      onLogout={handleLogout}
+      onRequireLogin={handleRequireLogin}
+      onUserChange={setUser}
+      user={user}
+    />
   );
 }
 
 function AdminWorkspace({
   authError,
   onLogout,
+  onRequireLogin,
+  onUserChange,
   user,
 }: {
   authError: string;
   onLogout: () => void;
+  onRequireLogin: (message?: string) => void;
+  onUserChange: (user: ApiUser) => void;
   user: ApiUser;
 }) {
   const [area, setArea] = useState<AdminArea>("dashboard");
@@ -200,11 +232,17 @@ function AdminWorkspace({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tabletViewport, setTabletViewport] = useState(false);
   const effectiveSidebarCollapsed = sidebarCollapsed || tabletViewport;
-  const visibleTabs = ADMIN_NAV_ITEMS.filter(
-    (tab) => !("restricted" in tab) || canAccessRestrictedAdmin(user),
-  );
+  const hasOperationalAccess = canAccessOperationalAdmin(user);
+  const visibleTabs = hasOperationalAccess
+    ? ADMIN_NAV_ITEMS.filter(
+        (tab) => !("restricted" in tab) || canAccessRestrictedAdmin(user),
+      )
+    : [];
   const currentItem =
-    visibleTabs.find((tab) => tab.key === area) ?? ADMIN_NAV_ITEMS[0];
+    area === "account"
+      ? ACCOUNT_NAV_ITEM
+      : visibleTabs.find((tab) => tab.key === area) ??
+        (hasOperationalAccess ? ADMIN_NAV_ITEMS[0] : ACCOUNT_NAV_ITEM);
   const shortcutTargets: Record<
     string,
     { area: AdminArea; baseDomain?: DomainKey; financeArea?: FinanceArea }
@@ -215,7 +253,25 @@ function AdminWorkspace({
     "pre-registrations": { area: "pre-registrations" },
     "student-cards": { area: "student-cards" },
     students: { area: "students" },
+    users: { area: "users" },
   };
+
+  useEffect(() => {
+    function handleSessionInvalid() {
+      onRequireLogin("Sessao expirada. Entre novamente.");
+    }
+
+    window.addEventListener("atretu:session-invalid", handleSessionInvalid);
+    return () => {
+      window.removeEventListener("atretu:session-invalid", handleSessionInvalid);
+    };
+  }, [onRequireLogin]);
+
+  useEffect(() => {
+    if (!hasOperationalAccess && area !== "account") {
+      setArea("account");
+    }
+  }, [area, hasOperationalAccess]);
 
   useEffect(() => {
     const query = window.matchMedia(
@@ -234,6 +290,12 @@ function AdminWorkspace({
   }, []);
 
   function handleAreaChange(nextArea: AdminArea) {
+    if (nextArea !== "account" && !hasOperationalAccess) {
+      setDashboardTarget(null);
+      setMobileNavigationOpen(false);
+      setArea("account");
+      return;
+    }
     setDashboardTarget(null);
     if (nextArea === "finance") {
       setFinanceInitialArea("invoices");
@@ -287,6 +349,7 @@ function AdminWorkspace({
         activeArea={area}
         collapsed={effectiveSidebarCollapsed}
         items={visibleTabs}
+        onAccount={() => handleAreaChange("account")}
         onLogout={onLogout}
         onNavigate={handleAreaChange}
         onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
@@ -295,6 +358,7 @@ function AdminWorkspace({
       <MobileNavigation
         activeArea={area}
         items={visibleTabs}
+        onAccount={() => handleAreaChange("account")}
         onClose={() => setMobileNavigationOpen(false)}
         onLogout={onLogout}
         onNavigate={handleAreaChange}
@@ -311,6 +375,8 @@ function AdminWorkspace({
       >
         <AdminTopbar
           currentItem={currentItem}
+          onAccount={() => handleAreaChange("account")}
+          onLogout={onLogout}
           onMobileMenu={() => setMobileNavigationOpen(true)}
           onToggleSidebar={() => {
             if (tabletViewport) {
@@ -324,7 +390,17 @@ function AdminWorkspace({
         />
 
         <section className={adminTheme.page}>
-          {!canAccessRestrictedAdmin(user) ? (
+          {!hasOperationalAccess ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-800 shadow-sm">
+              <div className="flex gap-3">
+                <ShieldAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Seu perfil esta autenticado, mas nao possui acesso operacional
+                  nesta Sprint. Minha Conta permanece disponivel.
+                </span>
+              </div>
+            </div>
+          ) : !canAccessRestrictedAdmin(user) ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-800 shadow-sm">
               Seu perfil possui acesso operacional. Areas restritas do Super
               Admin permanecem bloqueadas.
@@ -367,6 +443,13 @@ function AdminWorkspace({
           ) : null}
           {area === "reports" ? <ReportsPanel user={user} /> : null}
           {area === "jobs" ? <JobsMonitorPanel /> : null}
+          {area === "users" ? <UsersPanel /> : null}
+          {area === "account" ? (
+            <AccountPanel
+              onRequireLogin={onRequireLogin}
+              onUserChange={onUserChange}
+            />
+          ) : null}
           {area === "pre-registrations" ? (
             <PreRegistrationsPanel
               initialAcademicYearId={dashboardTarget?.academicYearId}

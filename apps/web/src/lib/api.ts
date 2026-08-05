@@ -7,11 +7,99 @@ export type ApiUser = {
   name: string;
   email: string;
   status: "ACTIVE" | "INACTIVE";
-  roles: Array<"SUPER_ADMIN" | "SECRETARIA">;
+  roles: RoleCode[];
+  institutionIds?: string[];
+  mustChangePassword?: boolean;
+  lastLoginAt?: string | null;
 };
 
 export type AuthResponse = {
   user: ApiUser;
+};
+
+export type RoleCode = "SUPER_ADMIN" | "SECRETARIA" | "GESTOR";
+export type UserStatus = "ACTIVE" | "INACTIVE";
+
+export type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  status: UserStatus;
+  roles: RoleCode[];
+  institutionIds: string[];
+  institutions: Array<{ id: string; name: string; status: string }>;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  blockedAt: string | null;
+  effectivePermissions: {
+    canAdminUsers: boolean;
+    globalAccess: boolean;
+    institutionScope: "global" | "restricted" | "none";
+  };
+};
+
+export type AdminUserSort =
+  | "createdAt"
+  | "email"
+  | "lastLoginAt"
+  | "name"
+  | "status"
+  | "updatedAt";
+
+export type ListAdminUsersParams = {
+  institutionId?: string;
+  limit?: number;
+  mustChangePassword?: boolean;
+  neverLoggedIn?: boolean;
+  order?: "asc" | "desc";
+  page?: number;
+  role?: RoleCode;
+  search?: string;
+  sort?: AdminUserSort;
+  status?: UserStatus;
+  withoutInstitution?: boolean;
+};
+
+export type CreateAdminUserBody = {
+  email: string;
+  institutionIds: string[];
+  name: string;
+  role: Exclude<RoleCode, "GESTOR">;
+};
+
+export type UpdateAdminUserBody = Partial<
+  Pick<CreateAdminUserBody, "email" | "name" | "role">
+>;
+
+export type AdminUserPasswordResponse = {
+  temporaryPassword: string;
+  user: AdminUser;
+};
+
+export type AccountUser = ApiUser & {
+  institutionIds: string[];
+  mustChangePassword: boolean;
+};
+
+export type AccountResponse = {
+  user: AccountUser;
+};
+
+export type UpdateOwnAccountPayload = {
+  name: string;
+};
+
+export type ChangeOwnPasswordPayload = {
+  confirmPassword?: string;
+  currentPassword: string;
+  newPassword: string;
+};
+
+export type ChangeOwnPasswordResponse = {
+  ok: true;
+  requiresLogin: true;
 };
 
 export type JobStatus = {
@@ -1169,18 +1257,46 @@ export type ListCollectionCasesParams = {
   followUpTo?: string;
 };
 
+type ApiRequestInit = RequestInit & {
+  skipSessionInvalidationEvent?: boolean;
+};
+
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+function notifySessionInvalid(path: string, status: number) {
+  if (
+    status !== 401 ||
+    path === "/auth/login" ||
+    typeof window === "undefined"
+  ) {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent("atretu:session-invalid", { detail: { path, status } }),
+  );
+}
+
 async function request<T>(
   path: string,
-  options: RequestInit = {},
+  options: ApiRequestInit = {},
 ): Promise<T> {
+  const { skipSessionInvalidationEvent, ...fetchOptions } = options;
   const isFormData =
-    typeof FormData !== "undefined" && options.body instanceof FormData;
+    typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
     credentials: "include",
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...options.headers,
+      ...fetchOptions.headers,
     },
   });
 
@@ -1188,7 +1304,10 @@ async function request<T>(
     const body = (await response.json().catch(() => null)) as
       | { message?: string }
       | null;
-    throw new Error(mapApiErrorMessage(body?.message));
+    if (!skipSessionInvalidationEvent) {
+      notifySessionInvalid(path, response.status);
+    }
+    throw new ApiRequestError(mapApiErrorMessage(body?.message), response.status);
   }
 
   return response.json() as Promise<T>;
@@ -1204,7 +1323,8 @@ async function requestBlob(path: string, options: RequestInit = {}) {
     const body = (await response.json().catch(() => null)) as
       | { message?: string }
       | null;
-    throw new Error(mapApiErrorMessage(body?.message));
+    notifySessionInvalid(path, response.status);
+    throw new ApiRequestError(mapApiErrorMessage(body?.message), response.status);
   }
 
   return {
@@ -1231,6 +1351,7 @@ export const api = {
     return request<AuthResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
+      skipSessionInvalidationEvent: true,
     });
   },
 
@@ -1242,6 +1363,56 @@ export const api = {
     return request<JobsStatusResponse>("/admin/jobs/status");
   },
 
+  listAdminUsers(params?: ListAdminUsersParams) {
+    return request<ListResponse<AdminUser>>(withParams("/admin/users", params));
+  },
+
+  getAdminUser(id: string) {
+    return request<AdminUser>(`/admin/users/${id}`);
+  },
+
+  createAdminUser(body: CreateAdminUserBody) {
+    return request<AdminUserPasswordResponse>("/admin/users", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateAdminUser(id: string, body: UpdateAdminUserBody) {
+    return request<AdminUser>(`/admin/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateAdminUserInstitutions(id: string, institutionIds: string[]) {
+    return request<AdminUser>(`/admin/users/${id}/institutions`, {
+      method: "PATCH",
+      body: JSON.stringify({ institutionIds }),
+    });
+  },
+
+  blockAdminUser(id: string) {
+    return request<AdminUser>(`/admin/users/${id}/block`, {
+      method: "PATCH",
+    });
+  },
+
+  unblockAdminUser(id: string) {
+    return request<AdminUser>(`/admin/users/${id}/unblock`, {
+      method: "PATCH",
+    });
+  },
+
+  resetAdminUserPassword(id: string) {
+    return request<AdminUserPasswordResponse>(
+      `/admin/users/${id}/reset-password`,
+      {
+        method: "POST",
+      },
+    );
+  },
+
   getAdminDashboard(params?: DashboardOverviewParams) {
     return request<AdminDashboardResponse>(
       withParams("/dashboard/overview", params),
@@ -1251,6 +1422,24 @@ export const api = {
   logout() {
     return request<{ ok: true }>("/auth/logout", {
       method: "POST",
+    });
+  },
+
+  getAccount() {
+    return request<AccountResponse>("/account");
+  },
+
+  updateAccount(body: UpdateOwnAccountPayload) {
+    return request<AccountResponse>("/account", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  changeOwnPassword(body: ChangeOwnPasswordPayload) {
+    return request<ChangeOwnPasswordResponse>("/account/password", {
+      method: "PATCH",
+      body: JSON.stringify(body),
     });
   },
 

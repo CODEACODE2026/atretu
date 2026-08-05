@@ -5,6 +5,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Route,
+  UserRound,
 } from "lucide-react";
 import type { ApiUser } from "../../../lib/api";
 import { getPrimaryRoleLabel } from "../../../lib/auth";
@@ -15,6 +16,7 @@ export function AdminSidebar({
   activeArea,
   collapsed,
   items,
+  onAccount,
   onNavigate,
   onToggleCollapsed,
   onLogout,
@@ -23,6 +25,7 @@ export function AdminSidebar({
   activeArea: AdminArea;
   collapsed: boolean;
   items: readonly AdminNavItem[];
+  onAccount: () => void;
   onNavigate: (area: AdminArea) => void;
   onToggleCollapsed: () => void;
   onLogout: () => void;
@@ -100,6 +103,19 @@ export function AdminSidebar({
               </div>
             ) : null}
           </div>
+          <button
+            aria-label="Minha Conta"
+            className={
+              collapsed
+                ? cx(adminTheme.iconButton, "mt-3 h-9 w-9")
+                : cx(adminTheme.secondaryButton, "mt-3 w-full")
+            }
+            onClick={onAccount}
+            type="button"
+          >
+            <UserRound size={16} />
+            {!collapsed ? <span>Minha Conta</span> : null}
+          </button>
           <button
             aria-label="Sair"
             className={

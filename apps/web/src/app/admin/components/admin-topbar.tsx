@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Route,
   Search,
+  UserRound,
 } from "lucide-react";
 import type { ApiUser } from "../../../lib/api";
 import { getPrimaryRoleLabel } from "../../../lib/auth";
@@ -14,12 +16,16 @@ import { adminTheme, cx } from "../admin-theme";
 
 export function AdminTopbar({
   currentItem,
+  onAccount,
+  onLogout,
   onMobileMenu,
   onToggleSidebar,
   sidebarCollapsed,
   user,
 }: {
   currentItem: AdminNavItem;
+  onAccount: () => void;
+  onLogout: () => void;
   onMobileMenu: () => void;
   onToggleSidebar: () => void;
   sidebarCollapsed: boolean;
@@ -76,6 +82,24 @@ export function AdminTopbar({
           </div>
           <div className="grid h-10 w-10 place-items-center rounded-full bg-[#0F2E2E] text-sm font-semibold text-white shadow-sm ring-1 ring-[#1F6F5F]/20">
             {user.name.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="hidden items-center gap-2 xl:flex">
+            <button
+              className={cx(adminTheme.secondaryButton, "px-3 py-2")}
+              onClick={onAccount}
+              type="button"
+            >
+              <UserRound aria-hidden="true" className="h-4 w-4" />
+              Minha Conta
+            </button>
+            <button
+              className={cx(adminTheme.secondaryButton, "px-3 py-2")}
+              onClick={onLogout}
+              type="button"
+            >
+              <LogOut aria-hidden="true" className="h-4 w-4" />
+              Sair
+            </button>
           </div>
         </div>
       </div>
