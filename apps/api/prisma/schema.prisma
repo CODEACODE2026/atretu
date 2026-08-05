@@ -9,6 +9,7 @@ datasource db {
 enum RoleCode {
   SUPER_ADMIN
   SECRETARIA
+  GESTOR
 }
 
 enum UserStatus {
@@ -35,6 +36,16 @@ enum AcademicYearStatus {
 }
 
 enum AdministrativeAuditEventType {
+  USER_CREATED
+  USER_UPDATED
+  USER_BLOCKED
+  USER_UNBLOCKED
+  USER_PASSWORD_RESET
+  USER_FIRST_ACCESS_PASSWORD_CHANGED
+  USER_PASSWORD_CHANGED
+  USER_ROLE_CHANGED
+  USER_INSTITUTIONS_CHANGED
+  USER_STATUS_CHANGED
   BASE_RECORD_CREATED
   BASE_RECORD_UPDATED
   BASE_RECORD_INACTIVATED
@@ -304,9 +315,12 @@ model User {
   email                     String                   @unique @db.VarChar(180)
   passwordHash              String                   @map("password_hash") @db.VarChar(255)
   status                    UserStatus               @default(ACTIVE)
+  mustChangePassword        Boolean                  @default(false) @map("must_change_password")
   createdAt                 DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   lastLoginAt               DateTime?                @map("last_login_at") @db.Timestamptz(6)
+  passwordChangedAt         DateTime?                @map("password_changed_at") @db.Timestamptz(6)
+  blockedAt                 DateTime?                @map("blocked_at") @db.Timestamptz(6)
   roles                     UserRole[]
   auditLogs                 SecurityAuditLog[]
   administrativeAuditLogs   AdministrativeAuditLog[]

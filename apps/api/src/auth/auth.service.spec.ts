@@ -50,3 +50,4 @@ const token = await authService.signToken(user);
 const payload = await authService.verifyToken(token);
 assert.equal(payload.sub, "user-id");
 assert.deepEqual(payload.roles, ["SUPER_ADMIN"]);
+assert.equal(payload.passwordChangedAt, null);

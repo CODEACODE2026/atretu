@@ -1,0 +1,57 @@
+# Criterios de Aceite - Sprint 10
+
+- Nao existe exclusao fisica de usuarios.
+- Nao existe endpoint `DELETE` para usuarios.
+- SUPER_ADMIN consegue criar usuario com senha temporaria exibida apenas uma vez.
+- Criacao de usuario nao aceita senha manual em nenhum contrato publico.
+- SUPER_ADMIN consegue gerar nova senha temporaria.
+- Nova senha temporaria invalida a anterior.
+- Senha temporaria nunca aparece em log, auditoria, listagem, detalhe ou resposta posterior.
+- Primeiro login com senha temporaria exige troca.
+- JWT anterior e invalidado apos troca de senha, se usando `passwordChangedAt`.
+- Usuario bloqueado nao consegue novo login.
+- Usuario bloqueado perde acesso na proxima requisicao mesmo com cookie antigo.
+- Desbloqueio nao remove automaticamente `mustChangePassword`.
+- `mustChangePassword` so e removido apos troca de senha pelo proprio usuario.
+- SUPER_ADMIN continua com acesso global.
+- SECRETARIA nao ve o menu Usuarios.
+- SECRETARIA recebe `403` em endpoints administrativos de usuarios.
+- Arquitetura fica preparada para perfil `GESTOR`, sem regras ficticias.
+- Minha Conta existe separada da administracao de usuarios.
+- Minha Conta permite alterar apenas nome e propria senha nesta sprint.
+- Minha Conta deixa estrutura preparada para foto, sem obrigar implementacao completa de upload se fora do escopo aprovado.
+- Minha Conta nao altera role, instituicoes, status ou permissoes.
+- Backend bloqueia autoacoes criticas:
+  - bloquear a si proprio;
+  - remover a propria role `SUPER_ADMIN`;
+  - remover as proprias instituicoes;
+  - redefinir a propria senha pelo painel administrativo;
+  - alterar o proprio status;
+  - desativar ou bloquear a propria conta;
+  - autoelevacao de privilegio;
+  - remover o ultimo `SUPER_ADMIN` ativo.
+- Listagem exibe ultimo login.
+- Listagem exibe ultimo IP e user-agent simplificado quando disponiveis.
+- Caso IP/user-agent nao estejam disponiveis, isso fica documentado sem inventar dado.
+- Filtros funcionam:
+  - perfil;
+  - status;
+  - instituicao;
+  - nunca logou;
+  - primeiro acesso pendente;
+  - usuarios bloqueados;
+  - usuarios sem instituicao;
+  - nome/e-mail.
+- Todas as mudancas administrativas sao auditadas.
+- Auditoria registra executor, usuario afetado e antes/depois quando aplicavel.
+- Auditoria nao armazena senha, senha temporaria, hash, token ou cookie.
+- Reset administrativo usa `USER_PASSWORD_RESET`.
+- Primeiro acesso concluido usa `USER_FIRST_ACCESS_PASSWORD_CHANGED`.
+- Troca voluntaria de senha usa `USER_PASSWORD_CHANGED`.
+- Bloqueio e desbloqueio usam `USER_BLOCKED` e `USER_UNBLOCKED`, com status antes/depois na metadata, sem log duplicado de status para a mesma acao.
+- Sanitizacao central remove campos sensiveis mesmo em objetos aninhados e arrays.
+- `AdministrativeAuditLog` e `SecurityAuditLog` tem responsabilidades documentadas e nao duplicam o mesmo evento sem justificativa.
+- UI nao usa `window.confirm`, `window.prompt` ou `alert`.
+- UI funciona em desktop, notebook, tablet e mobile.
+- UI nao tem scroll horizontal.
+- `typecheck`, `test`, `build` e `git diff --check` passam.

@@ -62,16 +62,44 @@ async function ensureUsers() {
   });
   expect(adminLogin.response.ok && adminLogin.cookie, "Admin login failed");
 
-  await request("/auth/users", {
+  const secretaryCreate = await request("/admin/users", {
     method: "POST",
     headers: json(adminLogin.cookie),
     body: JSON.stringify({
       name: "Smoke Secretaria",
       email: secretaryEmail,
-      password: secretaryPassword,
       role: "SECRETARIA",
+      institutionIds: [],
     }),
   });
+  expect(
+    secretaryCreate.response.ok && secretaryCreate.body.temporaryPassword,
+    "Official Secretaria creation failed",
+  );
+
+  const firstSecretaryLogin = await request("/auth/login", {
+    method: "POST",
+    headers: json(),
+    body: JSON.stringify({
+      email: secretaryEmail,
+      password: secretaryCreate.body.temporaryPassword,
+    }),
+  });
+  expect(
+    firstSecretaryLogin.response.ok && firstSecretaryLogin.cookie,
+    "Secretaria first login failed",
+  );
+
+  const passwordChange = await request("/account/password", {
+    method: "PATCH",
+    headers: json(firstSecretaryLogin.cookie),
+    body: JSON.stringify({
+      currentPassword: secretaryCreate.body.temporaryPassword,
+      newPassword: secretaryPassword,
+      confirmPassword: secretaryPassword,
+    }),
+  });
+  expect(passwordChange.response.ok, "Secretaria password change failed");
 
   const secretaryLogin = await request("/auth/login", {
     method: "POST",

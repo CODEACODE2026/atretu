@@ -2,6 +2,8 @@ import { Module } from "@nestjs/common";
 import { JwtModule, type JwtSignOptions } from "@nestjs/jwt";
 import { AppConfigService } from "../config/app-config.service.js";
 import { SecurityModule } from "../security/security.module.js";
+import { AccountController } from "../users/account.controller.js";
+import { AdminUsersController } from "../users/admin-users.controller.js";
 import { UsersModule } from "../users/users.module.js";
 import { AuthController } from "./auth.controller.js";
 import { AuthGuard } from "./auth.guard.js";
@@ -22,7 +24,7 @@ import { RolesGuard } from "./roles.guard.js";
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, AccountController, AdminUsersController],
   providers: [AuthService, AuthGuard, RolesGuard],
   exports: [AuthService, AuthGuard, RolesGuard],
 })

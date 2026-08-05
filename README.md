@@ -67,7 +67,8 @@ Rotas iniciais:
 - `POST /auth/logout`
 - `GET /auth/admin-check`
 - `GET /auth/operational-check`
-- `POST /auth/users` restrita ao Super Admin
+- `POST /auth/bootstrap/super-admin` e usado somente para inicializacao.
+- Administracao normal de usuarios usa a superficie oficial `/admin/users`.
 
 ## Cadastros base
 

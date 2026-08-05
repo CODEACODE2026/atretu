@@ -1,0 +1,475 @@
+import assert from "node:assert/strict";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from "@nestjs/common";
+import {
+  AdministrativeAuditEventType,
+  RecordStatus,
+  RoleCode,
+  UserStatus,
+} from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { UsersService } from "./users.service.js";
+import { AdminUserSort, SortOrder } from "./dto/admin-users.dto.js";
+
+type UserRow = {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  status: UserStatus;
+  mustChangePassword: boolean;
+  passwordChangedAt: Date | null;
+  blockedAt: Date | null;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function createPrisma() {
+  const roles = [
+    { id: "role-super", code: RoleCode.SUPER_ADMIN, description: "Super" },
+    { id: "role-secretaria", code: RoleCode.SECRETARIA, description: "Secretaria" },
+    { id: "role-gestor", code: RoleCode.GESTOR, description: "Gestor" },
+  ];
+  const institutions = [
+    { id: "11111111-1111-4111-8111-111111111111", name: "Instituicao A", status: RecordStatus.ACTIVE },
+    { id: "22222222-2222-4222-8222-222222222222", name: "Instituicao B", status: RecordStatus.ACTIVE },
+  ];
+  const users: UserRow[] = [];
+  const userRoles: Array<{ userId: string; roleId: string }> = [];
+  const userInstitutions: Array<{ userId: string; institutionId: string }> = [];
+  const audits: Array<{ eventType: AdministrativeAuditEventType; metadata: unknown }> = [];
+  let nextUser = 1;
+
+  function hydrate(user: UserRow) {
+    return {
+      ...user,
+      roles: userRoles
+        .filter((item) => item.userId === user.id)
+        .map((item) => ({
+          role: roles.find((role) => role.id === item.roleId)!,
+        })),
+      institutions: userInstitutions
+        .filter((item) => item.userId === user.id)
+        .map((item) => ({
+          institutionId: item.institutionId,
+          institution: institutions.find(
+            (institution) => institution.id === item.institutionId,
+          )!,
+        })),
+    };
+  }
+
+  function matchesWhere(user: UserRow, where: Record<string, unknown>) {
+    if (where.email && user.email !== where.email) {
+      return false;
+    }
+    if (where.status && user.status !== where.status) {
+      return false;
+    }
+    if (where.mustChangePassword !== undefined && user.mustChangePassword !== where.mustChangePassword) {
+      return false;
+    }
+    if (where.lastLoginAt === null && user.lastLoginAt !== null) {
+      return false;
+    }
+    if (where.id && typeof where.id === "object" && "not" in where.id && user.id === (where.id as { not: string }).not) {
+      return false;
+    }
+    if (where.roles && typeof where.roles === "object" && "some" in where.roles) {
+      const roleCode = (((where.roles as { some: { role: { code: RoleCode } } }).some).role).code;
+      const hasRole = userRoles.some(
+        (item) =>
+          item.userId === user.id &&
+          roles.find((role) => role.id === item.roleId)?.code === roleCode,
+      );
+      if (!hasRole) {
+        return false;
+      }
+    }
+    if (where.institutions && typeof where.institutions === "object") {
+      if ("none" in where.institutions) {
+        if (userInstitutions.some((item) => item.userId === user.id)) {
+          return false;
+        }
+      }
+      if ("some" in where.institutions) {
+        const institutionId = (where.institutions as { some: { institutionId: string } }).some.institutionId;
+        if (!userInstitutions.some((item) => item.userId === user.id && item.institutionId === institutionId)) {
+          return false;
+        }
+      }
+    }
+    if (where.OR && Array.isArray(where.OR)) {
+      return where.OR.some((item) => {
+        const entry = item as { name?: { contains: string }; email?: { contains: string } };
+        return (
+          (entry.name && user.name.toLowerCase().includes(entry.name.contains.toLowerCase())) ||
+          (entry.email && user.email.toLowerCase().includes(entry.email.contains.toLowerCase()))
+        );
+      });
+    }
+    return true;
+  }
+
+  const prisma = {
+    audits,
+    failAudit: false,
+    institutions,
+    roles,
+    userInstitutions,
+    userRoles,
+    users,
+    $transaction: async (input: unknown) => {
+      if (Array.isArray(input)) {
+        return Promise.all(input);
+      }
+      const snapshots = {
+        audits: audits.map((item) => ({ ...item })),
+        userInstitutions: userInstitutions.map((item) => ({ ...item })),
+        userRoles: userRoles.map((item) => ({ ...item })),
+        users: users.map((item) => ({ ...item })),
+      };
+      try {
+        return await (input as (tx: unknown) => Promise<unknown>)(prisma);
+      } catch (error) {
+        audits.splice(0, audits.length, ...snapshots.audits);
+        userInstitutions.splice(
+          0,
+          userInstitutions.length,
+          ...snapshots.userInstitutions,
+        );
+        userRoles.splice(0, userRoles.length, ...snapshots.userRoles);
+        users.splice(0, users.length, ...snapshots.users);
+        throw error;
+      }
+    },
+    administrativeAuditLog: {
+      create: async ({ data }: { data: { eventType: AdministrativeAuditEventType; metadata: unknown } }) => {
+        if (prisma.failAudit) {
+          throw new Error("audit failure");
+        }
+        audits.push(data);
+        return data;
+      },
+    },
+    institution: {
+      findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+        institutions.filter((institution) => where.id.in.includes(institution.id)),
+    },
+    role: {
+      findUniqueOrThrow: async ({ where }: { where: { code: RoleCode } }) => {
+        const role = roles.find((item) => item.code === where.code);
+        assert.ok(role);
+        return role;
+      },
+    },
+    user: {
+      count: async ({ where = {} }: { where?: Record<string, unknown> } = {}) =>
+        users.filter((user) => matchesWhere(user, where)).length,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const now = new Date();
+        const user: UserRow = {
+          id: `user-${nextUser++}`,
+          name: String(data.name),
+          email: String(data.email),
+          passwordHash: String(data.passwordHash),
+          status: UserStatus.ACTIVE,
+          mustChangePassword: Boolean(data.mustChangePassword),
+          passwordChangedAt: data.passwordChangedAt as Date,
+          blockedAt: null,
+          lastLoginAt: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        users.push(user);
+        const roleCreate = data.roles as { create: { roleId: string } };
+        userRoles.push({ userId: user.id, roleId: roleCreate.create.roleId });
+        const institutionCreate = data.institutions as
+          | { createMany: { data: Array<{ institutionId: string }> } }
+          | undefined;
+        institutionCreate?.createMany.data.forEach((item) => {
+          userInstitutions.push({ userId: user.id, institutionId: item.institutionId });
+        });
+        return hydrate(user);
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20 }: { where?: Record<string, unknown>; skip?: number; take?: number }) =>
+        users.filter((user) => matchesWhere(user, where)).slice(skip, skip + take).map(hydrate),
+      findUnique: async ({ where }: { where: { id?: string; email?: string } }) => {
+        const user = users.find((item) => item.id === where.id || item.email === where.email);
+        return user ? hydrate(user) : null;
+      },
+      update: async ({ where, data }: { where: { id: string }; data: Partial<UserRow> }) => {
+        const index = users.findIndex((item) => item.id === where.id);
+        assert.notEqual(index, -1);
+        users[index] = { ...users[index]!, ...data, updatedAt: new Date() };
+        return hydrate(users[index]!);
+      },
+    },
+    userInstitution: {
+      createMany: async ({ data }: { data: Array<{ userId: string; institutionId: string }> }) => {
+        data.forEach((item) => {
+          if (!userInstitutions.some((current) => current.userId === item.userId && current.institutionId === item.institutionId)) {
+            userInstitutions.push(item);
+          }
+        });
+      },
+      deleteMany: async ({ where }: { where: { userId: string } }) => {
+        for (let index = userInstitutions.length - 1; index >= 0; index -= 1) {
+          if (userInstitutions[index]?.userId === where.userId) {
+            userInstitutions.splice(index, 1);
+          }
+        }
+      },
+    },
+    userRole: {
+      create: async ({ data }: { data: { userId: string; roleId: string } }) => {
+        userRoles.push(data);
+      },
+      deleteMany: async ({ where }: { where: { userId: string } }) => {
+        for (let index = userRoles.length - 1; index >= 0; index -= 1) {
+          if (userRoles[index]?.userId === where.userId) {
+            userRoles.splice(index, 1);
+          }
+        }
+      },
+    },
+  };
+
+  return prisma;
+}
+
+const prisma = createPrisma();
+const service = new UsersService(
+  prisma as never,
+  { record: async () => undefined } as never,
+  { values: { passwordHashRounds: 4 } } as never,
+);
+
+const created = await service.createAdminUser(
+  {
+    email: " secretaria@example.com ",
+    institutionIds: [prisma.institutions[0]!.id, prisma.institutions[1]!.id],
+    name: " Secretaria ",
+    role: RoleCode.SECRETARIA,
+  },
+  "actor-1",
+);
+assert.equal(created.user.email, "secretaria@example.com");
+assert.equal(created.user.mustChangePassword, true);
+assert.equal(created.user.institutionIds.length, 2);
+assert.equal(typeof created.temporaryPassword, "string");
+assert.notEqual(prisma.users[0]?.passwordHash, created.temporaryPassword);
+assert.equal(await bcrypt.compare(created.temporaryPassword, prisma.users[0]!.passwordHash), true);
+assert.equal(JSON.stringify(prisma.audits).includes(created.temporaryPassword), false);
+assert.doesNotMatch(JSON.stringify(created.user), /passwordHash|temporaryPassword/);
+
+const auditCountAfterCreate = prisma.audits.length;
+await service.updateAdminUserInstitutions(
+  created.user.id,
+  [prisma.institutions[1]!.id, prisma.institutions[0]!.id],
+  "actor-1",
+);
+assert.equal(prisma.audits.length, auditCountAfterCreate);
+
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "gestor@example.com",
+        institutionIds: [],
+        name: "Gestor",
+        role: RoleCode.GESTOR,
+      },
+      "actor-1",
+    ),
+  (error) => error instanceof BadRequestException,
+);
+
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "secretaria@example.com",
+        institutionIds: [],
+        name: "Duplicado",
+        role: RoleCode.SECRETARIA,
+      },
+      "actor-1",
+    ),
+  (error) => error instanceof ConflictException,
+);
+
+const admin = await service.createAdminUser(
+  {
+    email: "admin@example.com",
+    institutionIds: [],
+    name: "Admin",
+    role: RoleCode.SUPER_ADMIN,
+  },
+  "actor-1",
+);
+const list = await service.listAdminUsers({
+  limit: 10,
+  mustChangePassword: true,
+  order: SortOrder.ASC,
+  page: 1,
+  search: "admin",
+  sort: AdminUserSort.NAME,
+});
+assert.equal(list.data.length, 1);
+assert.equal(list.pagination.total, 1);
+assert.doesNotMatch(JSON.stringify(list), /passwordHash|temporaryPassword/);
+
+await assert.rejects(
+  () => service.updateAdminUser(admin.user.id, { role: RoleCode.SECRETARIA }, admin.user.id),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.blockAdminUser(admin.user.id, admin.user.id),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.updateAdminUserInstitutions(created.user.id, ["missing"], admin.user.id),
+  (error) => error instanceof BadRequestException,
+);
+await assert.rejects(
+  () => service.updateAdminUserInstitutions(admin.user.id, [], admin.user.id),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.resetAdminUserTemporaryPassword(admin.user.id, admin.user.id),
+  (error) => error instanceof ForbiddenException,
+);
+
+const blocked = await service.blockAdminUser(created.user.id, admin.user.id);
+assert.equal(blocked.status, UserStatus.INACTIVE);
+assert.ok(blocked.blockedAt);
+assert.equal(blocked.mustChangePassword, true);
+assert.equal(
+  prisma.users.find((user) => user.id === created.user.id)?.passwordChangedAt?.getTime(),
+  blocked.blockedAt?.getTime(),
+);
+
+const unblocked = await service.unblockAdminUser(created.user.id, admin.user.id);
+assert.equal(unblocked.status, UserStatus.ACTIVE);
+assert.equal(unblocked.blockedAt, null);
+assert.equal(unblocked.mustChangePassword, true);
+
+const userBeforeFailedAudit = {
+  ...prisma.users.find((user) => user.id === created.user.id)!,
+};
+const auditCountBeforeFailedAudit = prisma.audits.length;
+prisma.failAudit = true;
+await assert.rejects(
+  () => service.blockAdminUser(created.user.id, admin.user.id),
+  /audit failure/,
+);
+prisma.failAudit = false;
+assert.deepEqual(
+  prisma.users.find((user) => user.id === created.user.id),
+  userBeforeFailedAudit,
+);
+assert.equal(prisma.audits.length, auditCountBeforeFailedAudit);
+
+const reset = await service.resetAdminUserTemporaryPassword(created.user.id, admin.user.id);
+assert.equal(reset.user.mustChangePassword, true);
+assert.ok(prisma.users.find((user) => user.id === created.user.id)?.passwordChangedAt);
+assert.equal(JSON.stringify(prisma.audits).includes(reset.temporaryPassword), false);
+
+await assert.rejects(
+  () =>
+    service.changeOwnPassword(
+      created.user.id,
+      {
+        currentPassword: "senha-incorreta",
+        newPassword: "NovaSenha#2026",
+        confirmPassword: "NovaSenha#2026",
+      },
+      { ip: "127.0.0.1", userAgent: "Tests" },
+    ),
+  (error) => error instanceof BadRequestException,
+);
+await assert.rejects(
+  () =>
+    service.changeOwnPassword(
+      created.user.id,
+      {
+        currentPassword: reset.temporaryPassword,
+        newPassword: "fraca",
+        confirmPassword: "fraca",
+      },
+      { ip: "127.0.0.1", userAgent: "Tests" },
+    ),
+  (error) => error instanceof BadRequestException,
+);
+await assert.rejects(
+  () =>
+    service.changeOwnPassword(
+      created.user.id,
+      {
+        currentPassword: reset.temporaryPassword,
+        newPassword: "NovaSenha#2026",
+        confirmPassword: "OutraSenha#2026",
+      },
+      { ip: "127.0.0.1", userAgent: "Tests" },
+    ),
+  (error) => error instanceof BadRequestException,
+);
+
+const ownPasswordChange = await service.changeOwnPassword(
+  created.user.id,
+  {
+    currentPassword: reset.temporaryPassword,
+    newPassword: "NovaSenha#2026",
+    confirmPassword: "NovaSenha#2026",
+  },
+  { ip: "127.0.0.1", userAgent: "Tests" },
+);
+assert.equal(ownPasswordChange.ok, true);
+assert.equal(ownPasswordChange.requiresLogin, true);
+const changedUser = prisma.users.find((user) => user.id === created.user.id)!;
+assert.equal(changedUser.mustChangePassword, false);
+assert.equal(await bcrypt.compare("NovaSenha#2026", changedUser.passwordHash), true);
+assert.doesNotMatch(JSON.stringify(prisma.audits), /NovaSenha#2026|passwordHash/);
+
+const voluntaryPasswordChange = await service.changeOwnPassword(
+  created.user.id,
+  {
+    currentPassword: "NovaSenha#2026",
+    newPassword: "OutraSenha#2026",
+    confirmPassword: "OutraSenha#2026",
+  },
+  { ip: "127.0.0.1", userAgent: "Tests" },
+);
+assert.equal(voluntaryPasswordChange.ok, true);
+assert.equal(
+  prisma.audits.some(
+    (audit) =>
+      audit.eventType ===
+      AdministrativeAuditEventType.USER_FIRST_ACCESS_PASSWORD_CHANGED,
+  ),
+  true,
+);
+assert.equal(
+  prisma.audits.some(
+    (audit) => audit.eventType === AdministrativeAuditEventType.USER_PASSWORD_CHANGED,
+  ),
+  true,
+);
+assert.equal(
+  prisma.audits.some(
+    (audit) => audit.eventType === AdministrativeAuditEventType.USER_STATUS_CHANGED,
+  ),
+  false,
+);
+
+const account = await service.updateOwnAccount(created.user.id, {
+  name: "Novo Nome",
+});
+assert.equal(account.user.name, "Novo Nome");
+assert.equal(account.user.email, created.user.email);
+assert.equal(account.user.roles.includes(RoleCode.SECRETARIA), true);

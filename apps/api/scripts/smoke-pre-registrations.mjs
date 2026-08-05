@@ -70,16 +70,44 @@ async function ensureUsers() {
     throw new Error("Admin login failed");
   }
 
-  await request("/auth/users", {
+  const secretaryCreate = await request("/admin/users", {
     method: "POST",
     headers: json(adminLogin.cookie),
     body: JSON.stringify({
       name: "Smoke Secretaria",
       email: secretaryEmail,
-      password: secretaryPassword,
       role: "SECRETARIA",
+      institutionIds: [],
     }),
   });
+  if (!secretaryCreate.response.ok || !secretaryCreate.body.temporaryPassword) {
+    throw new Error("Official Secretaria creation failed");
+  }
+
+  const firstSecretaryLogin = await request("/auth/login", {
+    method: "POST",
+    headers: json(),
+    body: JSON.stringify({
+      email: secretaryEmail,
+      password: secretaryCreate.body.temporaryPassword,
+    }),
+  });
+  if (!firstSecretaryLogin.response.ok || !firstSecretaryLogin.cookie) {
+    throw new Error("Secretaria first login failed");
+  }
+
+  const passwordChange = await request("/account/password", {
+    method: "PATCH",
+    headers: json(firstSecretaryLogin.cookie),
+    body: JSON.stringify({
+      currentPassword: secretaryCreate.body.temporaryPassword,
+      newPassword: secretaryPassword,
+      confirmPassword: secretaryPassword,
+    }),
+  });
+  if (!passwordChange.response.ok) {
+    throw new Error("Secretaria password change failed");
+  }
 
   const secretaryLogin = await request("/auth/login", {
     method: "POST",

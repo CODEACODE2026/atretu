@@ -97,7 +97,7 @@ if (!adminCheck.response.ok) {
   throw new Error("admin-check smoke failed");
 }
 
-await request("/auth/users", {
+const secretaryCreate = await request("/admin/users", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
@@ -107,10 +107,42 @@ await request("/auth/users", {
   body: JSON.stringify({
     name: "Smoke Secretaria",
     email: secretaryEmail,
-    password: secretaryPassword,
     role: "SECRETARIA",
+    institutionIds: [],
   }),
 });
+if (!secretaryCreate.response.ok || !secretaryCreate.body.temporaryPassword) {
+  throw new Error("Official Secretaria creation smoke failed");
+}
+
+const firstSecretaryLogin = await request("/auth/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Origin: allowedOrigin },
+  body: JSON.stringify({
+    email: secretaryEmail,
+    password: secretaryCreate.body.temporaryPassword,
+  }),
+});
+if (!firstSecretaryLogin.response.ok || !firstSecretaryLogin.cookie) {
+  throw new Error("Secretaria first login smoke failed");
+}
+
+const secretaryPasswordChange = await request("/account/password", {
+  method: "PATCH",
+  headers: {
+    "Content-Type": "application/json",
+    Origin: allowedOrigin,
+    cookie: firstSecretaryLogin.cookie,
+  },
+  body: JSON.stringify({
+    currentPassword: secretaryCreate.body.temporaryPassword,
+    newPassword: secretaryPassword,
+    confirmPassword: secretaryPassword,
+  }),
+});
+if (!secretaryPasswordChange.response.ok) {
+  throw new Error("Secretaria password change smoke failed");
+}
 
 const secretaryLogin = await request("/auth/login", {
   method: "POST",

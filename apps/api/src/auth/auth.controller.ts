@@ -7,10 +7,8 @@ import {
   HttpCode,
   Inject,
   Post,
-  Put,
   Req,
   Res,
-  Param,
   UseGuards,
 } from "@nestjs/common";
 import { AuditEventType, RoleCode } from "@prisma/client";
@@ -19,14 +17,12 @@ import { AppConfigService } from "../config/app-config.service.js";
 import { RateLimitService } from "../security/rate-limit.service.js";
 import { SecurityAuditService } from "../security/security-audit.service.js";
 import type { AuthUser } from "../users/users.service.js";
-import { UsersService } from "../users/users.service.js";
-import { UpdateUserInstitutionsDto } from "../users/dto/user-institutions.dto.js";
+import { AllowDuringPasswordChange } from "./allow-during-password-change.decorator.js";
 import { AUTH_COOKIE_NAME } from "./auth.constants.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./current-user.decorator.js";
 import { BootstrapAdminDto } from "./dto/bootstrap-admin.dto.js";
-import { CreateAdminUserDto } from "./dto/create-admin-user.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
 import { Roles } from "./roles.decorator.js";
 import { RolesGuard } from "./roles.guard.js";
@@ -43,8 +39,6 @@ export class AuthController {
     private readonly config: AppConfigService,
     @Inject(RateLimitService)
     private readonly rateLimit: RateLimitService,
-    @Inject(UsersService)
-    private readonly usersService: UsersService,
   ) {}
 
   @Post("login")
@@ -88,6 +82,7 @@ export class AuthController {
 
   @Post("logout")
   @UseGuards(AuthGuard)
+  @AllowDuringPasswordChange()
   @HttpCode(200)
   async logout(
     @CurrentUser() user: AuthUser,
@@ -113,18 +108,9 @@ export class AuthController {
 
   @Get("me")
   @UseGuards(AuthGuard)
+  @AllowDuringPasswordChange()
   me(@CurrentUser() user: AuthUser) {
     return { user };
-  }
-
-  @Put("users/:id/institutions")
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN)
-  updateUserInstitutions(
-    @Param("id") id: string,
-    @Body() body: UpdateUserInstitutionsDto,
-  ) {
-    return this.usersService.updateUserInstitutions(id, body.institutionIds);
   }
 
   @Post("bootstrap/super-admin")
@@ -163,20 +149,6 @@ export class AuthController {
   @Roles(RoleCode.SUPER_ADMIN)
   adminCheck() {
     return { ok: true };
-  }
-
-  @Post("users")
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN)
-  async createAdminUser(@Body() body: CreateAdminUserDto) {
-    const user = await this.authService.createAdministrativeUser({
-      name: body.name,
-      email: body.email,
-      password: body.password,
-      role: body.role,
-    });
-
-    return { user };
   }
 
   @Get("operational-check")
