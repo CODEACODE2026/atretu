@@ -521,6 +521,57 @@ export type StudentDocumentsResponse = {
   missingTypes: StudentDocumentType[];
 };
 
+export type OfficialDocumentType = "TERMINATION_LETTER" | "TERMINATION_TERM";
+export type OfficialDocumentSituation = "ISSUED" | "NOT_ISSUED";
+
+export type OfficialDocumentIssue = {
+  id: string;
+  studentId: string;
+  type: OfficialDocumentType;
+  status: "ISSUED";
+  templateKey: string;
+  templateVersion: number;
+  version: number;
+  protocol: string;
+  fileName: string;
+  sizeBytes: number;
+  checksumSha256: string;
+  issuedAt: string;
+  issuedBy: { id: string; name: string; email: string } | null;
+  sourceIssueId: string | null;
+  notes: string | null;
+  termDetails: {
+    dueDate: string | null;
+    notificationDate: string | null;
+    reason: string | null;
+    regularizationDeadlineDays: number | null;
+    regularizationLimit: string | null;
+  } | null;
+};
+
+export type OfficialDocumentCatalogItem = {
+  type: OfficialDocumentType;
+  title: string;
+  description: string;
+  situation: OfficialDocumentSituation;
+  canIssue: boolean;
+  blockedReason: string | null;
+  latestIssue: OfficialDocumentIssue | null;
+  history: OfficialDocumentIssue[];
+};
+
+export type OfficialDocumentsResponse = {
+  data: OfficialDocumentCatalogItem[];
+};
+
+export type IssueOfficialDocumentBody = {
+  dueDate?: string;
+  notificationDate?: string;
+  notes?: string;
+  reason?: string;
+  regularizationDeadlineDays?: number;
+};
+
 export type DocumentationStatus = "none" | "partial" | "complete";
 
 export type StudentDocumentationStatusRecord = {
@@ -2082,6 +2133,51 @@ export const api = {
   ) {
     return requestBlob(
       withParams(`/students/${studentId}/documents/${documentId}/file`, {
+        disposition,
+      }),
+    );
+  },
+
+  listStudentOfficialDocuments(studentId: string) {
+    return request<OfficialDocumentsResponse>(
+      `/students/${studentId}/official-documents`,
+    );
+  },
+
+  issueOfficialDocument(
+    studentId: string,
+    type: OfficialDocumentType,
+    body?: IssueOfficialDocumentBody,
+  ) {
+    return request<OfficialDocumentIssue>(
+      `/students/${studentId}/official-documents/${type}/issue`,
+      {
+        body: body ? JSON.stringify(body) : undefined,
+        method: "POST",
+      },
+    );
+  },
+
+  reissueOfficialDocument(studentId: string, issueId: string) {
+    return request<OfficialDocumentIssue>(
+      `/students/${studentId}/official-documents/${issueId}/reissue`,
+      { method: "POST" },
+    );
+  },
+
+  getOfficialDocumentIssue(studentId: string, issueId: string) {
+    return request<OfficialDocumentIssue>(
+      `/students/${studentId}/official-documents/${issueId}`,
+    );
+  },
+
+  async downloadOfficialDocument(
+    studentId: string,
+    issueId: string,
+    disposition: "attachment" | "inline" = "attachment",
+  ) {
+    return requestBlob(
+      withParams(`/students/${studentId}/official-documents/${issueId}/file`, {
         disposition,
       }),
     );

@@ -67,6 +67,10 @@ enum AdministrativeAuditEventType {
   STUDENT_DOCUMENT_DOWNLOADED
   STUDENT_DOCUMENT_VIEWED
   STUDENT_DOCUMENT_REMOVED
+  OFFICIAL_DOCUMENT_ISSUED
+  OFFICIAL_DOCUMENT_REISSUED
+  OFFICIAL_DOCUMENT_VIEWED
+  OFFICIAL_DOCUMENT_DOWNLOADED
   PRE_REGISTRATION_RECEIVED
   PRE_REGISTRATION_DOCUMENT_UPLOADED
   PRE_REGISTRATION_DOCUMENT_VIEWED
@@ -297,6 +301,15 @@ enum StudentDocumentStatus {
   REMOVED
 }
 
+enum OfficialDocumentType {
+  TERMINATION_LETTER
+  TERMINATION_TERM
+}
+
+enum OfficialDocumentIssueStatus {
+  ISSUED
+}
+
 enum PreRegistrationStatus {
   PENDING
   APPROVED
@@ -326,6 +339,7 @@ model User {
   administrativeAuditLogs   AdministrativeAuditLog[]
   uploadedStudentDocuments  StudentDocument[]        @relation("StudentDocumentUploadedBy")
   removedStudentDocuments   StudentDocument[]        @relation("StudentDocumentRemovedBy")
+  issuedOfficialDocuments   OfficialDocumentIssue[]  @relation("OfficialDocumentIssuedBy")
   reviewedPreRegistrations  PublicPreRegistration[]  @relation("PreRegistrationReviewedBy")
   studentHistoryEvents      StudentHistoryEvent[]    @relation("StudentHistoryPerformedBy")
   boardMembershipsStarted   BoardMembership[]        @relation("BoardMembershipStartedBy")
@@ -499,6 +513,7 @@ model Student {
   guardian                 StudentGuardian?
   enrollments              Enrollment[]
   documents                StudentDocument[]
+  officialDocuments        OfficialDocumentIssue[]
   approvedPreRegistrations PublicPreRegistration[]
   historyEvents            StudentHistoryEvent[]
   boardMemberships         BoardMembership[]
@@ -993,6 +1008,39 @@ model StudentDocument {
   @@index([checksumSha256])
   @@index([uploadedByUserId, createdAt])
   @@map("student_documents")
+}
+
+model OfficialDocumentIssue {
+  id              String                      @id @default(uuid()) @db.Uuid
+  studentId       String                      @map("student_id") @db.Uuid
+  documentType    OfficialDocumentType        @map("document_type")
+  templateKey     String                      @map("template_key") @db.VarChar(80)
+  templateVersion Int                         @default(1) @map("template_version")
+  status          OfficialDocumentIssueStatus @default(ISSUED)
+  version         Int                         @default(1)
+  protocol        String                      @unique @db.VarChar(40)
+  storageKey      String                      @unique @map("storage_key") @db.VarChar(500)
+  fileName        String                      @map("file_name") @db.VarChar(180)
+  mimeType        String                      @default("application/pdf") @map("mime_type") @db.VarChar(80)
+  sizeBytes       Int                         @map("size_bytes")
+  checksumSha256  String                      @map("checksum_sha256") @db.VarChar(64)
+  issuedByUserId  String?                     @map("issued_by_user_id") @db.Uuid
+  sourceIssueId   String?                     @map("source_issue_id") @db.Uuid
+  contentSnapshot Json                        @map("content_snapshot")
+  notes           String?                     @db.VarChar(500)
+  issuedAt        DateTime                    @default(now()) @map("issued_at") @db.Timestamptz(6)
+  createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student         Student                     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  issuedBy        User?                       @relation("OfficialDocumentIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
+  sourceIssue     OfficialDocumentIssue?      @relation("OfficialDocumentReissue", fields: [sourceIssueId], references: [id], onDelete: SetNull)
+  reissues        OfficialDocumentIssue[]     @relation("OfficialDocumentReissue")
+
+  @@index([studentId, documentType, issuedAt])
+  @@index([documentType, templateVersion])
+  @@index([issuedByUserId, issuedAt])
+  @@index([sourceIssueId])
+  @@map("official_document_issues")
 }
 
 model PublicPreRegistration {

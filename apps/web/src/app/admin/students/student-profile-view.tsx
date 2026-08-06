@@ -242,6 +242,7 @@ export function StudentProfileView({
                 onChanged={() => refreshStudent("Documentos atualizados.")}
                 onSummary={setDocumentSummary}
                 studentId={student.id}
+                studentName={student.person.fullName}
               />
             ) : null}
             {tab === "transport" ? (

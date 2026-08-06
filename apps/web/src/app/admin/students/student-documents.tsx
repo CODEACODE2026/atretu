@@ -7,6 +7,7 @@ import type {
 } from "../../../lib/api";
 import { api } from "../../../lib/api";
 import { adminTheme, cx } from "../admin-theme";
+import { StudentOfficialDocuments } from "./student-official-documents";
 import {
   canRenderImage,
   formatBytes,
@@ -46,13 +47,16 @@ export function StudentDocumentsTab({
   onChanged,
   onSummary,
   studentId,
+  studentName,
 }: {
   onChanged: () => Promise<void>;
   onSummary: (summary: { active: number; missing: number }) => void;
   studentId: string;
+  studentName: string;
 }) {
   return (
     <div className="grid gap-4">
+      <StudentOfficialDocuments studentId={studentId} studentName={studentName} />
       <StudentPhoto onChanged={onChanged} studentId={studentId} />
       <StudentDocuments onChanged={onChanged} onSummary={onSummary} studentId={studentId} />
     </div>
