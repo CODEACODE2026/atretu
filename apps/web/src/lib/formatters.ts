@@ -84,10 +84,15 @@ export function translateReason(reason: string) {
   return labels[reason] ?? reason;
 }
 
-export function mapApiErrorMessage(message?: string) {
+export function mapApiErrorMessage(
+  message?: string,
+  options: { requestId?: string } = {},
+) {
   const text = message?.trim();
   if (!text) {
-    return "Nao foi possivel concluir a operacao.";
+    return options.requestId
+      ? `Nao foi possivel concluir a operacao. Informe o codigo ${options.requestId} ao suporte.`
+      : "Nao foi possivel concluir a operacao.";
   }
 
   const mappings: Array<[RegExp, string]> = [
@@ -118,8 +123,10 @@ export function mapApiErrorMessage(message?: string) {
   }
 
   const requestId =
-    text.match(/request(?:Id| ID| id)?[:=\s]+([A-Za-z0-9._-]+)/i)?.[1] ?? "";
+    options.requestId ??
+    text.match(/request(?:Id| ID| id)?[:=\s]+([A-Za-z0-9._-]+)/i)?.[1] ??
+    "";
   return requestId
     ? `Nao foi possivel concluir a operacao. Informe o codigo ${requestId} ao suporte.`
-    : "Nao foi possivel concluir a operacao. Revise os dados e tente novamente.";
+    : text;
 }

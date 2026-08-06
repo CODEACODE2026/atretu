@@ -17,6 +17,8 @@ for (const fragment of [
   "issueOfficialDocument",
   "reissueOfficialDocument",
   "downloadOfficialDocument",
+  "formatApiErrorBody",
+  "requestId",
   "TERMINATION_LETTER",
   "TERMINATION_TERM",
   "IssueOfficialDocumentBody",

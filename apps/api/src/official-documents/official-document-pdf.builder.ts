@@ -60,7 +60,8 @@ export class OfficialDocumentPdfBuilder {
     const logo = this.loadOfficialLogo();
     let pageNumber = 1;
     const startBodyY = 230;
-    const bottomLimit = A4.height - 150;
+    const footerTopY = A4.height - 104;
+    const contentBottomLimit = footerTopY - 24;
     const drawPageChrome = () => {
       this.drawHeader(doc, logo);
       this.drawFooter(doc, input, pageNumber);
@@ -94,7 +95,7 @@ export class OfficialDocumentPdfBuilder {
           lineGap: 4,
           width: A4.width - 144,
         });
-      if (y + paragraphHeight > bottomLimit) {
+      if (y + paragraphHeight > contentBottomLimit) {
         y = addPage();
       }
       doc
@@ -109,8 +110,8 @@ export class OfficialDocumentPdfBuilder {
       y = doc.y + 16;
     });
 
-    y = Math.max(y + 24, 510);
-    if (y + 146 > bottomLimit) {
+    y = Math.max(y + 18, 500);
+    if (y + 58 > contentBottomLimit) {
       y = addPage() + 24;
     }
     doc
@@ -146,7 +147,12 @@ export class OfficialDocumentPdfBuilder {
         });
     }
 
-    this.drawQrPreparedBlock(doc, input, A4.width - 158, Math.min(y + 82, 614));
+    this.drawQrPreparedBlock(
+      doc,
+      input,
+      A4.width - 158,
+      Math.min(y + 56, footerTopY - 150),
+    );
   }
 
   private drawHeader(doc: PDFKit.PDFDocument, logo: Buffer) {
@@ -259,35 +265,41 @@ export class OfficialDocumentPdfBuilder {
   ) {
     const y = A4.height - 104;
     const footerLines = input.footerNote.split(" | ");
-    doc.rect(0, y, A4.width, 104).fill(COLORS.panel);
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(7.5)
-      .fillColor(COLORS.muted)
-      .text(`Emitido por ${input.emittedBy} | Documento: ${input.documentTitle} | Acadêmico: ${input.studentName}`, 56, y + 14, {
-        align: "center",
-        lineBreak: false,
-        width: A4.width - 112,
-      });
-    footerLines.forEach((line, index) => {
+    const previousBottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    try {
+      doc.rect(0, y, A4.width, 104).fill(COLORS.panel);
       doc
-        .font("Helvetica")
-        .fontSize(7)
+        .font("Helvetica-Bold")
+        .fontSize(7.5)
         .fillColor(COLORS.muted)
-        .text(line, 56, y + 40 + index * 14, {
+        .text(`Emitido por ${input.emittedBy} | Documento: ${input.documentTitle} | Acadêmico: ${input.studentName}`, 56, y + 14, {
           align: "center",
           lineBreak: false,
           width: A4.width - 112,
         });
-    });
-    doc
-      .font("Helvetica")
-      .fontSize(6.5)
-      .fillColor(COLORS.muted)
-      .text(`Pagina ${pageNumber}`, 56, A4.height - 18, {
-        align: "center",
-        width: A4.width - 112,
+      footerLines.forEach((line, index) => {
+        doc
+          .font("Helvetica")
+          .fontSize(7)
+          .fillColor(COLORS.muted)
+          .text(line, 56, y + 40 + index * 14, {
+            align: "center",
+            lineBreak: false,
+            width: A4.width - 112,
+          });
       });
+      doc
+        .font("Helvetica")
+        .fontSize(6.5)
+        .fillColor(COLORS.muted)
+        .text(`Pagina ${pageNumber}`, 56, A4.height - 18, {
+          align: "center",
+          width: A4.width - 112,
+        });
+    } finally {
+      doc.page.margins.bottom = previousBottomMargin;
+    }
   }
 
   private formatDate(value: Date) {

@@ -603,10 +603,11 @@ export class OfficialDocumentsService {
   private resolveTerminationTermPayload(
     payload?: OfficialDocumentIssuePayload,
   ): TerminationTermPayload {
-    if (!payload?.dueDate || !payload.notificationDate) {
-      throw new BadRequestException(
-        "Data do vencimento e data da notificacao sao obrigatorias",
-      );
+    if (!payload?.dueDate) {
+      throw new BadRequestException("Informe a data de vencimento.");
+    }
+    if (!payload.notificationDate) {
+      throw new BadRequestException("Informe a data da notificacao.");
     }
     const dueDate = this.parseDateOnly(payload.dueDate, "Data do vencimento invalida");
     const notificationDate = this.parseDateOnly(
@@ -650,7 +651,7 @@ export class OfficialDocumentsService {
     const boardMemberName = boardMember?.student.person.fullName;
     if (!boardMemberName) {
       throw new BadRequestException(
-        "Representante institucional oficial nao configurado para emissao do Termo de Desligamento",
+        "Nao existe uma diretoria ativa com presidente configurado.",
       );
     }
     return {

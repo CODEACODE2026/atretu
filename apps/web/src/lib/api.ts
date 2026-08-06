@@ -1312,6 +1312,12 @@ type ApiRequestInit = RequestInit & {
   skipSessionInvalidationEvent?: boolean;
 };
 
+type ApiErrorResponseBody = {
+  code?: string;
+  message?: string | string[];
+  requestId?: string;
+};
+
 export class ApiRequestError extends Error {
   constructor(
     message: string,
@@ -1353,12 +1359,12 @@ async function request<T>(
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as
-      | { message?: string }
+      | ApiErrorResponseBody
       | null;
     if (!skipSessionInvalidationEvent) {
       notifySessionInvalid(path, response.status);
     }
-    throw new ApiRequestError(mapApiErrorMessage(body?.message), response.status);
+    throw new ApiRequestError(formatApiErrorBody(body), response.status);
   }
 
   return response.json() as Promise<T>;
@@ -1372,10 +1378,10 @@ async function requestBlob(path: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as
-      | { message?: string }
+      | ApiErrorResponseBody
       | null;
     notifySessionInvalid(path, response.status);
-    throw new ApiRequestError(mapApiErrorMessage(body?.message), response.status);
+    throw new ApiRequestError(formatApiErrorBody(body), response.status);
   }
 
   return {
@@ -1383,6 +1389,13 @@ async function requestBlob(path: string, options: RequestInit = {}) {
     fileName: fileNameFromDisposition(response.headers.get("content-disposition")),
     headers: response.headers,
   };
+}
+
+function formatApiErrorBody(body: ApiErrorResponseBody | null) {
+  const message = Array.isArray(body?.message)
+    ? body.message.join(" ")
+    : body?.message;
+  return mapApiErrorMessage(message, { requestId: body?.requestId ?? body?.code });
 }
 
 function withParams(path: string, params: Record<string, unknown> = {}) {
