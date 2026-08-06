@@ -162,6 +162,14 @@ enum BoardMembershipStatus {
   ENDED
 }
 
+enum BoardMemberRole {
+  PRESIDENT
+  VICE_PRESIDENT
+  TREASURER
+  SECRETARY
+  MEMBER
+}
+
 enum StudentCardType {
   STUDENT
   BOARD_MEMBER
@@ -565,6 +573,7 @@ model StudentHistoryEvent {
 model BoardMembership {
   id              String                @id @default(uuid()) @db.Uuid
   studentId       String                @map("student_id") @db.Uuid
+  role            BoardMemberRole?
   status          BoardMembershipStatus @default(ACTIVE)
   startedAt       DateTime              @default(now()) @map("started_at") @db.Timestamptz(6)
   endedAt         DateTime?             @map("ended_at") @db.Timestamptz(6)
@@ -581,6 +590,7 @@ model BoardMembership {
   studentCards    StudentCard[]
 
   @@index([studentId, status])
+  @@index([role, status, startedAt, endedAt])
   @@index([status, createdAt])
   @@map("board_memberships")
 }

@@ -31,6 +31,7 @@ import {
   SuspendStudentDto,
   TerminateStudentDto,
   UpdateAcademicYearDto,
+  UpdateBoardMembershipRoleDto,
   UpdateEnrollmentDto,
   UpdateGuardianDto,
   UpdatePersonDto,
@@ -262,6 +263,17 @@ export class StudentsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.students.startBoardMembership(id, body, user.id, user);
+  }
+
+  @Patch("students/:id/board-memberships/:membershipId/role")
+  @Roles(RoleCode.SUPER_ADMIN)
+  updateBoardMembershipRole(
+    @Param("id") id: string,
+    @Param("membershipId") membershipId: string,
+    @Body() body: UpdateBoardMembershipRoleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.updateBoardMembershipRole(id, membershipId, body, user.id, user);
   }
 
   @Post("students/:id/board-memberships/:membershipId/end")

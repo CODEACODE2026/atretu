@@ -9,6 +9,7 @@ import {
 import {
   AdministrativeAuditEventType,
   AcademicYearStatus,
+  BoardMemberRole,
   BoardMembershipStatus,
   BusAssignmentEndReason,
   BusAssignmentEventType,
@@ -64,6 +65,7 @@ import {
   SuspendStudentDto,
   TerminateStudentDto,
   UpdateAcademicYearDto,
+  UpdateBoardMembershipRoleDto,
   UpdateEnrollmentDto,
   UpdateGuardianDto,
   UpdatePersonDto,
@@ -1285,6 +1287,16 @@ export class StudentsService {
     currentUser?: AuthUser,
   ) {
     await this.ensureStudent(id, currentUser);
+    const requestedRole = body.role ?? null;
+    if (
+      requestedRole &&
+      requestedRole !== BoardMemberRole.MEMBER &&
+      !currentUser?.roles.includes(RoleCode.SUPER_ADMIN)
+    ) {
+      throw new ForbiddenException(
+        "Apenas SUPER_ADMIN pode definir cargo institucional da diretoria",
+      );
+    }
     const membership = await this.prisma.$transaction(async (tx) => {
       const student = await this.lockStudent(tx, id);
       if (student.status !== StudentStatus.ACTIVE) {
@@ -1296,10 +1308,12 @@ export class StudentsService {
       if (active) {
         throw new ConflictException("Academico ja possui diretoria ativa");
       }
+      await this.assertBoardRoleCanBeAssigned(tx, requestedRole);
 
       const created = await tx.boardMembership.create({
         data: {
           studentId: id,
+          role: requestedRole,
           startedByUserId: userId,
           startNote: this.optional(body.note),
         },
@@ -1321,10 +1335,56 @@ export class StudentsService {
         metadata: {
           studentId: id,
           boardMembershipId: created.id,
+          role: created.role ?? "UNDEFINED",
           action: "started",
         },
       });
       return created;
+    });
+    return membership;
+  }
+
+  async updateBoardMembershipRole(
+    studentId: string,
+    membershipId: string,
+    body: UpdateBoardMembershipRoleDto,
+    userId: string,
+    currentUser?: AuthUser,
+  ) {
+    await this.ensureStudent(studentId, currentUser);
+    const membership = await this.prisma.$transaction(async (tx) => {
+      await this.lockStudent(tx, studentId);
+      const active = await tx.boardMembership.findFirst({
+        where: {
+          id: membershipId,
+          studentId,
+          status: BoardMembershipStatus.ACTIVE,
+        },
+      });
+      if (!active) {
+        throw new BadRequestException("Diretoria ativa nao encontrada");
+      }
+      await this.assertBoardRoleCanBeAssigned(tx, body.role, active.id);
+
+      const updated = await tx.boardMembership.update({
+        where: { id: active.id },
+        data: { role: body.role },
+      });
+      await this.recordAuditTx(tx, {
+        eventType: AdministrativeAuditEventType.BOARD_MEMBERSHIP_STARTED,
+        domain: "board_memberships",
+        recordId: updated.id,
+        userId,
+        metadata: {
+          studentId,
+          boardMembershipId: updated.id,
+          previousRole: active.role ?? "UNDEFINED",
+          role: updated.role ?? "UNDEFINED",
+          action: "role_updated",
+          note: this.optional(body.note) ?? "",
+        },
+      });
+      return updated;
     });
     return membership;
   }
@@ -1389,6 +1449,40 @@ export class StudentsService {
       return ended;
     });
     return membership;
+  }
+
+  private async assertBoardRoleCanBeAssigned(
+    tx: Prisma.TransactionClient,
+    role: BoardMemberRole | null,
+    currentMembershipId?: string,
+  ) {
+    if (!role || role === BoardMemberRole.MEMBER) {
+      return;
+    }
+    const existing = await tx.boardMembership.findFirst({
+      where: {
+        role,
+        status: BoardMembershipStatus.ACTIVE,
+        ...(currentMembershipId ? { id: { not: currentMembershipId } } : {}),
+      },
+      include: { student: { include: { person: true } } },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `Ja existe ${this.boardRoleLabel(role).toLowerCase()} ativo na diretoria: ${existing.student.person.fullName}.`,
+      );
+    }
+  }
+
+  private boardRoleLabel(role: BoardMemberRole) {
+    const labels: Record<BoardMemberRole, string> = {
+      [BoardMemberRole.MEMBER]: "membro",
+      [BoardMemberRole.PRESIDENT]: "presidente",
+      [BoardMemberRole.SECRETARY]: "secretario",
+      [BoardMemberRole.TREASURER]: "tesoureiro",
+      [BoardMemberRole.VICE_PRESIDENT]: "vice-presidente",
+    };
+    return labels[role];
   }
 
   assertCanWriteAcademicYear(user: AuthUser) {

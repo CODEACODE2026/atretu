@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AcademicYear,
   BaseRecord,
+  BoardMemberRole,
   BusRecord,
   ReinstateStudentPayload,
   StudentDetail,
@@ -46,6 +47,7 @@ export function StudentActionDialog({
   const [reason, setReason] = useState("");
   const [justification, setJustification] = useState("");
   const [note, setNote] = useState("");
+  const [boardRole, setBoardRole] = useState<BoardMemberRole>("MEMBER");
   const [releaseBusSeat, setReleaseBusSeat] = useState(true);
   const [busId, setBusId] = useState("");
   const [buses, setBuses] = useState<BusRecord[]>([]);
@@ -76,6 +78,16 @@ export function StudentActionDialog({
       ),
     [enrollment.academicYearId, student.enrollments],
   );
+
+  useEffect(() => {
+    if (action === "update-board-role") {
+      setBoardRole(student.activeBoardMembership?.role ?? "MEMBER");
+      return;
+    }
+    if (action === "start-board") {
+      setBoardRole("MEMBER");
+    }
+  }, [action, student.activeBoardMembership?.role]);
 
   useEffect(() => {
     if (action !== "reinstate" || !selectedYearEnrollment) {
@@ -187,8 +199,21 @@ export function StudentActionDialog({
         await api.reinstateStudent(student.id, payload);
         await onDone("Academico religado.");
       } else if (action === "start-board") {
-        await api.startBoardMembership(student.id, { note: emptyToUndefined(note) });
+        await api.startBoardMembership(student.id, {
+          note: emptyToUndefined(note),
+          role: boardRole,
+        });
         await onDone("Diretoria ativada.");
+      } else if (action === "update-board-role" && student.activeBoardMembership) {
+        await api.updateBoardMembershipRole(
+          student.id,
+          student.activeBoardMembership.id,
+          {
+            note: emptyToUndefined(note),
+            role: boardRole,
+          },
+        );
+        await onDone("Cargo da diretoria alterado.");
       } else if (action === "end-board" && student.activeBoardMembership) {
         await api.endBoardMembership(student.id, student.activeBoardMembership.id, {
           note: emptyToUndefined(note),
@@ -295,7 +320,31 @@ export function StudentActionDialog({
             </>
           ) : null}
 
-          {action === "start-board" || action === "end-board" ? (
+          {action === "start-board" || action === "update-board-role" ? (
+            <>
+              <LabeledSelect
+                label="Cargo na diretoria"
+                onChange={(value) => setBoardRole(value as BoardMemberRole)}
+                options={[
+                  { label: "Membro", value: "MEMBER" },
+                  { label: "Presidente", value: "PRESIDENT" },
+                  { label: "Vice-presidente", value: "VICE_PRESIDENT" },
+                  { label: "Tesoureiro", value: "TREASURER" },
+                  { label: "Secretario", value: "SECRETARY" },
+                ]}
+                required
+                value={boardRole}
+              />
+              <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                {boardRole === "PRESIDENT"
+                  ? "Signatário de documentos: Presidente"
+                  : "Usado como signatario dos documentos oficiais quando o cargo for requerido."}
+              </p>
+              <Field label="Observacao opcional" onChange={setNote} value={note} />
+            </>
+          ) : null}
+
+          {action === "end-board" ? (
             <Field label="Observacao opcional" onChange={setNote} value={note} />
           ) : null}
         </div>
@@ -352,6 +401,7 @@ function actionTitle(action: Exclude<StudentProfileAction, "edit">) {
     "start-board": "Adicionar a diretoria",
     suspend: "Suspender academico",
     terminate: "Desligar academico",
+    "update-board-role": "Alterar cargo da diretoria",
   };
   return titles[action];
 }

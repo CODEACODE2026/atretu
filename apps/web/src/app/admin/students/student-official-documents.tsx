@@ -245,6 +245,17 @@ function OfficialDocumentCard({
             Emitido por {latest.issuedBy?.name ?? "usuario removido"} ·{" "}
             {formatBytes(latest.sizeBytes)}
           </p>
+          {latest.signerDetails[0]?.name ? (
+            <p className="mt-1">
+              Assinado por {latest.signerDetails[0].name}
+              {latest.signerDetails[0].label
+                ? ` · ${latest.signerDetails[0].label}`
+                : ""}
+              {latest.signerDetails[0].boardPeriodStart
+                ? ` · Vigencia: ${formatDateTime(latest.signerDetails[0].boardPeriodStart)}`
+                : ""}
+            </p>
+          ) : null}
           {latest.termDetails ? (
             <p className="mt-1">
               Motivo: {latest.termDetails.reason ?? "nao informado"} ·
@@ -256,7 +267,21 @@ function OfficialDocumentCard({
             </p>
           ) : null}
           {item.history.length > 1 ? (
-            <p className="mt-1">Historico: {item.history.length} emissoes registradas.</p>
+            <div className="mt-2 grid gap-1 border-t border-slate-200 pt-2">
+              <p className="font-semibold text-slate-700">
+                Historico: {item.history.length} emissoes registradas.
+              </p>
+              {item.history.slice(0, 3).map((issue) => (
+                <p className="text-xs text-slate-500" key={issue.id}>
+                  {formatDateTime(issue.issuedAt)} · Emitido por{" "}
+                  {issue.issuedBy?.name ?? "usuario removido"} · Assinado por{" "}
+                  {issue.signerDetails[0]?.name ?? "nao informado"}
+                  {issue.signerDetails[0]?.label
+                    ? ` · ${issue.signerDetails[0].label}`
+                    : ""}
+                </p>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : item.blockedReason ? (

@@ -14,6 +14,7 @@ import {
   MinLength,
   ValidateNested,
 } from "class-validator";
+import { BoardMemberRole } from "@prisma/client";
 
 export enum StudentStatusFilter {
   ACTIVE = "active",
@@ -445,6 +446,21 @@ export class TerminateStudentDto {
 }
 
 export class StartBoardMembershipDto {
+  @IsOptional()
+  @IsEnum(BoardMemberRole)
+  role?: BoardMemberRole;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  note?: string;
+}
+
+export class UpdateBoardMembershipRoleDto {
+  @IsEnum(BoardMemberRole)
+  role!: BoardMemberRole;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)

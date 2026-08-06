@@ -1,4 +1,25 @@
-import { OfficialDocumentType, StudentStatus } from "@prisma/client";
+import {
+  BoardMemberRole,
+  OfficialDocumentType,
+  StudentStatus,
+} from "@prisma/client";
+
+export type OfficialDocumentSignerSource =
+  | "BOARD_ROLE"
+  | "EMISSOR"
+  | "STUDENT";
+
+export type OfficialDocumentSignerRole =
+  | BoardMemberRole
+  | "ACADEMICO"
+  | "EMISSOR";
+
+export type OfficialDocumentSignerDefinition = {
+  label: string;
+  required: boolean;
+  role: OfficialDocumentSignerRole;
+  source: OfficialDocumentSignerSource;
+};
 
 export type OfficialDocumentDefinition = {
   blockedReason: string;
@@ -8,6 +29,7 @@ export type OfficialDocumentDefinition = {
   title: string;
   type: OfficialDocumentType;
   version: number;
+  signers: OfficialDocumentSignerDefinition[];
   canIssue: (student: { status: StudentStatus }) => boolean;
 };
 
@@ -22,6 +44,14 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
     title: "Carta de Desligamento",
     type: OfficialDocumentType.TERMINATION_LETTER,
     version: 1,
+    signers: [
+      {
+        label: "Associado",
+        required: true,
+        role: "ACADEMICO",
+        source: "STUDENT",
+      },
+    ],
   },
   [OfficialDocumentType.TERMINATION_TERM]: {
     blockedReason: "",
@@ -33,6 +63,14 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
     title: "Termo de Desligamento da Associação ATRETU",
     type: OfficialDocumentType.TERMINATION_TERM,
     version: 1,
+    signers: [
+      {
+        label: "Presidente da ATRETU",
+        required: true,
+        role: BoardMemberRole.PRESIDENT,
+        source: "BOARD_ROLE",
+      },
+    ],
   },
 } as const satisfies Record<OfficialDocumentType, OfficialDocumentDefinition>;
 

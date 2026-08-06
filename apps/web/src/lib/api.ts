@@ -363,6 +363,12 @@ export type AcademicYear = {
 
 export type StudentStatus = "ACTIVE" | "SUSPENDED" | "TERMINATED";
 export type BoardMembershipStatus = "ACTIVE" | "ENDED";
+export type BoardMemberRole =
+  | "MEMBER"
+  | "PRESIDENT"
+  | "SECRETARY"
+  | "TREASURER"
+  | "VICE_PRESIDENT";
 export type StudentCardType = "STUDENT" | "BOARD_MEMBER";
 export type StudentCardStatus = "ACTIVE" | "INVALIDATED";
 export type StudentCardInvalidationReason =
@@ -375,6 +381,7 @@ export type StudentCardInvalidationReason =
 export type BoardMembershipRecord = {
   id: string;
   studentId: string;
+  role?: BoardMemberRole | null;
   status: BoardMembershipStatus;
   startedAt: string;
   endedAt?: string | null;
@@ -540,6 +547,28 @@ export type OfficialDocumentIssue = {
   issuedBy: { id: string; name: string; email: string } | null;
   sourceIssueId: string | null;
   notes: string | null;
+  signerDetails: Array<{
+    boardId: string | null;
+    boardMemberId: string | null;
+    boardPeriodEnd: string | null;
+    boardPeriodStart: string | null;
+    endedAt: string | null;
+    label: string | null;
+    name: string | null;
+    personId: string | null;
+    resolvedAt: string | null;
+    role: string | null;
+    roleLabel: string | null;
+    signerName: string | null;
+    signerPersonId: string | null;
+    signerRole: string | null;
+    signerRoleLabel: string | null;
+    signerSource: string | null;
+    signerStudentId: string | null;
+    source: string | null;
+    startedAt: string | null;
+    studentId: string | null;
+  }>;
   termDetails: {
     dueDate: string | null;
     notificationDate: string | null;
@@ -2015,11 +2044,25 @@ export const api = {
     );
   },
 
-  startBoardMembership(id: string, body: { note?: string }) {
+  startBoardMembership(id: string, body: { note?: string; role?: BoardMemberRole }) {
     return request<BoardMembershipRecord>(`/students/${id}/board-memberships`, {
       method: "POST",
       body: JSON.stringify(body),
     });
+  },
+
+  updateBoardMembershipRole(
+    id: string,
+    membershipId: string,
+    body: { note?: string; role: BoardMemberRole },
+  ) {
+    return request<BoardMembershipRecord>(
+      `/students/${id}/board-memberships/${membershipId}/role`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    );
   },
 
   endBoardMembership(id: string, membershipId: string, body: { note?: string }) {

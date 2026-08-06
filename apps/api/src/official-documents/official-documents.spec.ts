@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { BadRequestException } from "@nestjs/common";
+import { BoardMemberRole, OfficialDocumentType } from "@prisma/client";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,6 +9,8 @@ import {
   OfficialDocumentPdfBuilder,
   type OfficialDocumentPdfInput,
 } from "./official-document-pdf.builder.js";
+import { OfficialDocumentsService } from "./official-documents.service.js";
+import { getOfficialDocumentDefinition } from "./official-document.registry.js";
 
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
 const controller = readFileSync(
@@ -15,6 +19,14 @@ const controller = readFileSync(
 );
 const service = readFileSync(
   new URL("./official-documents.service.ts", import.meta.url),
+  "utf8",
+);
+const studentsController = readFileSync(
+  new URL("../students/students.controller.ts", import.meta.url),
+  "utf8",
+);
+const studentsService = readFileSync(
+  new URL("../students/students.service.ts", import.meta.url),
   "utf8",
 );
 const registry = readFileSync(
@@ -31,6 +43,7 @@ for (const fragment of [
   "templateKey",
   "templateVersion",
   "notes",
+  "role            BoardMemberRole?",
   "OFFICIAL_DOCUMENT_ISSUED",
   "OFFICIAL_DOCUMENT_REISSUED",
   "OFFICIAL_DOCUMENT_VIEWED",
@@ -51,6 +64,14 @@ for (const fragment of [
 }
 
 for (const fragment of [
+  '@Patch("students/:id/board-memberships/:membershipId/role")',
+  "@Roles(RoleCode.SUPER_ADMIN)",
+  "updateBoardMembershipRole",
+]) {
+  assert.ok(studentsController.includes(fragment), `students controller must include ${fragment}`);
+}
+
+for (const fragment of [
   "DocumentStorageService",
   "OfficialDocumentPdfBuilder",
   "getOfficialDocumentDefinition",
@@ -61,12 +82,29 @@ for (const fragment of [
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_DOWNLOADED",
   "source.documentType",
   "resolveTerminationTermPayload",
-  "resolveInstitutionalRepresentative",
+  "resolveSigners",
+  "resolveBoardRoleSigner",
+  "status: BoardMembershipStatus.ACTIVE",
+  "role: { not: null }",
+  "startedAt: { lte: issuedAt }",
+  "endedAt: { gte: issuedAt }",
+  "signerRoleLabel",
+  "signerStudentId",
+  "resolvedAt",
   "Data da notificacao nao pode ser anterior ao vencimento",
-  "Nao existe uma diretoria ativa com presidente configurado",
-  "Presidente da ATRETU",
+  "Nao existe uma diretoria vigente para a data de emissao",
+  "A diretoria vigente nao possui",
+  "Ha mais de um",
 ]) {
   assert.ok(service.includes(fragment), `service must include ${fragment}`);
+}
+
+for (const fragment of [
+  "Apenas SUPER_ADMIN pode definir cargo institucional da diretoria",
+  "assertBoardRoleCanBeAssigned",
+  "Ja existe",
+]) {
+  assert.ok(studentsService.includes(fragment), `students service must include ${fragment}`);
 }
 
 for (const fragment of [
@@ -75,6 +113,10 @@ for (const fragment of [
   "templateKey: \"termination-term\"",
   "templateVersion: 1",
   "StudentStatus.TERMINATED",
+  "source: \"STUDENT\"",
+  "source: \"BOARD_ROLE\"",
+  "BoardMemberRole.PRESIDENT",
+  "Presidente da ATRETU",
   "Termo de Desligamento",
 ]) {
   assert.ok(registry.includes(fragment), `registry must include ${fragment}`);
@@ -86,6 +128,141 @@ assert.ok(
 );
 
 const pdfBuilder = new OfficialDocumentPdfBuilder();
+
+function makeService(validMembers: unknown[]) {
+  return new OfficialDocumentsService(
+    { boardMembership: { findMany: async () => validMembers } } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  ) as never as {
+    reissueSnapshot: (...args: unknown[]) => unknown;
+    resolveSigners: (...args: unknown[]) => Promise<Array<Record<string, unknown>>>;
+  };
+}
+
+const signerStudent = {
+  id: "student-1",
+  personId: "person-student-1",
+  person: {
+    fullName: "Academico Signatario",
+  },
+};
+const validPresident = {
+  id: "board-member-president",
+  role: BoardMemberRole.PRESIDENT,
+  startedAt: new Date("2026-01-01T00:00:00.000Z"),
+  endedAt: null,
+  studentId: "student-president-a",
+  student: { personId: "person-president-a", person: { fullName: "Presidente A" } },
+};
+const memberOnly = {
+  ...validPresident,
+  id: "board-member-member",
+  role: BoardMemberRole.MEMBER,
+  student: { person: { fullName: "Membro A" } },
+};
+const legacyWithoutRole = {
+  ...validPresident,
+  id: "board-member-legacy",
+  role: null,
+  student: { person: { fullName: "Legado sem cargo" } },
+};
+const issuedAt = new Date("2026-08-06T12:00:00.000Z");
+
+const studentSigner = await makeService([]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.TERMINATION_LETTER).signers,
+  signerStudent,
+  issuedAt,
+);
+assert.equal(studentSigner[0]?.name, "Academico Signatario");
+assert.equal(studentSigner[0]?.source, "STUDENT");
+assert.equal(studentSigner[0]?.role, "ACADEMICO");
+assert.equal(studentSigner[0]?.signerName, "Academico Signatario");
+assert.equal(studentSigner[0]?.signerRoleLabel, "Associado");
+assert.equal(studentSigner[0]?.signerStudentId, "student-1");
+assert.equal(studentSigner[0]?.signerPersonId, "person-student-1");
+assert.equal(studentSigner[0]?.resolvedAt, issuedAt.toISOString());
+
+const boardSigner = await makeService([validPresident]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.TERMINATION_TERM).signers,
+  signerStudent,
+  issuedAt,
+);
+assert.equal(boardSigner[0]?.name, "Presidente A");
+assert.equal(boardSigner[0]?.role, BoardMemberRole.PRESIDENT);
+assert.equal(boardSigner[0]?.boardMemberId, "board-member-president");
+assert.equal(boardSigner[0]?.signerName, "Presidente A");
+assert.equal(boardSigner[0]?.signerRole, BoardMemberRole.PRESIDENT);
+assert.equal(boardSigner[0]?.signerRoleLabel, "Presidente");
+assert.equal(boardSigner[0]?.signerStudentId, "student-president-a");
+assert.equal(boardSigner[0]?.signerPersonId, "person-president-a");
+assert.equal(boardSigner[0]?.startedAt, "2026-01-01T00:00:00.000Z");
+assert.equal(boardSigner[0]?.endedAt, null);
+
+await assert.rejects(
+  () =>
+    makeService([]).resolveSigners(
+      getOfficialDocumentDefinition(OfficialDocumentType.TERMINATION_TERM).signers,
+      signerStudent,
+      issuedAt,
+    ),
+  (error) =>
+    error instanceof BadRequestException &&
+    JSON.stringify(error.getResponse()).includes("diretoria vigente"),
+);
+await assert.rejects(
+  () =>
+    makeService([memberOnly]).resolveSigners(
+      getOfficialDocumentDefinition(OfficialDocumentType.TERMINATION_TERM).signers,
+      signerStudent,
+      issuedAt,
+    ),
+  (error) =>
+    error instanceof BadRequestException &&
+    JSON.stringify(error.getResponse()).includes("nao possui presidente"),
+);
+await assert.rejects(
+  () =>
+    makeService([legacyWithoutRole]).resolveSigners(
+      getOfficialDocumentDefinition(OfficialDocumentType.TERMINATION_TERM).signers,
+      signerStudent,
+      issuedAt,
+    ),
+  (error) =>
+    error instanceof BadRequestException &&
+    JSON.stringify(error.getResponse()).includes("nao possui presidente"),
+);
+await assert.rejects(
+  () =>
+    makeService([validPresident, { ...validPresident, id: "president-2" }]).resolveSigners(
+      getOfficialDocumentDefinition(OfficialDocumentType.TERMINATION_TERM).signers,
+      signerStudent,
+      issuedAt,
+    ),
+  (error) =>
+    error instanceof BadRequestException &&
+    JSON.stringify(error.getResponse()).includes("mais de um presidente"),
+);
+
+const reissuedSnapshot = makeService([]).reissueSnapshot(
+  {
+    contentSnapshot: {
+      documentType: OfficialDocumentType.TERMINATION_TERM,
+      emittedAt: "2026-01-01T12:00:00.000Z",
+      protocol: "ATRETU-2026-OLD",
+      qrPayload: "ATRETU:ATRETU-2026-OLD",
+      signers: [boardSigner[0]!],
+      signatureName: "Presidente A",
+    },
+    documentType: OfficialDocumentType.TERMINATION_TERM,
+  },
+  new Date("2026-09-01T12:00:00.000Z"),
+  "ATRETU-2026-NEW",
+) as { protocol: string; signers: Array<{ name: string; signerName: string }> };
+assert.equal(reissuedSnapshot.protocol, "ATRETU-2026-NEW");
+assert.equal(reissuedSnapshot.signers[0]?.name, "Presidente A");
+assert.equal(reissuedSnapshot.signers[0]?.signerName, "Presidente A");
 
 function basePdfInput(body: string[]): OfficialDocumentPdfInput {
   return {

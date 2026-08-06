@@ -25,6 +25,13 @@ export function StudentProfileSummary({
   transport?: BusAssignmentRecord | null;
 }) {
   const card = cardSummary.activeCard;
+  const boardRole = student.activeBoardMembership?.role;
+  const boardRoleLabel = boardRole ? boardMemberRoleLabel(boardRole) : null;
+  const boardStartedAt = student.activeBoardMembership?.startedAt
+    ? new Intl.DateTimeFormat("pt-BR").format(
+        new Date(student.activeBoardMembership.startedAt),
+      )
+    : null;
   const items = [
     {
       icon: BadgeCheck,
@@ -74,8 +81,19 @@ export function StudentProfileSummary({
     {
       icon: ShieldCheck,
       label: "Diretoria",
+      helper: student.activeBoardMembership
+        ? boardRole === "PRESIDENT"
+          ? "Signatário de documentos: Presidente"
+          : boardStartedAt
+            ? `Início: ${boardStartedAt}`
+            : "Cargo sem vigência informada"
+        : undefined,
       tone: student.activeBoardMembership ? "emerald" : "slate",
-      value: student.activeBoardMembership ? "Ativa" : "Inativa",
+      value: student.activeBoardMembership
+        ? boardRoleLabel
+          ? `Ativa · ${boardRoleLabel}`
+          : "Ativa · Sem cargo definido"
+        : "Inativa",
     },
   ] as const;
 
@@ -115,6 +133,17 @@ export function StudentProfileSummary({
 
 function statusTone(status: StudentDetail["status"]) {
   return status === "ACTIVE" ? "emerald" : status === "SUSPENDED" ? "amber" : "red";
+}
+
+function boardMemberRoleLabel(role: NonNullable<StudentDetail["activeBoardMembership"]>["role"]) {
+  const labels = {
+    MEMBER: "Membro",
+    PRESIDENT: "Presidente",
+    SECRETARY: "Secretário",
+    TREASURER: "Tesoureiro",
+    VICE_PRESIDENT: "Vice-presidente",
+  } as const;
+  return role ? labels[role] : null;
 }
 
 function toneClass(tone: "amber" | "emerald" | "red" | "slate") {

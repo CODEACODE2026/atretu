@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
+  BoardMemberRole,
   BoardMembershipStatus,
   OfficialDocumentIssue,
   OfficialDocumentType,
@@ -27,6 +28,8 @@ import {
 import {
   getOfficialDocumentDefinition,
   listOfficialDocumentDefinitions,
+  type OfficialDocumentSignerDefinition,
+  type OfficialDocumentSignerSource,
 } from "./official-document.registry.js";
 
 type StudentForOfficialDocument = Prisma.StudentGetPayload<{
@@ -51,10 +54,10 @@ type OfficialDocumentSnapshot = {
   footerNote: string;
   protocol: string;
   qrPayload: string;
-  representative?: { name: string; source: string; title: string };
   signatureLabel: string;
   signatureName: string;
   signatureTitle?: string;
+  signers: OfficialDocumentSignerSnapshot[];
   student: {
     id: string;
     address: string;
@@ -79,6 +82,29 @@ type OfficialDocumentSnapshot = {
     justification: string | null;
   } | null;
   version: number;
+};
+
+type OfficialDocumentSignerSnapshot = {
+  boardId: string | null;
+  boardMemberId: string | null;
+  boardPeriodEnd: string | null;
+  boardPeriodStart: string | null;
+  endedAt: string | null;
+  label: string;
+  name: string;
+  personId: string | null;
+  resolvedAt: string;
+  role: string;
+  roleLabel: string;
+  signerName: string;
+  signerPersonId: string | null;
+  signerRole: string;
+  signerRoleLabel: string;
+  signerSource: OfficialDocumentSignerSource;
+  signerStudentId: string | null;
+  source: OfficialDocumentSignerSource;
+  startedAt: string | null;
+  studentId: string | null;
 };
 
 @Injectable()
@@ -130,11 +156,12 @@ export class OfficialDocumentsService {
   ) {
     const student = await this.getStudent(studentId, currentUser);
     this.assertCanIssue(documentType, student);
+    let sourceIssue: OfficialDocumentIssue | null = null;
     if (sourceIssueId) {
-      const source = await this.prisma.officialDocumentIssue.findFirst({
+      sourceIssue = await this.prisma.officialDocumentIssue.findFirst({
         where: { id: sourceIssueId, studentId, documentType },
       });
-      if (!source) {
+      if (!sourceIssue) {
         throw new NotFoundException("Documento emitido nao encontrado");
       }
     }
@@ -149,6 +176,7 @@ export class OfficialDocumentsService {
       issuedAt,
       protocol,
       payload,
+      sourceIssue,
     );
     const pdfInput = this.toPdfInput(snapshot, currentUser.name);
     const pdf = await this.pdfBuilder.render(pdfInput);
@@ -195,6 +223,11 @@ export class OfficialDocumentsService {
               protocol,
               sourceIssueId,
               studentId,
+              signerName: snapshot.signers[0]?.name,
+              signerRole: snapshot.signers[0]?.role,
+              signerSource: snapshot.signers[0]?.source,
+              boardId: snapshot.signers[0]?.boardId,
+              boardMemberId: snapshot.signers[0]?.boardMemberId,
               templateKey: definition.templateKey,
               templateVersion: definition.templateVersion,
               term: snapshot.term
@@ -343,21 +376,27 @@ export class OfficialDocumentsService {
     issuedAt: Date,
     protocol: string,
     payload?: OfficialDocumentIssuePayload,
+    sourceIssue?: OfficialDocumentIssue | null,
   ): Promise<OfficialDocumentSnapshot> {
+    if (sourceIssue) {
+      return this.reissueSnapshot(sourceIssue, issuedAt, protocol);
+    }
     if (documentType === OfficialDocumentType.TERMINATION_TERM) {
       return this.buildTerminationTermSnapshot(student, issuedAt, protocol, payload);
     }
     return this.buildTerminationLetterSnapshot(student, documentType, issuedAt, protocol);
   }
 
-  private buildTerminationLetterSnapshot(
+  private async buildTerminationLetterSnapshot(
     student: StudentForOfficialDocument,
     documentType: OfficialDocumentType,
     issuedAt: Date,
     protocol: string,
-  ): OfficialDocumentSnapshot {
+  ): Promise<OfficialDocumentSnapshot> {
     const termination = student.historyEvents[0] ?? null;
     const definition = getOfficialDocumentDefinition(documentType);
+    const signers = await this.resolveSigners(definition.signers, student, issuedAt);
+    const primarySigner = this.primarySigner(signers);
     const address = this.formatAddress(student.person);
     const issuedCity = student.person.addressCity || "Terra Rica";
     const body = [
@@ -376,7 +415,9 @@ export class OfficialDocumentsService {
       protocol,
       qrPayload: `ATRETU:${protocol}`,
       signatureLabel: `${issuedCity}, ${this.formatDate(issuedAt)}`,
-      signatureName: student.person.fullName,
+      signatureName: primarySigner.name,
+      signatureTitle: primarySigner.label,
+      signers,
       template: {
         key: definition.templateKey,
         version: definition.templateVersion,
@@ -409,7 +450,8 @@ export class OfficialDocumentsService {
   ): Promise<OfficialDocumentSnapshot> {
     const definition = getOfficialDocumentDefinition(OfficialDocumentType.TERMINATION_TERM);
     const term = this.resolveTerminationTermPayload(payload);
-    const representative = await this.resolveInstitutionalRepresentative();
+    const signers = await this.resolveSigners(definition.signers, student, issuedAt);
+    const primarySigner = this.primarySigner(signers);
     const studentName = student.person.fullName;
     const notificationDate = this.formatDate(term.notificationDate);
     const dueDate = this.formatDate(term.dueDate);
@@ -435,10 +477,10 @@ export class OfficialDocumentsService {
         "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
       protocol,
       qrPayload: `ATRETU:${protocol}`,
-      representative,
       signatureLabel: `${student.person.addressCity || "Terra Rica"}, ${this.formatDate(issuedAt)}`,
-      signatureName: representative.name,
-      signatureTitle: representative.title,
+      signatureName: primarySigner.name,
+      signatureTitle: primarySigner.label,
+      signers,
       student: {
         id: student.id,
         address: this.formatAddress(student.person),
@@ -511,8 +553,111 @@ export class OfficialDocumentsService {
         : null,
       sourceIssueId: issue.sourceIssueId,
       notes: issue.notes,
+      signerDetails: this.signerDetails(issue),
       termDetails: this.termDetails(issue),
     };
+  }
+
+  private signerDetails(issue: OfficialDocumentIssue) {
+    const snapshot = issue.contentSnapshot as Prisma.JsonObject;
+    const signers = Array.isArray(snapshot.signers) ? snapshot.signers : [];
+    if (signers.length === 0 && typeof snapshot.signatureName === "string") {
+      return [
+        {
+          boardId: null,
+          boardMemberId: null,
+          boardPeriodEnd: null,
+          boardPeriodStart: null,
+          endedAt: null,
+          label:
+            typeof snapshot.signatureTitle === "string"
+              ? snapshot.signatureTitle
+              : null,
+          name: snapshot.signatureName,
+          personId: null,
+          resolvedAt: null,
+          role:
+            issue.documentType === OfficialDocumentType.TERMINATION_TERM
+              ? BoardMemberRole.PRESIDENT
+              : "ACADEMICO",
+          roleLabel:
+            issue.documentType === OfficialDocumentType.TERMINATION_TERM
+              ? this.boardRoleLabel(BoardMemberRole.PRESIDENT)
+              : "Associado",
+          signerName: snapshot.signatureName,
+          signerPersonId: null,
+          signerRole:
+            issue.documentType === OfficialDocumentType.TERMINATION_TERM
+              ? BoardMemberRole.PRESIDENT
+              : "ACADEMICO",
+          signerRoleLabel:
+            issue.documentType === OfficialDocumentType.TERMINATION_TERM
+              ? this.boardRoleLabel(BoardMemberRole.PRESIDENT)
+              : "Associado",
+          signerSource:
+            issue.documentType === OfficialDocumentType.TERMINATION_TERM
+              ? "BOARD_ROLE"
+              : "STUDENT",
+          signerStudentId: null,
+          source:
+            issue.documentType === OfficialDocumentType.TERMINATION_TERM
+              ? "BOARD_ROLE"
+              : "STUDENT",
+          startedAt: null,
+          studentId: null,
+        },
+      ];
+    }
+    return signers.map((item) => {
+      const signer = item as Prisma.JsonObject;
+      return {
+        boardId: typeof signer.boardId === "string" ? signer.boardId : null,
+        boardMemberId:
+          typeof signer.boardMemberId === "string" ? signer.boardMemberId : null,
+        boardPeriodEnd:
+          typeof signer.boardPeriodEnd === "string" ? signer.boardPeriodEnd : null,
+        boardPeriodStart:
+          typeof signer.boardPeriodStart === "string" ? signer.boardPeriodStart : null,
+        endedAt: typeof signer.endedAt === "string" ? signer.endedAt : null,
+        label: typeof signer.label === "string" ? signer.label : null,
+        name: typeof signer.name === "string" ? signer.name : null,
+        personId: typeof signer.personId === "string" ? signer.personId : null,
+        resolvedAt: typeof signer.resolvedAt === "string" ? signer.resolvedAt : null,
+        role: typeof signer.role === "string" ? signer.role : null,
+        roleLabel: typeof signer.roleLabel === "string" ? signer.roleLabel : null,
+        signerName:
+          typeof signer.signerName === "string"
+            ? signer.signerName
+            : typeof signer.name === "string"
+              ? signer.name
+              : null,
+        signerPersonId:
+          typeof signer.signerPersonId === "string" ? signer.signerPersonId : null,
+        signerRole:
+          typeof signer.signerRole === "string"
+            ? signer.signerRole
+            : typeof signer.role === "string"
+              ? signer.role
+              : null,
+        signerRoleLabel:
+          typeof signer.signerRoleLabel === "string"
+            ? signer.signerRoleLabel
+            : typeof signer.roleLabel === "string"
+              ? signer.roleLabel
+              : null,
+        signerSource:
+          typeof signer.signerSource === "string"
+            ? signer.signerSource
+            : typeof signer.source === "string"
+              ? signer.source
+              : null,
+        signerStudentId:
+          typeof signer.signerStudentId === "string" ? signer.signerStudentId : null,
+        source: typeof signer.source === "string" ? signer.source : null,
+        startedAt: typeof signer.startedAt === "string" ? signer.startedAt : null,
+        studentId: typeof signer.studentId === "string" ? signer.studentId : null,
+      };
+    });
   }
 
   private termDetails(issue: OfficialDocumentIssue) {
@@ -642,23 +787,189 @@ export class OfficialDocumentsService {
     return next;
   }
 
-  private async resolveInstitutionalRepresentative() {
-    const boardMember = await this.prisma.boardMembership.findFirst({
-      where: { status: BoardMembershipStatus.ACTIVE },
+  private reissueSnapshot(
+    issue: OfficialDocumentIssue,
+    issuedAt: Date,
+    protocol: string,
+  ): OfficialDocumentSnapshot {
+    const snapshot = issue.contentSnapshot as Prisma.JsonObject;
+    const previous = snapshot as Partial<OfficialDocumentSnapshot>;
+    const legacySigner = previous.signers?.length
+      ? previous.signers
+      : [
+          {
+            boardId: null,
+            boardMemberId: null,
+            boardPeriodEnd: null,
+            boardPeriodStart: null,
+            endedAt: null,
+            label: previous.signatureTitle ?? "Associado",
+            name: previous.signatureName ?? "Signatario nao identificado",
+            personId: null,
+            resolvedAt: issuedAt.toISOString(),
+            role:
+              issue.documentType === OfficialDocumentType.TERMINATION_TERM
+                ? BoardMemberRole.PRESIDENT
+                : "ACADEMICO",
+            roleLabel:
+              issue.documentType === OfficialDocumentType.TERMINATION_TERM
+                ? this.boardRoleLabel(BoardMemberRole.PRESIDENT)
+                : "Associado",
+            signerName: previous.signatureName ?? "Signatario nao identificado",
+            signerPersonId: null,
+            signerRole:
+              issue.documentType === OfficialDocumentType.TERMINATION_TERM
+                ? BoardMemberRole.PRESIDENT
+                : "ACADEMICO",
+            signerRoleLabel:
+              issue.documentType === OfficialDocumentType.TERMINATION_TERM
+                ? this.boardRoleLabel(BoardMemberRole.PRESIDENT)
+                : "Associado",
+            signerSource:
+              issue.documentType === OfficialDocumentType.TERMINATION_TERM
+                ? "BOARD_ROLE"
+                : "STUDENT",
+            signerStudentId: null,
+            source:
+              issue.documentType === OfficialDocumentType.TERMINATION_TERM
+                ? "BOARD_ROLE"
+                : "STUDENT",
+            startedAt: null,
+            studentId: null,
+          } satisfies OfficialDocumentSignerSnapshot,
+        ];
+    return {
+      ...(previous as OfficialDocumentSnapshot),
+      emittedAt: issuedAt.toISOString(),
+      protocol,
+      qrPayload: `ATRETU:${protocol}`,
+      signers: legacySigner,
+    };
+  }
+
+  private async resolveSigners(
+    definitions: readonly OfficialDocumentSignerDefinition[],
+    student: StudentForOfficialDocument,
+    issuedAt: Date,
+  ): Promise<OfficialDocumentSignerSnapshot[]> {
+    const signers: OfficialDocumentSignerSnapshot[] = [];
+    for (const definition of definitions) {
+      if (definition.source === "STUDENT") {
+        const roleLabel = "Associado";
+        signers.push({
+          boardId: null,
+          boardMemberId: null,
+          boardPeriodEnd: null,
+          boardPeriodStart: null,
+          endedAt: null,
+          label: definition.label,
+          name: student.person.fullName,
+          personId: student.personId,
+          resolvedAt: issuedAt.toISOString(),
+          role: definition.role,
+          roleLabel,
+          signerName: student.person.fullName,
+          signerPersonId: student.personId,
+          signerRole: definition.role,
+          signerRoleLabel: roleLabel,
+          signerSource: definition.source,
+          signerStudentId: student.id,
+          source: definition.source,
+          startedAt: null,
+          studentId: student.id,
+        });
+        continue;
+      }
+      if (definition.source === "BOARD_ROLE") {
+        signers.push(await this.resolveBoardRoleSigner(definition, issuedAt));
+        continue;
+      }
+      if (definition.required) {
+        throw new BadRequestException("Signatario obrigatorio nao configurado.");
+      }
+    }
+    return signers;
+  }
+
+  private async resolveBoardRoleSigner(
+    definition: OfficialDocumentSignerDefinition,
+    issuedAt: Date,
+  ): Promise<OfficialDocumentSignerSnapshot> {
+    const validMembers = await this.prisma.boardMembership.findMany({
+      where: {
+        status: BoardMembershipStatus.ACTIVE,
+        role: { not: null },
+        startedAt: { lte: issuedAt },
+        OR: [{ endedAt: null }, { endedAt: { gte: issuedAt } }],
+      },
       include: { student: { include: { person: true } } },
-      orderBy: { startedAt: "desc" },
+      orderBy: [{ role: "asc" }, { startedAt: "asc" }],
     });
-    const boardMemberName = boardMember?.student.person.fullName;
-    if (!boardMemberName) {
+    if (validMembers.length === 0) {
       throw new BadRequestException(
-        "Nao existe uma diretoria ativa com presidente configurado.",
+        "Nao existe uma diretoria vigente para a data de emissao.",
       );
     }
+
+    const role = definition.role as BoardMemberRole;
+    const membersForRole = validMembers.filter((member) => member.role === role);
+    if (membersForRole.length === 0) {
+      throw new BadRequestException(
+        `A diretoria vigente nao possui ${this.boardRoleLabel(role).toLowerCase()} configurado.`,
+      );
+    }
+    if (membersForRole.length > 1) {
+      throw new BadRequestException(
+        `Ha mais de um ${this.boardRoleLabel(role).toLowerCase()} configurado na diretoria vigente. Revise o cadastro.`,
+      );
+    }
+
+    const member = membersForRole[0];
+    if (!member) {
+      throw new BadRequestException("Signatario obrigatorio nao configurado.");
+    }
+    const roleLabel = this.boardRoleLabel(role);
     return {
-      name: boardMemberName,
-      source: "active_board_membership",
-      title: "Presidente da ATRETU",
+      boardId: null,
+      boardMemberId: member.id,
+      boardPeriodEnd: member.endedAt?.toISOString() ?? null,
+      boardPeriodStart: member.startedAt.toISOString(),
+      endedAt: member.endedAt?.toISOString() ?? null,
+      label: definition.label,
+      name: member.student.person.fullName,
+      personId: member.student.personId,
+      resolvedAt: issuedAt.toISOString(),
+      role,
+      roleLabel,
+      signerName: member.student.person.fullName,
+      signerPersonId: member.student.personId,
+      signerRole: role,
+      signerRoleLabel: roleLabel,
+      signerSource: definition.source,
+      signerStudentId: member.studentId,
+      source: definition.source,
+      startedAt: member.startedAt.toISOString(),
+      studentId: member.studentId,
     };
+  }
+
+  private boardRoleLabel(role: BoardMemberRole) {
+    const labels: Record<BoardMemberRole, string> = {
+      MEMBER: "Membro",
+      PRESIDENT: "Presidente",
+      SECRETARY: "Secretario",
+      TREASURER: "Tesoureiro",
+      VICE_PRESIDENT: "Vice-presidente",
+    };
+    return labels[role];
+  }
+
+  private primarySigner(signers: OfficialDocumentSignerSnapshot[]) {
+    const signer = signers[0];
+    if (!signer) {
+      throw new BadRequestException("Signatario obrigatorio nao configurado.");
+    }
+    return signer;
   }
 
   private formatDate(value: Date) {

@@ -294,6 +294,7 @@ try {
   await prisma.boardMembership.create({
     data: {
       id: boardMembershipId,
+      role: "PRESIDENT",
       studentId: representative.studentId,
       status: "ACTIVE",
       startedAt: new Date(),

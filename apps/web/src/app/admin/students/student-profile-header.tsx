@@ -21,6 +21,7 @@ export type StudentProfileAction =
   | "terminate"
   | "reinstate"
   | "start-board"
+  | "update-board-role"
   | "end-board";
 
 export function StudentProfileHeader({
@@ -85,7 +86,15 @@ export function StudentProfileHeader({
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <HeaderBadge status={student.status} />
-            {student.activeBoardMembership ? <NeutralBadge label="Diretoria ativa" /> : null}
+            {student.activeBoardMembership ? (
+              <NeutralBadge
+                label={
+                  student.activeBoardMembership.role === "PRESIDENT"
+                    ? "Diretoria ativa · Signatário: Presidente"
+                    : "Diretoria ativa"
+                }
+              />
+            ) : null}
             {student.canReceiveFutureInvoices ? (
               <NeutralBadge label="Financeiro elegível" />
             ) : (
@@ -137,10 +146,16 @@ export function StudentProfileHeader({
                 <MenuButton label="Desligar" onClick={() => onAction("terminate")} />
                 <MenuButton label="Religar" onClick={() => onAction("reinstate")} />
                 {student.activeBoardMembership ? (
-                  <MenuButton
-                    label="Remover da diretoria"
-                    onClick={() => onAction("end-board")}
-                  />
+                  <>
+                    <MenuButton
+                      label="Alterar cargo da diretoria"
+                      onClick={() => onAction("update-board-role")}
+                    />
+                    <MenuButton
+                      label="Remover da diretoria"
+                      onClick={() => onAction("end-board")}
+                    />
+                  </>
                 ) : (
                   <MenuButton
                     label="Adicionar a diretoria"
