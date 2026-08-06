@@ -33,6 +33,8 @@ export function OfficialDocumentsPanel() {
   const [error, setError] = useState("");
   const [issueDialog, setIssueDialog] =
     useState<OfficialDocumentCatalogItem | null>(null);
+  const [historyDialog, setHistoryDialog] =
+    useState<OfficialDocumentCatalogItem | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -143,6 +145,7 @@ export function OfficialDocumentsPanel() {
                   item={item}
                   key={item.type}
                   onDownload={(issue) => openIssue(issue, "attachment")}
+                  onHistory={() => setHistoryDialog(item)}
                   onIssue={() => setIssueDialog(item)}
                   onReissue={(issue) => reissueDocument(item, issue)}
                   onView={(issue) => openIssue(issue, "inline")}
@@ -161,6 +164,17 @@ export function OfficialDocumentsPanel() {
           onSubmit={(body) => issueDocument(issueDialog, body)}
         />
       ) : null}
+
+      {historyDialog ? (
+        <InstitutionalHistoryDialog
+          busy={busy}
+          item={historyDialog}
+          onClose={() => setHistoryDialog(null)}
+          onDownload={(issue) => openIssue(issue, "attachment")}
+          onReissue={(issue) => reissueDocument(historyDialog, issue)}
+          onView={(issue) => openIssue(issue, "inline")}
+        />
+      ) : null}
     </div>
   );
 }
@@ -169,6 +183,7 @@ function InstitutionalDocumentCard({
   busy,
   item,
   onDownload,
+  onHistory,
   onIssue,
   onReissue,
   onView,
@@ -176,6 +191,7 @@ function InstitutionalDocumentCard({
   busy: string;
   item: OfficialDocumentCatalogItem;
   onDownload: (issue: OfficialDocumentIssue) => void;
+  onHistory: () => void;
   onIssue: () => void;
   onReissue: (issue: OfficialDocumentIssue) => void;
   onView: (issue: OfficialDocumentIssue) => void;
@@ -200,6 +216,10 @@ function InstitutionalDocumentCard({
 
       {item.latestIssue ? (
         <div className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <p>
+            <span className="font-semibold text-slate-950">Versão vigente:</span>{" "}
+            v{item.latestIssue.templateVersion}
+          </p>
           {item.latestIssue.approvalDate ? (
             <p>
               <span className="font-semibold text-slate-950">
@@ -209,16 +229,8 @@ function InstitutionalDocumentCard({
             </p>
           ) : null}
           <p>
-            <span className="font-semibold text-slate-950">Versão:</span>{" "}
-            v{item.latestIssue.templateVersion}
-          </p>
-          <p>
-            <span className="font-semibold text-slate-950">Protocolo:</span>{" "}
+            <span className="font-semibold text-slate-950">Protocolo da versão:</span>{" "}
             {item.latestIssue.protocol}
-          </p>
-          <p>
-            <span className="font-semibold text-slate-950">Emitido em:</span>{" "}
-            {formatDateTime(item.latestIssue.issuedAt)}
           </p>
           <p>
             <span className="font-semibold text-slate-950">Emitido por:</span>{" "}
@@ -233,15 +245,6 @@ function InstitutionalDocumentCard({
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          className={cx(adminTheme.primaryButton, "min-h-10")}
-          disabled={Boolean(busy)}
-          onClick={onIssue}
-          type="button"
-        >
-          <Send size={16} />
-          Emitir
-        </button>
         {item.latestIssue ? (
           <>
             <button
@@ -251,7 +254,7 @@ function InstitutionalDocumentCard({
               type="button"
             >
               <Eye size={16} />
-              Visualizar versão atual
+              Visualizar
             </button>
             <button
               className={cx(adminTheme.secondaryButton, "min-h-10")}
@@ -271,71 +274,173 @@ function InstitutionalDocumentCard({
               <RefreshCw size={16} />
               Reemitir
             </button>
+            <button
+              className={cx(adminTheme.secondaryButton, "min-h-10")}
+              disabled={Boolean(busy)}
+              onClick={onHistory}
+              type="button"
+            >
+              <History size={16} />
+              Histórico
+            </button>
           </>
         ) : null}
+        <button
+          className={cx(adminTheme.primaryButton, "min-h-10")}
+          disabled={Boolean(busy)}
+          onClick={onIssue}
+          type="button"
+        >
+          <Send size={16} />
+          Emitir
+        </button>
       </div>
-
-      {item.history.length ? (
-        <div className="mt-5 border-t border-slate-200 pt-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-950">
-            <History aria-hidden="true" className="h-4 w-4" />
-            Historico de emissoes
-          </div>
-          <div className="space-y-2">
-            {item.history.map((issue) => (
-              <div
-                className="grid gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:grid-cols-[1fr_auto]"
-                key={issue.id}
-              >
-                <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-4">
-                  <span>{issue.protocol}</span>
-                  <span>
-                    v{issue.templateVersion}
-                    {issue.approvalDate
-                      ? ` • ${formatDate(issue.approvalDate)}`
-                      : ""}
-                  </span>
-                  <span>
-                    {issue.signerDetails[0]?.signerName ??
-                      "Signatario nao identificado"}
-                  </span>
-                  <span>{formatDateTime(issue.issuedAt)}</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className={cx(adminTheme.secondaryButton, "min-h-9")}
-                    disabled={Boolean(busy)}
-                    onClick={() => onView(issue)}
-                    type="button"
-                  >
-                    <Eye size={15} />
-                    Visualizar
-                  </button>
-                  <button
-                    className={cx(adminTheme.secondaryButton, "min-h-9")}
-                    disabled={Boolean(busy)}
-                    onClick={() => onDownload(issue)}
-                    type="button"
-                  >
-                    <Download size={15} />
-                    Baixar
-                  </button>
-                  <button
-                    className={cx(adminTheme.secondaryButton, "min-h-9")}
-                    disabled={Boolean(busy)}
-                    onClick={() => onReissue(issue)}
-                    type="button"
-                  >
-                    <RefreshCw size={15} />
-                    Reemitir
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </article>
+  );
+}
+
+function InstitutionalHistoryDialog({
+  busy,
+  item,
+  onClose,
+  onDownload,
+  onReissue,
+  onView,
+}: {
+  busy: string;
+  item: OfficialDocumentCatalogItem;
+  onClose: () => void;
+  onDownload: (issue: OfficialDocumentIssue) => void;
+  onReissue: (issue: OfficialDocumentIssue) => void;
+  onView: (issue: OfficialDocumentIssue) => void;
+}) {
+  const grouped = item.history.reduce<Record<string, OfficialDocumentIssue[]>>(
+    (groups, issue) => {
+      const key = `v${issue.templateVersion}`;
+      groups[key] = [...(groups[key] ?? []), issue];
+      return groups;
+    },
+    {},
+  );
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-end bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-4">
+      <section
+        aria-labelledby="institutional-history-title"
+        className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-4xl sm:rounded-2xl"
+        role="dialog"
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+              Histórico de versões
+            </p>
+            <h2
+              className="mt-1 text-lg font-semibold text-slate-950"
+              id="institutional-history-title"
+            >
+              {item.title}
+            </h2>
+          </div>
+          <button
+            className={cx(adminTheme.secondaryButton, "min-h-10 justify-center")}
+            onClick={onClose}
+            type="button"
+          >
+            Fechar
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          {Object.entries(grouped).map(([version, issues]) => (
+            <section
+              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+              key={version}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-950">
+                  Versão {version}
+                </h3>
+                {issues[0]?.approvalDate ? (
+                  <span className="text-sm text-slate-600">
+                    Aprovada em {formatDate(issues[0].approvalDate)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 space-y-2">
+                {issues.map((issue) => {
+                  const signer =
+                    issue.signerDetails[0]?.signerName ??
+                    "Signatario nao identificado";
+                  return (
+                    <div
+                      className="grid gap-3 rounded-lg bg-white p-3 text-sm text-slate-700 shadow-sm lg:grid-cols-[1fr_auto]"
+                      key={issue.id}
+                    >
+                      <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-4">
+                        <p>
+                          <span className="font-semibold text-slate-950">
+                            Protocolo:
+                          </span>{" "}
+                          {issue.protocol}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-slate-950">
+                            Emitido por:
+                          </span>{" "}
+                          {issue.issuedBy?.name ?? "Usuario nao identificado"}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-slate-950">
+                            Assinado por:
+                          </span>{" "}
+                          {signer}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-slate-950">
+                            Data:
+                          </span>{" "}
+                          {formatDateTime(issue.issuedAt)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <button
+                          className={cx(adminTheme.secondaryButton, "min-h-9")}
+                          disabled={Boolean(busy)}
+                          onClick={() => onView(issue)}
+                          type="button"
+                        >
+                          <Eye size={15} />
+                          Visualizar
+                        </button>
+                        <button
+                          className={cx(adminTheme.secondaryButton, "min-h-9")}
+                          disabled={Boolean(busy)}
+                          onClick={() => onDownload(issue)}
+                          type="button"
+                        >
+                          <Download size={15} />
+                          Baixar
+                        </button>
+                        <button
+                          className={cx(adminTheme.secondaryButton, "min-h-9")}
+                          disabled={Boolean(busy)}
+                          onClick={() => onReissue(issue)}
+                          type="button"
+                        >
+                          <RefreshCw size={15} />
+                          Reemitir
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 

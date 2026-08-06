@@ -345,17 +345,77 @@ try {
   await page.getByRole("heading", { exact: true, name: "Emitir Regimento Interno" }).waitFor();
   await page.getByLabel("Data de aprovação").waitFor();
   await page.getByRole("button", { exact: true, name: "Cancelar" }).click();
+
+  const viewports = [
+    ["desktop", 1366, 768],
+    ["notebook", 1024, 768],
+    ["tablet", 768, 1024],
+    ["mobile", 390, 844],
+  ];
+  for (const [name, width, height] of viewports) {
+    await page.setViewportSize({ width, height });
+    await page.getByRole("heading", { exact: true, name: "Regimento Interno da ATRETU" }).waitFor();
+    await regulationCard.getByText("Versão vigente:").waitFor();
+    await regulationCard.getByText("Protocolo da versão:").waitFor();
+    await regulationCard.getByText("Emitido por:").waitFor();
+    await regulationCard.getByText("Assinado por:").waitFor();
+    await regulationCard.getByRole("button", { exact: true, name: "Visualizar" }).waitFor();
+    await regulationCard.getByRole("button", { exact: true, name: "Baixar" }).waitFor();
+    await regulationCard.getByRole("button", { exact: true, name: "Reemitir" }).waitFor();
+    await regulationCard.getByRole("button", { exact: true, name: "Emitir" }).waitFor();
+    assert.equal(
+      await regulationCard.getByText("Historico de emissoes").count(),
+      0,
+      "institutional history must not be rendered open on the main card",
+    );
+    const overflow = await page.evaluate(() => ({
+      body: document.body.scrollWidth <= document.body.clientWidth + 1,
+      document:
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth + 1,
+    }));
+    assert.deepEqual(overflow, { body: true, document: true });
+    await page.screenshot({
+      fullPage: true,
+      path: path.join(outDir, `documentos-oficiais-institucionais-${name}-${width}.png`),
+    });
+  }
+
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await regulationCard.getByRole("button", { exact: true, name: "Histórico" }).click();
+  const historyDialog = page.getByRole("dialog", {
+    name: "Regimento Interno da ATRETU",
+  });
+  await historyDialog.waitFor();
+  await historyDialog.getByRole("heading", { exact: true, name: "Versão v1" }).waitFor();
+  await historyDialog.getByText(issued.body.protocol).waitFor();
+  await historyDialog.getByText(reissued.body.protocol).waitFor();
+  await historyDialog.getByText("Emitido por:").first().waitFor();
+  await historyDialog.getByText("Assinado por:").first().waitFor();
   await page.screenshot({
     fullPage: true,
-    path: path.join(outDir, "documentos-oficiais-institucionais.png"),
+    path: path.join(outDir, "historico-versoes-desktop.png"),
   });
-  const overflow = await page.evaluate(() => ({
+  await page.getByRole("button", { exact: true, name: "Fechar" }).click();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await regulationCard.getByRole("button", { exact: true, name: "Histórico" }).click();
+  const mobileHistoryDialog = page.getByRole("dialog", {
+    name: "Regimento Interno da ATRETU",
+  });
+  await mobileHistoryDialog.getByRole("heading", { exact: true, name: "Versão v1" }).waitFor();
+  const historyOverflow = await page.evaluate(() => ({
     body: document.body.scrollWidth <= document.body.clientWidth + 1,
     document:
       document.documentElement.scrollWidth <=
       document.documentElement.clientWidth + 1,
   }));
-  assert.deepEqual(overflow, { body: true, document: true });
+  assert.deepEqual(historyOverflow, { body: true, document: true });
+  await page.screenshot({
+    fullPage: true,
+    path: path.join(outDir, "historico-versoes-mobile.png"),
+  });
+  await page.getByRole("button", { exact: true, name: "Fechar" }).click();
 
   await cleanup();
   const residue = {
