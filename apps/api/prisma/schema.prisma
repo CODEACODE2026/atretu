@@ -312,6 +312,7 @@ enum StudentDocumentStatus {
 enum OfficialDocumentType {
   TERMINATION_LETTER
   TERMINATION_TERM
+  INTERNAL_REGULATION
 }
 
 enum OfficialDocumentIssueStatus {
@@ -1022,7 +1023,7 @@ model StudentDocument {
 
 model OfficialDocumentIssue {
   id              String                      @id @default(uuid()) @db.Uuid
-  studentId       String                      @map("student_id") @db.Uuid
+  studentId       String?                     @map("student_id") @db.Uuid
   documentType    OfficialDocumentType        @map("document_type")
   templateKey     String                      @map("template_key") @db.VarChar(80)
   templateVersion Int                         @default(1) @map("template_version")
@@ -1041,12 +1042,13 @@ model OfficialDocumentIssue {
   issuedAt        DateTime                    @default(now()) @map("issued_at") @db.Timestamptz(6)
   createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  student         Student                     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  student         Student?                    @relation(fields: [studentId], references: [id], onDelete: Restrict)
   issuedBy        User?                       @relation("OfficialDocumentIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
   sourceIssue     OfficialDocumentIssue?      @relation("OfficialDocumentReissue", fields: [sourceIssueId], references: [id], onDelete: SetNull)
   reissues        OfficialDocumentIssue[]     @relation("OfficialDocumentReissue")
 
   @@index([studentId, documentType, issuedAt])
+  @@index([documentType, issuedAt])
   @@index([documentType, templateVersion])
   @@index([issuedByUserId, issuedAt])
   @@index([sourceIssueId])

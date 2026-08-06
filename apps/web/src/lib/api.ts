@@ -528,12 +528,15 @@ export type StudentDocumentsResponse = {
   missingTypes: StudentDocumentType[];
 };
 
-export type OfficialDocumentType = "TERMINATION_LETTER" | "TERMINATION_TERM";
+export type OfficialDocumentType =
+  | "INTERNAL_REGULATION"
+  | "TERMINATION_LETTER"
+  | "TERMINATION_TERM";
 export type OfficialDocumentSituation = "ISSUED" | "NOT_ISSUED";
 
 export type OfficialDocumentIssue = {
   id: string;
-  studentId: string;
+  studentId: string | null;
   type: OfficialDocumentType;
   status: "ISSUED";
   templateKey: string;
@@ -547,6 +550,7 @@ export type OfficialDocumentIssue = {
   issuedBy: { id: string; name: string; email: string } | null;
   sourceIssueId: string | null;
   notes: string | null;
+  approvalDate: string | null;
   signerDetails: Array<{
     boardId: string | null;
     boardMemberId: string | null;
@@ -585,6 +589,12 @@ export type OfficialDocumentCatalogItem = {
   situation: OfficialDocumentSituation;
   canIssue: boolean;
   blockedReason: string | null;
+  signerPreview?: {
+    error: string | null;
+    signerName: string | null;
+    signerRole: string | null;
+    signerRoleLabel: string | null;
+  } | null;
   latestIssue: OfficialDocumentIssue | null;
   history: OfficialDocumentIssue[];
 };
@@ -599,6 +609,11 @@ export type IssueOfficialDocumentBody = {
   notes?: string;
   reason?: string;
   regularizationDeadlineDays?: number;
+};
+
+export type IssueInstitutionalOfficialDocumentBody = {
+  approvalDate?: string;
+  notes?: string;
 };
 
 export type DocumentationStatus = "none" | "partial" | "complete";
@@ -2200,6 +2215,10 @@ export const api = {
     );
   },
 
+  listInstitutionalOfficialDocuments() {
+    return request<OfficialDocumentsResponse>("/official-documents/institutional");
+  },
+
   issueOfficialDocument(
     studentId: string,
     type: OfficialDocumentType,
@@ -2221,6 +2240,32 @@ export const api = {
     );
   },
 
+  issueInstitutionalOfficialDocument(
+    type: OfficialDocumentType,
+    body?: IssueInstitutionalOfficialDocumentBody,
+  ) {
+    return request<OfficialDocumentIssue>(
+      `/official-documents/institutional/${type}/issue`,
+      {
+        body: body ? JSON.stringify(body) : undefined,
+        method: "POST",
+      },
+    );
+  },
+
+  reissueInstitutionalOfficialDocument(issueId: string) {
+    return request<OfficialDocumentIssue>(
+      `/official-documents/institutional/${issueId}/reissue`,
+      { method: "POST" },
+    );
+  },
+
+  getInstitutionalOfficialDocumentIssue(issueId: string) {
+    return request<OfficialDocumentIssue>(
+      `/official-documents/institutional/${issueId}`,
+    );
+  },
+
   getOfficialDocumentIssue(studentId: string, issueId: string) {
     return request<OfficialDocumentIssue>(
       `/students/${studentId}/official-documents/${issueId}`,
@@ -2234,6 +2279,17 @@ export const api = {
   ) {
     return requestBlob(
       withParams(`/students/${studentId}/official-documents/${issueId}/file`, {
+        disposition,
+      }),
+    );
+  },
+
+  async downloadInstitutionalOfficialDocument(
+    issueId: string,
+    disposition: "attachment" | "inline" = "attachment",
+  ) {
+    return requestBlob(
+      withParams(`/official-documents/institutional/${issueId}/file`, {
         disposition,
       }),
     );

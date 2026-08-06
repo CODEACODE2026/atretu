@@ -7,6 +7,7 @@ import {
   CreditCard,
   Database,
   FileBarChart2,
+  FileText,
   LayoutDashboard,
   RefreshCw,
   UserCog,
@@ -22,6 +23,7 @@ export type AdminArea =
   | "reenrollments"
   | "student-cards"
   | "finance"
+  | "official-documents"
   | "reports"
   | "jobs"
   | "users"
@@ -67,6 +69,12 @@ export const ADMIN_NAV_ITEMS = [
     icon: WalletCards,
     key: "finance",
     label: "Financeiro",
+  },
+  {
+    description: "Institucionais e historico",
+    icon: FileText,
+    key: "official-documents",
+    label: "Documentos Oficiais",
   },
   {
     description: "Exportacoes operacionais",

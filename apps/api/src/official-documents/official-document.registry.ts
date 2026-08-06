@@ -24,6 +24,7 @@ export type OfficialDocumentSignerDefinition = {
 export type OfficialDocumentDefinition = {
   blockedReason: string;
   description: string;
+  scope: "INSTITUTIONAL" | "STUDENT";
   templateKey: string;
   templateVersion: number;
   title: string;
@@ -39,6 +40,7 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
     canIssue: (student) => student.status === StudentStatus.TERMINATED,
     description:
       "Formaliza a solicitacao de exclusao do quadro de socios da ATRETU.",
+    scope: "STUDENT",
     templateKey: "termination-letter",
     templateVersion: 1,
     title: "Carta de Desligamento",
@@ -58,10 +60,31 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
     canIssue: () => true,
     description:
       "Notifica o associado sobre desligamento por inadimplencia e prazo para regularizacao.",
+    scope: "STUDENT",
     templateKey: "termination-term",
     templateVersion: 1,
     title: "Termo de Desligamento da Associação ATRETU",
     type: OfficialDocumentType.TERMINATION_TERM,
+    version: 1,
+    signers: [
+      {
+        label: "Presidente da ATRETU",
+        required: true,
+        role: BoardMemberRole.PRESIDENT,
+        source: "BOARD_ROLE",
+      },
+    ],
+  },
+  [OfficialDocumentType.INTERNAL_REGULATION]: {
+    blockedReason: "",
+    canIssue: () => true,
+    description:
+      "Regimento institucional geral da ATRETU, com diretrizes administrativas, direitos, deveres e disposicoes finais.",
+    scope: "INSTITUTIONAL",
+    templateKey: "internal-regulation",
+    templateVersion: 1,
+    title: "Regimento Interno da ATRETU",
+    type: OfficialDocumentType.INTERNAL_REGULATION,
     version: 1,
     signers: [
       {

@@ -5,7 +5,10 @@ import { DatabaseModule } from "../database/database.module.js";
 import { DocumentsModule } from "../documents/documents.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { OfficialDocumentPdfBuilder } from "./official-document-pdf.builder.js";
-import { OfficialDocumentsController } from "./official-documents.controller.js";
+import {
+  InstitutionalOfficialDocumentsController,
+  OfficialDocumentsController,
+} from "./official-documents.controller.js";
 import { OfficialDocumentsService } from "./official-documents.service.js";
 
 @Module({
@@ -16,7 +19,10 @@ import { OfficialDocumentsService } from "./official-documents.service.js";
     DocumentsModule,
     UsersModule,
   ],
-  controllers: [OfficialDocumentsController],
+  controllers: [
+    InstitutionalOfficialDocumentsController,
+    OfficialDocumentsController,
+  ],
   providers: [OfficialDocumentPdfBuilder, OfficialDocumentsService],
 })
 export class OfficialDocumentsModule {}

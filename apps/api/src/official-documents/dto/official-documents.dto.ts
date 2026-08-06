@@ -51,3 +51,15 @@ export class IssueOfficialDocumentDto {
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   notes?: string;
 }
+
+export class IssueInstitutionalOfficialDocumentDto {
+  @IsOptional()
+  @IsDateString()
+  approvalDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  notes?: string;
+}

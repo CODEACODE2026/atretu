@@ -47,6 +47,7 @@ import { MobileNavigation } from "./components/mobile-navigation";
 import { DashboardPanel } from "./dashboard-panel";
 import { FinancePanel } from "./finance-panel";
 import { JobsMonitorPanel } from "./jobs-monitor-panel";
+import { OfficialDocumentsPanel } from "./official-documents-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { ReportsPanel } from "./reports-panel";
 import { StudentCardsPanel } from "./student-cards-panel";
@@ -250,6 +251,7 @@ function AdminWorkspace({
     buses: { area: "base", baseDomain: "buses" },
     collections: { area: "finance", financeArea: "collections" },
     finance: { area: "finance", financeArea: "invoices" },
+    "official-documents": { area: "official-documents" },
     "pre-registrations": { area: "pre-registrations" },
     "student-cards": { area: "student-cards" },
     students: { area: "students" },
@@ -441,6 +443,7 @@ function AdminWorkspace({
               user={user}
             />
           ) : null}
+          {area === "official-documents" ? <OfficialDocumentsPanel /> : null}
           {area === "reports" ? <ReportsPanel user={user} /> : null}
           {area === "jobs" ? <JobsMonitorPanel /> : null}
           {area === "users" ? <UsersPanel /> : null}

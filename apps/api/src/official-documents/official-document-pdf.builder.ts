@@ -15,19 +15,28 @@ const COLORS = {
 };
 
 export type OfficialDocumentPdfInput = {
-  body: string[];
+  body: OfficialDocumentPdfBlock[];
   documentTitle: string;
   emittedBy: string;
   emittedAt: Date;
   footerNote: string;
+  layout?: "compact" | "standard";
   protocol: string;
   qrPayload: string;
   signatureLabel: string;
   signatureName: string;
   signatureTitle?: string;
+  subjectLabel?: string;
+  subjectName?: string;
   studentName: string;
   version: number;
 };
+
+export type OfficialDocumentPdfBlock =
+  | { text: string; type: "chapter" | "heading" | "paragraph" | "section" }
+  | { items: string[]; type: "list" }
+  | { label: string; text: string; type: "article" }
+  | { size?: number; type: "spacer" };
 
 @Injectable()
 export class OfficialDocumentPdfBuilder {
@@ -59,7 +68,13 @@ export class OfficialDocumentPdfBuilder {
   private draw(input: OfficialDocumentPdfInput, doc: PDFKit.PDFDocument) {
     const logo = this.loadOfficialLogo();
     let pageNumber = 1;
-    const startBodyY = 230;
+    const compact = input.layout === "compact";
+    const bodyX = compact ? 54 : 72;
+    const bodyWidth = A4.width - bodyX * 2;
+    const bodyFontSize = compact ? 9.4 : 11;
+    const bodyLineGap = compact ? 0.2 : 4;
+    const pageBodyStartY = compact ? 112 : 126;
+    const titleY = compact ? 160 : 168;
     const footerTopY = A4.height - 104;
     const contentBottomLimit = footerTopY - 24;
     const drawPageChrome = () => {
@@ -70,7 +85,7 @@ export class OfficialDocumentPdfBuilder {
       doc.addPage();
       pageNumber += 1;
       drawPageChrome();
-      return 126;
+      return pageBodyStartY;
     };
 
     drawPageChrome();
@@ -78,40 +93,47 @@ export class OfficialDocumentPdfBuilder {
 
     doc
       .font("Helvetica-Bold")
-      .fontSize(18)
+      .fontSize(compact ? 11.5 : 18)
       .fillColor(COLORS.ink)
-      .text(input.documentTitle.toUpperCase(), 56, 168, {
+      .text(input.documentTitle.toUpperCase(), 56, titleY, {
         align: "center",
         width: A4.width - 112,
       });
 
-    let y = startBodyY;
-    input.body.forEach((paragraph) => {
-      const paragraphHeight = doc
-        .font("Helvetica")
-        .fontSize(11)
-        .heightOfString(paragraph, {
-          align: "justify",
-          lineGap: 4,
-          width: A4.width - 144,
-        });
-      if (y + paragraphHeight > contentBottomLimit) {
+    let y = compact ? Math.max(doc.y + 12, 194) : 230;
+    input.body.forEach((block, index) => {
+      const nextBlock = input.body[index + 1];
+      const blockHeight = this.blockHeight(doc, block, bodyWidth, {
+        bodyFontSize,
+        bodyLineGap,
+      });
+      const keepWithNext =
+        block.type === "chapter" ||
+        block.type === "heading" ||
+        block.type === "section";
+      const nextHeight = nextBlock
+        ? Math.min(
+            this.blockHeight(doc, nextBlock, bodyWidth, {
+              bodyFontSize,
+              bodyLineGap,
+            }),
+            42,
+          )
+        : 0;
+      if (
+        y + blockHeight + (keepWithNext ? nextHeight : 0) >
+        contentBottomLimit
+      ) {
         y = addPage();
       }
-      doc
-        .font("Helvetica")
-        .fontSize(11)
-        .fillColor(COLORS.ink)
-        .text(paragraph, 72, y, {
-          align: "justify",
-          lineGap: 4,
-          width: A4.width - 144,
-        });
-      y = doc.y + 16;
+      y = this.drawBlock(doc, block, bodyX, y, bodyWidth, {
+        bodyFontSize,
+        bodyLineGap,
+      });
     });
 
-    y = Math.max(y + 18, 500);
-    if (y + 58 > contentBottomLimit) {
+    y = Math.max(y + 18, compact ? y : 500);
+    if (y + 116 > contentBottomLimit) {
       y = addPage() + 24;
     }
     doc
@@ -153,6 +175,155 @@ export class OfficialDocumentPdfBuilder {
       A4.width - 158,
       Math.min(y + 56, footerTopY - 150),
     );
+  }
+
+  private blockHeight(
+    doc: PDFKit.PDFDocument,
+    block: OfficialDocumentPdfBlock,
+    width: number,
+    options: { bodyFontSize: number; bodyLineGap: number },
+  ) {
+    const compact = options.bodyFontSize < 10;
+    const paragraphGap = compact ? 4 : 7;
+    const headingGap = compact ? 8 : 12;
+    const sectionGap = compact ? 5 : 8;
+    const listGap = compact ? 1.5 : 3;
+    if (block.type === "spacer") {
+      return block.size ?? 8;
+    }
+    if (block.type === "chapter" || block.type === "heading") {
+      return (
+        doc.font("Helvetica-Bold").fontSize(12).heightOfString(block.text, {
+          align: "center",
+          lineGap: 1,
+          width,
+        }) + headingGap
+      );
+    }
+    if (block.type === "section") {
+      return (
+        doc.font("Helvetica-Bold").fontSize(10.8).heightOfString(block.text, {
+          align: "left",
+          lineGap: 1,
+          width,
+        }) + sectionGap
+      );
+    }
+    if (block.type === "article") {
+      return (
+        doc
+          .font("Helvetica")
+          .fontSize(options.bodyFontSize)
+          .heightOfString(`${block.label} ${block.text}`, {
+            align: "justify",
+            lineGap: options.bodyLineGap,
+            width,
+          }) + paragraphGap
+      );
+    }
+    if (block.type === "list") {
+      return block.items.reduce(
+        (height, item) =>
+          height +
+          doc
+            .font("Helvetica")
+            .fontSize(options.bodyFontSize)
+            .heightOfString(item, {
+              align: "left",
+              lineGap: options.bodyLineGap,
+              width: width - 28,
+            }) +
+          listGap,
+        compact ? 2 : 4,
+      );
+    }
+    return (
+      doc
+        .font("Helvetica")
+        .fontSize(options.bodyFontSize)
+        .heightOfString(block.text, {
+          align: "justify",
+          lineGap: options.bodyLineGap,
+          width,
+        }) + paragraphGap
+    );
+  }
+
+  private drawBlock(
+    doc: PDFKit.PDFDocument,
+    block: OfficialDocumentPdfBlock,
+    x: number,
+    y: number,
+    width: number,
+    options: { bodyFontSize: number; bodyLineGap: number },
+  ) {
+    const compact = options.bodyFontSize < 10;
+    const paragraphGap = compact ? 4 : 7;
+    const headingGap = compact ? 8 : 12;
+    const sectionGap = compact ? 5 : 8;
+    const listGap = compact ? 1.5 : 3;
+    if (block.type === "spacer") {
+      return y + (block.size ?? 8);
+    }
+    if (block.type === "chapter" || block.type === "heading") {
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(12)
+        .fillColor(COLORS.ink)
+        .text(block.text, x, y, { align: "center", lineGap: 1, width });
+      return doc.y + headingGap;
+    }
+    if (block.type === "section") {
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(10.8)
+        .fillColor(COLORS.ink)
+        .text(block.text, x, y, { align: "left", lineGap: 1, width });
+      return doc.y + sectionGap;
+    }
+    if (block.type === "article") {
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(options.bodyFontSize)
+        .fillColor(COLORS.ink)
+        .text(block.label, x, y, { continued: true });
+      doc
+        .font("Helvetica")
+        .fontSize(options.bodyFontSize)
+        .fillColor(COLORS.ink)
+        .text(` ${block.text}`, {
+          align: "justify",
+          lineGap: options.bodyLineGap,
+          width,
+        });
+      return doc.y + paragraphGap;
+    }
+    if (block.type === "list") {
+      let nextY = y + (compact ? 1 : 2);
+      block.items.forEach((item) => {
+        doc
+          .font("Helvetica")
+          .fontSize(options.bodyFontSize)
+          .fillColor(COLORS.ink)
+          .text(item, x + 18, nextY, {
+            align: "left",
+            lineGap: options.bodyLineGap,
+            width: width - 28,
+          });
+        nextY = doc.y + listGap;
+      });
+      return nextY + (compact ? 1 : 2);
+    }
+    doc
+      .font("Helvetica")
+      .fontSize(options.bodyFontSize)
+      .fillColor(COLORS.ink)
+      .text(block.text, x, y, {
+        align: "justify",
+        lineGap: options.bodyLineGap,
+        width,
+      });
+    return doc.y + paragraphGap;
   }
 
   private drawHeader(doc: PDFKit.PDFDocument, logo: Buffer) {
@@ -273,7 +444,7 @@ export class OfficialDocumentPdfBuilder {
         .font("Helvetica-Bold")
         .fontSize(7.5)
         .fillColor(COLORS.muted)
-        .text(`Emitido por ${input.emittedBy} | Documento: ${input.documentTitle} | Acadêmico: ${input.studentName}`, 56, y + 14, {
+        .text(`Emitido por ${input.emittedBy} | Documento: ${input.documentTitle} | ${input.subjectLabel ?? "Acadêmico"}: ${input.subjectName ?? input.studentName}`, 56, y + 14, {
           align: "center",
           lineBreak: false,
           width: A4.width - 112,

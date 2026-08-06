@@ -7,10 +7,15 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   OfficialDocumentPdfBuilder,
+  type OfficialDocumentPdfBlock,
   type OfficialDocumentPdfInput,
 } from "./official-document-pdf.builder.js";
 import { OfficialDocumentsService } from "./official-documents.service.js";
 import { getOfficialDocumentDefinition } from "./official-document.registry.js";
+import {
+  INTERNAL_REGULATION_DOCUMENT_TITLE,
+  internalRegulationBody,
+} from "./internal-regulation.content.js";
 
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
 const controller = readFileSync(
@@ -33,13 +38,19 @@ const registry = readFileSync(
   new URL("./official-document.registry.ts", import.meta.url),
   "utf8",
 );
+const internalRegulation = readFileSync(
+  new URL("./internal-regulation.content.ts", import.meta.url),
+  "utf8",
+);
 const appModule = readFileSync(new URL("../app.module.ts", import.meta.url), "utf8");
 
 for (const fragment of [
   "enum OfficialDocumentType",
   "TERMINATION_LETTER",
   "TERMINATION_TERM",
+  "INTERNAL_REGULATION",
   "model OfficialDocumentIssue",
+  "studentId       String?",
   "templateKey",
   "templateVersion",
   "notes",
@@ -54,6 +65,8 @@ for (const fragment of [
 
 for (const fragment of [
   '@Controller("students/:studentId/official-documents")',
+  '@Controller("official-documents/institutional")',
+  "IssueInstitutionalOfficialDocumentDto",
   '@Get()',
   '@Post(":type/issue")',
   '@Post(":issueId/reissue")',
@@ -76,6 +89,11 @@ for (const fragment of [
   "OfficialDocumentPdfBuilder",
   "getOfficialDocumentDefinition",
   "listOfficialDocumentDefinitions",
+  "listInstitutionalOfficialDocuments",
+  "signerPreview",
+  "issueInstitutionalDocument",
+  "reissueInstitutionalDocument",
+  "buildInstitutionalSnapshot",
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_ISSUED",
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_REISSUED",
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_VIEWED",
@@ -91,6 +109,8 @@ for (const fragment of [
   "signerRoleLabel",
   "signerStudentId",
   "resolvedAt",
+  "approvalDate",
+  "emittedByUserId",
   "Data da notificacao nao pode ser anterior ao vencimento",
   "Nao existe uma diretoria vigente para a data de emissao",
   "A diretoria vigente nao possui",
@@ -111,15 +131,35 @@ for (const fragment of [
   "OFFICIAL_DOCUMENT_DEFINITIONS",
   "templateKey: \"termination-letter\"",
   "templateKey: \"termination-term\"",
+  "templateKey: \"internal-regulation\"",
   "templateVersion: 1",
   "StudentStatus.TERMINATED",
+  "scope: \"INSTITUTIONAL\"",
   "source: \"STUDENT\"",
   "source: \"BOARD_ROLE\"",
   "BoardMemberRole.PRESIDENT",
   "Presidente da ATRETU",
   "Termo de Desligamento",
+  "Regimento Interno",
 ]) {
   assert.ok(registry.includes(fragment), `registry must include ${fragment}`);
+}
+
+for (const fragment of [
+  "internalRegulationBody",
+  "INTERNAL_REGULATION_APPROVAL_DATE",
+  "REGIMENTO INTERNO DA ASSOCIAÇÃO TERRARIQUENSE",
+  "A diretoria da ATRETU",
+  "Regula o presente Capítulo o objeto social da ASSEFAR.",
+  "§1º",
+  "Art. 33º",
+  "Art. 43º",
+  "Terra Rica, 20 de dezembro de 2022.",
+]) {
+  assert.ok(
+    internalRegulation.includes(fragment),
+    `internal regulation content must include ${fragment}`,
+  );
 }
 
 assert.ok(
@@ -200,6 +240,15 @@ assert.equal(boardSigner[0]?.signerPersonId, "person-president-a");
 assert.equal(boardSigner[0]?.startedAt, "2026-01-01T00:00:00.000Z");
 assert.equal(boardSigner[0]?.endedAt, null);
 
+const institutionalSigner = await makeService([validPresident]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.INTERNAL_REGULATION).signers,
+  null,
+  issuedAt,
+);
+assert.equal(institutionalSigner[0]?.name, "Presidente A");
+assert.equal(institutionalSigner[0]?.role, BoardMemberRole.PRESIDENT);
+assert.equal(institutionalSigner[0]?.signerSource, "BOARD_ROLE");
+
 await assert.rejects(
   () =>
     makeService([]).resolveSigners(
@@ -264,9 +313,13 @@ assert.equal(reissuedSnapshot.protocol, "ATRETU-2026-NEW");
 assert.equal(reissuedSnapshot.signers[0]?.name, "Presidente A");
 assert.equal(reissuedSnapshot.signers[0]?.signerName, "Presidente A");
 
+function paragraphBlocks(body: string[]): OfficialDocumentPdfBlock[] {
+  return body.map((text) => ({ text, type: "paragraph" }));
+}
+
 function basePdfInput(body: string[]): OfficialDocumentPdfInput {
   return {
-    body,
+    body: paragraphBlocks(body),
     documentTitle: "Carta de Desligamento",
     emittedAt: new Date("2026-08-06T12:00:00.000Z"),
     emittedBy: "QA Oficial",
@@ -330,7 +383,7 @@ async function assertNoHeaderOnlyPages(input: OfficialDocumentPdfInput) {
         .trim();
       assert.match(
         text,
-        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos/i,
+        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|Art\.|Presidente QA/i,
         `page ${page} must include document content, not only header/footer`,
       );
     }
@@ -365,5 +418,30 @@ const longPages = await pageCount(basePdfInput(longLetterBody));
 assert.ok(longPages > 1, "really long official document must create extra pages");
 assert.ok(longPages < 8, "really long official document must not create header/footer-only pages");
 await assertNoHeaderOnlyPages(basePdfInput(longLetterBody));
+
+const internalRegulationInput: OfficialDocumentPdfInput = {
+  body: internalRegulationBody(),
+  documentTitle: INTERNAL_REGULATION_DOCUMENT_TITLE,
+  emittedAt: new Date("2026-08-06T12:00:00.000Z"),
+  emittedBy: "QA Oficial",
+  footerNote:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  layout: "compact",
+  protocol: "ATRETU-2026-REG",
+  qrPayload: "ATRETU:ATRETU-2026-REG:INTERNAL_REGULATION",
+  signatureLabel: "Terra Rica, 20 de dezembro de 2022.",
+  signatureName: "Presidente QA",
+  signatureTitle: "Presidente da ATRETU",
+  studentName: "ATRETU",
+  subjectLabel: "Documento",
+  subjectName: "ATRETU",
+  version: 1,
+};
+const internalRegulationPages = await pageCount(internalRegulationInput);
+assert.ok(
+  internalRegulationPages >= 5 && internalRegulationPages <= 7,
+  "internal regulation must stay close to the legacy page count",
+);
+await assertNoHeaderOnlyPages(internalRegulationInput);
 
 console.log("Official documents infrastructure guard OK");
