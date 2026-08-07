@@ -48,6 +48,30 @@ function run(command, args) {
   return result.stdout;
 }
 
+function formatDateOnlyInSaoPaulo(value) {
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+  })
+    .formatToParts(value)
+    .reduce((acc, part) => {
+      acc[part.type] = part.value;
+      return acc;
+    }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function formatLongDateInSaoPaulo(value) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+  }).format(value);
+}
+
 function buildCpf(seed) {
   const base = String(seed).padStart(9, "0").slice(0, 9);
   const digit = (value) => {
@@ -373,7 +397,7 @@ try {
   assert.equal(issuedNoGuardian.response.status, 201, JSON.stringify(issuedNoGuardian.body));
   assert.equal(issuedNoGuardian.body.templateKey, "transport-regulation");
   assert.equal(issuedNoGuardian.body.templateVersion, 1);
-  assert.equal(issuedNoGuardian.body.approvalDate, "2023-12-16");
+  assert.equal(issuedNoGuardian.body.approvalDate, null);
   assert.equal(issuedNoGuardian.body.signerDetails.length, 2);
   assert.equal(issuedNoGuardian.body.signerDetails[0]?.signerRole, "PRESIDENT");
   assert.equal(issuedNoGuardian.body.signerDetails[1]?.signerRole, "ACADEMICO");
@@ -385,6 +409,21 @@ try {
   assert.equal(issuedWithGuardian.response.status, 201, JSON.stringify(issuedWithGuardian.body));
   assert.equal(issuedWithGuardian.body.signerDetails.length, 3);
   assert.equal(issuedWithGuardian.body.signerDetails[2]?.signerRole, "RESPONSAVEL");
+  const originalIssueDate = formatDateOnlyInSaoPaulo(
+    new Date(issuedWithGuardian.body.issuedAt),
+  );
+  const originalIssuePlaceDateText = `Terra Rica, ${formatLongDateInSaoPaulo(
+    new Date(issuedWithGuardian.body.issuedAt),
+  )}`;
+  const originalIssueRow = await prisma.officialDocumentIssue.findUniqueOrThrow({
+    where: { id: issuedWithGuardian.body.id },
+  });
+  const originalSnapshot = originalIssueRow.contentSnapshot;
+  assert.equal(originalSnapshot.transportRegulation.issueDate, originalIssueDate);
+  assert.equal(
+    originalSnapshot.transportRegulation.issuePlaceDateText,
+    originalIssuePlaceDateText,
+  );
 
   const secretariaIssue = await api(
     `/students/${noGuardian.studentId}/official-documents/TRANSPORT_REGULATION/issue`,
@@ -423,7 +462,7 @@ try {
     "Unifatecie, Unespar",
     "Unipar, Unopar, IFPR",
     "artigos 9º e 10º",
-    "Terra Rica, 16 de dezembro de 2023",
+    originalIssuePlaceDateText,
     "TERMO DE CIENCIA DO REGIMENTO DO TRANSPORTE",
     "Nome do Associado:",
     "QUANDO INTERESSADO FOR MENOR DE IDADE",
@@ -433,6 +472,10 @@ try {
   ]) {
     assert.ok(text.includes(fragment), `PDF text must include ${fragment}`);
   }
+  assert.ok(
+    !text.includes("Terra Rica, 16 de dezembro de 2023"),
+    "PDF must not use the legacy fixed approval date as issue date",
+  );
   assert.ok(!text.includes(withGuardian.studentId), "PDF must not expose technical UUIDs");
 
   const noGuardianPdfResponse = await fetch(
@@ -492,9 +535,23 @@ try {
   );
   assert.equal(reissued.response.status, 201, JSON.stringify(reissued.body));
   assert.equal(reissued.body.sourceIssueId, issuedWithGuardian.body.id);
-  assert.equal(reissued.body.approvalDate, "2023-12-16");
+  assert.equal(reissued.body.approvalDate, null);
   assert.deepEqual(reissued.body.signerDetails, issuedWithGuardian.body.signerDetails);
   assert.notEqual(reissued.body.signerDetails[0]?.signerStudentId, newPresident.studentId);
+  const reissuedRow = await prisma.officialDocumentIssue.findUniqueOrThrow({
+    where: { id: reissued.body.id },
+  });
+  assert.equal(
+    reissuedRow.contentSnapshot.transportRegulation.issuePlaceDateText,
+    originalIssuePlaceDateText,
+  );
+  const freshIssue = await api(
+    `/students/${noGuardian.studentId}/official-documents/TRANSPORT_REGULATION/issue`,
+    { headers: json(cookie), method: "POST" },
+  );
+  assert.equal(freshIssue.response.status, 201, JSON.stringify(freshIssue.body));
+  assert.equal(freshIssue.body.signerDetails[0]?.signerStudentId, newPresident.studentId);
+  assert.notEqual(freshIssue.body.signerDetails[0]?.signerStudentId, firstPresident.studentId);
 
   const externalDownload = await fetch(
     `${apiUrl}/students/${externalStudent.studentId}/official-documents/${issuedWithGuardian.body.id}/file?disposition=inline`,

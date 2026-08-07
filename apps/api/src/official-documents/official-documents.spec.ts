@@ -21,7 +21,6 @@ import {
   internalRegulationBody,
 } from "./internal-regulation.content.js";
 import {
-  TRANSPORT_REGULATION_APPROVAL_DATE,
   TRANSPORT_REGULATION_DOCUMENT_TITLE,
   transportRegulationBody,
 } from "./transport-regulation.content.js";
@@ -133,6 +132,9 @@ for (const fragment of [
   "signerStudentId",
   "resolvedAt",
   "approvalDate",
+  "issueDate",
+  "issuePlaceDateText",
+  "formatLongDateInSaoPaulo",
   "emittedByUserId",
   "Data da notificacao nao pode ser anterior ao vencimento",
   "Nao existe uma diretoria vigente para a data de emissao",
@@ -192,8 +194,7 @@ for (const fragment of ["10 parcelas", "R$330,00", "vencimento todo dia 20"]) {
 
 for (const fragment of [
   "transportRegulationBody",
-  "TRANSPORT_REGULATION_APPROVAL_DATE",
-  "2023-12-16",
+  "issuePlaceDateText",
   "DIRETRIZES PARA TRANSPORTE DE ALUNOS",
   "AEUA",
   "R$ 150,00",
@@ -635,7 +636,7 @@ await assertNoHeaderOnlyPages(adhesionTermInput);
 
 const transportRegulationInput: OfficialDocumentPdfInput = {
   body: transportRegulationBody({
-    approvalText: "Terra Rica, 16 de dezembro de 2023",
+    issuePlaceDateText: "Terra Rica, 06 de agosto de 2026",
     guardian: {
       cpf: "987.654.321-00",
       fullName: "Responsavel QA",
@@ -675,9 +676,10 @@ const transportRegulationInput: OfficialDocumentPdfInput = {
 const transportBody = JSON.stringify(transportRegulationInput.body);
 assert.ok(transportBody.includes("AEUA"));
 assert.ok(transportBody.includes("R$ 150,00"));
+assert.ok(transportBody.includes("Terra Rica, 06 de agosto de 2026"));
+assert.ok(!transportBody.includes("Terra Rica, 16 de dezembro de 2023"));
 assert.ok(transportBody.includes("TERMO DE CIENCIA DO REGIMENTO DO TRANSPORTE"));
 assert.ok(transportBody.includes("QUANDO INTERESSADO FOR MENOR DE IDADE"));
-assert.equal(TRANSPORT_REGULATION_APPROVAL_DATE, "2023-12-16");
 const transportPages = await pageCount(transportRegulationInput);
 assert.equal(transportPages, 3, "transport regulation must stay at the legacy 3 pages");
 await assertNoHeaderOnlyPages(transportRegulationInput);

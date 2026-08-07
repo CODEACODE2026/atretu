@@ -40,8 +40,6 @@ import {
   internalRegulationBody,
 } from "./internal-regulation.content.js";
 import {
-  TRANSPORT_REGULATION_APPROVAL_DATE,
-  TRANSPORT_REGULATION_APPROVAL_TEXT,
   TRANSPORT_REGULATION_DOCUMENT_TITLE,
   transportRegulationBody,
 } from "./transport-regulation.content.js";
@@ -140,7 +138,9 @@ type OfficialDocumentSnapshot = {
     justification: string | null;
   } | null;
   transportRegulation?: {
-    approvalDate: string;
+    approvalDate?: string;
+    issueDate?: string;
+    issuePlaceDateText?: string;
     templateKey: string;
     templateVersion: number;
   };
@@ -347,7 +347,9 @@ export class OfficialDocumentsService {
               templateVersion: definition.templateVersion,
               transportRegulation: snapshot.transportRegulation
                 ? {
-                    approvalDate: snapshot.transportRegulation.approvalDate,
+                    issueDate: snapshot.transportRegulation.issueDate,
+                    issuePlaceDateText:
+                      snapshot.transportRegulation.issuePlaceDateText,
                     templateKey: snapshot.transportRegulation.templateKey,
                     templateVersion: snapshot.transportRegulation.templateVersion,
                   }
@@ -703,6 +705,8 @@ export class OfficialDocumentsService {
     );
     const signers = await this.resolveSigners(definition.signers, student, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const issueDate = this.formatDateOnlyInSaoPaulo(issuedAt);
+    const issuePlaceDateText = `Terra Rica, ${this.formatLongDateInSaoPaulo(issuedAt)}`;
     const studentSnapshot = {
       id: student.id,
       address: this.formatAddress(student.person),
@@ -720,7 +724,7 @@ export class OfficialDocumentsService {
         }
       : null;
     const body = transportRegulationBody({
-      approvalText: TRANSPORT_REGULATION_APPROVAL_TEXT,
+      issuePlaceDateText,
       guardian,
       president: {
         label: primarySigner.label,
@@ -733,7 +737,6 @@ export class OfficialDocumentsService {
       },
     });
     return {
-      approvalDate: TRANSPORT_REGULATION_APPROVAL_DATE,
       body,
       documentTitle: TRANSPORT_REGULATION_DOCUMENT_TITLE,
       documentType: OfficialDocumentType.TRANSPORT_REGULATION,
@@ -758,7 +761,8 @@ export class OfficialDocumentsService {
         version: definition.templateVersion,
       },
       transportRegulation: {
-        approvalDate: TRANSPORT_REGULATION_APPROVAL_DATE,
+        issueDate,
+        issuePlaceDateText,
         templateKey: definition.templateKey,
         templateVersion: definition.templateVersion,
       },
@@ -1353,7 +1357,11 @@ export class OfficialDocumentsService {
     }
     if (snapshot.transportRegulation) {
       return [
-        `aprovacao=${snapshot.transportRegulation.approvalDate}`,
+        `emissao=${
+          snapshot.transportRegulation.issueDate ??
+          snapshot.transportRegulation.approvalDate ??
+          ""
+        }`,
         `template=${snapshot.transportRegulation.templateKey}@${snapshot.transportRegulation.templateVersion}`,
       ].join("; ");
     }
@@ -1765,6 +1773,30 @@ export class OfficialDocumentsService {
     return new Intl.DateTimeFormat("pt-BR", {
       day: "2-digit",
       month: "2-digit",
+      year: "numeric",
+    }).format(value);
+  }
+
+  private formatDateOnlyInSaoPaulo(value: Date) {
+    const parts = new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+    })
+      .formatToParts(value)
+      .reduce<Record<string, string>>((acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+
+  private formatLongDateInSaoPaulo(value: Date) {
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "long",
+      timeZone: "America/Sao_Paulo",
       year: "numeric",
     }).format(value);
   }

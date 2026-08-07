@@ -1,13 +1,10 @@
 import type { OfficialDocumentPdfBlock } from "./official-document-pdf.builder.js";
 
-export const TRANSPORT_REGULATION_APPROVAL_DATE = "2023-12-16";
-export const TRANSPORT_REGULATION_APPROVAL_TEXT =
-  "Terra Rica, 16 de dezembro de 2023";
 export const TRANSPORT_REGULATION_DOCUMENT_TITLE =
   "DIRETRIZES PARA TRANSPORTE DE ALUNOS INTEGRANTES DA ASSOCIAÇÃO TERRARIQUENSE DOS ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS.";
 
 export type TransportRegulationContentInput = {
-  approvalText: string;
+  issuePlaceDateText: string;
   guardian?: {
     cpf: string | null;
     fullName: string;
@@ -168,7 +165,7 @@ export function transportRegulationBody(
       text: "Os horários deverão ser respeitados rigorosamente e alinhados de acordo com o “horário da linha”.",
     },
     { type: "spacer", size: 6 },
-    { type: "paragraph", text: input.approvalText },
+    { type: "paragraph", text: input.issuePlaceDateText },
     {
       type: "signatureGroup",
       signatures: [
