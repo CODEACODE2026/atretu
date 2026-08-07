@@ -101,6 +101,26 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
       },
     ],
   },
+  [OfficialDocumentType.TRANSPORT_REFUND_REQUEST]: {
+    blockedReason: "",
+    canIssue: () => true,
+    description:
+      "Formaliza a solicitacao de reembolso de transporte universitario do academico.",
+    scope: "STUDENT",
+    templateKey: "transport-refund-request",
+    templateVersion: 1,
+    title: "Solicitação de Reembolso Transporte Universitário",
+    type: OfficialDocumentType.TRANSPORT_REFUND_REQUEST,
+    version: 1,
+    signers: [
+      {
+        label: "Associado",
+        required: true,
+        role: "ACADEMICO",
+        source: "STUDENT",
+      },
+    ],
+  },
   [OfficialDocumentType.TERMINATION_LETTER]: {
     blockedReason: "Disponivel apos o desligamento do academico.",
     canIssue: (student) => student.status === StudentStatus.TERMINATED,

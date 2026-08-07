@@ -44,6 +44,11 @@ import {
   transportRegulationBody,
 } from "./transport-regulation.content.js";
 import {
+  TRANSPORT_REFUND_REQUEST_DOCUMENT_TITLE,
+  transportRefundRequestBody,
+  type TransportRefundPaymentMethod,
+} from "./transport-refund-request.content.js";
+import {
   getOfficialDocumentDefinition,
   listOfficialDocumentDefinitions,
   type OfficialDocumentSignerDefinition,
@@ -67,6 +72,18 @@ type AdhesionTermPayload = {
   installmentAmountCents: number;
   installmentCount: number;
   notes?: string;
+};
+
+type TransportRefundRequestPayload = {
+  bankAccount?: string;
+  bankAccountType?: string;
+  bankAgency?: string;
+  bankName?: string;
+  notes?: string;
+  paymentMethod: TransportRefundPaymentMethod;
+  pixKey?: string;
+  reason: string;
+  refundAmountCents: number;
 };
 
 type OfficialDocumentIssuePayload = IssueOfficialDocumentDto | undefined;
@@ -141,6 +158,22 @@ type OfficialDocumentSnapshot = {
     approvalDate?: string;
     issueDate?: string;
     issuePlaceDateText?: string;
+    templateKey: string;
+    templateVersion: number;
+  };
+  transportRefund?: {
+    bankAccount?: string | null;
+    bankAccountType?: string | null;
+    bankAgency?: string | null;
+    bankName?: string | null;
+    issueDate: string;
+    issuePlaceDateText: string;
+    notes: string | null;
+    paymentMethod: TransportRefundPaymentMethod;
+    pixKey?: string | null;
+    reason: string;
+    refundAmountCents: number;
+    refundAmountWords: string;
     templateKey: string;
     templateVersion: number;
   };
@@ -352,6 +385,14 @@ export class OfficialDocumentsService {
                       snapshot.transportRegulation.issuePlaceDateText,
                     templateKey: snapshot.transportRegulation.templateKey,
                     templateVersion: snapshot.transportRegulation.templateVersion,
+                  }
+                : undefined,
+              transportRefund: snapshot.transportRefund
+                ? {
+                    refundAmountCents: snapshot.transportRefund.refundAmountCents,
+                    paymentMethod: snapshot.transportRefund.paymentMethod,
+                    templateKey: snapshot.transportRefund.templateKey,
+                    templateVersion: snapshot.transportRefund.templateVersion,
                   }
                 : undefined,
               term: snapshot.term
@@ -692,6 +733,14 @@ export class OfficialDocumentsService {
     if (documentType === OfficialDocumentType.TRANSPORT_REGULATION) {
       return this.buildTransportRegulationSnapshot(student, issuedAt, protocol);
     }
+    if (documentType === OfficialDocumentType.TRANSPORT_REFUND_REQUEST) {
+      return this.buildTransportRefundRequestSnapshot(
+        student,
+        issuedAt,
+        protocol,
+        payload,
+      );
+    }
     return this.buildTerminationLetterSnapshot(student, documentType, issuedAt, protocol);
   }
 
@@ -766,6 +815,112 @@ export class OfficialDocumentsService {
         templateKey: definition.templateKey,
         templateVersion: definition.templateVersion,
       },
+      version: definition.version,
+    };
+  }
+
+  private async buildTransportRefundRequestSnapshot(
+    student: StudentForOfficialDocument,
+    issuedAt: Date,
+    protocol: string,
+    payload?: OfficialDocumentIssuePayload,
+  ): Promise<OfficialDocumentSnapshot> {
+    const definition = getOfficialDocumentDefinition(
+      OfficialDocumentType.TRANSPORT_REFUND_REQUEST,
+    );
+    const refund = this.resolveTransportRefundRequestPayload(payload);
+    const signers = await this.resolveSigners(definition.signers, student, issuedAt);
+    const primarySigner = this.primarySigner(signers);
+    const enrollment = student.enrollments[0];
+    const issueDate = this.formatDateOnlyInSaoPaulo(issuedAt);
+    const issuePlaceDateText = `Terra Rica, ${this.formatLongDateInSaoPaulo(issuedAt)}`;
+    const refundAmount = this.formatCurrency(refund.refundAmountCents);
+    const refundAmountWords = this.moneyWords(refund.refundAmountCents);
+    const paymentMethodText =
+      refund.paymentMethod === "PIX" ? "PIX" : "Conta bancária";
+    const studentSnapshot = {
+      id: student.id,
+      address: this.formatAddress(student.person),
+      city: student.person.addressCity || "Terra Rica",
+      name: student.person.fullName,
+      cpf: this.formatCpf(student.person.cpf),
+      rg: this.formatRg(student.person.rg),
+      status: student.status,
+    };
+    const refundSnapshot = {
+      bankAccount: refund.paymentMethod === "BANK_ACCOUNT" ? refund.bankAccount ?? null : null,
+      bankAccountType:
+        refund.paymentMethod === "BANK_ACCOUNT" ? refund.bankAccountType ?? null : null,
+      bankAgency: refund.paymentMethod === "BANK_ACCOUNT" ? refund.bankAgency ?? null : null,
+      bankName: refund.paymentMethod === "BANK_ACCOUNT" ? refund.bankName ?? null : null,
+      issueDate,
+      issuePlaceDateText,
+      notes: refund.notes ?? null,
+      paymentMethod: refund.paymentMethod,
+      pixKey: refund.paymentMethod === "PIX" ? refund.pixKey ?? null : null,
+      reason: refund.reason,
+      refundAmountCents: refund.refundAmountCents,
+      refundAmountWords,
+      templateKey: definition.templateKey,
+      templateVersion: definition.templateVersion,
+    };
+    const body = transportRefundRequestBody({
+      issuePlaceDateText,
+      payment: {
+        bankAccount:
+          refund.paymentMethod === "BANK_ACCOUNT"
+            ? {
+                account: refund.bankAccount ?? "",
+                accountType: refund.bankAccountType ?? null,
+                agency: refund.bankAgency ?? "",
+                bankName: refund.bankName ?? "",
+              }
+            : null,
+        method: refund.paymentMethod,
+        methodText: paymentMethodText,
+        pixKey: refund.paymentMethod === "PIX" ? refund.pixKey : null,
+      },
+      reason: refund.reason,
+      refundAmount,
+      refundAmountWords,
+      student: {
+        academicYear: enrollment?.grade
+          ? `${enrollment.grade}°Ano`
+          : enrollment?.academicYear.year
+            ? `${enrollment.academicYear.year}`
+            : "nao informado",
+        address: studentSnapshot.address,
+        cpf: studentSnapshot.cpf,
+        email: student.person.email || "nao informado",
+        fullName: studentSnapshot.name,
+        institution: enrollment?.institution.name || "nao informado",
+        phone: student.person.phone || "nao informado",
+      },
+    });
+    return {
+      body,
+      documentTitle: TRANSPORT_REFUND_REQUEST_DOCUMENT_TITLE,
+      documentType: OfficialDocumentType.TRANSPORT_REFUND_REQUEST,
+      emittedAt: issuedAt.toISOString(),
+      footerNote:
+        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      protocol,
+      qrPayload: `ATRETU:${protocol}`,
+      signatureLabel: "",
+      signatureName: primarySigner.name,
+      signatureTitle: primarySigner.label,
+      signers,
+      subject: {
+        id: student.id,
+        name: student.person.fullName,
+        scope: "STUDENT",
+      },
+      student: studentSnapshot,
+      template: {
+        key: definition.templateKey,
+        version: definition.templateVersion,
+      },
+      transportRefund: refundSnapshot,
       version: definition.version,
     };
   }
@@ -1059,7 +1214,8 @@ export class OfficialDocumentsService {
       layout:
         snapshot.documentType === OfficialDocumentType.INTERNAL_REGULATION ||
         snapshot.documentType === OfficialDocumentType.ADHESION_TERM ||
-        snapshot.documentType === OfficialDocumentType.TRANSPORT_REGULATION
+        snapshot.documentType === OfficialDocumentType.TRANSPORT_REGULATION ||
+        snapshot.documentType === OfficialDocumentType.TRANSPORT_REFUND_REQUEST
           ? "compact"
           : "standard",
       protocol: snapshot.protocol,
@@ -1109,6 +1265,7 @@ export class OfficialDocumentsService {
       notes: issue.notes,
       adhesionDetails: this.adhesionDetails(issue),
       approvalDate: this.approvalDate(issue),
+      refundDetails: this.refundDetails(issue),
       signerDetails: this.signerDetails(issue),
       termDetails: this.termDetails(issue),
     };
@@ -1166,6 +1323,35 @@ export class OfficialDocumentsService {
     return typeof snapshot.approvalDate === "string"
       ? snapshot.approvalDate
       : null;
+  }
+
+  private refundDetails(issue: OfficialDocumentIssue) {
+    if (issue.documentType !== OfficialDocumentType.TRANSPORT_REFUND_REQUEST) {
+      return null;
+    }
+    const snapshot = issue.contentSnapshot as Prisma.JsonObject;
+    const refund = snapshot.transportRefund as Prisma.JsonObject | undefined;
+    if (!refund) {
+      return null;
+    }
+    return {
+      issueDate: typeof refund.issueDate === "string" ? refund.issueDate : null,
+      issuePlaceDateText:
+        typeof refund.issuePlaceDateText === "string"
+          ? refund.issuePlaceDateText
+          : null,
+      paymentMethod:
+        typeof refund.paymentMethod === "string" ? refund.paymentMethod : null,
+      reason: typeof refund.reason === "string" ? refund.reason : null,
+      refundAmountCents:
+        typeof refund.refundAmountCents === "number"
+          ? refund.refundAmountCents
+          : null,
+      refundAmountWords:
+        typeof refund.refundAmountWords === "string"
+          ? refund.refundAmountWords
+          : null,
+    };
   }
 
   private signerDetails(issue: OfficialDocumentIssue) {
@@ -1319,6 +1505,8 @@ export class OfficialDocumentsService {
             ? "termo-adesao"
             : documentType === OfficialDocumentType.TRANSPORT_REGULATION
               ? "regimento-transporte"
+              : documentType === OfficialDocumentType.TRANSPORT_REFUND_REQUEST
+                ? "solicitacao-reembolso-transporte"
               : "documento-oficial";
     return `${prefix}_${token || "academico"}_${protocol.toLowerCase()}.pdf`;
   }
@@ -1364,6 +1552,19 @@ export class OfficialDocumentsService {
         }`,
         `template=${snapshot.transportRegulation.templateKey}@${snapshot.transportRegulation.templateVersion}`,
       ].join("; ");
+    }
+    if (snapshot.transportRefund) {
+      return [
+        `valor=${snapshot.transportRefund.refundAmountCents}`,
+        `forma=${snapshot.transportRefund.paymentMethod}`,
+        `emissao=${snapshot.transportRefund.issueDate}`,
+        `template=${snapshot.transportRefund.templateKey}@${snapshot.transportRefund.templateVersion}`,
+        snapshot.transportRefund.notes
+          ? `observacoes=${snapshot.transportRefund.notes}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
     }
     if (snapshot.documentType === OfficialDocumentType.TERMINATION_TERM) {
       return [
@@ -1458,6 +1659,57 @@ export class OfficialDocumentsService {
       installmentAmountCents: payload.installmentAmountCents,
       installmentCount: payload.installmentCount,
       notes: payload.notes || undefined,
+    };
+  }
+
+  private resolveTransportRefundRequestPayload(
+    payload?: OfficialDocumentIssuePayload,
+  ): TransportRefundRequestPayload {
+    if (!payload?.refundAmountCents) {
+      throw new BadRequestException("Informe o valor do reembolso.");
+    }
+    if (
+      !Number.isInteger(payload.refundAmountCents) ||
+      payload.refundAmountCents <= 0
+    ) {
+      throw new BadRequestException("Valor do reembolso invalido.");
+    }
+    const reason = payload.reason?.trim();
+    if (!reason) {
+      throw new BadRequestException("Informe o motivo da solicitacao.");
+    }
+    const paymentMethod = payload.paymentMethod?.trim();
+    if (paymentMethod !== "PIX" && paymentMethod !== "BANK_ACCOUNT") {
+      throw new BadRequestException("Informe a forma de recebimento.");
+    }
+    if (paymentMethod === "PIX") {
+      const pixKey = payload.pixKey?.trim();
+      if (!pixKey) {
+        throw new BadRequestException("Informe a chave PIX.");
+      }
+      return {
+        notes: payload.notes || undefined,
+        paymentMethod,
+        pixKey,
+        reason,
+        refundAmountCents: payload.refundAmountCents,
+      };
+    }
+    const bankName = payload.bankName?.trim();
+    const bankAgency = payload.bankAgency?.trim();
+    const bankAccount = payload.bankAccount?.trim();
+    if (!bankName || !bankAgency || !bankAccount) {
+      throw new BadRequestException("Informe banco, agencia e conta.");
+    }
+    return {
+      bankAccount,
+      bankAccountType: payload.bankAccountType?.trim() || undefined,
+      bankAgency,
+      bankName,
+      notes: payload.notes || undefined,
+      paymentMethod,
+      reason,
+      refundAmountCents: payload.refundAmountCents,
     };
   }
 
@@ -1744,6 +1996,16 @@ export class OfficialDocumentsService {
           ]
             .filter(Boolean)
             .join(" | "),
+          name: signer.name,
+        };
+      }
+      if (
+        snapshot.documentType === OfficialDocumentType.TRANSPORT_REFUND_REQUEST &&
+        signer.source === "STUDENT" &&
+        snapshot.student
+      ) {
+        return {
+          label: `Associado | CPF: ${snapshot.student.cpf} | RG: ${snapshot.student.rg}`,
           name: signer.name,
         };
       }

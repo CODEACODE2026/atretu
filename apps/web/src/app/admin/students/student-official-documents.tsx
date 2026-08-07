@@ -33,6 +33,9 @@ export function StudentOfficialDocuments({
   const [adhesionDialog, setAdhesionDialog] =
     useState<OfficialDocumentCatalogItem | null>(null);
   const [adhesionForm, setAdhesionForm] = useState(defaultAdhesionTermForm());
+  const [refundDialog, setRefundDialog] =
+    useState<OfficialDocumentCatalogItem | null>(null);
+  const [refundForm, setRefundForm] = useState(defaultRefundRequestForm());
   const [termDialog, setTermDialog] = useState<OfficialDocumentCatalogItem | null>(null);
   const [termForm, setTermForm] = useState(defaultTerminationTermForm());
 
@@ -68,6 +71,11 @@ export function StudentOfficialDocuments({
       setTermDialog(item);
       return;
     }
+    if (item.type === "TRANSPORT_REFUND_REQUEST") {
+      setRefundForm(defaultRefundRequestForm());
+      setRefundDialog(item);
+      return;
+    }
     void issueDocument(item);
   }
 
@@ -82,6 +90,7 @@ export function StudentOfficialDocuments({
       await api.issueOfficialDocument(studentId, item.type, body);
       setMessage(`${item.title} emitida.`);
       setAdhesionDialog(null);
+      setRefundDialog(null);
       setTermDialog(null);
       await loadDocuments();
     } catch (caught) {
@@ -109,6 +118,29 @@ export function StudentOfficialDocuments({
       installmentAmountCents: moneyInputToCents(adhesionForm.installmentAmount),
       installmentCount: Number(adhesionForm.installmentCount),
       notes: adhesionForm.notes || undefined,
+    });
+  }
+
+  async function submitRefundRequest() {
+    if (!refundDialog) return;
+    await issueDocument(refundDialog, {
+      bankAccount:
+        refundForm.paymentMethod === "BANK_ACCOUNT"
+          ? refundForm.bankAccount
+          : undefined,
+      bankAccountType:
+        refundForm.paymentMethod === "BANK_ACCOUNT" && refundForm.bankAccountType
+          ? refundForm.bankAccountType
+          : undefined,
+      bankAgency:
+        refundForm.paymentMethod === "BANK_ACCOUNT" ? refundForm.bankAgency : undefined,
+      bankName:
+        refundForm.paymentMethod === "BANK_ACCOUNT" ? refundForm.bankName : undefined,
+      notes: refundForm.notes || undefined,
+      paymentMethod: refundForm.paymentMethod,
+      pixKey: refundForm.paymentMethod === "PIX" ? refundForm.pixKey : undefined,
+      reason: refundForm.reason,
+      refundAmountCents: moneyInputToCents(refundForm.refundAmount),
     });
   }
 
@@ -217,6 +249,16 @@ export function StudentOfficialDocuments({
           studentName={studentName}
         />
       ) : null}
+      {refundDialog ? (
+        <RefundRequestDialog
+          busy={busy !== ""}
+          form={refundForm}
+          onCancel={() => setRefundDialog(null)}
+          onChange={setRefundForm}
+          onSubmit={() => void submitRefundRequest()}
+          studentName={studentName}
+        />
+      ) : null}
     </section>
   );
 }
@@ -304,6 +346,15 @@ function OfficialDocumentCard({
                 : "nao informado"}{" "}
               · Parcelas: {latest.adhesionDetails.installmentCount ?? "-"} · Valor:{" "}
               {formatCurrencyCents(latest.adhesionDetails.installmentAmountCents)}
+            </p>
+          ) : null}
+          {latest.refundDetails ? (
+            <p className="mt-1">
+              Reembolso: {formatCurrencyCents(latest.refundDetails.refundAmountCents)} ·
+              Forma:{" "}
+              {latest.refundDetails.paymentMethod === "PIX"
+                ? "PIX"
+                : "Conta bancária"}
             </p>
           ) : null}
           {item.history.length > 1 ? (
@@ -398,12 +449,38 @@ type AdhesionTermForm = {
   notes: string;
 };
 
+type RefundRequestForm = {
+  bankAccount: string;
+  bankAccountType: string;
+  bankAgency: string;
+  bankName: string;
+  notes: string;
+  paymentMethod: "BANK_ACCOUNT" | "PIX";
+  pixKey: string;
+  reason: string;
+  refundAmount: string;
+};
+
 function defaultAdhesionTermForm(): AdhesionTermForm {
   return {
     firstInstallmentDate: todayInputDate(),
     installmentAmount: "",
     installmentCount: "",
     notes: "",
+  };
+}
+
+function defaultRefundRequestForm(): RefundRequestForm {
+  return {
+    bankAccount: "",
+    bankAccountType: "",
+    bankAgency: "",
+    bankName: "",
+    notes: "",
+    paymentMethod: "PIX",
+    pixKey: "",
+    reason: "",
+    refundAmount: "",
   };
 }
 
@@ -543,6 +620,189 @@ function AdhesionTermDialog({
               />
             </label>
           </div>
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Observacoes
+            <textarea
+              className={cx(adminTheme.control, "h-24 w-full py-2")}
+              maxLength={500}
+              onChange={(event) => update("notes", event.target.value)}
+              placeholder="Opcional"
+              value={form.notes}
+            />
+          </label>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50/80 px-5 py-4">
+          <button className={adminTheme.secondaryButton} onClick={onCancel} type="button">
+            Cancelar
+          </button>
+          <button
+            className={adminTheme.primaryButton}
+            disabled={busy || !canSubmit}
+            onClick={onSubmit}
+            type="button"
+          >
+            <Send aria-hidden="true" size={16} />
+            Emitir
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RefundRequestDialog({
+  busy,
+  form,
+  onCancel,
+  onChange,
+  onSubmit,
+  studentName,
+}: {
+  busy: boolean;
+  form: RefundRequestForm;
+  onCancel: () => void;
+  onChange: (form: RefundRequestForm) => void;
+  onSubmit: () => void;
+  studentName: string;
+}) {
+  const amountCents = moneyInputToCents(form.refundAmount);
+  const canSubmit =
+    amountCents > 0 &&
+    form.reason.trim().length > 0 &&
+    (form.paymentMethod === "PIX"
+      ? form.pixKey.trim().length > 0
+      : form.bankName.trim().length > 0 &&
+        form.bankAgency.trim().length > 0 &&
+        form.bankAccount.trim().length > 0);
+
+  function update<K extends keyof RefundRequestForm>(
+    key: K,
+    value: RefundRequestForm[K],
+  ) {
+    onChange({ ...form, [key]: value });
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center overflow-x-hidden bg-slate-950/45 p-4 backdrop-blur-[2px]">
+      <section
+        aria-modal="true"
+        className="max-h-[92vh] w-full max-w-[calc(100vw-2rem)] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-xl md:max-w-2xl"
+        role="dialog"
+      >
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-950">
+            Emitir Solicitação de Reembolso
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-slate-600">
+            Informe valor, motivo e forma de recebimento. Os dados bancarios ficam
+            apenas no snapshot do documento.
+          </p>
+        </div>
+        <div className="grid gap-4 p-5">
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Aluno
+            <input
+              className={cx(adminTheme.control, "w-full")}
+              readOnly
+              value={studentName}
+            />
+          </label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Valor do reembolso
+              <input
+                className={cx(adminTheme.control, "w-full")}
+                inputMode="numeric"
+                onChange={(event) =>
+                  update("refundAmount", maskMoneyInput(event.target.value))
+                }
+                placeholder="R$ 200,00"
+                required
+                value={form.refundAmount}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Forma de recebimento
+              <select
+                className={cx(adminTheme.control, "w-full")}
+                onChange={(event) =>
+                  update(
+                    "paymentMethod",
+                    event.target.value as RefundRequestForm["paymentMethod"],
+                  )
+                }
+                value={form.paymentMethod}
+              >
+                <option value="PIX">PIX</option>
+                <option value="BANK_ACCOUNT">Conta bancária</option>
+              </select>
+            </label>
+          </div>
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Motivo da solicitação
+            <textarea
+              className={cx(adminTheme.control, "h-28 w-full py-2")}
+              maxLength={1200}
+              onChange={(event) => update("reason", event.target.value)}
+              required
+              value={form.reason}
+            />
+          </label>
+          {form.paymentMethod === "PIX" ? (
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Chave PIX
+              <input
+                className={cx(adminTheme.control, "w-full")}
+                maxLength={180}
+                onChange={(event) => update("pixKey", event.target.value)}
+                required
+                value={form.pixKey}
+              />
+            </label>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                Banco
+                <input
+                  className={cx(adminTheme.control, "w-full")}
+                  maxLength={80}
+                  onChange={(event) => update("bankName", event.target.value)}
+                  required
+                  value={form.bankName}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                Agência
+                <input
+                  className={cx(adminTheme.control, "w-full")}
+                  maxLength={40}
+                  onChange={(event) => update("bankAgency", event.target.value)}
+                  required
+                  value={form.bankAgency}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                Conta
+                <input
+                  className={cx(adminTheme.control, "w-full")}
+                  maxLength={80}
+                  onChange={(event) => update("bankAccount", event.target.value)}
+                  required
+                  value={form.bankAccount}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                Tipo de conta
+                <input
+                  className={cx(adminTheme.control, "w-full")}
+                  maxLength={40}
+                  onChange={(event) => update("bankAccountType", event.target.value)}
+                  placeholder="Opcional"
+                  value={form.bankAccountType}
+                />
+              </label>
+            </div>
+          )}
           <label className="grid gap-1 text-sm font-semibold text-slate-700">
             Observacoes
             <textarea

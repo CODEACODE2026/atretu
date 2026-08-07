@@ -26,6 +26,30 @@ export class DownloadOfficialDocumentDto {
 
 export class IssueOfficialDocumentDto {
   @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  bankAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  bankAccountType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  bankAgency?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  bankName?: string;
+
+  @IsOptional()
   @IsDateString()
   firstInstallmentDate?: string;
 
@@ -43,7 +67,25 @@ export class IssueOfficialDocumentDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(80)
+  @MaxLength(30)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  pixKey?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100000000)
+  refundAmountCents?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1200)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   reason?: string;
 

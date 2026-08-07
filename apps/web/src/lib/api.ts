@@ -531,6 +531,7 @@ export type StudentDocumentsResponse = {
 export type OfficialDocumentType =
   | "ADHESION_TERM"
   | "INTERNAL_REGULATION"
+  | "TRANSPORT_REFUND_REQUEST"
   | "TRANSPORT_REGULATION"
   | "TERMINATION_LETTER"
   | "TERMINATION_TERM";
@@ -566,6 +567,14 @@ export type OfficialDocumentIssue = {
     totalContractAmountCents: number | null;
   } | null;
   approvalDate: string | null;
+  refundDetails: {
+    issueDate: string | null;
+    issuePlaceDateText: string | null;
+    paymentMethod: string | null;
+    reason: string | null;
+    refundAmountCents: number | null;
+    refundAmountWords: string | null;
+  } | null;
   signerDetails: Array<{
     boardId: string | null;
     boardMemberId: string | null;
@@ -619,14 +628,21 @@ export type OfficialDocumentsResponse = {
 };
 
 export type IssueOfficialDocumentBody = {
+  bankAccount?: string;
+  bankAccountType?: string;
+  bankAgency?: string;
+  bankName?: string;
   dueDate?: string;
   firstInstallmentDate?: string;
   installmentAmountCents?: number;
   installmentCount?: number;
   notificationDate?: string;
   notes?: string;
+  paymentMethod?: "BANK_ACCOUNT" | "PIX";
+  pixKey?: string;
   reason?: string;
   regularizationDeadlineDays?: number;
+  refundAmountCents?: number;
 };
 
 export type IssueInstitutionalOfficialDocumentBody = {

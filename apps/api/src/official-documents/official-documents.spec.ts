@@ -24,6 +24,10 @@ import {
   TRANSPORT_REGULATION_DOCUMENT_TITLE,
   transportRegulationBody,
 } from "./transport-regulation.content.js";
+import {
+  TRANSPORT_REFUND_REQUEST_DOCUMENT_TITLE,
+  transportRefundRequestBody,
+} from "./transport-refund-request.content.js";
 
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
 const controller = readFileSync(
@@ -58,6 +62,10 @@ const transportRegulation = readFileSync(
   new URL("./transport-regulation.content.ts", import.meta.url),
   "utf8",
 );
+const transportRefundRequest = readFileSync(
+  new URL("./transport-refund-request.content.ts", import.meta.url),
+  "utf8",
+);
 const appModule = readFileSync(new URL("../app.module.ts", import.meta.url), "utf8");
 
 for (const fragment of [
@@ -65,6 +73,7 @@ for (const fragment of [
   "TERMINATION_LETTER",
   "ADHESION_TERM",
   "TRANSPORT_REGULATION",
+  "TRANSPORT_REFUND_REQUEST",
   "TERMINATION_TERM",
   "INTERNAL_REGULATION",
   "model OfficialDocumentIssue",
@@ -121,7 +130,10 @@ for (const fragment of [
   "resolveAdhesionTermPayload",
   "buildAdhesionTermSnapshot",
   "buildTransportRegulationSnapshot",
+  "buildTransportRefundRequestSnapshot",
   "transportRegulationBody",
+  "transportRefundRequestBody",
+  "resolveTransportRefundRequestPayload",
   "resolveSigners",
   "resolveBoardRoleSigner",
   "status: BoardMembershipStatus.ACTIVE",
@@ -157,6 +169,7 @@ for (const fragment of [
   "templateKey: \"termination-letter\"",
   "templateKey: \"adhesion-term\"",
   "templateKey: \"transport-regulation\"",
+  "templateKey: \"transport-refund-request\"",
   "templateKey: \"termination-term\"",
   "templateKey: \"internal-regulation\"",
   "templateVersion: 1",
@@ -169,6 +182,7 @@ for (const fragment of [
   "Presidente da ATRETU",
   "Termo de Adesão",
   "Regimento do Transporte",
+  "Solicitação de Reembolso",
   "Termo de Desligamento",
   "Regimento Interno",
 ]) {
@@ -208,6 +222,31 @@ for (const fragment of [
   assert.ok(
     transportRegulation.includes(fragment),
     `transport regulation content must include ${fragment}`,
+  );
+}
+
+for (const fragment of [
+  "transportRefundRequestBody",
+  "Solicitação de Reembolso Transporte Universitário",
+  "refundAmount",
+  "refundAmountWords",
+  "reason",
+  "methodText",
+  "pixKey",
+  "bankName",
+  "agency",
+  "account",
+  "issuePlaceDateText",
+]) {
+  assert.ok(
+    transportRefundRequest.includes(fragment),
+    `transport refund request content must include ${fragment}`,
+  );
+}
+for (const fragment of ["R$ 200,00", "duzentos reais", "Aleixo Tur", "Terra Ria"]) {
+  assert.ok(
+    !transportRefundRequest.includes(fragment),
+    `transport refund request content must not include fixed legacy fragment ${fragment}`,
   );
 }
 
@@ -359,6 +398,15 @@ const transportSignersWithoutGuardian = await makeService([validPresident]).reso
   issuedAt,
 );
 assert.equal(transportSignersWithoutGuardian.length, 2);
+
+const refundSigners = await makeService([]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.TRANSPORT_REFUND_REQUEST).signers,
+  signerStudentWithGuardian,
+  issuedAt,
+);
+assert.equal(refundSigners.length, 1);
+assert.equal(refundSigners[0]?.role, "ACADEMICO");
+assert.equal(refundSigners[0]?.source, "STUDENT");
 
 await assert.rejects(
   () =>
@@ -512,7 +560,7 @@ async function assertNoHeaderOnlyPages(input: OfficialDocumentPdfInput) {
         .trim();
       assert.match(
         text,
-        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|DIRETRIZES|TRANSPORTE|Art\.|Presidente QA|Termo de Adesão|Cláusula|Academico QA Adesao|Academico QA Transporte/i,
+        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|DIRETRIZES|TRANSPORTE|Art\.|Presidente QA|Termo de Adesão|Cláusula|Academico QA Adesao|Academico QA Transporte|Reembolso|Academico QA Reembolso/i,
         `page ${page} must include document content, not only header/footer`,
       );
     }
@@ -683,5 +731,57 @@ assert.ok(transportBody.includes("QUANDO INTERESSADO FOR MENOR DE IDADE"));
 const transportPages = await pageCount(transportRegulationInput);
 assert.equal(transportPages, 3, "transport regulation must stay at the legacy 3 pages");
 await assertNoHeaderOnlyPages(transportRegulationInput);
+
+const refundRequestInput: OfficialDocumentPdfInput = {
+  body: transportRefundRequestBody({
+    issuePlaceDateText: "Terra Rica, 07 de agosto de 2026",
+    payment: {
+      method: "PIX",
+      methodText: "PIX",
+      pixKey: "academico.qa@pix.test",
+    },
+    reason: "mudanca de rota autorizada pela secretaria",
+    refundAmount: "R$ 200,00",
+    refundAmountWords: "duzentos reais",
+    student: {
+      academicYear: "5°Ano",
+      address: "SITIO SAO PEDRO, Terra Rica, PR",
+      cpf: "428.245.098-30",
+      email: "qa@atretu.test",
+      fullName: "Academico QA Reembolso",
+      institution: "UNIFATECIE CENTRO",
+      phone: "(44) 99999-9999",
+    },
+  }),
+  documentTitle: TRANSPORT_REFUND_REQUEST_DOCUMENT_TITLE,
+  emittedAt: new Date("2026-08-07T12:00:00.000Z"),
+  emittedBy: "QA Oficial",
+  footerNote:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  protocol: "ATRETU-2026-REEMB",
+  qrPayload: "ATRETU:ATRETU-2026-REEMB:TRANSPORT_REFUND_REQUEST",
+  signatureLabel: "",
+  signatureName: "Academico QA Reembolso",
+  signatures: [
+    {
+      label: "Associado | CPF: 428.245.098-30 | RG: 1234567",
+      name: "Academico QA Reembolso",
+    },
+  ],
+  studentName: "Academico QA Reembolso",
+  subjectLabel: "Academico",
+  subjectName: "Academico QA Reembolso",
+  version: 1,
+};
+const refundBody = JSON.stringify(refundRequestInput.body);
+assert.ok(refundBody.includes("R$ 200,00"));
+assert.ok(refundBody.includes("duzentos reais"));
+assert.ok(refundBody.includes("academico.qa@pix.test"));
+assert.ok(!refundBody.includes("duzentos reais referente") || refundBody.includes("R$ 200,00"));
+assert.ok(!refundBody.includes("Aleixo Tur"));
+assert.ok(!refundBody.includes("Terra Ria"));
+assert.ok(refundBody.includes("Terra Rica, 07 de agosto de 2026"));
+assert.equal(await pageCount(refundRequestInput), 1, "refund request must fit in one A4 page");
+await assertNoHeaderOnlyPages(refundRequestInput);
 
 console.log("Official documents infrastructure guard OK");
