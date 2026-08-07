@@ -13,6 +13,10 @@ import {
 import { OfficialDocumentsService } from "./official-documents.service.js";
 import { getOfficialDocumentDefinition } from "./official-document.registry.js";
 import {
+  ADHESION_TERM_DOCUMENT_TITLE,
+  adhesionTermBody,
+} from "./adhesion-term.content.js";
+import {
   INTERNAL_REGULATION_DOCUMENT_TITLE,
   internalRegulationBody,
 } from "./internal-regulation.content.js";
@@ -42,11 +46,16 @@ const internalRegulation = readFileSync(
   new URL("./internal-regulation.content.ts", import.meta.url),
   "utf8",
 );
+const adhesionTerm = readFileSync(
+  new URL("./adhesion-term.content.ts", import.meta.url),
+  "utf8",
+);
 const appModule = readFileSync(new URL("../app.module.ts", import.meta.url), "utf8");
 
 for (const fragment of [
   "enum OfficialDocumentType",
   "TERMINATION_LETTER",
+  "ADHESION_TERM",
   "TERMINATION_TERM",
   "INTERNAL_REGULATION",
   "model OfficialDocumentIssue",
@@ -100,6 +109,8 @@ for (const fragment of [
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_DOWNLOADED",
   "source.documentType",
   "resolveTerminationTermPayload",
+  "resolveAdhesionTermPayload",
+  "buildAdhesionTermSnapshot",
   "resolveSigners",
   "resolveBoardRoleSigner",
   "status: BoardMembershipStatus.ACTIVE",
@@ -130,6 +141,7 @@ for (const fragment of [
 for (const fragment of [
   "OFFICIAL_DOCUMENT_DEFINITIONS",
   "templateKey: \"termination-letter\"",
+  "templateKey: \"adhesion-term\"",
   "templateKey: \"termination-term\"",
   "templateKey: \"internal-regulation\"",
   "templateVersion: 1",
@@ -137,12 +149,31 @@ for (const fragment of [
   "scope: \"INSTITUTIONAL\"",
   "source: \"STUDENT\"",
   "source: \"BOARD_ROLE\"",
+  "source: \"GUARDIAN\"",
   "BoardMemberRole.PRESIDENT",
   "Presidente da ATRETU",
+  "Termo de Adesão",
   "Termo de Desligamento",
   "Regimento Interno",
 ]) {
   assert.ok(registry.includes(fragment), `registry must include ${fragment}`);
+}
+
+for (const fragment of [
+  "adhesionTermBody",
+  "Termo de Adesão e Filiação Instrumento Particular de Associação",
+  "Cláusula 1ª",
+  "Cláusula 6ª",
+  "installmentAmount",
+  "installmentCountWords",
+  "installmentDueDay",
+  "sequente",
+  "suscetivelmente",
+]) {
+  assert.ok(adhesionTerm.includes(fragment), `adhesion term must include ${fragment}`);
+}
+for (const fragment of ["10 parcelas", "R$330,00", "vencimento todo dia 20"]) {
+  assert.ok(!adhesionTerm.includes(fragment), `adhesion term must not include ${fragment}`);
 }
 
 for (const fragment of [
@@ -176,6 +207,7 @@ function makeService(validMembers: unknown[]) {
     {} as never,
     {} as never,
   ) as never as {
+    addMonthsClamped: (value: Date, monthsToAdd: number) => Date;
     reissueSnapshot: (...args: unknown[]) => unknown;
     resolveSigners: (...args: unknown[]) => Promise<Array<Record<string, unknown>>>;
   };
@@ -183,9 +215,18 @@ function makeService(validMembers: unknown[]) {
 
 const signerStudent = {
   id: "student-1",
+  guardian: null,
   personId: "person-student-1",
   person: {
     fullName: "Academico Signatario",
+  },
+};
+const signerStudentWithGuardian = {
+  ...signerStudent,
+  guardian: {
+    fullName: "Responsavel QA",
+    cpf: "98765432100",
+    rg: "1234567",
   },
 };
 const validPresident = {
@@ -248,6 +289,24 @@ const institutionalSigner = await makeService([validPresident]).resolveSigners(
 assert.equal(institutionalSigner[0]?.name, "Presidente A");
 assert.equal(institutionalSigner[0]?.role, BoardMemberRole.PRESIDENT);
 assert.equal(institutionalSigner[0]?.signerSource, "BOARD_ROLE");
+
+const adhesionSigners = await makeService([validPresident]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.ADHESION_TERM).signers,
+  signerStudentWithGuardian,
+  issuedAt,
+);
+assert.equal(adhesionSigners.length, 3);
+assert.equal(adhesionSigners[0]?.role, BoardMemberRole.PRESIDENT);
+assert.equal(adhesionSigners[1]?.role, "ACADEMICO");
+assert.equal(adhesionSigners[2]?.name, "Responsavel QA");
+assert.equal(adhesionSigners[2]?.source, "GUARDIAN");
+
+const adhesionSignersWithoutGuardian = await makeService([validPresident]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.ADHESION_TERM).signers,
+  signerStudent,
+  issuedAt,
+);
+assert.equal(adhesionSignersWithoutGuardian.length, 2);
 
 await assert.rejects(
   () =>
@@ -312,6 +371,24 @@ const reissuedSnapshot = makeService([]).reissueSnapshot(
 assert.equal(reissuedSnapshot.protocol, "ATRETU-2026-NEW");
 assert.equal(reissuedSnapshot.signers[0]?.name, "Presidente A");
 assert.equal(reissuedSnapshot.signers[0]?.signerName, "Presidente A");
+
+const dateService = makeService([]);
+assert.equal(
+  dateService.addMonthsClamped(new Date("2026-01-31T12:00:00.000Z"), 1).toISOString(),
+  "2026-02-28T12:00:00.000Z",
+);
+assert.equal(
+  dateService.addMonthsClamped(new Date("2028-01-31T12:00:00.000Z"), 1).toISOString(),
+  "2028-02-29T12:00:00.000Z",
+);
+assert.equal(
+  dateService.addMonthsClamped(new Date("2026-01-31T12:00:00.000Z"), 2).toISOString(),
+  "2026-03-31T12:00:00.000Z",
+);
+assert.equal(
+  dateService.addMonthsClamped(new Date("2026-08-06T12:00:00.000Z"), 3).toISOString(),
+  "2026-11-06T12:00:00.000Z",
+);
 
 function paragraphBlocks(body: string[]): OfficialDocumentPdfBlock[] {
   return body.map((text) => ({ text, type: "paragraph" }));
@@ -383,7 +460,7 @@ async function assertNoHeaderOnlyPages(input: OfficialDocumentPdfInput) {
         .trim();
       assert.match(
         text,
-        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|Art\.|Presidente QA/i,
+        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|Art\.|Presidente QA|Termo de Adesão|Cláusula|Academico QA Adesao/i,
         `page ${page} must include document content, not only header/footer`,
       );
     }
@@ -443,5 +520,66 @@ assert.ok(
   "internal regulation must stay close to the legacy page count",
 );
 await assertNoHeaderOnlyPages(internalRegulationInput);
+
+const adhesionTermInput: OfficialDocumentPdfInput = {
+  body: adhesionTermBody({
+    installmentAmount: "R$ 330,00",
+    installmentAmountWords: "trezentos e trinta reais",
+    installmentCount: 4,
+    installmentCountWords: "quatro",
+    installmentDueDay: 6,
+    installments: Array.from({ length: 4 }, (_, index) => ({
+      amountText: "R$ 330,00",
+      dateText: `06/${String(index + 8).padStart(2, "0")}/2026`,
+      label: `${index + 1}ª Mensalidade`,
+    })),
+    totalContractAmount: "R$ 1.320,00",
+    student: {
+      address: "Rua QA, 123",
+      birthDate: "11/04/2007",
+      cpf: "141.434.829-08",
+      course: "DIREITO",
+      email: "qa@atretu.test",
+      fullName: "Academico QA Adesao",
+      grade: "1",
+      institution: "UNIFATECIE BR",
+      phone: "(44) 99999-9999",
+      rg: "165454073",
+      shift: "NOTURNO",
+    },
+  }),
+  documentTitle: ADHESION_TERM_DOCUMENT_TITLE,
+  emittedAt: new Date("2026-08-06T12:00:00.000Z"),
+  emittedBy: "QA Oficial",
+  footerNote:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  protocol: "ATRETU-2026-ADESAO",
+  qrPayload: "ATRETU:ATRETU-2026-ADESAO:ADHESION_TERM",
+  signatureLabel: "Terra Rica, 06/08/2026",
+  signatureName: "Presidente QA",
+  signatures: [
+    { label: "Presidente da ATRETU", name: "Presidente QA" },
+    { label: "Associado | CPF: 141.434.829-08 | RG: 165454073", name: "Academico QA Adesao" },
+    { label: "Responsavel | CPF: 987.654.321-00 | RG: 1234567", name: "Responsavel QA" },
+  ],
+  studentName: "Academico QA Adesao",
+  subjectLabel: "Academico",
+  subjectName: "Academico QA Adesao",
+  version: 1,
+};
+const adhesionFinancialClause = JSON.stringify(adhesionTermInput.body);
+assert.ok(adhesionFinancialClause.includes("4 (quatro) parcelas"));
+assert.ok(adhesionFinancialClause.includes("R$ 330,00"));
+assert.ok(adhesionFinancialClause.includes("trezentos e trinta reais"));
+assert.ok(adhesionFinancialClause.includes("R$ 1.320,00"));
+assert.equal(
+  adhesionTermInput.body
+    .filter((block) => block.type === "table")
+    .flatMap((block) => block.rows).length,
+  4,
+);
+const adhesionPages = await pageCount(adhesionTermInput);
+assert.ok(adhesionPages >= 1 && adhesionPages <= 3, "adhesion term must render in a compact A4 flow");
+await assertNoHeaderOnlyPages(adhesionTermInput);
 
 console.log("Official documents infrastructure guard OK");

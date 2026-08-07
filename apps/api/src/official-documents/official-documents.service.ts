@@ -25,6 +25,10 @@ import type {
   IssueOfficialDocumentDto,
 } from "./dto/official-documents.dto.js";
 import {
+  ADHESION_TERM_DOCUMENT_TITLE,
+  adhesionTermBody,
+} from "./adhesion-term.content.js";
+import {
   OfficialDocumentPdfBuilder,
   type OfficialDocumentPdfBlock,
   type OfficialDocumentPdfInput,
@@ -54,12 +58,35 @@ type TerminationTermPayload = {
   regularizationDeadlineDays: number;
 };
 
+type AdhesionTermPayload = {
+  firstInstallmentDate: Date;
+  installmentAmountCents: number;
+  installmentCount: number;
+  notes?: string;
+};
+
 type OfficialDocumentIssuePayload = IssueOfficialDocumentDto | undefined;
 type InstitutionalOfficialDocumentIssuePayload =
   | IssueInstitutionalOfficialDocumentDto
   | undefined;
 
 type OfficialDocumentSnapshot = {
+  adhesion?: {
+    firstInstallmentDate: string;
+    installmentAmountCents: number;
+    installmentCount: number;
+    installmentDueDay: number;
+    installments: Array<{
+      amountCents: number;
+      dueDate: string;
+      label: string;
+      number: number;
+    }>;
+    notes: string | null;
+    templateKey: string;
+    templateVersion: number;
+    totalContractAmountCents: number;
+  };
   approvalDate?: string;
   body: OfficialDocumentPdfBlock[];
   documentTitle: string;
@@ -86,6 +113,11 @@ type OfficialDocumentSnapshot = {
     rg: string;
     status: string;
   };
+  guardian?: {
+    cpf: string | null;
+    fullName: string;
+    rg: string | null;
+  } | null;
   template: { key: string; version: number };
   term?: {
     dueDate: string;
@@ -281,8 +313,24 @@ export class OfficialDocumentsService {
               signerName: snapshot.signers[0]?.name,
               signerRole: snapshot.signers[0]?.role,
               signerSource: snapshot.signers[0]?.source,
+              signers: snapshot.signers.map((signer) => ({
+                name: signer.name,
+                role: signer.role,
+                source: signer.source,
+              })),
               boardId: snapshot.signers[0]?.boardId,
               boardMemberId: snapshot.signers[0]?.boardMemberId,
+              adhesion: snapshot.adhesion
+                ? {
+                    firstInstallmentDate: snapshot.adhesion.firstInstallmentDate,
+                    installmentAmountCents:
+                      snapshot.adhesion.installmentAmountCents,
+                    installmentCount: snapshot.adhesion.installmentCount,
+                    installmentDueDay: snapshot.adhesion.installmentDueDay,
+                    totalContractAmountCents:
+                      snapshot.adhesion.totalContractAmountCents,
+                  }
+                : undefined,
               templateKey: definition.templateKey,
               templateVersion: definition.templateVersion,
               term: snapshot.term
@@ -527,6 +575,7 @@ export class OfficialDocumentsService {
 
   private studentInclude() {
     return {
+      guardian: true,
       person: true,
       historyEvents: {
         where: { eventType: StudentHistoryEventType.STUDENT_TERMINATED },
@@ -616,7 +665,111 @@ export class OfficialDocumentsService {
     if (documentType === OfficialDocumentType.TERMINATION_TERM) {
       return this.buildTerminationTermSnapshot(student, issuedAt, protocol, payload);
     }
+    if (documentType === OfficialDocumentType.ADHESION_TERM) {
+      return this.buildAdhesionTermSnapshot(student, issuedAt, protocol, payload);
+    }
     return this.buildTerminationLetterSnapshot(student, documentType, issuedAt, protocol);
+  }
+
+  private async buildAdhesionTermSnapshot(
+    student: StudentForOfficialDocument,
+    issuedAt: Date,
+    protocol: string,
+    payload?: OfficialDocumentIssuePayload,
+  ): Promise<OfficialDocumentSnapshot> {
+    const definition = getOfficialDocumentDefinition(OfficialDocumentType.ADHESION_TERM);
+    const term = this.resolveAdhesionTermPayload(payload);
+    const signers = await this.resolveSigners(definition.signers, student, issuedAt);
+    const primarySigner = this.primarySigner(signers);
+    const enrollment = student.enrollments[0];
+    const installments = Array.from({ length: term.installmentCount }, (_, index) => {
+      const dueDate = this.addMonthsClamped(term.firstInstallmentDate, index);
+      return {
+        amountCents: term.installmentAmountCents,
+        dueDate: dueDate.toISOString(),
+        label: `${index + 1}ª Mensalidade`,
+        number: index + 1,
+      };
+    });
+    const totalContractAmountCents =
+      term.installmentAmountCents * term.installmentCount;
+    const body = adhesionTermBody({
+      installmentAmount: this.formatCurrency(term.installmentAmountCents),
+      installmentAmountWords: this.moneyWords(term.installmentAmountCents),
+      installmentCount: term.installmentCount,
+      installmentCountWords: this.numberWords(term.installmentCount),
+      installmentDueDay: term.firstInstallmentDate.getUTCDate(),
+      installments: installments.map((installment) => ({
+        amountText: this.formatCurrency(installment.amountCents),
+        dateText: this.formatDate(new Date(installment.dueDate)),
+        label: installment.label,
+      })),
+      totalContractAmount: this.formatCurrency(totalContractAmountCents),
+      student: {
+        address: this.formatAddress(student.person),
+        birthDate: this.formatDate(student.person.birthDate),
+        cpf: this.formatCpf(student.person.cpf),
+        course: enrollment?.course || "nao informado",
+        email: student.person.email || "nao informado",
+        fullName: student.person.fullName,
+        grade: enrollment?.grade || "nao informado",
+        institution: enrollment?.institution.name || "nao informado",
+        phone: student.person.phone || "nao informado",
+        rg: this.formatRg(student.person.rg),
+        shift: enrollment?.shift.name || "nao informado",
+      },
+    });
+    return {
+      adhesion: {
+        firstInstallmentDate: term.firstInstallmentDate.toISOString(),
+        installmentAmountCents: term.installmentAmountCents,
+        installmentCount: term.installmentCount,
+        installmentDueDay: term.firstInstallmentDate.getUTCDate(),
+        installments,
+        notes: term.notes ?? null,
+        templateKey: definition.templateKey,
+        templateVersion: definition.templateVersion,
+        totalContractAmountCents,
+      },
+      body,
+      documentTitle: ADHESION_TERM_DOCUMENT_TITLE,
+      documentType: OfficialDocumentType.ADHESION_TERM,
+      emittedAt: issuedAt.toISOString(),
+      footerNote:
+        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      protocol,
+      qrPayload: `ATRETU:${protocol}`,
+      signatureLabel: `${student.person.addressCity || "Terra Rica"}, ${this.formatDate(issuedAt)}`,
+      signatureName: primarySigner.name,
+      signatureTitle: primarySigner.label,
+      signers,
+      subject: {
+        id: student.id,
+        name: student.person.fullName,
+        scope: "STUDENT",
+      },
+      student: {
+        id: student.id,
+        address: this.formatAddress(student.person),
+        city: student.person.addressCity || "Terra Rica",
+        name: student.person.fullName,
+        cpf: this.formatCpf(student.person.cpf),
+        rg: this.formatRg(student.person.rg),
+        status: student.status,
+      },
+      guardian: student.guardian
+        ? {
+            cpf: student.guardian.cpf ? this.formatCpf(student.guardian.cpf) : null,
+            fullName: student.guardian.fullName,
+            rg: this.formatRg(student.guardian.rg),
+          }
+        : null,
+      template: {
+        key: definition.templateKey,
+        version: definition.templateVersion,
+      },
+      version: definition.version,
+    };
   }
 
   private async buildTerminationLetterSnapshot(
@@ -805,13 +958,15 @@ export class OfficialDocumentsService {
       emittedBy,
       footerNote: snapshot.footerNote,
       layout:
-        snapshot.documentType === OfficialDocumentType.INTERNAL_REGULATION
+        snapshot.documentType === OfficialDocumentType.INTERNAL_REGULATION ||
+        snapshot.documentType === OfficialDocumentType.ADHESION_TERM
           ? "compact"
           : "standard",
       protocol: snapshot.protocol,
       qrPayload: snapshot.qrPayload,
       signatureLabel: snapshot.signatureLabel,
       signatureName: snapshot.signatureName,
+      signatures: this.pdfSignatures(snapshot),
       signatureTitle: snapshot.signatureTitle,
       subjectLabel:
         snapshot.subject.scope === "INSTITUTIONAL" ? "Documento" : "Academico",
@@ -848,9 +1003,57 @@ export class OfficialDocumentsService {
         : null,
       sourceIssueId: issue.sourceIssueId,
       notes: issue.notes,
+      adhesionDetails: this.adhesionDetails(issue),
       approvalDate: this.approvalDate(issue),
       signerDetails: this.signerDetails(issue),
       termDetails: this.termDetails(issue),
+    };
+  }
+
+  private adhesionDetails(issue: OfficialDocumentIssue) {
+    if (issue.documentType !== OfficialDocumentType.ADHESION_TERM) {
+      return null;
+    }
+    const snapshot = issue.contentSnapshot as Prisma.JsonObject;
+    const adhesion = snapshot.adhesion as Prisma.JsonObject | undefined;
+    const installments = Array.isArray(adhesion?.installments)
+      ? adhesion.installments
+      : [];
+    return {
+      firstInstallmentDate:
+        typeof adhesion?.firstInstallmentDate === "string"
+          ? adhesion.firstInstallmentDate
+          : null,
+      installmentCount:
+        typeof adhesion?.installmentCount === "number"
+          ? adhesion.installmentCount
+          : null,
+      installmentAmountCents:
+        typeof adhesion?.installmentAmountCents === "number"
+          ? adhesion.installmentAmountCents
+          : null,
+      installmentDueDay:
+        typeof adhesion?.installmentDueDay === "number"
+          ? adhesion.installmentDueDay
+          : null,
+      installments: installments.map((item) => {
+        const installment = item as Prisma.JsonObject;
+        return {
+          amountCents:
+            typeof installment.amountCents === "number"
+              ? installment.amountCents
+              : null,
+          dueDate:
+            typeof installment.dueDate === "string" ? installment.dueDate : null,
+          label: typeof installment.label === "string" ? installment.label : null,
+          number:
+            typeof installment.number === "number" ? installment.number : null,
+        };
+      }),
+      totalContractAmountCents:
+        typeof adhesion?.totalContractAmountCents === "number"
+          ? adhesion.totalContractAmountCents
+          : null,
     };
   }
 
@@ -1008,7 +1211,9 @@ export class OfficialDocumentsService {
         ? "carta-desligamento"
         : documentType === OfficialDocumentType.TERMINATION_TERM
           ? "termo-desligamento"
-        : "documento-oficial";
+          : documentType === OfficialDocumentType.ADHESION_TERM
+            ? "termo-adesao"
+            : "documento-oficial";
     return `${prefix}_${token || "academico"}_${protocol.toLowerCase()}.pdf`;
   }
 
@@ -1024,6 +1229,15 @@ export class OfficialDocumentsService {
   }
 
   private issueNotes(snapshot: OfficialDocumentSnapshot) {
+    if (snapshot.adhesion) {
+      return [
+        `primeira_parcela=${snapshot.adhesion.firstInstallmentDate}`,
+        `parcelas=${snapshot.adhesion.installmentCount}`,
+        snapshot.adhesion.notes ? `observacoes=${snapshot.adhesion.notes}` : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
+    }
     if (snapshot.term?.notes) {
       return snapshot.term.notes;
     }
@@ -1095,6 +1309,42 @@ export class OfficialDocumentsService {
     };
   }
 
+  private resolveAdhesionTermPayload(
+    payload?: OfficialDocumentIssuePayload,
+  ): AdhesionTermPayload {
+    if (!payload?.firstInstallmentDate) {
+      throw new BadRequestException("Informe a data da primeira mensalidade.");
+    }
+    if (!payload.installmentCount) {
+      throw new BadRequestException("Informe a quantidade de parcelas.");
+    }
+    if (!payload.installmentAmountCents) {
+      throw new BadRequestException("Informe o valor de cada parcela.");
+    }
+    if (
+      !Number.isInteger(payload.installmentCount) ||
+      payload.installmentCount <= 0 ||
+      payload.installmentCount > 24
+    ) {
+      throw new BadRequestException("Quantidade de parcelas invalida.");
+    }
+    if (
+      !Number.isInteger(payload.installmentAmountCents) ||
+      payload.installmentAmountCents <= 0
+    ) {
+      throw new BadRequestException("Valor de cada parcela invalido.");
+    }
+    return {
+      firstInstallmentDate: this.parseDateOnly(
+        payload.firstInstallmentDate,
+        "Data da primeira mensalidade invalida",
+      ),
+      installmentAmountCents: payload.installmentAmountCents,
+      installmentCount: payload.installmentCount,
+      notes: payload.notes || undefined,
+    };
+  }
+
   private parseDateOnly(value: string, errorMessage: string) {
     const date = new Date(`${value.slice(0, 10)}T12:00:00.000Z`);
     if (Number.isNaN(date.getTime())) {
@@ -1107,6 +1357,23 @@ export class OfficialDocumentsService {
     const next = new Date(value);
     next.setUTCDate(next.getUTCDate() + days);
     return next;
+  }
+
+  private addMonthsClamped(value: Date, monthsToAdd: number) {
+    const year = value.getUTCFullYear();
+    const month = value.getUTCMonth() + monthsToAdd;
+    const originalDay = value.getUTCDate();
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    return new Date(
+      Date.UTC(year, month, Math.min(originalDay, lastDay), 12, 0, 0, 0),
+    );
+  }
+
+  private formatCurrency(amountCents: number) {
+    return new Intl.NumberFormat("pt-BR", {
+      currency: "BRL",
+      style: "currency",
+    }).format(amountCents / 100);
   }
 
   private reissueSnapshot(
@@ -1210,6 +1477,41 @@ export class OfficialDocumentsService {
         signers.push(await this.resolveBoardRoleSigner(definition, issuedAt));
         continue;
       }
+      if (definition.source === "GUARDIAN") {
+        if (!student) {
+          throw new BadRequestException("Documento exige academico vinculado.");
+        }
+        if (!student.guardian?.fullName) {
+          if (definition.required) {
+            throw new BadRequestException("Responsavel obrigatorio nao configurado.");
+          }
+          continue;
+        }
+        const roleLabel = "Responsavel";
+        signers.push({
+          boardId: null,
+          boardMemberId: null,
+          boardPeriodEnd: null,
+          boardPeriodStart: null,
+          endedAt: null,
+          label: definition.label,
+          name: student.guardian.fullName,
+          personId: null,
+          resolvedAt: issuedAt.toISOString(),
+          role: definition.role,
+          roleLabel,
+          signerName: student.guardian.fullName,
+          signerPersonId: null,
+          signerRole: definition.role,
+          signerRoleLabel: roleLabel,
+          signerSource: definition.source,
+          signerStudentId: student.id,
+          source: definition.source,
+          startedAt: null,
+          studentId: student.id,
+        });
+        continue;
+      }
       if (definition.required) {
         throw new BadRequestException("Signatario obrigatorio nao configurado.");
       }
@@ -1298,6 +1600,44 @@ export class OfficialDocumentsService {
     return signer;
   }
 
+  private pdfSignatures(snapshot: OfficialDocumentSnapshot) {
+    if (!snapshot.signers.length) {
+      return undefined;
+    }
+    return snapshot.signers.map((signer) => {
+      if (
+        snapshot.documentType === OfficialDocumentType.ADHESION_TERM &&
+        signer.source === "STUDENT" &&
+        snapshot.student
+      ) {
+        return {
+          label: `Associado | CPF: ${snapshot.student.cpf} | RG: ${snapshot.student.rg}`,
+          name: signer.name,
+        };
+      }
+      if (
+        snapshot.documentType === OfficialDocumentType.ADHESION_TERM &&
+        signer.source === "GUARDIAN" &&
+        snapshot.guardian
+      ) {
+        return {
+          label: [
+            "Responsavel",
+            snapshot.guardian.cpf ? `CPF: ${snapshot.guardian.cpf}` : null,
+            snapshot.guardian.rg ? `RG: ${snapshot.guardian.rg}` : null,
+          ]
+            .filter(Boolean)
+            .join(" | "),
+          name: signer.name,
+        };
+      }
+      return {
+        label: signer.label,
+        name: signer.name,
+      };
+    });
+  }
+
   private paragraphs(texts: string[]): OfficialDocumentPdfBlock[] {
     return texts.map((text) => ({ text, type: "paragraph" }));
   }
@@ -1345,5 +1685,82 @@ export class OfficialDocumentsService {
 
   private formatRg(value: string | null) {
     return value?.trim() || "nao informado";
+  }
+
+  private moneyWords(amountCents: number) {
+    const reais = Math.floor(amountCents / 100);
+    const cents = amountCents % 100;
+    const realText = `${this.numberWords(reais)} ${reais === 1 ? "real" : "reais"}`;
+    if (cents === 0) {
+      return realText;
+    }
+    const centText = `${this.numberWords(cents)} ${
+      cents === 1 ? "centavo" : "centavos"
+    }`;
+    return `${realText} e ${centText}`;
+  }
+
+  private numberWords(value: number): string {
+    const direct: Record<number, string> = {
+      0: "zero",
+      1: "um",
+      2: "dois",
+      3: "tres",
+      4: "quatro",
+      5: "cinco",
+      6: "seis",
+      7: "sete",
+      8: "oito",
+      9: "nove",
+      10: "dez",
+      11: "onze",
+      12: "doze",
+      13: "treze",
+      14: "quatorze",
+      15: "quinze",
+      16: "dezesseis",
+      17: "dezessete",
+      18: "dezoito",
+      19: "dezenove",
+      20: "vinte",
+      30: "trinta",
+      40: "quarenta",
+      50: "cinquenta",
+      60: "sessenta",
+      70: "setenta",
+      80: "oitenta",
+      90: "noventa",
+      100: "cem",
+      200: "duzentos",
+      300: "trezentos",
+      400: "quatrocentos",
+      500: "quinhentos",
+      600: "seiscentos",
+      700: "setecentos",
+      800: "oitocentos",
+      900: "novecentos",
+    };
+    if (direct[value]) {
+      return direct[value];
+    }
+    if (value < 100) {
+      const ten = Math.floor(value / 10) * 10;
+      return `${direct[ten]} e ${direct[value - ten]}`;
+    }
+    if (value < 1000) {
+      const hundred = Math.floor(value / 100) * 100;
+      const prefix = value < 200 ? "cento" : direct[hundred];
+      return `${prefix} e ${this.numberWords(value - hundred)}`;
+    }
+    if (value < 1000000) {
+      const thousands = Math.floor(value / 1000);
+      const remainder = value % 1000;
+      const prefix =
+        thousands === 1 ? "mil" : `${this.numberWords(thousands)} mil`;
+      return remainder === 0
+        ? prefix
+        : `${prefix} ${remainder < 100 ? "e " : ""}${this.numberWords(remainder)}`;
+    }
+    return String(value);
   }
 }

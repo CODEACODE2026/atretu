@@ -25,6 +25,7 @@ export type OfficialDocumentPdfInput = {
   qrPayload: string;
   signatureLabel: string;
   signatureName: string;
+  signatures?: Array<{ label?: string; name: string }>;
   signatureTitle?: string;
   subjectLabel?: string;
   subjectName?: string;
@@ -35,6 +36,7 @@ export type OfficialDocumentPdfInput = {
 export type OfficialDocumentPdfBlock =
   | { text: string; type: "chapter" | "heading" | "paragraph" | "section" }
   | { items: string[]; type: "list" }
+  | { headers: string[]; rows: string[][]; type: "table" }
   | { label: string; text: string; type: "article" }
   | { size?: number; type: "spacer" };
 
@@ -133,47 +135,62 @@ export class OfficialDocumentPdfBuilder {
     });
 
     y = Math.max(y + 18, compact ? y : 500);
-    if (y + 116 > contentBottomLimit) {
+    const signatures = input.signatures?.length
+      ? input.signatures
+      : [{ label: input.signatureTitle, name: input.signatureName }];
+    const signatureHeight = signatures.length > 1 ? 92 : 116;
+    if (y + signatureHeight > contentBottomLimit) {
       y = addPage() + 24;
     }
-    doc
-      .moveTo(184, y)
-      .lineTo(A4.width - 184, y)
-      .strokeColor(COLORS.line)
-      .lineWidth(1)
-      .stroke();
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(10)
-      .fillColor(COLORS.ink)
-      .text(input.signatureName, 72, y + 10, {
-        align: "center",
-        width: A4.width - 144,
-      });
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor(COLORS.muted)
-      .text(input.signatureLabel, 72, y + 26, {
-        align: "center",
-        width: A4.width - 144,
-      });
-    if (input.signatureTitle) {
+    doc.font("Helvetica").fontSize(9).fillColor(COLORS.ink).text(
+      input.signatureLabel,
+      bodyX,
+      y,
+      {
+        align: signatures.length > 1 ? "left" : "center",
+        width: bodyWidth,
+      },
+    );
+    const signatureTop = y + 48;
+    const gap = 18;
+    const columns = Math.min(signatures.length, 3);
+    const reservedQrWidth = signatures.length === 2 ? 136 : 0;
+    const signatureWidth = bodyWidth - reservedQrWidth;
+    const columnWidth = (signatureWidth - gap * (columns - 1)) / columns;
+    signatures.forEach((signature, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const x = bodyX + column * (columnWidth + gap);
+      const rowY = signatureTop + row * 62;
+      doc
+        .moveTo(x + 10, rowY)
+        .lineTo(x + columnWidth - 10, rowY)
+        .strokeColor(COLORS.line)
+        .lineWidth(1)
+        .stroke();
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(signatures.length > 1 ? 8.2 : 10)
+        .fillColor(COLORS.ink)
+        .text(signature.name, x, rowY + 8, {
+          align: "center",
+          width: columnWidth,
+        });
       doc
         .font("Helvetica")
         .fontSize(8)
         .fillColor(COLORS.muted)
-        .text(input.signatureTitle, 72, y + 40, {
+        .text(signature.label ?? "", x, rowY + 24, {
           align: "center",
-          width: A4.width - 144,
+          width: columnWidth,
         });
-    }
+    });
 
     this.drawQrPreparedBlock(
       doc,
       input,
       A4.width - 158,
-      Math.min(y + 56, footerTopY - 150),
+      Math.min(signatureTop + (signatures.length > 1 ? 62 : 8), footerTopY - 150),
     );
   }
 
@@ -235,6 +252,13 @@ export class OfficialDocumentPdfBuilder {
             }) +
           listGap,
         compact ? 2 : 4,
+      );
+    }
+    if (block.type === "table") {
+      return (
+        (block.headers.length ? 18 : 0) +
+        block.rows.length * (compact ? 16 : 20) +
+        (compact ? 8 : 12)
       );
     }
     return (
@@ -314,6 +338,9 @@ export class OfficialDocumentPdfBuilder {
       });
       return nextY + (compact ? 1 : 2);
     }
+    if (block.type === "table") {
+      return this.drawTable(doc, block, x, y, width, options);
+    }
     doc
       .font("Helvetica")
       .fontSize(options.bodyFontSize)
@@ -324,6 +351,48 @@ export class OfficialDocumentPdfBuilder {
         width,
       });
     return doc.y + paragraphGap;
+  }
+
+  private drawTable(
+    doc: PDFKit.PDFDocument,
+    block: Extract<OfficialDocumentPdfBlock, { type: "table" }>,
+    x: number,
+    y: number,
+    width: number,
+    options: { bodyFontSize: number; bodyLineGap: number },
+  ) {
+    const compact = options.bodyFontSize < 10;
+    const rowHeight = compact ? 16 : 20;
+    const columns = Math.max(block.headers.length, block.rows[0]?.length ?? 1);
+    const columnWidth = width / columns;
+    let nextY = y;
+    if (block.headers.length) {
+      doc.rect(x, nextY, width, rowHeight).fill(COLORS.panel).stroke(COLORS.line);
+      block.headers.forEach((header, index) => {
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(options.bodyFontSize)
+          .fillColor(COLORS.ink)
+          .text(header, x + index * columnWidth + 6, nextY + 4, {
+            width: columnWidth - 12,
+          });
+      });
+      nextY += rowHeight;
+    }
+    block.rows.forEach((row) => {
+      doc.rect(x, nextY, width, rowHeight).fill("#FFFFFF").stroke(COLORS.line);
+      row.forEach((cell, index) => {
+        doc
+          .font("Helvetica")
+          .fontSize(options.bodyFontSize)
+          .fillColor(COLORS.ink)
+          .text(cell, x + index * columnWidth + 6, nextY + 4, {
+            width: columnWidth - 12,
+          });
+      });
+      nextY += rowHeight;
+    });
+    return nextY + (compact ? 8 : 12);
   }
 
   private drawHeader(doc: PDFKit.PDFDocument, logo: Buffer) {

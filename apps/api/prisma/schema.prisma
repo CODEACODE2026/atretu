@@ -310,6 +310,7 @@ enum StudentDocumentStatus {
 }
 
 enum OfficialDocumentType {
+  ADHESION_TERM
   TERMINATION_LETTER
   TERMINATION_TERM
   INTERNAL_REGULATION

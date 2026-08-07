@@ -529,6 +529,7 @@ export type StudentDocumentsResponse = {
 };
 
 export type OfficialDocumentType =
+  | "ADHESION_TERM"
   | "INTERNAL_REGULATION"
   | "TERMINATION_LETTER"
   | "TERMINATION_TERM";
@@ -550,6 +551,19 @@ export type OfficialDocumentIssue = {
   issuedBy: { id: string; name: string; email: string } | null;
   sourceIssueId: string | null;
   notes: string | null;
+  adhesionDetails: {
+    firstInstallmentDate: string | null;
+    installmentAmountCents: number | null;
+    installmentCount: number | null;
+    installmentDueDay: number | null;
+    installments: Array<{
+      amountCents: number | null;
+      dueDate: string | null;
+      label: string | null;
+      number: number | null;
+    }>;
+    totalContractAmountCents: number | null;
+  } | null;
   approvalDate: string | null;
   signerDetails: Array<{
     boardId: string | null;
@@ -605,6 +619,9 @@ export type OfficialDocumentsResponse = {
 
 export type IssueOfficialDocumentBody = {
   dueDate?: string;
+  firstInstallmentDate?: string;
+  installmentAmountCents?: number;
+  installmentCount?: number;
   notificationDate?: string;
   notes?: string;
   reason?: string;

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, Eye, FileCheck2, RefreshCcw, Send } from "lucide-react";
+import { CalendarDays, Download, Eye, FileCheck2, RefreshCcw, Send } from "lucide-react";
 import type {
   IssueOfficialDocumentBody,
   OfficialDocumentCatalogItem,
   OfficialDocumentIssue,
 } from "../../../lib/api";
 import { api } from "../../../lib/api";
+import { onlyDigits } from "../../../lib/formatters";
 import {
   AdminEmptyState,
   AdminFeedback,
@@ -29,6 +30,9 @@ export function StudentOfficialDocuments({
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [adhesionDialog, setAdhesionDialog] =
+    useState<OfficialDocumentCatalogItem | null>(null);
+  const [adhesionForm, setAdhesionForm] = useState(defaultAdhesionTermForm());
   const [termDialog, setTermDialog] = useState<OfficialDocumentCatalogItem | null>(null);
   const [termForm, setTermForm] = useState(defaultTerminationTermForm());
 
@@ -54,6 +58,11 @@ export function StudentOfficialDocuments({
   }
 
   function requestIssueDocument(item: OfficialDocumentCatalogItem) {
+    if (item.type === "ADHESION_TERM") {
+      setAdhesionForm(defaultAdhesionTermForm());
+      setAdhesionDialog(item);
+      return;
+    }
     if (item.type === "TERMINATION_TERM") {
       setTermForm(defaultTerminationTermForm());
       setTermDialog(item);
@@ -72,6 +81,7 @@ export function StudentOfficialDocuments({
     try {
       await api.issueOfficialDocument(studentId, item.type, body);
       setMessage(`${item.title} emitida.`);
+      setAdhesionDialog(null);
       setTermDialog(null);
       await loadDocuments();
     } catch (caught) {
@@ -89,6 +99,16 @@ export function StudentOfficialDocuments({
       notes: termForm.notes || undefined,
       reason: termForm.reason,
       regularizationDeadlineDays: Number(termForm.regularizationDeadlineDays),
+    });
+  }
+
+  async function submitAdhesionTerm() {
+    if (!adhesionDialog) return;
+    await issueDocument(adhesionDialog, {
+      firstInstallmentDate: adhesionForm.firstInstallmentDate,
+      installmentAmountCents: moneyInputToCents(adhesionForm.installmentAmount),
+      installmentCount: Number(adhesionForm.installmentCount),
+      notes: adhesionForm.notes || undefined,
     });
   }
 
@@ -187,6 +207,16 @@ export function StudentOfficialDocuments({
           studentName={studentName}
         />
       ) : null}
+      {adhesionDialog ? (
+        <AdhesionTermDialog
+          busy={busy !== ""}
+          form={adhesionForm}
+          onCancel={() => setAdhesionDialog(null)}
+          onChange={setAdhesionForm}
+          onSubmit={() => void submitAdhesionTerm()}
+          studentName={studentName}
+        />
+      ) : null}
     </section>
   );
 }
@@ -264,6 +294,16 @@ function OfficialDocumentCard({
                 ? formatDateTime(latest.termDetails.dueDate)
                 : "nao informado"}{" "}
               · Prazo: {latest.termDetails.regularizationDeadlineDays ?? "-"} dias
+            </p>
+          ) : null}
+          {latest.adhesionDetails ? (
+            <p className="mt-1">
+              Primeira mensalidade:{" "}
+              {latest.adhesionDetails.firstInstallmentDate
+                ? formatDateTime(latest.adhesionDetails.firstInstallmentDate)
+                : "nao informado"}{" "}
+              · Parcelas: {latest.adhesionDetails.installmentCount ?? "-"} · Valor:{" "}
+              {formatCurrencyCents(latest.adhesionDetails.installmentAmountCents)}
             </p>
           ) : null}
           {item.history.length > 1 ? (
@@ -351,6 +391,22 @@ type TerminationTermForm = {
   regularizationDeadlineDays: string;
 };
 
+type AdhesionTermForm = {
+  firstInstallmentDate: string;
+  installmentAmount: string;
+  installmentCount: string;
+  notes: string;
+};
+
+function defaultAdhesionTermForm(): AdhesionTermForm {
+  return {
+    firstInstallmentDate: todayInputDate(),
+    installmentAmount: "",
+    installmentCount: "",
+    notes: "",
+  };
+}
+
 function defaultTerminationTermForm(): TerminationTermForm {
   return {
     dueDate: todayInputDate(),
@@ -363,6 +419,158 @@ function defaultTerminationTermForm(): TerminationTermForm {
 
 function todayInputDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function moneyInputToCents(value: string) {
+  const digits = onlyDigits(value);
+  return digits ? Number(digits) : 0;
+}
+
+function maskMoneyInput(value: string) {
+  const cents = moneyInputToCents(value);
+  if (!cents) {
+    return "";
+  }
+  return new Intl.NumberFormat("pt-BR", {
+    currency: "BRL",
+    style: "currency",
+  }).format(cents / 100);
+}
+
+function formatCurrencyCents(value?: number | null) {
+  return typeof value === "number" ? maskMoneyInput(String(value)) : "nao informado";
+}
+
+function AdhesionTermDialog({
+  busy,
+  form,
+  onCancel,
+  onChange,
+  onSubmit,
+  studentName,
+}: {
+  busy: boolean;
+  form: AdhesionTermForm;
+  onCancel: () => void;
+  onChange: (form: AdhesionTermForm) => void;
+  onSubmit: () => void;
+  studentName: string;
+}) {
+  const installmentCount = Number(form.installmentCount);
+  const installmentAmountCents = moneyInputToCents(form.installmentAmount);
+  const canSubmit =
+    form.firstInstallmentDate &&
+    installmentAmountCents > 0 &&
+    Number.isInteger(installmentCount) &&
+    installmentCount > 0 &&
+    installmentCount <= 24;
+
+  function update<K extends keyof AdhesionTermForm>(
+    key: K,
+    value: AdhesionTermForm[K],
+  ) {
+    onChange({ ...form, [key]: value });
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-[2px]">
+      <section
+        aria-modal="true"
+        className="max-h-[92vh] w-full max-w-2xl overflow-auto rounded-2xl border border-slate-200 bg-white shadow-xl"
+        role="dialog"
+      >
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-950">
+            Emitir Termo de Adesão e Filiação
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-slate-600">
+            Informe valor, quantidade e primeira mensalidade. As datas serao
+            calculadas automaticamente e salvas no snapshot do documento.
+          </p>
+        </div>
+        <div className="grid gap-4 p-5">
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Aluno
+            <input
+              className={cx(adminTheme.control, "w-full")}
+              readOnly
+              value={studentName}
+            />
+          </label>
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Valor da parcela
+              <input
+                className={cx(adminTheme.control, "w-full")}
+                inputMode="numeric"
+                onChange={(event) =>
+                  update("installmentAmount", maskMoneyInput(event.target.value))
+                }
+                placeholder="R$ 330,00"
+                required
+                value={form.installmentAmount}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Primeira mensalidade
+              <span className="relative">
+                <CalendarDays
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={16}
+                />
+                <input
+                  className={cx(adminTheme.control, "w-full pl-9")}
+                  onChange={(event) =>
+                    update("firstInstallmentDate", event.target.value)
+                  }
+                  required
+                  type="date"
+                  value={form.firstInstallmentDate}
+                />
+              </span>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Quantidade de parcelas
+              <input
+                className={cx(adminTheme.control, "w-full")}
+                max={24}
+                min={1}
+                onChange={(event) => update("installmentCount", event.target.value)}
+                required
+                type="number"
+                value={form.installmentCount}
+              />
+            </label>
+          </div>
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Observacoes
+            <textarea
+              className={cx(adminTheme.control, "h-24 w-full py-2")}
+              maxLength={500}
+              onChange={(event) => update("notes", event.target.value)}
+              placeholder="Opcional"
+              value={form.notes}
+            />
+          </label>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50/80 px-5 py-4">
+          <button className={adminTheme.secondaryButton} onClick={onCancel} type="button">
+            Cancelar
+          </button>
+          <button
+            className={adminTheme.primaryButton}
+            disabled={busy || !canSubmit}
+            onClick={onSubmit}
+            type="button"
+          >
+            <Send aria-hidden="true" size={16} />
+            Emitir
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function TerminationTermDialog({

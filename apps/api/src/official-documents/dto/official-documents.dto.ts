@@ -26,6 +26,22 @@ export class DownloadOfficialDocumentDto {
 
 export class IssueOfficialDocumentDto {
   @IsOptional()
+  @IsDateString()
+  firstInstallmentDate?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100000000)
+  installmentAmountCents?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  installmentCount?: number;
+
+  @IsOptional()
   @IsString()
   @MaxLength(80)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))

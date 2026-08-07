@@ -7,12 +7,14 @@ import {
 export type OfficialDocumentSignerSource =
   | "BOARD_ROLE"
   | "EMISSOR"
+  | "GUARDIAN"
   | "STUDENT";
 
 export type OfficialDocumentSignerRole =
   | BoardMemberRole
   | "ACADEMICO"
-  | "EMISSOR";
+  | "EMISSOR"
+  | "RESPONSAVEL";
 
 export type OfficialDocumentSignerDefinition = {
   label: string;
@@ -35,6 +37,38 @@ export type OfficialDocumentDefinition = {
 };
 
 export const OFFICIAL_DOCUMENT_DEFINITIONS = {
+  [OfficialDocumentType.ADHESION_TERM]: {
+    blockedReason: "",
+    canIssue: () => true,
+    description:
+      "Formaliza a adesao e filiacao do academico ao quadro de associados da ATRETU.",
+    scope: "STUDENT",
+    templateKey: "adhesion-term",
+    templateVersion: 1,
+    title: "Termo de Adesão e Filiação",
+    type: OfficialDocumentType.ADHESION_TERM,
+    version: 1,
+    signers: [
+      {
+        label: "Presidente da ATRETU",
+        required: true,
+        role: BoardMemberRole.PRESIDENT,
+        source: "BOARD_ROLE",
+      },
+      {
+        label: "Associado",
+        required: true,
+        role: "ACADEMICO",
+        source: "STUDENT",
+      },
+      {
+        label: "Responsavel",
+        required: false,
+        role: "RESPONSAVEL",
+        source: "GUARDIAN",
+      },
+    ],
+  },
   [OfficialDocumentType.TERMINATION_LETTER]: {
     blockedReason: "Disponivel apos o desligamento do academico.",
     canIssue: (student) => student.status === StudentStatus.TERMINATED,
