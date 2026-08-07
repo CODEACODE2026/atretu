@@ -531,6 +531,7 @@ export type StudentDocumentsResponse = {
 export type OfficialDocumentType =
   | "ADHESION_TERM"
   | "INTERNAL_REGULATION"
+  | "TRANSPORT_REGULATION"
   | "TERMINATION_LETTER"
   | "TERMINATION_TERM";
 export type OfficialDocumentSituation = "ISSUED" | "NOT_ISSUED";

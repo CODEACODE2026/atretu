@@ -23,6 +23,7 @@ export type OfficialDocumentPdfInput = {
   layout?: "compact" | "standard";
   protocol: string;
   qrPayload: string;
+  signaturePlacement?: "body" | "end";
   signatureLabel: string;
   signatureName: string;
   signatures?: Array<{ label?: string; name: string }>;
@@ -35,7 +36,13 @@ export type OfficialDocumentPdfInput = {
 
 export type OfficialDocumentPdfBlock =
   | { text: string; type: "chapter" | "heading" | "paragraph" | "section" }
+  | { text: string; type: "boldParagraph" }
   | { items: string[]; type: "list" }
+  | {
+      intro?: string;
+      signatures: Array<{ details?: string[]; label?: string; name: string }>;
+      type: "signatureGroup";
+    }
   | { headers: string[]; rows: string[][]; type: "table" }
   | { label: string; text: string; type: "article" }
   | { size?: number; type: "spacer" };
@@ -134,10 +141,14 @@ export class OfficialDocumentPdfBuilder {
       });
     });
 
-    y = Math.max(y + 18, compact ? y : 500);
     const signatures = input.signatures?.length
       ? input.signatures
       : [{ label: input.signatureTitle, name: input.signatureName }];
+    if (input.signaturePlacement === "body") {
+      this.drawQrPreparedBlock(doc, input, A4.width - 158, footerTopY - 150);
+      return;
+    }
+    y = Math.max(y + 18, compact ? y : 500);
     const signatureHeight = signatures.length > 1 ? 92 : 116;
     if (y + signatureHeight > contentBottomLimit) {
       y = addPage() + 24;
@@ -238,6 +249,41 @@ export class OfficialDocumentPdfBuilder {
           }) + paragraphGap
       );
     }
+    if (block.type === "boldParagraph") {
+      return (
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(options.bodyFontSize)
+          .heightOfString(block.text, {
+            align: "justify",
+            lineGap: options.bodyLineGap,
+            width,
+          }) + paragraphGap
+      );
+    }
+    if (block.type === "signatureGroup") {
+      const signatures = Math.max(block.signatures.length, 1);
+      const columns = signatures === 1 ? 1 : 2;
+      const gap = 18;
+      const columnWidth = (width - gap * (columns - 1)) / columns;
+      const detailsHeight = block.signatures.reduce((height, signature) => {
+        const signatureDetailsHeight = (signature.details ?? []).reduce(
+          (details, detail) =>
+            details +
+            doc.font("Helvetica").fontSize(8).heightOfString(detail, {
+              width: columnWidth,
+            }),
+          0,
+        );
+        return Math.max(height, signatureDetailsHeight);
+      }, 0);
+      return (
+        (block.intro ? 14 : 0) +
+        Math.ceil(signatures / columns) *
+          (detailsHeight + (compact ? 62 : 70)) +
+        paragraphGap
+      );
+    }
     if (block.type === "list") {
       return block.items.reduce(
         (height, item) =>
@@ -322,6 +368,21 @@ export class OfficialDocumentPdfBuilder {
         });
       return doc.y + paragraphGap;
     }
+    if (block.type === "boldParagraph") {
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(options.bodyFontSize)
+        .fillColor(COLORS.ink)
+        .text(block.text, x, y, {
+          align: "justify",
+          lineGap: options.bodyLineGap,
+          width,
+        });
+      return doc.y + paragraphGap;
+    }
+    if (block.type === "signatureGroup") {
+      return this.drawSignatureGroup(doc, block, x, y, width, options);
+    }
     if (block.type === "list") {
       let nextY = y + (compact ? 1 : 2);
       block.items.forEach((item) => {
@@ -393,6 +454,76 @@ export class OfficialDocumentPdfBuilder {
       nextY += rowHeight;
     });
     return nextY + (compact ? 8 : 12);
+  }
+
+  private drawSignatureGroup(
+    doc: PDFKit.PDFDocument,
+    block: Extract<OfficialDocumentPdfBlock, { type: "signatureGroup" }>,
+    x: number,
+    y: number,
+    width: number,
+    options: { bodyFontSize: number; bodyLineGap: number },
+  ) {
+    let nextY = y;
+    if (block.intro) {
+      doc
+        .font("Helvetica")
+        .fontSize(options.bodyFontSize)
+        .fillColor(COLORS.ink)
+        .text(block.intro, x, nextY, {
+          align: "left",
+          lineGap: options.bodyLineGap,
+          width,
+        });
+      nextY = doc.y + 8;
+    }
+    const gap = 18;
+    const columns = block.signatures.length === 1 ? 1 : 2;
+    const columnWidth = (width - gap * (columns - 1)) / columns;
+    block.signatures.forEach((signature, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const rowY = nextY + row * 86;
+      const columnX = columns === 1 ? x + width * 0.16 : x + column * (columnWidth + gap);
+      const lineWidth = columns === 1 ? width * 0.68 : columnWidth;
+      let detailBottom = rowY;
+      signature.details?.forEach((detail) => {
+        doc
+          .font("Helvetica")
+          .fontSize(8)
+          .fillColor(COLORS.ink)
+          .text(detail, columnX, detailBottom, {
+            align: "left",
+            width: lineWidth,
+          });
+        detailBottom = doc.y + 2;
+      });
+      const lineY = Math.max(rowY + 34, detailBottom + 18);
+      doc
+        .moveTo(columnX + 10, rowY + 34)
+        .moveTo(columnX + 10, lineY)
+        .lineTo(columnX + lineWidth - 10, lineY)
+        .strokeColor(COLORS.line)
+        .lineWidth(1)
+        .stroke();
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(8.4)
+        .fillColor(COLORS.ink)
+        .text(signature.name, columnX, lineY + 8, {
+          align: "center",
+          width: lineWidth,
+        });
+      doc
+        .font("Helvetica")
+        .fontSize(7.6)
+        .fillColor(COLORS.muted)
+        .text(signature.label ?? "", columnX, lineY + 22, {
+          align: "center",
+          width: lineWidth,
+        });
+    });
+    return nextY + Math.ceil(block.signatures.length / columns) * 86 + 4;
   }
 
   private drawHeader(doc: PDFKit.PDFDocument, logo: Buffer) {

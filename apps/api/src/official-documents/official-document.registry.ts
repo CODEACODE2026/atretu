@@ -69,6 +69,38 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
       },
     ],
   },
+  [OfficialDocumentType.TRANSPORT_REGULATION]: {
+    blockedReason: "",
+    canIssue: () => true,
+    description:
+      "Registra ciencia do academico sobre as diretrizes oficiais de uso do transporte da ATRETU.",
+    scope: "STUDENT",
+    templateKey: "transport-regulation",
+    templateVersion: 1,
+    title: "Regimento do Transporte / Termo de Ciência",
+    type: OfficialDocumentType.TRANSPORT_REGULATION,
+    version: 1,
+    signers: [
+      {
+        label: "Presidente da ATRETU",
+        required: true,
+        role: BoardMemberRole.PRESIDENT,
+        source: "BOARD_ROLE",
+      },
+      {
+        label: "Associado",
+        required: true,
+        role: "ACADEMICO",
+        source: "STUDENT",
+      },
+      {
+        label: "Responsavel",
+        required: false,
+        role: "RESPONSAVEL",
+        source: "GUARDIAN",
+      },
+    ],
+  },
   [OfficialDocumentType.TERMINATION_LETTER]: {
     blockedReason: "Disponivel apos o desligamento do academico.",
     canIssue: (student) => student.status === StudentStatus.TERMINATED,

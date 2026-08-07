@@ -34,6 +34,7 @@ for (const fragment of [
   "requestId",
   "signerDetails",
   "ADHESION_TERM",
+  "TRANSPORT_REGULATION",
   "adhesionDetails",
   "firstInstallmentDate",
   "installmentAmountCents",

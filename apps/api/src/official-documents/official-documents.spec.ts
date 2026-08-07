@@ -20,6 +20,11 @@ import {
   INTERNAL_REGULATION_DOCUMENT_TITLE,
   internalRegulationBody,
 } from "./internal-regulation.content.js";
+import {
+  TRANSPORT_REGULATION_APPROVAL_DATE,
+  TRANSPORT_REGULATION_DOCUMENT_TITLE,
+  transportRegulationBody,
+} from "./transport-regulation.content.js";
 
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
 const controller = readFileSync(
@@ -50,12 +55,17 @@ const adhesionTerm = readFileSync(
   new URL("./adhesion-term.content.ts", import.meta.url),
   "utf8",
 );
+const transportRegulation = readFileSync(
+  new URL("./transport-regulation.content.ts", import.meta.url),
+  "utf8",
+);
 const appModule = readFileSync(new URL("../app.module.ts", import.meta.url), "utf8");
 
 for (const fragment of [
   "enum OfficialDocumentType",
   "TERMINATION_LETTER",
   "ADHESION_TERM",
+  "TRANSPORT_REGULATION",
   "TERMINATION_TERM",
   "INTERNAL_REGULATION",
   "model OfficialDocumentIssue",
@@ -111,6 +121,8 @@ for (const fragment of [
   "resolveTerminationTermPayload",
   "resolveAdhesionTermPayload",
   "buildAdhesionTermSnapshot",
+  "buildTransportRegulationSnapshot",
+  "transportRegulationBody",
   "resolveSigners",
   "resolveBoardRoleSigner",
   "status: BoardMembershipStatus.ACTIVE",
@@ -142,6 +154,7 @@ for (const fragment of [
   "OFFICIAL_DOCUMENT_DEFINITIONS",
   "templateKey: \"termination-letter\"",
   "templateKey: \"adhesion-term\"",
+  "templateKey: \"transport-regulation\"",
   "templateKey: \"termination-term\"",
   "templateKey: \"internal-regulation\"",
   "templateVersion: 1",
@@ -153,6 +166,7 @@ for (const fragment of [
   "BoardMemberRole.PRESIDENT",
   "Presidente da ATRETU",
   "Termo de Adesão",
+  "Regimento do Transporte",
   "Termo de Desligamento",
   "Regimento Interno",
 ]) {
@@ -174,6 +188,26 @@ for (const fragment of [
 }
 for (const fragment of ["10 parcelas", "R$330,00", "vencimento todo dia 20"]) {
   assert.ok(!adhesionTerm.includes(fragment), `adhesion term must not include ${fragment}`);
+}
+
+for (const fragment of [
+  "transportRegulationBody",
+  "TRANSPORT_REGULATION_APPROVAL_DATE",
+  "2023-12-16",
+  "DIRETRIZES PARA TRANSPORTE DE ALUNOS",
+  "AEUA",
+  "R$ 150,00",
+  "Unifatecie, Unespar, Unipar, Unopar, IFPR",
+  "Artigos 42º",
+  "artigos 9º e 10º",
+  "TERMO DE CIENCIA DO REGIMENTO DO TRANSPORTE",
+  "QUANDO INTERESSADO FOR MENOR DE IDADE",
+  "signatureGroup",
+]) {
+  assert.ok(
+    transportRegulation.includes(fragment),
+    `transport regulation content must include ${fragment}`,
+  );
 }
 
 for (const fragment of [
@@ -307,6 +341,23 @@ const adhesionSignersWithoutGuardian = await makeService([validPresident]).resol
   issuedAt,
 );
 assert.equal(adhesionSignersWithoutGuardian.length, 2);
+
+const transportSigners = await makeService([validPresident]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.TRANSPORT_REGULATION).signers,
+  signerStudentWithGuardian,
+  issuedAt,
+);
+assert.equal(transportSigners.length, 3);
+assert.equal(transportSigners[0]?.role, BoardMemberRole.PRESIDENT);
+assert.equal(transportSigners[1]?.source, "STUDENT");
+assert.equal(transportSigners[2]?.source, "GUARDIAN");
+
+const transportSignersWithoutGuardian = await makeService([validPresident]).resolveSigners(
+  getOfficialDocumentDefinition(OfficialDocumentType.TRANSPORT_REGULATION).signers,
+  signerStudent,
+  issuedAt,
+);
+assert.equal(transportSignersWithoutGuardian.length, 2);
 
 await assert.rejects(
   () =>
@@ -460,7 +511,7 @@ async function assertNoHeaderOnlyPages(input: OfficialDocumentPdfInput) {
         .trim();
       assert.match(
         text,
-        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|Art\.|Presidente QA|Termo de Adesão|Cláusula|Academico QA Adesao/i,
+        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|DIRETRIZES|TRANSPORTE|Art\.|Presidente QA|Termo de Adesão|Cláusula|Academico QA Adesao|Academico QA Transporte/i,
         `page ${page} must include document content, not only header/footer`,
       );
     }
@@ -581,5 +632,54 @@ assert.equal(
 const adhesionPages = await pageCount(adhesionTermInput);
 assert.ok(adhesionPages >= 1 && adhesionPages <= 3, "adhesion term must render in a compact A4 flow");
 await assertNoHeaderOnlyPages(adhesionTermInput);
+
+const transportRegulationInput: OfficialDocumentPdfInput = {
+  body: transportRegulationBody({
+    approvalText: "Terra Rica, 16 de dezembro de 2023",
+    guardian: {
+      cpf: "987.654.321-00",
+      fullName: "Responsavel QA",
+      rg: "1234567",
+    },
+    president: {
+      label: "Presidente da ATRETU",
+      name: "Presidente QA",
+    },
+    student: {
+      cpf: "141.434.829-08",
+      fullName: "Academico QA Transporte",
+      rg: "165454073",
+    },
+  }),
+  documentTitle: TRANSPORT_REGULATION_DOCUMENT_TITLE,
+  emittedAt: new Date("2026-08-06T12:00:00.000Z"),
+  emittedBy: "QA Oficial",
+  footerNote:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  layout: "compact",
+  protocol: "ATRETU-2026-TRANSP",
+  qrPayload: "ATRETU:ATRETU-2026-TRANSP:TRANSPORT_REGULATION",
+  signatureLabel: "Terra Rica, 06/08/2026",
+  signatureName: "Presidente QA",
+  signaturePlacement: "body",
+  signatures: [
+    { label: "Presidente da ATRETU", name: "Presidente QA" },
+    { label: "Associado", name: "Academico QA Transporte" },
+    { label: "Responsavel", name: "Responsavel QA" },
+  ],
+  studentName: "Academico QA Transporte",
+  subjectLabel: "Academico",
+  subjectName: "Academico QA Transporte",
+  version: 1,
+};
+const transportBody = JSON.stringify(transportRegulationInput.body);
+assert.ok(transportBody.includes("AEUA"));
+assert.ok(transportBody.includes("R$ 150,00"));
+assert.ok(transportBody.includes("TERMO DE CIENCIA DO REGIMENTO DO TRANSPORTE"));
+assert.ok(transportBody.includes("QUANDO INTERESSADO FOR MENOR DE IDADE"));
+assert.equal(TRANSPORT_REGULATION_APPROVAL_DATE, "2023-12-16");
+const transportPages = await pageCount(transportRegulationInput);
+assert.equal(transportPages, 3, "transport regulation must stay at the legacy 3 pages");
+await assertNoHeaderOnlyPages(transportRegulationInput);
 
 console.log("Official documents infrastructure guard OK");

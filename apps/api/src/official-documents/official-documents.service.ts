@@ -40,6 +40,12 @@ import {
   internalRegulationBody,
 } from "./internal-regulation.content.js";
 import {
+  TRANSPORT_REGULATION_APPROVAL_DATE,
+  TRANSPORT_REGULATION_APPROVAL_TEXT,
+  TRANSPORT_REGULATION_DOCUMENT_TITLE,
+  transportRegulationBody,
+} from "./transport-regulation.content.js";
+import {
   getOfficialDocumentDefinition,
   listOfficialDocumentDefinitions,
   type OfficialDocumentSignerDefinition,
@@ -133,6 +139,11 @@ type OfficialDocumentSnapshot = {
     reason: string | null;
     justification: string | null;
   } | null;
+  transportRegulation?: {
+    approvalDate: string;
+    templateKey: string;
+    templateVersion: number;
+  };
   version: number;
 };
 
@@ -313,6 +324,7 @@ export class OfficialDocumentsService {
               signerName: snapshot.signers[0]?.name,
               signerRole: snapshot.signers[0]?.role,
               signerSource: snapshot.signers[0]?.source,
+              emittedByUserId: currentUser.id,
               signers: snapshot.signers.map((signer) => ({
                 name: signer.name,
                 role: signer.role,
@@ -333,6 +345,13 @@ export class OfficialDocumentsService {
                 : undefined,
               templateKey: definition.templateKey,
               templateVersion: definition.templateVersion,
+              transportRegulation: snapshot.transportRegulation
+                ? {
+                    approvalDate: snapshot.transportRegulation.approvalDate,
+                    templateKey: snapshot.transportRegulation.templateKey,
+                    templateVersion: snapshot.transportRegulation.templateVersion,
+                  }
+                : undefined,
               term: snapshot.term
                 ? {
                     dueDate: snapshot.term.dueDate,
@@ -668,7 +687,83 @@ export class OfficialDocumentsService {
     if (documentType === OfficialDocumentType.ADHESION_TERM) {
       return this.buildAdhesionTermSnapshot(student, issuedAt, protocol, payload);
     }
+    if (documentType === OfficialDocumentType.TRANSPORT_REGULATION) {
+      return this.buildTransportRegulationSnapshot(student, issuedAt, protocol);
+    }
     return this.buildTerminationLetterSnapshot(student, documentType, issuedAt, protocol);
+  }
+
+  private async buildTransportRegulationSnapshot(
+    student: StudentForOfficialDocument,
+    issuedAt: Date,
+    protocol: string,
+  ): Promise<OfficialDocumentSnapshot> {
+    const definition = getOfficialDocumentDefinition(
+      OfficialDocumentType.TRANSPORT_REGULATION,
+    );
+    const signers = await this.resolveSigners(definition.signers, student, issuedAt);
+    const primarySigner = this.primarySigner(signers);
+    const studentSnapshot = {
+      id: student.id,
+      address: this.formatAddress(student.person),
+      city: student.person.addressCity || "Terra Rica",
+      name: student.person.fullName,
+      cpf: this.formatCpf(student.person.cpf),
+      rg: this.formatRg(student.person.rg),
+      status: student.status,
+    };
+    const guardian = student.guardian
+      ? {
+          cpf: student.guardian.cpf ? this.formatCpf(student.guardian.cpf) : null,
+          fullName: student.guardian.fullName,
+          rg: this.formatRg(student.guardian.rg),
+        }
+      : null;
+    const body = transportRegulationBody({
+      approvalText: TRANSPORT_REGULATION_APPROVAL_TEXT,
+      guardian,
+      president: {
+        label: primarySigner.label,
+        name: primarySigner.name,
+      },
+      student: {
+        cpf: studentSnapshot.cpf,
+        fullName: studentSnapshot.name,
+        rg: studentSnapshot.rg,
+      },
+    });
+    return {
+      approvalDate: TRANSPORT_REGULATION_APPROVAL_DATE,
+      body,
+      documentTitle: TRANSPORT_REGULATION_DOCUMENT_TITLE,
+      documentType: OfficialDocumentType.TRANSPORT_REGULATION,
+      emittedAt: issuedAt.toISOString(),
+      footerNote:
+        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      guardian,
+      protocol,
+      qrPayload: `ATRETU:${protocol}`,
+      signatureLabel: `${studentSnapshot.city}, ${this.formatDate(issuedAt)}`,
+      signatureName: primarySigner.name,
+      signatureTitle: primarySigner.label,
+      signers,
+      student: studentSnapshot,
+      subject: {
+        id: student.id,
+        name: student.person.fullName,
+        scope: "STUDENT",
+      },
+      template: {
+        key: definition.templateKey,
+        version: definition.templateVersion,
+      },
+      transportRegulation: {
+        approvalDate: TRANSPORT_REGULATION_APPROVAL_DATE,
+        templateKey: definition.templateKey,
+        templateVersion: definition.templateVersion,
+      },
+      version: definition.version,
+    };
   }
 
   private async buildAdhesionTermSnapshot(
@@ -959,11 +1054,16 @@ export class OfficialDocumentsService {
       footerNote: snapshot.footerNote,
       layout:
         snapshot.documentType === OfficialDocumentType.INTERNAL_REGULATION ||
-        snapshot.documentType === OfficialDocumentType.ADHESION_TERM
+        snapshot.documentType === OfficialDocumentType.ADHESION_TERM ||
+        snapshot.documentType === OfficialDocumentType.TRANSPORT_REGULATION
           ? "compact"
           : "standard",
       protocol: snapshot.protocol,
       qrPayload: snapshot.qrPayload,
+      signaturePlacement:
+        snapshot.documentType === OfficialDocumentType.TRANSPORT_REGULATION
+          ? "body"
+          : "end",
       signatureLabel: snapshot.signatureLabel,
       signatureName: snapshot.signatureName,
       signatures: this.pdfSignatures(snapshot),
@@ -1213,7 +1313,9 @@ export class OfficialDocumentsService {
           ? "termo-desligamento"
           : documentType === OfficialDocumentType.ADHESION_TERM
             ? "termo-adesao"
-            : "documento-oficial";
+            : documentType === OfficialDocumentType.TRANSPORT_REGULATION
+              ? "regimento-transporte"
+              : "documento-oficial";
     return `${prefix}_${token || "academico"}_${protocol.toLowerCase()}.pdf`;
   }
 
@@ -1248,6 +1350,12 @@ export class OfficialDocumentsService {
       ]
         .filter(Boolean)
         .join("; ");
+    }
+    if (snapshot.transportRegulation) {
+      return [
+        `aprovacao=${snapshot.transportRegulation.approvalDate}`,
+        `template=${snapshot.transportRegulation.templateKey}@${snapshot.transportRegulation.templateVersion}`,
+      ].join("; ");
     }
     if (snapshot.documentType === OfficialDocumentType.TERMINATION_TERM) {
       return [
