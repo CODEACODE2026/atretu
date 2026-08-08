@@ -26,6 +26,10 @@ export class DownloadOfficialDocumentDto {
 
 export class IssueOfficialDocumentDto {
   @IsOptional()
+  @IsDateString()
+  finalClearanceDate?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(80)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
@@ -82,6 +86,18 @@ export class IssueOfficialDocumentDto {
   @Min(1)
   @Max(100000000)
   refundAmountCents?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100000000)
+  totalAmountCents?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  year?: number;
 
   @IsOptional()
   @IsString()

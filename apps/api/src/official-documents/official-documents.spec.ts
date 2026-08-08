@@ -13,6 +13,10 @@ import {
 import { OfficialDocumentsService } from "./official-documents.service.js";
 import { getOfficialDocumentDefinition } from "./official-document.registry.js";
 import {
+  ANNUAL_CLEARANCE_DECLARATION_DOCUMENT_TITLE,
+  annualClearanceDeclarationBody,
+} from "./annual-clearance-declaration.content.js";
+import {
   ADHESION_TERM_DOCUMENT_TITLE,
   adhesionTermBody,
 } from "./adhesion-term.content.js";
@@ -58,6 +62,10 @@ const adhesionTerm = readFileSync(
   new URL("./adhesion-term.content.ts", import.meta.url),
   "utf8",
 );
+const annualClearanceDeclaration = readFileSync(
+  new URL("./annual-clearance-declaration.content.ts", import.meta.url),
+  "utf8",
+);
 const transportRegulation = readFileSync(
   new URL("./transport-regulation.content.ts", import.meta.url),
   "utf8",
@@ -72,6 +80,7 @@ for (const fragment of [
   "enum OfficialDocumentType",
   "TERMINATION_LETTER",
   "ADHESION_TERM",
+  "ANNUAL_CLEARANCE_DECLARATION",
   "TRANSPORT_REGULATION",
   "TRANSPORT_REFUND_REQUEST",
   "TERMINATION_TERM",
@@ -129,11 +138,14 @@ for (const fragment of [
   "resolveTerminationTermPayload",
   "resolveAdhesionTermPayload",
   "buildAdhesionTermSnapshot",
+  "buildAnnualClearanceDeclarationSnapshot",
   "buildTransportRegulationSnapshot",
   "buildTransportRefundRequestSnapshot",
   "transportRegulationBody",
   "transportRefundRequestBody",
+  "annualClearanceDeclarationBody",
   "resolveTransportRefundRequestPayload",
+  "resolveAnnualClearanceDeclarationPayload",
   "resolveSigners",
   "resolveBoardRoleSigner",
   "status: BoardMembershipStatus.ACTIVE",
@@ -168,6 +180,7 @@ for (const fragment of [
   "OFFICIAL_DOCUMENT_DEFINITIONS",
   "templateKey: \"termination-letter\"",
   "templateKey: \"adhesion-term\"",
+  "templateKey: \"annual-clearance-declaration\"",
   "templateKey: \"transport-regulation\"",
   "templateKey: \"transport-refund-request\"",
   "templateKey: \"termination-term\"",
@@ -181,6 +194,7 @@ for (const fragment of [
   "BoardMemberRole.PRESIDENT",
   "Presidente da ATRETU",
   "Termo de Adesão",
+  "Declaração de Quitação Anual",
   "Regimento do Transporte",
   "Solicitação de Reembolso",
   "Termo de Desligamento",
@@ -204,6 +218,28 @@ for (const fragment of [
 }
 for (const fragment of ["10 parcelas", "R$330,00", "vencimento todo dia 20"]) {
   assert.ok(!adhesionTerm.includes(fragment), `adhesion term must not include ${fragment}`);
+}
+
+for (const fragment of [
+  "annualClearanceDeclarationBody",
+  "Declaração de Quitação Anual",
+  "finalClearanceDate",
+  "periodStart",
+  "periodEnd",
+  "totalAmount",
+  "totalAmountWords",
+  "issuePlaceDateText",
+]) {
+  assert.ok(
+    annualClearanceDeclaration.includes(fragment),
+    `annual clearance content must include ${fragment}`,
+  );
+}
+for (const forbidden of ["20/12", "R$ 300,00", "trezentos reais"]) {
+  assert.ok(
+    !annualClearanceDeclaration.includes(forbidden),
+    `annual clearance content must not include fixed legacy fragment ${forbidden}`,
+  );
 }
 
 for (const fragment of [
@@ -363,6 +399,17 @@ const institutionalSigner = await makeService([validPresident]).resolveSigners(
 assert.equal(institutionalSigner[0]?.name, "Presidente A");
 assert.equal(institutionalSigner[0]?.role, BoardMemberRole.PRESIDENT);
 assert.equal(institutionalSigner[0]?.signerSource, "BOARD_ROLE");
+
+const annualClearanceSigner = await makeService([validPresident]).resolveSigners(
+  getOfficialDocumentDefinition(
+    OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION,
+  ).signers,
+  signerStudent,
+  issuedAt,
+);
+assert.equal(annualClearanceSigner.length, 1);
+assert.equal(annualClearanceSigner[0]?.role, BoardMemberRole.PRESIDENT);
+assert.equal(annualClearanceSigner[0]?.source, "BOARD_ROLE");
 
 const adhesionSigners = await makeService([validPresident]).resolveSigners(
   getOfficialDocumentDefinition(OfficialDocumentType.ADHESION_TERM).signers,
@@ -560,7 +607,7 @@ async function assertNoHeaderOnlyPages(input: OfficialDocumentPdfInput) {
         .trim();
       assert.match(
         text,
-        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|DIRETRIZES|TRANSPORTE|Art\.|Presidente QA|Termo de Adesão|Cláusula|Academico QA Adesao|Academico QA Transporte|Reembolso|Academico QA Reembolso/i,
+        /Carta de Desligamento|paragrafo de regressao|Academico QA Documentos|REGIMENTO|DIRETRIZES|TRANSPORTE|Art\.|Presidente QA|Termo de Adesão|Cláusula|Academico QA Adesao|Academico QA Transporte|Reembolso|Academico QA Reembolso|Quitação Anual|Academico QA Quitacao/i,
         `page ${page} must include document content, not only header/footer`,
       );
     }
@@ -681,6 +728,53 @@ assert.equal(
 const adhesionPages = await pageCount(adhesionTermInput);
 assert.ok(adhesionPages >= 1 && adhesionPages <= 3, "adhesion term must render in a compact A4 flow");
 await assertNoHeaderOnlyPages(adhesionTermInput);
+
+const annualClearanceInput: OfficialDocumentPdfInput = {
+  body: annualClearanceDeclarationBody({
+    finalClearanceDate: "15/11/2026",
+    issuePlaceDateText: "Terra Rica - PR, 08 de agosto de 2026.",
+    periodEnd: "31 de dezembro de 2026",
+    periodStart: "01 de janeiro de 2026",
+    presidentName: "Presidente QA",
+    student: {
+      cpf: "115.932.699-19",
+      fullName: "Academico QA Quitacao",
+    },
+    totalAmount: "R$ 300,00",
+    totalAmountWords: "trezentos reais",
+    year: 2026,
+  }),
+  documentTitle: ANNUAL_CLEARANCE_DECLARATION_DOCUMENT_TITLE,
+  emittedAt: new Date("2026-08-08T12:00:00.000Z"),
+  emittedBy: "QA Oficial",
+  footerNote:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  layout: "compact",
+  protocol: "ATRETU-2026-QUIT",
+  qrPayload: "ATRETU:ATRETU-2026-QUIT:ANNUAL_CLEARANCE_DECLARATION",
+  signatureLabel: "",
+  signatureName: "Presidente QA",
+  signatures: [{ label: "Presidente da ATRETU", name: "Presidente QA" }],
+  studentName: "Academico QA Quitacao",
+  subjectLabel: "Academico",
+  subjectName: "Academico QA Quitacao",
+  version: 1,
+};
+const annualClearanceBody = JSON.stringify(annualClearanceInput.body);
+assert.ok(annualClearanceBody.includes("exercício do ano de 2026"));
+assert.ok(annualClearanceBody.includes("01 de janeiro de 2026"));
+assert.ok(annualClearanceBody.includes("31 de dezembro de 2026"));
+assert.ok(annualClearanceBody.includes("R$ 300,00"));
+assert.ok(annualClearanceBody.includes("trezentos reais"));
+assert.ok(annualClearanceBody.includes("Data da quitação final: 15/11/2026"));
+assert.ok(!annualClearanceBody.includes("Data da quitação final: 20/12/2026"));
+assert.ok(annualClearanceBody.includes("Terra Rica - PR, 08 de agosto de 2026."));
+assert.equal(
+  await pageCount(annualClearanceInput),
+  1,
+  "annual clearance declaration must fit in one A4 page",
+);
+await assertNoHeaderOnlyPages(annualClearanceInput);
 
 const transportRegulationInput: OfficialDocumentPdfInput = {
   body: transportRegulationBody({

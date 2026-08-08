@@ -25,6 +25,10 @@ import type {
   IssueOfficialDocumentDto,
 } from "./dto/official-documents.dto.js";
 import {
+  ANNUAL_CLEARANCE_DECLARATION_DOCUMENT_TITLE,
+  annualClearanceDeclarationBody,
+} from "./annual-clearance-declaration.content.js";
+import {
   ADHESION_TERM_DOCUMENT_TITLE,
   adhesionTermBody,
 } from "./adhesion-term.content.js";
@@ -86,6 +90,13 @@ type TransportRefundRequestPayload = {
   refundAmountCents: number;
 };
 
+type AnnualClearanceDeclarationPayload = {
+  finalClearanceDate: Date;
+  notes?: string;
+  totalAmountCents: number;
+  year: number;
+};
+
 type OfficialDocumentIssuePayload = IssueOfficialDocumentDto | undefined;
 type InstitutionalOfficialDocumentIssuePayload =
   | IssueInstitutionalOfficialDocumentDto
@@ -109,6 +120,20 @@ type OfficialDocumentSnapshot = {
     totalContractAmountCents: number;
   };
   approvalDate?: string;
+  annualClearance?: {
+    finalClearanceDate: string;
+    issueDate: string;
+    issuePlaceDateText: string;
+    periodEnd: string;
+    periodStart: string;
+    studentName: string;
+    cpf: string;
+    templateKey: string;
+    templateVersion: number;
+    totalAmountCents: number;
+    totalAmountWords: string;
+    year: number;
+  };
   body: OfficialDocumentPdfBlock[];
   documentTitle: string;
   documentType: OfficialDocumentType;
@@ -374,6 +399,17 @@ export class OfficialDocumentsService {
                     installmentDueDay: snapshot.adhesion.installmentDueDay,
                     totalContractAmountCents:
                       snapshot.adhesion.totalContractAmountCents,
+                  }
+                : undefined,
+              annualClearance: snapshot.annualClearance
+                ? {
+                    finalClearanceDate:
+                      snapshot.annualClearance.finalClearanceDate,
+                    templateKey: snapshot.annualClearance.templateKey,
+                    templateVersion: snapshot.annualClearance.templateVersion,
+                    totalAmountCents:
+                      snapshot.annualClearance.totalAmountCents,
+                    year: snapshot.annualClearance.year,
                   }
                 : undefined,
               templateKey: definition.templateKey,
@@ -730,6 +766,14 @@ export class OfficialDocumentsService {
     if (documentType === OfficialDocumentType.ADHESION_TERM) {
       return this.buildAdhesionTermSnapshot(student, issuedAt, protocol, payload);
     }
+    if (documentType === OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION) {
+      return this.buildAnnualClearanceDeclarationSnapshot(
+        student,
+        issuedAt,
+        protocol,
+        payload,
+      );
+    }
     if (documentType === OfficialDocumentType.TRANSPORT_REGULATION) {
       return this.buildTransportRegulationSnapshot(student, issuedAt, protocol);
     }
@@ -742,6 +786,91 @@ export class OfficialDocumentsService {
       );
     }
     return this.buildTerminationLetterSnapshot(student, documentType, issuedAt, protocol);
+  }
+
+  private async buildAnnualClearanceDeclarationSnapshot(
+    student: StudentForOfficialDocument,
+    issuedAt: Date,
+    protocol: string,
+    payload?: OfficialDocumentIssuePayload,
+  ): Promise<OfficialDocumentSnapshot> {
+    const definition = getOfficialDocumentDefinition(
+      OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION,
+    );
+    const annualClearance = this.resolveAnnualClearanceDeclarationPayload(payload);
+    const signers = await this.resolveSigners(definition.signers, student, issuedAt);
+    const primarySigner = this.primarySigner(signers);
+    const issueDate = this.formatDateOnlyInSaoPaulo(issuedAt);
+    const issuePlaceDateText = `Terra Rica - PR, ${this.formatLongDateInSaoPaulo(issuedAt)}.`;
+    const periodStart = `01 de janeiro de ${annualClearance.year}`;
+    const periodEnd = `31 de dezembro de ${annualClearance.year}`;
+    const finalClearanceDate = this.formatDate(annualClearance.finalClearanceDate);
+    const totalAmount = this.formatCurrency(annualClearance.totalAmountCents);
+    const totalAmountWords = this.moneyWords(annualClearance.totalAmountCents);
+    const studentSnapshot = {
+      id: student.id,
+      address: this.formatAddress(student.person),
+      city: student.person.addressCity || "Terra Rica",
+      name: student.person.fullName,
+      cpf: this.formatCpf(student.person.cpf),
+      rg: this.formatRg(student.person.rg),
+      status: student.status,
+    };
+    const annualClearanceSnapshot = {
+      finalClearanceDate: annualClearance.finalClearanceDate.toISOString(),
+      issueDate,
+      issuePlaceDateText,
+      periodEnd,
+      periodStart,
+      studentName: studentSnapshot.name,
+      cpf: studentSnapshot.cpf,
+      templateKey: definition.templateKey,
+      templateVersion: definition.templateVersion,
+      totalAmountCents: annualClearance.totalAmountCents,
+      totalAmountWords,
+      year: annualClearance.year,
+    };
+    const body = annualClearanceDeclarationBody({
+      finalClearanceDate,
+      issuePlaceDateText,
+      periodEnd,
+      periodStart,
+      presidentName: primarySigner.name,
+      student: {
+        cpf: studentSnapshot.cpf,
+        fullName: studentSnapshot.name,
+      },
+      totalAmount,
+      totalAmountWords,
+      year: annualClearance.year,
+    });
+    return {
+      annualClearance: annualClearanceSnapshot,
+      body,
+      documentTitle: ANNUAL_CLEARANCE_DECLARATION_DOCUMENT_TITLE,
+      documentType: OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION,
+      emittedAt: issuedAt.toISOString(),
+      footerNote:
+        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      notes: annualClearance.notes ?? null,
+      protocol,
+      qrPayload: `ATRETU:${protocol}`,
+      signatureLabel: "",
+      signatureName: primarySigner.name,
+      signatureTitle: primarySigner.label,
+      signers,
+      subject: {
+        id: student.id,
+        name: student.person.fullName,
+        scope: "STUDENT",
+      },
+      student: studentSnapshot,
+      template: {
+        key: definition.templateKey,
+        version: definition.templateVersion,
+      },
+      version: definition.version,
+    };
   }
 
   private async buildTransportRegulationSnapshot(
@@ -1214,6 +1343,8 @@ export class OfficialDocumentsService {
       layout:
         snapshot.documentType === OfficialDocumentType.INTERNAL_REGULATION ||
         snapshot.documentType === OfficialDocumentType.ADHESION_TERM ||
+        snapshot.documentType ===
+          OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION ||
         snapshot.documentType === OfficialDocumentType.TRANSPORT_REGULATION ||
         snapshot.documentType === OfficialDocumentType.TRANSPORT_REFUND_REQUEST
           ? "compact"
@@ -1264,10 +1395,58 @@ export class OfficialDocumentsService {
       sourceIssueId: issue.sourceIssueId,
       notes: issue.notes,
       adhesionDetails: this.adhesionDetails(issue),
+      annualClearanceDetails: this.annualClearanceDetails(issue),
       approvalDate: this.approvalDate(issue),
       refundDetails: this.refundDetails(issue),
       signerDetails: this.signerDetails(issue),
       termDetails: this.termDetails(issue),
+    };
+  }
+
+  private annualClearanceDetails(issue: OfficialDocumentIssue) {
+    if (
+      issue.documentType !== OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION
+    ) {
+      return null;
+    }
+    const snapshot = issue.contentSnapshot as Prisma.JsonObject;
+    const annualClearance = snapshot.annualClearance as
+      | Prisma.JsonObject
+      | undefined;
+    if (!annualClearance) {
+      return null;
+    }
+    return {
+      finalClearanceDate:
+        typeof annualClearance.finalClearanceDate === "string"
+          ? annualClearance.finalClearanceDate
+          : null,
+      issueDate:
+        typeof annualClearance.issueDate === "string"
+          ? annualClearance.issueDate
+          : null,
+      issuePlaceDateText:
+        typeof annualClearance.issuePlaceDateText === "string"
+          ? annualClearance.issuePlaceDateText
+          : null,
+      periodEnd:
+        typeof annualClearance.periodEnd === "string"
+          ? annualClearance.periodEnd
+          : null,
+      periodStart:
+        typeof annualClearance.periodStart === "string"
+          ? annualClearance.periodStart
+          : null,
+      totalAmountCents:
+        typeof annualClearance.totalAmountCents === "number"
+          ? annualClearance.totalAmountCents
+          : null,
+      totalAmountWords:
+        typeof annualClearance.totalAmountWords === "string"
+          ? annualClearance.totalAmountWords
+          : null,
+      year:
+        typeof annualClearance.year === "number" ? annualClearance.year : null,
     };
   }
 
@@ -1501,13 +1680,16 @@ export class OfficialDocumentsService {
         ? "carta-desligamento"
         : documentType === OfficialDocumentType.TERMINATION_TERM
           ? "termo-desligamento"
-          : documentType === OfficialDocumentType.ADHESION_TERM
-            ? "termo-adesao"
-            : documentType === OfficialDocumentType.TRANSPORT_REGULATION
-              ? "regimento-transporte"
-              : documentType === OfficialDocumentType.TRANSPORT_REFUND_REQUEST
-                ? "solicitacao-reembolso-transporte"
-              : "documento-oficial";
+            : documentType === OfficialDocumentType.ADHESION_TERM
+              ? "termo-adesao"
+              : documentType ===
+                  OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION
+                ? "declaracao-quitacao-anual"
+                : documentType === OfficialDocumentType.TRANSPORT_REGULATION
+                  ? "regimento-transporte"
+                  : documentType === OfficialDocumentType.TRANSPORT_REFUND_REQUEST
+                    ? "solicitacao-reembolso-transporte"
+                    : "documento-oficial";
     return `${prefix}_${token || "academico"}_${protocol.toLowerCase()}.pdf`;
   }
 
@@ -1528,6 +1710,17 @@ export class OfficialDocumentsService {
         `primeira_parcela=${snapshot.adhesion.firstInstallmentDate}`,
         `parcelas=${snapshot.adhesion.installmentCount}`,
         snapshot.adhesion.notes ? `observacoes=${snapshot.adhesion.notes}` : null,
+      ]
+        .filter(Boolean)
+        .join("; ");
+    }
+    if (snapshot.annualClearance) {
+      return [
+        `ano=${snapshot.annualClearance.year}`,
+        `valor=${snapshot.annualClearance.totalAmountCents}`,
+        `quitacao=${snapshot.annualClearance.finalClearanceDate}`,
+        `template=${snapshot.annualClearance.templateKey}@${snapshot.annualClearance.templateVersion}`,
+        snapshot.notes ? `observacoes=${snapshot.notes}` : null,
       ]
         .filter(Boolean)
         .join("; ");
@@ -1710,6 +1903,39 @@ export class OfficialDocumentsService {
       paymentMethod,
       reason,
       refundAmountCents: payload.refundAmountCents,
+    };
+  }
+
+  private resolveAnnualClearanceDeclarationPayload(
+    payload?: OfficialDocumentIssuePayload,
+  ): AnnualClearanceDeclarationPayload {
+    if (!payload?.year) {
+      throw new BadRequestException("Informe o ano de referencia.");
+    }
+    if (!Number.isInteger(payload.year) || payload.year < 2000 || payload.year > 2100) {
+      throw new BadRequestException("Ano de referencia invalido.");
+    }
+    if (!payload.totalAmountCents) {
+      throw new BadRequestException("Informe o valor total quitado.");
+    }
+    if (
+      !Number.isInteger(payload.totalAmountCents) ||
+      payload.totalAmountCents <= 0
+    ) {
+      throw new BadRequestException("Valor total quitado invalido.");
+    }
+    if (!payload.finalClearanceDate) {
+      throw new BadRequestException("Informe a data da quitacao final.");
+    }
+    const finalClearanceDate = this.parseDateOnly(
+      payload.finalClearanceDate,
+      "Data da quitacao final invalida",
+    );
+    return {
+      finalClearanceDate,
+      notes: payload.notes || undefined,
+      totalAmountCents: payload.totalAmountCents,
+      year: payload.year,
     };
   }
 
@@ -1973,6 +2199,16 @@ export class OfficialDocumentsService {
       return undefined;
     }
     return snapshot.signers.map((signer) => {
+      if (
+        snapshot.documentType ===
+          OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION &&
+        signer.source === "BOARD_ROLE"
+      ) {
+        return {
+          label: signer.label,
+          name: signer.name,
+        };
+      }
       if (
         snapshot.documentType === OfficialDocumentType.ADHESION_TERM &&
         signer.source === "STUDENT" &&

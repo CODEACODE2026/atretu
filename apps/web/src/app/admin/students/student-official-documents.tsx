@@ -33,6 +33,11 @@ export function StudentOfficialDocuments({
   const [adhesionDialog, setAdhesionDialog] =
     useState<OfficialDocumentCatalogItem | null>(null);
   const [adhesionForm, setAdhesionForm] = useState(defaultAdhesionTermForm());
+  const [annualClearanceDialog, setAnnualClearanceDialog] =
+    useState<OfficialDocumentCatalogItem | null>(null);
+  const [annualClearanceForm, setAnnualClearanceForm] = useState(
+    defaultAnnualClearanceDeclarationForm(),
+  );
   const [refundDialog, setRefundDialog] =
     useState<OfficialDocumentCatalogItem | null>(null);
   const [refundForm, setRefundForm] = useState(defaultRefundRequestForm());
@@ -66,6 +71,11 @@ export function StudentOfficialDocuments({
       setAdhesionDialog(item);
       return;
     }
+    if (item.type === "ANNUAL_CLEARANCE_DECLARATION") {
+      setAnnualClearanceForm(defaultAnnualClearanceDeclarationForm());
+      setAnnualClearanceDialog(item);
+      return;
+    }
     if (item.type === "TERMINATION_TERM") {
       setTermForm(defaultTerminationTermForm());
       setTermDialog(item);
@@ -90,6 +100,7 @@ export function StudentOfficialDocuments({
       await api.issueOfficialDocument(studentId, item.type, body);
       setMessage(`${item.title} emitida.`);
       setAdhesionDialog(null);
+      setAnnualClearanceDialog(null);
       setRefundDialog(null);
       setTermDialog(null);
       await loadDocuments();
@@ -118,6 +129,16 @@ export function StudentOfficialDocuments({
       installmentAmountCents: moneyInputToCents(adhesionForm.installmentAmount),
       installmentCount: Number(adhesionForm.installmentCount),
       notes: adhesionForm.notes || undefined,
+    });
+  }
+
+  async function submitAnnualClearanceDeclaration() {
+    if (!annualClearanceDialog) return;
+    await issueDocument(annualClearanceDialog, {
+      finalClearanceDate: annualClearanceForm.finalClearanceDate,
+      notes: annualClearanceForm.notes || undefined,
+      totalAmountCents: moneyInputToCents(annualClearanceForm.totalAmount),
+      year: Number(annualClearanceForm.year),
     });
   }
 
@@ -249,6 +270,16 @@ export function StudentOfficialDocuments({
           studentName={studentName}
         />
       ) : null}
+      {annualClearanceDialog ? (
+        <AnnualClearanceDeclarationDialog
+          busy={busy !== ""}
+          form={annualClearanceForm}
+          onCancel={() => setAnnualClearanceDialog(null)}
+          onChange={setAnnualClearanceForm}
+          onSubmit={() => void submitAnnualClearanceDeclaration()}
+          studentName={studentName}
+        />
+      ) : null}
       {refundDialog ? (
         <RefundRequestDialog
           busy={busy !== ""}
@@ -346,6 +377,16 @@ function OfficialDocumentCard({
                 : "nao informado"}{" "}
               · Parcelas: {latest.adhesionDetails.installmentCount ?? "-"} · Valor:{" "}
               {formatCurrencyCents(latest.adhesionDetails.installmentAmountCents)}
+            </p>
+          ) : null}
+          {latest.annualClearanceDetails ? (
+            <p className="mt-1">
+              Quitação Anual: {latest.annualClearanceDetails.year ?? "-"} · Valor:{" "}
+              {formatCurrencyCents(latest.annualClearanceDetails.totalAmountCents)} ·
+              Data:{" "}
+              {latest.annualClearanceDetails.finalClearanceDate
+                ? formatDateTime(latest.annualClearanceDetails.finalClearanceDate)
+                : "nao informado"}
             </p>
           ) : null}
           {latest.refundDetails ? (
@@ -449,6 +490,13 @@ type AdhesionTermForm = {
   notes: string;
 };
 
+type AnnualClearanceDeclarationForm = {
+  finalClearanceDate: string;
+  notes: string;
+  totalAmount: string;
+  year: string;
+};
+
 type RefundRequestForm = {
   bankAccount: string;
   bankAccountType: string;
@@ -467,6 +515,15 @@ function defaultAdhesionTermForm(): AdhesionTermForm {
     installmentAmount: "",
     installmentCount: "",
     notes: "",
+  };
+}
+
+function defaultAnnualClearanceDeclarationForm(): AnnualClearanceDeclarationForm {
+  return {
+    finalClearanceDate: todayInputDate(),
+    notes: "",
+    totalAmount: "",
+    year: String(new Date().getFullYear()),
   };
 }
 
@@ -618,6 +675,138 @@ function AdhesionTermDialog({
                 type="number"
                 value={form.installmentCount}
               />
+            </label>
+          </div>
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Observacoes
+            <textarea
+              className={cx(adminTheme.control, "h-24 w-full py-2")}
+              maxLength={500}
+              onChange={(event) => update("notes", event.target.value)}
+              placeholder="Opcional"
+              value={form.notes}
+            />
+          </label>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50/80 px-5 py-4">
+          <button className={adminTheme.secondaryButton} onClick={onCancel} type="button">
+            Cancelar
+          </button>
+          <button
+            className={adminTheme.primaryButton}
+            disabled={busy || !canSubmit}
+            onClick={onSubmit}
+            type="button"
+          >
+            <Send aria-hidden="true" size={16} />
+            Emitir
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AnnualClearanceDeclarationDialog({
+  busy,
+  form,
+  onCancel,
+  onChange,
+  onSubmit,
+  studentName,
+}: {
+  busy: boolean;
+  form: AnnualClearanceDeclarationForm;
+  onCancel: () => void;
+  onChange: (form: AnnualClearanceDeclarationForm) => void;
+  onSubmit: () => void;
+  studentName: string;
+}) {
+  const amountCents = moneyInputToCents(form.totalAmount);
+  const year = Number(form.year);
+  const canSubmit =
+    Number.isInteger(year) &&
+    year >= 2000 &&
+    year <= 2100 &&
+    amountCents > 0 &&
+    form.finalClearanceDate.length > 0;
+
+  function update<K extends keyof AnnualClearanceDeclarationForm>(
+    key: K,
+    value: AnnualClearanceDeclarationForm[K],
+  ) {
+    onChange({ ...form, [key]: value });
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center overflow-x-hidden bg-slate-950/45 p-4 backdrop-blur-[2px]">
+      <section
+        aria-modal="true"
+        className="max-h-[92vh] w-full max-w-[calc(100vw-2rem)] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-xl md:max-w-2xl"
+        role="dialog"
+      >
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-950">
+            Emitir Declaração de Quitação Anual
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-slate-600">
+            Informe ano, valor total quitado e data da quitação final. Nome, CPF,
+            período anual, presidente e data de emissão serão salvos no snapshot.
+          </p>
+        </div>
+        <div className="grid gap-4 p-5">
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Aluno
+            <input
+              className={cx(adminTheme.control, "w-full")}
+              readOnly
+              value={studentName}
+            />
+          </label>
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Ano de referência
+              <input
+                className={cx(adminTheme.control, "w-full")}
+                max={2100}
+                min={2000}
+                onChange={(event) => update("year", event.target.value)}
+                required
+                type="number"
+                value={form.year}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Valor total quitado
+              <input
+                className={cx(adminTheme.control, "w-full")}
+                inputMode="numeric"
+                onChange={(event) =>
+                  update("totalAmount", maskMoneyInput(event.target.value))
+                }
+                placeholder="R$ 300,00"
+                required
+                value={form.totalAmount}
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Data da quitação final
+              <span className="relative">
+                <CalendarDays
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={16}
+                />
+                <input
+                  className={cx(adminTheme.control, "w-full pl-9")}
+                  onChange={(event) =>
+                    update("finalClearanceDate", event.target.value)
+                  }
+                  required
+                  type="date"
+                  value={form.finalClearanceDate}
+                />
+              </span>
             </label>
           </div>
           <label className="grid gap-1 text-sm font-semibold text-slate-700">

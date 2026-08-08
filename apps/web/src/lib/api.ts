@@ -530,6 +530,7 @@ export type StudentDocumentsResponse = {
 
 export type OfficialDocumentType =
   | "ADHESION_TERM"
+  | "ANNUAL_CLEARANCE_DECLARATION"
   | "INTERNAL_REGULATION"
   | "TRANSPORT_REFUND_REQUEST"
   | "TRANSPORT_REGULATION"
@@ -565,6 +566,16 @@ export type OfficialDocumentIssue = {
       number: number | null;
     }>;
     totalContractAmountCents: number | null;
+  } | null;
+  annualClearanceDetails: {
+    finalClearanceDate: string | null;
+    issueDate: string | null;
+    issuePlaceDateText: string | null;
+    periodEnd: string | null;
+    periodStart: string | null;
+    totalAmountCents: number | null;
+    totalAmountWords: string | null;
+    year: number | null;
   } | null;
   approvalDate: string | null;
   refundDetails: {
@@ -633,6 +644,7 @@ export type IssueOfficialDocumentBody = {
   bankAgency?: string;
   bankName?: string;
   dueDate?: string;
+  finalClearanceDate?: string;
   firstInstallmentDate?: string;
   installmentAmountCents?: number;
   installmentCount?: number;
@@ -643,6 +655,8 @@ export type IssueOfficialDocumentBody = {
   reason?: string;
   regularizationDeadlineDays?: number;
   refundAmountCents?: number;
+  totalAmountCents?: number;
+  year?: number;
 };
 
 export type IssueInstitutionalOfficialDocumentBody = {

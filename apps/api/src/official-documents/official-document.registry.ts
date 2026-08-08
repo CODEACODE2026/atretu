@@ -69,6 +69,26 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
       },
     ],
   },
+  [OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION]: {
+    blockedReason: "",
+    canIssue: () => true,
+    description:
+      "Declara a quitacao anual das obrigacoes financeiras do academico junto a ATRETU.",
+    scope: "STUDENT",
+    templateKey: "annual-clearance-declaration",
+    templateVersion: 1,
+    title: "Declaração de Quitação Anual",
+    type: OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION,
+    version: 1,
+    signers: [
+      {
+        label: "Presidente da ATRETU",
+        required: true,
+        role: BoardMemberRole.PRESIDENT,
+        source: "BOARD_ROLE",
+      },
+    ],
+  },
   [OfficialDocumentType.TRANSPORT_REGULATION]: {
     blockedReason: "",
     canIssue: () => true,
