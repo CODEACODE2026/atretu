@@ -10,11 +10,11 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 const apiUrl = process.env.API_URL ?? "http://localhost:3333";
 const webUrl = process.env.WEB_URL ?? "http://localhost:3000";
-const outDir = "/tmp/atretu-sprint11-2-termination-term";
+const outDir = "/tmp/atretu-sprint11-9-official-documents-ux";
 const storageDir =
   process.env.DOCUMENT_STORAGE_DIR ??
-  "/tmp/atretu-sprint11-2-termination-term/storage";
-const runId = `ui-s112-${Date.now()}`;
+  "/tmp/atretu-sprint11-9-official-documents-ux/storage";
+const runId = `ui-s119-${Date.now()}`;
 const password = "SenhaForte123";
 
 if (!process.env.DATABASE_URL) {
@@ -225,7 +225,7 @@ async function assertNoHorizontalOverflow(page, label) {
 }
 
 async function assertVisibleControls(page, label) {
-  for (const name of ["Emitir", "Visualizar", "Baixar PDF", "Reemitir"]) {
+  for (const name of ["Visualizar", "Baixar PDF", "Mais ações"]) {
     await assertVisibleBox(
       page.locator("article").filter({
         has: page.getByRole("heading", {
@@ -326,6 +326,53 @@ try {
   );
   assert.equal(issued.response.status, 201, JSON.stringify(issued.body));
 
+  const reissued = await api(
+    `/students/${student.studentId}/official-documents/${issued.body.id}/reissue`,
+    {
+      method: "POST",
+      headers: json(login.cookie),
+    },
+  );
+  assert.equal(reissued.response.status, 201, JSON.stringify(reissued.body));
+
+  for (const [type, body] of [
+    [
+      "ADHESION_TERM",
+      {
+        firstInstallmentDate: "2026-08-10",
+        installmentAmountCents: 30000,
+        installmentCount: 10,
+      },
+    ],
+    [
+      "ANNUAL_CLEARANCE_DECLARATION",
+      {
+        finalClearanceDate: "2026-11-15",
+        totalAmountCents: 30000,
+        year: 2026,
+      },
+    ],
+    [
+      "TRANSPORT_REFUND_REQUEST",
+      {
+        paymentMethod: "PIX",
+        pixKey: `pix-${runId}@qa.local`,
+        reason: "Reembolso visual QA",
+        refundAmountCents: 12550,
+      },
+    ],
+  ]) {
+    const response = await api(
+      `/students/${student.studentId}/official-documents/${type}/issue`,
+      {
+        method: "POST",
+        headers: json(login.cookie),
+        body: JSON.stringify(body),
+      },
+    );
+    assert.equal(response.response.status, 201, `${type}: ${JSON.stringify(response.body)}`);
+  }
+
   const pdf = await fetch(
     `${apiUrl}/students/${student.studentId}/official-documents/${issued.body.id}/file?disposition=inline`,
     { headers: { cookie: login.cookie } },
@@ -347,7 +394,10 @@ try {
     executablePath: process.env.CHROMIUM_EXECUTABLE_PATH ?? "/snap/bin/chromium",
     headless: true,
   });
-  const context = await browser.newContext({ viewport: { height: 768, width: 1366 } });
+  const context = await browser.newContext({
+    acceptDownloads: true,
+    viewport: { height: 768, width: 1366 },
+  });
   const sessionCookie = parseCookie(login.cookie);
   await context.addCookies([
     {
@@ -413,7 +463,32 @@ try {
   });
 
   await page.setViewportSize({ height: 768, width: 1366 });
-  await termCard.getByRole("button", { exact: true, name: "Emitir" }).click();
+  const popupPromise = page.waitForEvent("popup");
+  await termCard.getByRole("button", { exact: true, name: "Visualizar" }).click();
+  const popup = await popupPromise;
+  await popup.close();
+
+  const downloadPromise = page.waitForEvent("download");
+  await termCard.getByRole("button", { exact: true, name: "Baixar PDF" }).click();
+  const download = await downloadPromise;
+  assert.ok(await download.path(), "PDF download path");
+
+  await termCard.getByRole("button", { exact: true, name: "Mais ações" }).click();
+  await page.getByRole("menuitem", { exact: true, name: "Reemitir última emissão" }).click();
+  await page.getByText("reemitida.").waitFor();
+
+  await termCard.getByRole("button", { exact: true, name: "Mais ações" }).click();
+  await page.screenshot({
+    fullPage: true,
+    path: `${outDir}/menu-mais-acoes-desktop.png`,
+  });
+  await page.keyboard.press("Escape");
+  await page.getByRole("menu").waitFor({ state: "hidden" });
+  await termCard.getByRole("button", { exact: true, name: "Mais ações" }).click();
+  await page.mouse.click(24, 24);
+  await page.getByRole("menu").waitFor({ state: "hidden" });
+  await termCard.getByRole("button", { exact: true, name: "Mais ações" }).click();
+  await page.getByRole("menuitem", { exact: true, name: "Emitir nova via" }).click();
   await page
     .getByRole("heading", { exact: true, name: "Emitir Termo de Desligamento" })
     .waitFor();
@@ -428,7 +503,12 @@ try {
   await page.getByRole("button", { exact: true, name: "Cancelar" }).click();
 
   await page.setViewportSize({ height: 844, width: 390 });
-  await termCard.getByRole("button", { exact: true, name: "Emitir" }).click();
+  await termCard.getByRole("button", { exact: true, name: "Mais ações" }).click();
+  await page.screenshot({
+    fullPage: true,
+    path: `${outDir}/menu-mais-acoes-mobile.png`,
+  });
+  await page.getByRole("menuitem", { exact: true, name: "Emitir nova via" }).click();
   await page
     .getByRole("heading", { exact: true, name: "Emitir Termo de Desligamento" })
     .waitFor();
@@ -444,14 +524,35 @@ try {
 
   await page.setViewportSize({ height: 768, width: 1366 });
   await page.screenshot({ fullPage: true, path: `${outDir}/documento-emitido.png` });
-  await page.getByRole("button", { exact: true, name: "Historico" }).click();
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.getByRole("heading", { exact: true, name: "Historico funcional" }).waitFor();
+  await termCard.getByRole("button", { exact: true, name: "Mais ações" }).click();
+  await page.getByRole("menuitem", { exact: true, name: "Histórico" }).click();
+  await page
+    .getByRole("heading", {
+      exact: true,
+      name: "Histórico — Termo de Desligamento da Associação ATRETU",
+    })
+    .waitFor();
   await assertNoHorizontalOverflow(page, "historico");
   await page.screenshot({
     fullPage: true,
     path: `${outDir}/historico-termo-desligamento.png`,
   });
+  await page.getByRole("button", { exact: true, name: "Fechar" }).click();
+
+  await termCard.getByRole("button", { exact: true, name: "Mais ações" }).click();
+  await page.getByRole("menuitem", { exact: true, name: "Detalhes da emissão" }).click();
+  await page
+    .getByRole("heading", {
+      exact: true,
+      name: "Detalhes da emissão — Termo de Desligamento da Associação ATRETU",
+    })
+    .waitFor();
+  await assertNoHorizontalOverflow(page, "detalhes");
+  await page.screenshot({
+    fullPage: true,
+    path: `${outDir}/detalhes-termo-desligamento.png`,
+  });
+  await page.getByRole("button", { exact: true, name: "Fechar" }).click();
 
   assert.equal(dialogs.length, 0, `window dialogs: ${dialogs.join(", ")}`);
   const visibleText = await page.locator("body").innerText();
@@ -510,9 +611,12 @@ try {
           "documentos-do-aluno-notebook-1024.png",
           "documentos-do-aluno-tablet-768.png",
           "documentos-do-aluno-mobile-390.png",
+          "menu-mais-acoes-desktop.png",
+          "menu-mais-acoes-mobile.png",
           "dialog-termo-desligamento-desktop.png",
           "dialog-termo-desligamento-mobile.png",
           "historico-termo-desligamento.png",
+          "detalhes-termo-desligamento.png",
           "documento-emitido.png",
           "pdf-primeira-pagina.png",
         ],

@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { CalendarDays, Download, Eye, FileCheck2, RefreshCcw, Send } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  CalendarDays,
+  Download,
+  Eye,
+  FileCheck2,
+  History,
+  Info,
+  MoreHorizontal,
+  RefreshCcw,
+  Send,
+} from "lucide-react";
 import type {
   IssueOfficialDocumentBody,
   OfficialDocumentCatalogItem,
@@ -43,6 +53,12 @@ export function StudentOfficialDocuments({
   const [refundForm, setRefundForm] = useState(defaultRefundRequestForm());
   const [termDialog, setTermDialog] = useState<OfficialDocumentCatalogItem | null>(null);
   const [termForm, setTermForm] = useState(defaultTerminationTermForm());
+  const [detailsDialog, setDetailsDialog] = useState<{
+    issue: OfficialDocumentIssue;
+    item: OfficialDocumentCatalogItem;
+  } | null>(null);
+  const [historyDialog, setHistoryDialog] =
+    useState<OfficialDocumentCatalogItem | null>(null);
 
   useEffect(() => {
     void loadDocuments();
@@ -209,6 +225,10 @@ export function StudentOfficialDocuments({
     }
   }
 
+  const sortedDocuments = [...documents].sort(compareOfficialDocuments);
+  const issuedCount = documents.filter((item) => item.latestIssue).length;
+  const pendingCount = documents.filter((item) => !item.latestIssue && item.canIssue).length;
+
   return (
     <section className={cx(adminTheme.card, "overflow-hidden")}>
       <AdminSectionHeader
@@ -228,6 +248,13 @@ export function StudentOfficialDocuments({
       />
       {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
       {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
+      {!loading && documents.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/70 px-4 py-3 text-sm text-slate-600">
+          <span className="font-semibold text-slate-800">
+            {issuedCount} emitidos · {pendingCount} pendentes
+          </span>
+        </div>
+      ) : null}
       <div className="grid gap-3 p-4">
         {loading ? (
           <AdminEmptyState loading title="Carregando documentos oficiais..." />
@@ -237,12 +264,14 @@ export function StudentOfficialDocuments({
             title="Sem documentos oficiais"
           />
         ) : (
-          documents.map((item) => (
+          sortedDocuments.map((item) => (
             <OfficialDocumentCard
               busy={busy}
               item={item}
               key={item.type}
+              onDetails={(issue) => setDetailsDialog({ issue, item })}
               onDownload={(issue) => void openIssue(issue, "attachment")}
+              onHistory={() => setHistoryDialog(item)}
               onIssue={() => requestIssueDocument(item)}
               onReissue={() => void reissueDocument(item)}
               onView={(issue) => void openIssue(issue, "inline")}
@@ -290,6 +319,23 @@ export function StudentOfficialDocuments({
           studentName={studentName}
         />
       ) : null}
+      {historyDialog ? (
+        <OfficialDocumentHistoryDialog
+          busy={busy}
+          item={historyDialog}
+          onClose={() => setHistoryDialog(null)}
+          onDownload={(issue) => void openIssue(issue, "attachment")}
+          onReissue={() => void reissueDocument(historyDialog)}
+          onView={(issue) => void openIssue(issue, "inline")}
+        />
+      ) : null}
+      {detailsDialog ? (
+        <OfficialDocumentDetailsDialog
+          issue={detailsDialog.issue}
+          item={detailsDialog.item}
+          onClose={() => setDetailsDialog(null)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -297,182 +343,545 @@ export function StudentOfficialDocuments({
 function OfficialDocumentCard({
   busy,
   item,
+  onDetails,
   onDownload,
+  onHistory,
   onIssue,
   onReissue,
   onView,
 }: {
   busy: string;
   item: OfficialDocumentCatalogItem;
+  onDetails: (issue: OfficialDocumentIssue) => void;
   onDownload: (issue: OfficialDocumentIssue) => void;
+  onHistory: () => void;
   onIssue: () => void;
   onReissue: () => void;
   onView: (issue: OfficialDocumentIssue) => void;
 }) {
   const latest = item.latestIssue;
   const isBusy = busy.startsWith(item.type) || (latest ? busy.startsWith(latest.id) : false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const statusTone = latest ? "green" : "orange";
+  const statusLabel = latest ? "Emitido" : item.canIssue ? "Não emitido" : "Pendente";
+
+  useEffect(() => {
+    if (!actionsOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!actionsRef.current?.contains(event.target as Node)) {
+        setActionsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActionsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [actionsOpen]);
+
   return (
-    <article className={cx(adminTheme.softPanel, "grid gap-4 p-4")}>
-      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-white text-[#0F2E2E] shadow-sm">
-              <FileCheck2 aria-hidden="true" size={18} />
-            </span>
-            <div>
-              <h3 className="text-base font-semibold text-slate-950">{item.title}</h3>
-              <p className="mt-1 text-sm leading-5 text-slate-600">{item.description}</p>
+    <article className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#F2F8F6] text-[#0F2E2E]">
+            <FileCheck2 aria-hidden="true" size={18} />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="break-words text-sm font-semibold text-slate-950 md:text-base">
+                {item.title}
+              </h3>
+              <AdminStatusBadge tone={statusTone}>{statusLabel}</AdminStatusBadge>
             </div>
+            <p className="mt-1 text-sm leading-5 text-slate-600">{item.description}</p>
+            {latest ? (
+              <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                <CompactMeta label="Última emissão" value={formatDateTime(latest.issuedAt)} />
+                <CompactMeta label="Protocolo" value={latest.protocol} />
+                <CompactMeta label="Versão" value={`v${latest.version}`} />
+              </dl>
+            ) : item.blockedReason ? (
+              <p className="mt-2 text-sm text-amber-700">{item.blockedReason}</p>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">Disponível para emissão.</p>
+            )}
           </div>
         </div>
-        <AdminStatusBadge tone={latest ? "green" : "orange"}>
-          {latest ? "Emitido" : "Pendente"}
-        </AdminStatusBadge>
-      </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <Info label="Situacao" value={latest ? "Com historico" : "Nao emitido"} />
-        <Info
-          label="Ultima emissao"
-          value={latest ? formatDateTime(latest.issuedAt) : "Sem emissao"}
-        />
-        <Info
-          label="Protocolo"
-          value={latest ? `${latest.protocol} · v${latest.version}` : "Aguardando"}
-        />
-      </div>
-
-      {latest ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">
-          <p>
-            Emitido por {latest.issuedBy?.name ?? "usuario removido"} ·{" "}
-            {formatBytes(latest.sizeBytes)}
-          </p>
-          {latest.signerDetails[0]?.name ? (
-            <p className="mt-1">
-              Assinado por {latest.signerDetails[0].name}
-              {latest.signerDetails[0].label
-                ? ` · ${latest.signerDetails[0].label}`
-                : ""}
-              {latest.signerDetails[0].boardPeriodStart
-                ? ` · Vigencia: ${formatDateTime(latest.signerDetails[0].boardPeriodStart)}`
-                : ""}
-            </p>
-          ) : null}
-          {latest.termDetails ? (
-            <p className="mt-1">
-              Motivo: {latest.termDetails.reason ?? "nao informado"} ·
-              Vencimento:{" "}
-              {latest.termDetails.dueDate
-                ? formatDateTime(latest.termDetails.dueDate)
-                : "nao informado"}{" "}
-              · Prazo: {latest.termDetails.regularizationDeadlineDays ?? "-"} dias
-            </p>
-          ) : null}
-          {latest.adhesionDetails ? (
-            <p className="mt-1">
-              Primeira mensalidade:{" "}
-              {latest.adhesionDetails.firstInstallmentDate
-                ? formatDateTime(latest.adhesionDetails.firstInstallmentDate)
-                : "nao informado"}{" "}
-              · Parcelas: {latest.adhesionDetails.installmentCount ?? "-"} · Valor:{" "}
-              {formatCurrencyCents(latest.adhesionDetails.installmentAmountCents)}
-            </p>
-          ) : null}
-          {latest.annualClearanceDetails ? (
-            <p className="mt-1">
-              Quitação Anual: {latest.annualClearanceDetails.year ?? "-"} · Valor:{" "}
-              {formatCurrencyCents(latest.annualClearanceDetails.totalAmountCents)} ·
-              Data:{" "}
-              {latest.annualClearanceDetails.finalClearanceDate
-                ? formatDateTime(latest.annualClearanceDetails.finalClearanceDate)
-                : "nao informado"}
-            </p>
-          ) : null}
-          {latest.refundDetails ? (
-            <p className="mt-1">
-              Reembolso: {formatCurrencyCents(latest.refundDetails.refundAmountCents)} ·
-              Forma:{" "}
-              {latest.refundDetails.paymentMethod === "PIX"
-                ? "PIX"
-                : "Conta bancária"}
-            </p>
-          ) : null}
-          {item.history.length > 1 ? (
-            <div className="mt-2 grid gap-1 border-t border-slate-200 pt-2">
-              <p className="font-semibold text-slate-700">
-                Historico: {item.history.length} emissoes registradas.
-              </p>
-              {item.history.slice(0, 3).map((issue) => (
-                <p className="text-xs text-slate-500" key={issue.id}>
-                  {formatDateTime(issue.issuedAt)} · Emitido por{" "}
-                  {issue.issuedBy?.name ?? "usuario removido"} · Assinado por{" "}
-                  {issue.signerDetails[0]?.name ?? "nao informado"}
-                  {issue.signerDetails[0]?.label
-                    ? ` · ${issue.signerDetails[0].label}`
-                    : ""}
-                </p>
-              ))}
-            </div>
-          ) : null}
+        <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+          {latest ? (
+            <>
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={isBusy}
+                onClick={() => onView(latest)}
+                type="button"
+              >
+                <Eye aria-hidden="true" size={16} />
+                Visualizar
+              </button>
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={isBusy}
+                onClick={() => onDownload(latest)}
+                type="button"
+              >
+                <Download aria-hidden="true" size={16} />
+                Baixar PDF
+              </button>
+            </>
+          ) : (
+            <button
+              className={adminTheme.primaryButton}
+              disabled={!item.canIssue || isBusy}
+              onClick={onIssue}
+              type="button"
+            >
+              <Send aria-hidden="true" size={16} />
+              Emitir
+            </button>
+          )}
+          <div className="relative" ref={actionsRef}>
+            <button
+              aria-expanded={actionsOpen}
+              aria-haspopup="menu"
+              className={adminTheme.secondaryButton}
+              disabled={isBusy}
+              onClick={() => setActionsOpen((open) => !open)}
+              type="button"
+            >
+              <MoreHorizontal aria-hidden="true" size={16} />
+              Mais ações
+            </button>
+            {actionsOpen ? (
+              <div
+                className="absolute left-0 z-20 mt-2 grid w-56 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 text-sm shadow-xl sm:left-auto sm:right-0"
+                role="menu"
+              >
+                <MenuAction
+                  disabled={!item.canIssue}
+                  icon={Send}
+                  label={latest ? "Emitir nova via" : "Emitir"}
+                  onClick={() => {
+                    setActionsOpen(false);
+                    onIssue();
+                  }}
+                />
+                <MenuAction
+                  disabled={!latest}
+                  icon={RefreshCcw}
+                  label="Reemitir última emissão"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    onReissue();
+                  }}
+                />
+                <MenuAction
+                  disabled={item.history.length === 0}
+                  icon={History}
+                  label="Histórico"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    onHistory();
+                  }}
+                />
+                <MenuAction
+                  disabled={!latest}
+                  icon={Info}
+                  label="Detalhes da emissão"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    if (latest) onDetails(latest);
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : item.blockedReason ? (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {item.blockedReason}
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          className={adminTheme.primaryButton}
-          disabled={!item.canIssue || isBusy}
-          onClick={onIssue}
-          type="button"
-        >
-          <Send aria-hidden="true" size={16} />
-          Emitir
-        </button>
-        <button
-          className={adminTheme.secondaryButton}
-          disabled={!latest || isBusy}
-          onClick={() => latest && onView(latest)}
-          type="button"
-        >
-          <Eye aria-hidden="true" size={16} />
-          Visualizar
-        </button>
-        <button
-          className={adminTheme.secondaryButton}
-          disabled={!latest || isBusy}
-          onClick={onReissue}
-          type="button"
-        >
-          <RefreshCcw aria-hidden="true" size={16} />
-          Reemitir
-        </button>
-        <button
-          className={adminTheme.secondaryButton}
-          disabled={!latest || isBusy}
-          onClick={() => latest && onDownload(latest)}
-          type="button"
-        >
-          <Download aria-hidden="true" size={16} />
-          Baixar PDF
-        </button>
       </div>
     </article>
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function CompactMeta({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-        {label}
-      </p>
-      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p>
+    <div className="flex min-w-0 gap-1">
+      <dt className="shrink-0 font-semibold text-slate-500">{label}:</dt>
+      <dd className="break-words font-semibold text-slate-800">{value}</dd>
     </div>
   );
+}
+
+function MenuAction({
+  disabled,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  disabled?: boolean;
+  icon: typeof Send;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="flex items-center gap-2 rounded-md px-3 py-2 text-left font-semibold text-slate-700 hover:bg-[#F2F8F6] hover:text-[#0F2E2E] disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
+      disabled={disabled}
+      onClick={onClick}
+      role="menuitem"
+      type="button"
+    >
+      <Icon aria-hidden="true" size={16} />
+      {label}
+    </button>
+  );
+}
+
+function OfficialDocumentHistoryDialog({
+  busy,
+  item,
+  onClose,
+  onDownload,
+  onReissue,
+  onView,
+}: {
+  busy: string;
+  item: OfficialDocumentCatalogItem;
+  onClose: () => void;
+  onDownload: (issue: OfficialDocumentIssue) => void;
+  onReissue: () => void;
+  onView: (issue: OfficialDocumentIssue) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center overflow-x-hidden bg-slate-950/45 p-4 backdrop-blur-[2px]">
+      <section
+        aria-modal="true"
+        className="max-h-[92vh] w-full max-w-[calc(100vw-2rem)] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-xl md:max-w-3xl"
+        role="dialog"
+      >
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-950">
+            Histórico — {item.title}
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-slate-600">
+            {item.history.length} emissões registradas
+          </p>
+        </div>
+        <div className="grid gap-3 p-5">
+          {item.history.length === 0 ? (
+            <AdminEmptyState
+              description="Este documento ainda nao possui emissões."
+              title="Sem histórico"
+            />
+          ) : (
+            item.history.map((issue, index) => {
+              const isBusy = busy.startsWith(issue.id) || busy.startsWith(item.type);
+              return (
+                <article
+                  className="rounded-lg border border-slate-200 bg-slate-50/70 p-3"
+                  key={issue.id}
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase text-slate-500">
+                        {index === 0 ? "Emissão mais recente" : "Emissão anterior"}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-950">
+                        {formatDateTime(issue.issuedAt)}
+                      </p>
+                      <dl className="mt-2 grid gap-1 text-sm text-slate-600">
+                        <CompactMeta label="Protocolo" value={issue.protocol} />
+                        <CompactMeta label="Versão" value={`v${issue.version}`} />
+                        <CompactMeta
+                          label="Emitido por"
+                          value={issue.issuedBy?.name ?? "usuario removido"}
+                        />
+                        <CompactMeta
+                          label="Assinado por"
+                          value={formatSignerNames(issue)}
+                        />
+                      </dl>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <button
+                        className={adminTheme.secondaryButton}
+                        disabled={isBusy}
+                        onClick={() => onView(issue)}
+                        type="button"
+                      >
+                        <Eye aria-hidden="true" size={16} />
+                        Visualizar
+                      </button>
+                      <button
+                        className={adminTheme.secondaryButton}
+                        disabled={isBusy}
+                        onClick={() => onDownload(issue)}
+                        type="button"
+                      >
+                        <Download aria-hidden="true" size={16} />
+                        Baixar
+                      </button>
+                      {index === 0 ? (
+                        <button
+                          className={adminTheme.secondaryButton}
+                          disabled={isBusy}
+                          onClick={onReissue}
+                          type="button"
+                        >
+                          <RefreshCcw aria-hidden="true" size={16} />
+                          Reemitir
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50/80 px-5 py-4">
+          <button className={adminTheme.secondaryButton} onClick={onClose} type="button">
+            Fechar
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OfficialDocumentDetailsDialog({
+  issue,
+  item,
+  onClose,
+}: {
+  issue: OfficialDocumentIssue;
+  item: OfficialDocumentCatalogItem;
+  onClose: () => void;
+}) {
+  const details = documentDetailRows(issue);
+
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center overflow-x-hidden bg-slate-950/45 p-4 backdrop-blur-[2px]">
+      <section
+        aria-modal="true"
+        className="max-h-[92vh] w-full max-w-[calc(100vw-2rem)] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-xl md:max-w-2xl"
+        role="dialog"
+      >
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-950">
+            Detalhes da emissão — {item.title}
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-slate-600">
+            Protocolo, versão, emissão e dados resumidos.
+          </p>
+        </div>
+        <div className="grid gap-4 p-5">
+          <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+            <DetailRow label="Emissão" value={formatDateTime(issue.issuedAt)} />
+            <DetailRow label="Protocolo" value={issue.protocol} />
+            <DetailRow label="Versão" value={`v${issue.version}`} />
+            <DetailRow label="Arquivo" value={formatBytes(issue.sizeBytes)} />
+            <DetailRow
+              label="Emitido por"
+              value={issue.issuedBy?.name ?? "usuario removido"}
+            />
+          </div>
+
+          {details.length > 0 ? (
+            <div className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3">
+              {details.map((detail) => (
+                <DetailRow
+                  key={`${detail.label}:${detail.value}`}
+                  label={detail.label}
+                  value={detail.value}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <div className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-sm font-semibold text-slate-800">Signatários</p>
+            {issue.signerDetails.length > 0 ? (
+              issue.signerDetails.map((signer, index) => (
+                <p className="text-sm text-slate-600" key={`${signer.name ?? index}`}>
+                  {signer.name ?? signer.signerName ?? "nao informado"}
+                  {signer.signerRoleLabel || signer.roleLabel
+                    ? ` · ${signer.signerRoleLabel ?? signer.roleLabel}`
+                    : ""}
+                </p>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">Nenhum signatário informado.</p>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50/80 px-5 py-4">
+          <button className={adminTheme.secondaryButton} onClick={onClose} type="button">
+            Fechar
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 text-sm sm:grid-cols-[12rem_minmax(0,1fr)]">
+      <dt className="font-semibold text-slate-500">{label}</dt>
+      <dd className="break-words font-semibold text-slate-900">{value}</dd>
+    </div>
+  );
+}
+
+function documentDetailRows(issue: OfficialDocumentIssue) {
+  const rows: Array<{ label: string; value: string }> = [];
+
+  if (issue.termDetails) {
+    rows.push(
+      { label: "Motivo", value: issue.termDetails.reason ?? "nao informado" },
+      {
+        label: "Data do vencimento",
+        value: issue.termDetails.dueDate
+          ? formatDateTime(issue.termDetails.dueDate)
+          : "nao informado",
+      },
+      {
+        label: "Data da notificacao",
+        value: issue.termDetails.notificationDate
+          ? formatDateTime(issue.termDetails.notificationDate)
+          : "nao informado",
+      },
+      {
+        label: "Prazo",
+        value: issue.termDetails.regularizationDeadlineDays
+          ? `${issue.termDetails.regularizationDeadlineDays} dias`
+          : "nao informado",
+      },
+    );
+  }
+
+  if (issue.adhesionDetails) {
+    rows.push(
+      {
+        label: "Primeira mensalidade",
+        value: issue.adhesionDetails.firstInstallmentDate
+          ? formatDateTime(issue.adhesionDetails.firstInstallmentDate)
+          : "nao informado",
+      },
+      {
+        label: "Parcelas",
+        value: issue.adhesionDetails.installmentCount
+          ? String(issue.adhesionDetails.installmentCount)
+          : "nao informado",
+      },
+      {
+        label: "Valor da parcela",
+        value: formatCurrencyCents(issue.adhesionDetails.installmentAmountCents),
+      },
+      {
+        label: "Valor total",
+        value: formatCurrencyCents(issue.adhesionDetails.totalContractAmountCents),
+      },
+    );
+  }
+
+  if (issue.annualClearanceDetails) {
+    rows.push(
+      {
+        label: "Ano",
+        value: issue.annualClearanceDetails.year
+          ? String(issue.annualClearanceDetails.year)
+          : "nao informado",
+      },
+      {
+        label: "Período",
+        value:
+          issue.annualClearanceDetails.periodStart &&
+          issue.annualClearanceDetails.periodEnd
+            ? `${issue.annualClearanceDetails.periodStart} a ${issue.annualClearanceDetails.periodEnd}`
+            : "nao informado",
+      },
+      {
+        label: "Valor",
+        value: formatCurrencyCents(issue.annualClearanceDetails.totalAmountCents),
+      },
+      {
+        label: "Valor por extenso",
+        value: issue.annualClearanceDetails.totalAmountWords ?? "nao informado",
+      },
+      {
+        label: "Data da quitação",
+        value: issue.annualClearanceDetails.finalClearanceDate
+          ? formatDateTime(issue.annualClearanceDetails.finalClearanceDate)
+          : "nao informado",
+      },
+      {
+        label: "Data/local da emissão",
+        value: issue.annualClearanceDetails.issuePlaceDateText ?? "nao informado",
+      },
+    );
+  }
+
+  if (issue.refundDetails) {
+    rows.push(
+      {
+        label: "Valor",
+        value: formatCurrencyCents(issue.refundDetails.refundAmountCents),
+      },
+      {
+        label: "Forma de recebimento",
+        value: issue.refundDetails.paymentMethod === "PIX" ? "PIX" : "Conta bancária",
+      },
+      { label: "Motivo", value: issue.refundDetails.reason ?? "nao informado" },
+      {
+        label: "Data/local da emissão",
+        value: issue.refundDetails.issuePlaceDateText ?? "nao informado",
+      },
+    );
+  }
+
+  if (issue.approvalDate) {
+    rows.push({
+      label: "Data de aprovação",
+      value: formatDateTime(issue.approvalDate),
+    });
+  }
+
+  return rows;
+}
+
+function formatSignerNames(issue: OfficialDocumentIssue) {
+  const names = issue.signerDetails
+    .map((signer) => signer.name ?? signer.signerName)
+    .filter(Boolean);
+  return names.length > 0 ? names.join(", ") : "nao informado";
+}
+
+function compareOfficialDocuments(
+  first: OfficialDocumentCatalogItem,
+  second: OfficialDocumentCatalogItem,
+) {
+  const firstWeight = documentSortWeight(first);
+  const secondWeight = documentSortWeight(second);
+  if (firstWeight !== secondWeight) return firstWeight - secondWeight;
+  return first.title.localeCompare(second.title, "pt-BR");
+}
+
+function documentSortWeight(item: OfficialDocumentCatalogItem) {
+  if (item.latestIssue) return 0;
+  if (item.canIssue) return 1;
+  return 2;
 }
 
 type TerminationTermForm = {
