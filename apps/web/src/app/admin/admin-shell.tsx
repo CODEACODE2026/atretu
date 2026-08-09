@@ -50,6 +50,7 @@ import { JobsMonitorPanel } from "./jobs-monitor-panel";
 import { OfficialDocumentsPanel } from "./official-documents-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { ReportsPanel } from "./reports-panel";
+import { AssociationSettingsPanel } from "./settings/association-settings-panel";
 import { StudentCardsPanel } from "./student-cards-panel";
 import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
 import { UsersPanel } from "./users-panel";
@@ -256,6 +257,7 @@ function AdminWorkspace({
     "student-cards": { area: "student-cards" },
     students: { area: "students" },
     users: { area: "users" },
+    settings: { area: "settings" },
   };
 
   useEffect(() => {
@@ -445,6 +447,7 @@ function AdminWorkspace({
           ) : null}
           {area === "official-documents" ? <OfficialDocumentsPanel /> : null}
           {area === "reports" ? <ReportsPanel user={user} /> : null}
+          {area === "settings" ? <AssociationSettingsPanel /> : null}
           {area === "jobs" ? <JobsMonitorPanel /> : null}
           {area === "users" ? <UsersPanel /> : null}
           {area === "account" ? (

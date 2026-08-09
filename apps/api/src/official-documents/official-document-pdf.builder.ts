@@ -1,8 +1,5 @@
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import PDFDocument from "pdfkit";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const A4 = { width: 595.28, height: 841.89 };
 const COLORS = {
@@ -20,6 +17,8 @@ export type OfficialDocumentPdfInput = {
   emittedBy: string;
   emittedAt: Date;
   footerNote: string;
+  associationName?: string;
+  associationLogo?: Buffer | null;
   layout?: "compact" | "standard";
   protocol: string;
   qrPayload: string;
@@ -59,9 +58,9 @@ export class OfficialDocumentPdfBuilder {
         compress: false,
         info: {
           Title: input.documentTitle,
-          Author: "ATRETU",
-          Creator: "ATRETU",
-          Producer: "ATRETU",
+          Author: input.associationName ?? "ATRETU",
+          Creator: input.associationName ?? "ATRETU",
+          Producer: input.associationName ?? "ATRETU",
         },
       });
       const chunks: Buffer[] = [];
@@ -75,7 +74,7 @@ export class OfficialDocumentPdfBuilder {
   }
 
   private draw(input: OfficialDocumentPdfInput, doc: PDFKit.PDFDocument) {
-    const logo = this.loadOfficialLogo();
+    const logo = input.associationLogo ?? null;
     let pageNumber = 1;
     const compact = input.layout === "compact";
     const bodyX = compact ? 54 : 72;
@@ -87,7 +86,7 @@ export class OfficialDocumentPdfBuilder {
     const footerTopY = A4.height - 104;
     const contentBottomLimit = footerTopY - 24;
     const drawPageChrome = () => {
-      this.drawHeader(doc, logo);
+      this.drawHeader(doc, input, logo);
       this.drawFooter(doc, input, pageNumber);
     };
     const addPage = () => {
@@ -526,14 +525,28 @@ export class OfficialDocumentPdfBuilder {
     return nextY + Math.ceil(block.signatures.length / columns) * 86 + 4;
   }
 
-  private drawHeader(doc: PDFKit.PDFDocument, logo: Buffer) {
+  private drawHeader(
+    doc: PDFKit.PDFDocument,
+    input: OfficialDocumentPdfInput,
+    logo: Buffer | null,
+  ) {
     doc.rect(0, 0, A4.width, 88).fill(COLORS.brand);
-    doc.image(logo, 56, 24, { fit: [120, 40], valign: "center" });
+    if (logo) {
+      doc.image(logo, 56, 24, { fit: [120, 40], valign: "center" });
+    } else {
+      doc
+        .roundedRect(56, 24, 84, 40, 6)
+        .fill("#FFFFFF")
+        .font("Helvetica-Bold")
+        .fontSize(12)
+        .fillColor(COLORS.brand)
+        .text("ATRETU", 56, 38, { align: "center", width: 84 });
+    }
     doc
       .font("Helvetica-Bold")
       .fontSize(12)
       .fillColor("#FFFFFF")
-      .text("ASSOCIAÇÃO DE TRANSPORTE UNIVERSITÁRIO", 206, 24, {
+      .text(input.associationName ?? "ATRETU", 206, 24, {
         align: "right",
         width: A4.width - 262,
       });
@@ -681,20 +694,4 @@ export class OfficialDocumentPdfBuilder {
     }).format(value);
   }
 
-  private loadOfficialLogo() {
-    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-      path.join(moduleDir, "../student-cards/assets/atretu-logo.png"),
-      path.join(process.cwd(), "apps/api/src/student-cards/assets/atretu-logo.png"),
-      path.join(process.cwd(), "src/student-cards/assets/atretu-logo.png"),
-      path.join(process.cwd(), "dist/student-cards/assets/atretu-logo.png"),
-    ];
-    const found = candidates.find((candidate) => existsSync(candidate));
-    if (!found) {
-      throw new InternalServerErrorException(
-        "Logo oficial da ATRETU nao configurada",
-      );
-    }
-    return readFileSync(found);
-  }
 }

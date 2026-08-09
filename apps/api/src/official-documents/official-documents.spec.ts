@@ -123,6 +123,7 @@ for (const fragment of [
 for (const fragment of [
   "DocumentStorageService",
   "OfficialDocumentPdfBuilder",
+  "AssociationSettingsService",
   "getOfficialDocumentDefinition",
   "listOfficialDocumentDefinitions",
   "listInstitutionalOfficialDocuments",
@@ -316,6 +317,34 @@ function makeService(validMembers: unknown[]) {
     {} as never,
     {} as never,
     {} as never,
+    {
+      legacySnapshot: () => ({
+        city: "Terra Rica",
+        cnpj: "49.682.667/0001-00",
+        complement: null,
+        displayName: "ATRETU",
+        district: "Centro",
+        email: "atretu2022@gmail.com",
+        footerText:
+          "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00",
+        issuePlace: "Terra Rica",
+        issuePlaceWithState: "Terra Rica - PR",
+        legalName:
+          "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS",
+        logoContentType: "image/png",
+        logoFileName: "atretu-logo.png",
+        logoSizeBytes: null,
+        logoStorageKey: null,
+        number: "1276",
+        postalCode: "87890-000",
+        primaryPhone: "44 99941-3565",
+        secondaryPhone: "44 99144-1176",
+        state: "PR",
+        street: "Av. Claudio Domingos Soletti",
+        website: null,
+      }),
+      readLogoForSnapshot: async () => null,
+    } as never,
   ) as never as {
     addMonthsClamped: (value: Date, monthsToAdd: number) => Date;
     reissueSnapshot: (...args: unknown[]) => unknown;

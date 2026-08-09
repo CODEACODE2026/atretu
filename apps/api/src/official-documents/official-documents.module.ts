@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AdministrativeAuditModule } from "../administrative-audit/administrative-audit.module.js";
+import { AssociationSettingsModule } from "../association-settings/association-settings.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { DocumentsModule } from "../documents/documents.module.js";
@@ -14,6 +15,7 @@ import { OfficialDocumentsService } from "./official-documents.service.js";
 @Module({
   imports: [
     AdministrativeAuditModule,
+    AssociationSettingsModule,
     AuthModule,
     DatabaseModule,
     DocumentsModule,

@@ -96,6 +96,8 @@ enum AdministrativeAuditEventType {
   COLLECTION_ACTION_CREATED
   BOARD_MEMBERSHIP_STARTED
   BOARD_MEMBERSHIP_ENDED
+  ASSOCIATION_SETTINGS_UPDATED
+  ASSOCIATION_LOGO_UPDATED
 }
 
 enum StudentStatus {
@@ -336,37 +338,38 @@ enum PreRegistrationDocumentStatus {
 }
 
 model User {
-  id                        String                   @id @default(uuid()) @db.Uuid
-  name                      String                   @db.VarChar(120)
-  email                     String                   @unique @db.VarChar(180)
-  passwordHash              String                   @map("password_hash") @db.VarChar(255)
-  status                    UserStatus               @default(ACTIVE)
-  mustChangePassword        Boolean                  @default(false) @map("must_change_password")
-  createdAt                 DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  lastLoginAt               DateTime?                @map("last_login_at") @db.Timestamptz(6)
-  passwordChangedAt         DateTime?                @map("password_changed_at") @db.Timestamptz(6)
-  blockedAt                 DateTime?                @map("blocked_at") @db.Timestamptz(6)
-  roles                     UserRole[]
-  auditLogs                 SecurityAuditLog[]
-  administrativeAuditLogs   AdministrativeAuditLog[]
-  uploadedStudentDocuments  StudentDocument[]        @relation("StudentDocumentUploadedBy")
-  removedStudentDocuments   StudentDocument[]        @relation("StudentDocumentRemovedBy")
-  issuedOfficialDocuments   OfficialDocumentIssue[]  @relation("OfficialDocumentIssuedBy")
-  reviewedPreRegistrations  PublicPreRegistration[]  @relation("PreRegistrationReviewedBy")
-  studentHistoryEvents      StudentHistoryEvent[]    @relation("StudentHistoryPerformedBy")
-  boardMembershipsStarted   BoardMembership[]        @relation("BoardMembershipStartedBy")
-  boardMembershipsEnded     BoardMembership[]        @relation("BoardMembershipEndedBy")
-  studentCardsIssued        StudentCard[]            @relation("StudentCardIssuedBy")
-  studentCardsInvalidated   StudentCard[]            @relation("StudentCardInvalidatedBy")
-  invoicesCreated           Invoice[]                @relation("InvoiceCreatedBy")
-  invoicesCancelled         Invoice[]                @relation("InvoiceCancelledBy")
-  bankSlipCancellations     BankSlip[]               @relation("BankSlipCancellationRequestedBy")
-  bankSlipSyncRunsStarted   BankSlipSyncRun[]        @relation("BankSlipSyncRunStartedBy")
-  bankSlipIssueBatches      BankSlipIssueBatch[]     @relation("BankSlipIssueBatchRequestedBy")
-  bankSlipIssueBatchCancels BankSlipIssueBatch[]     @relation("BankSlipIssueBatchCancelledBy")
-  collectionActionsCreated  CollectionAction[]       @relation("CollectionActionCreatedBy")
-  institutions              UserInstitution[]
+  id                         String                   @id @default(uuid()) @db.Uuid
+  name                       String                   @db.VarChar(120)
+  email                      String                   @unique @db.VarChar(180)
+  passwordHash               String                   @map("password_hash") @db.VarChar(255)
+  status                     UserStatus               @default(ACTIVE)
+  mustChangePassword         Boolean                  @default(false) @map("must_change_password")
+  createdAt                  DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt                DateTime?                @map("last_login_at") @db.Timestamptz(6)
+  passwordChangedAt          DateTime?                @map("password_changed_at") @db.Timestamptz(6)
+  blockedAt                  DateTime?                @map("blocked_at") @db.Timestamptz(6)
+  roles                      UserRole[]
+  auditLogs                  SecurityAuditLog[]
+  administrativeAuditLogs    AdministrativeAuditLog[]
+  uploadedStudentDocuments   StudentDocument[]        @relation("StudentDocumentUploadedBy")
+  removedStudentDocuments    StudentDocument[]        @relation("StudentDocumentRemovedBy")
+  issuedOfficialDocuments    OfficialDocumentIssue[]  @relation("OfficialDocumentIssuedBy")
+  reviewedPreRegistrations   PublicPreRegistration[]  @relation("PreRegistrationReviewedBy")
+  studentHistoryEvents       StudentHistoryEvent[]    @relation("StudentHistoryPerformedBy")
+  boardMembershipsStarted    BoardMembership[]        @relation("BoardMembershipStartedBy")
+  boardMembershipsEnded      BoardMembership[]        @relation("BoardMembershipEndedBy")
+  studentCardsIssued         StudentCard[]            @relation("StudentCardIssuedBy")
+  studentCardsInvalidated    StudentCard[]            @relation("StudentCardInvalidatedBy")
+  invoicesCreated            Invoice[]                @relation("InvoiceCreatedBy")
+  invoicesCancelled          Invoice[]                @relation("InvoiceCancelledBy")
+  bankSlipCancellations      BankSlip[]               @relation("BankSlipCancellationRequestedBy")
+  bankSlipSyncRunsStarted    BankSlipSyncRun[]        @relation("BankSlipSyncRunStartedBy")
+  bankSlipIssueBatches       BankSlipIssueBatch[]     @relation("BankSlipIssueBatchRequestedBy")
+  bankSlipIssueBatchCancels  BankSlipIssueBatch[]     @relation("BankSlipIssueBatchCancelledBy")
+  collectionActionsCreated   CollectionAction[]       @relation("CollectionActionCreatedBy")
+  associationSettingsUpdates AssociationSettings[]    @relation("AssociationSettingsUpdatedBy")
+  institutions               UserInstitution[]
 
   @@map("users")
 }
@@ -487,6 +490,34 @@ model AdministrativeAuditLog {
   @@index([eventType, createdAt])
   @@index([userId, createdAt])
   @@map("administrative_audit_logs")
+}
+
+model AssociationSettings {
+  id              String   @id @default("association-settings") @db.VarChar(40)
+  legalName       String   @map("legal_name") @db.VarChar(180)
+  displayName     String?  @map("display_name") @db.VarChar(120)
+  cnpj            String   @db.VarChar(18)
+  street          String   @db.VarChar(180)
+  number          String   @db.VarChar(30)
+  complement      String?  @db.VarChar(120)
+  district        String   @db.VarChar(120)
+  city            String   @db.VarChar(120)
+  state           String   @db.VarChar(2)
+  postalCode      String   @map("postal_code") @db.VarChar(10)
+  primaryPhone    String   @map("primary_phone") @db.VarChar(30)
+  secondaryPhone  String?  @map("secondary_phone") @db.VarChar(30)
+  email           String   @db.VarChar(180)
+  website         String?  @db.VarChar(180)
+  logoStorageKey  String?  @map("logo_storage_key") @db.VarChar(500)
+  logoContentType String?  @map("logo_content_type") @db.VarChar(80)
+  logoFileName    String?  @map("logo_file_name") @db.VarChar(180)
+  logoSizeBytes   Int?     @map("logo_size_bytes")
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy       User?    @relation("AssociationSettingsUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("association_settings")
 }
 
 model Person {

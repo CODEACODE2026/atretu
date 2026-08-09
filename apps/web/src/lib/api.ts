@@ -20,6 +20,53 @@ export type AuthResponse = {
 export type RoleCode = "SUPER_ADMIN" | "SECRETARIA" | "GESTOR";
 export type UserStatus = "ACTIVE" | "INACTIVE";
 
+export type AssociationSettings = {
+  id: string;
+  legalName: string;
+  displayName: string | null;
+  cnpj: string;
+  street: string;
+  number: string;
+  complement: string | null;
+  district: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  primaryPhone: string;
+  secondaryPhone: string | null;
+  email: string;
+  website: string | null;
+  logoStorageKey: string | null;
+  logoContentType: string | null;
+  logoFileName: string | null;
+  logoSizeBytes: number | null;
+  logoUrl: string | null;
+  footerText: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedByUserId: string | null;
+};
+
+export type UpdateAssociationSettingsBody = Pick<
+  AssociationSettings,
+  | "city"
+  | "cnpj"
+  | "district"
+  | "email"
+  | "legalName"
+  | "number"
+  | "postalCode"
+  | "primaryPhone"
+  | "state"
+  | "street"
+> &
+  Partial<
+    Pick<
+      AssociationSettings,
+      "complement" | "displayName" | "secondaryPhone" | "website"
+    >
+  >;
+
 export type AdminUser = {
   id: string;
   name: string;
@@ -1729,6 +1776,34 @@ export const api = {
     return request<{ deleted: boolean; id: string }>(`/academic-years/${id}`, {
       method: "DELETE",
     });
+  },
+
+  getAssociationSettings() {
+    return request<AssociationSettings>("/admin/association-settings");
+  },
+
+  updateAssociationSettings(body: UpdateAssociationSettingsBody) {
+    return request<AssociationSettings>("/admin/association-settings", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updateAssociationLogo(file: File) {
+    const form = new FormData();
+    form.set("file", file);
+    return request<AssociationSettings>("/admin/association-settings/logo", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  async downloadAssociationLogo(storageKey?: string | null) {
+    return requestBlob(
+      withParams("/admin/association-settings/logo", {
+        key: storageKey ?? undefined,
+      }),
+    );
   },
 
   listStudents(params?: ListStudentsParams) {

@@ -11,6 +11,10 @@ const institutional = readFileSync(
   "src/app/admin/official-documents-panel.tsx",
   "utf8",
 );
+const associationSettings = readFileSync(
+  "src/app/admin/settings/association-settings-panel.tsx",
+  "utf8",
+);
 const navigation = readFileSync("src/app/admin/admin-navigation.ts", "utf8");
 const profileSummary = readFileSync(
   "src/app/admin/students/student-profile-summary.tsx",
@@ -63,6 +67,11 @@ for (const fragment of [
   "issueInstitutionalOfficialDocument",
   "reissueInstitutionalOfficialDocument",
   "downloadInstitutionalOfficialDocument",
+  "AssociationSettings",
+  "getAssociationSettings",
+  "updateAssociationSettings",
+  "updateAssociationLogo",
+  "downloadAssociationLogo",
 ]) {
   assert.ok(api.includes(fragment), `api client must include ${fragment}`);
 }
@@ -75,8 +84,29 @@ assert.ok(
 for (const fragment of [
   "Documentos Oficiais",
   "official-documents",
+  "Configurações",
+  "settings",
 ]) {
   assert.ok(navigation.includes(fragment), `navigation must include ${fragment}`);
+}
+
+for (const fragment of [
+  "Configurações Institucionais",
+  "Identificação",
+  "Endereço",
+  "Contato",
+  "Identidade visual",
+  "Salvar alterações",
+  "Cancelar",
+  "Alterar logo",
+  "getAssociationSettings",
+  "updateAssociationSettings",
+  "updateAssociationLogo",
+]) {
+  assert.ok(
+    associationSettings.includes(fragment),
+    `association settings UI must include ${fragment}`,
+  );
 }
 
 for (const fragment of [

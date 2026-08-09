@@ -15,6 +15,10 @@ import {
 } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import {
+  AssociationSettingsService,
+  type AssociationSnapshot,
+} from "../association-settings/association-settings.service.js";
 import { scopedInstitutionFilter } from "../auth/institution-scope.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
@@ -135,6 +139,7 @@ type OfficialDocumentSnapshot = {
     year: number;
   };
   body: OfficialDocumentPdfBlock[];
+  association?: AssociationSnapshot;
   documentTitle: string;
   documentType: OfficialDocumentType;
   emittedAt: string;
@@ -238,6 +243,8 @@ export class OfficialDocumentsService {
     private readonly audit: AdministrativeAuditService,
     @Inject(OfficialDocumentPdfBuilder)
     private readonly pdfBuilder: OfficialDocumentPdfBuilder,
+    @Inject(AssociationSettingsService)
+    private readonly associationSettings: AssociationSettingsService,
   ) {}
 
   async listStudentOfficialDocuments(studentId: string, currentUser: AuthUser) {
@@ -333,7 +340,7 @@ export class OfficialDocumentsService {
       payload,
       sourceIssue,
     );
-    const pdfInput = this.toPdfInput(snapshot, currentUser.name);
+    const pdfInput = await this.toPdfInput(snapshot, currentUser.name);
     const pdf = await this.pdfBuilder.render(pdfInput);
     const storageKey = `official-documents/${studentId}/${issueId}.pdf`;
     const fileName = this.fileName(student, documentType, protocol);
@@ -509,7 +516,7 @@ export class OfficialDocumentsService {
           protocol,
           payload,
         );
-    const pdfInput = this.toPdfInput(snapshot, currentUser.name);
+    const pdfInput = await this.toPdfInput(snapshot, currentUser.name);
     const pdf = await this.pdfBuilder.render(pdfInput);
     const storageKey = `official-documents/institutional/${issueId}.pdf`;
     const fileName = this.institutionalFileName(documentType, protocol);
@@ -800,8 +807,9 @@ export class OfficialDocumentsService {
     const annualClearance = this.resolveAnnualClearanceDeclarationPayload(payload);
     const signers = await this.resolveSigners(definition.signers, student, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const association = await this.associationSettings.getSnapshotForDocuments();
     const issueDate = this.formatDateOnlyInSaoPaulo(issuedAt);
-    const issuePlaceDateText = `Terra Rica - PR, ${this.formatLongDateInSaoPaulo(issuedAt)}.`;
+    const issuePlaceDateText = `${association.issuePlaceWithState}, ${this.formatLongDateInSaoPaulo(issuedAt)}.`;
     const periodStart = `01 de janeiro de ${annualClearance.year}`;
     const periodEnd = `31 de dezembro de ${annualClearance.year}`;
     const finalClearanceDate = this.formatDate(annualClearance.finalClearanceDate);
@@ -810,7 +818,7 @@ export class OfficialDocumentsService {
     const studentSnapshot = {
       id: student.id,
       address: this.formatAddress(student.person),
-      city: student.person.addressCity || "Terra Rica",
+      city: student.person.addressCity || association.issuePlace,
       name: student.person.fullName,
       cpf: this.formatCpf(student.person.cpf),
       rg: this.formatRg(student.person.rg),
@@ -846,12 +854,12 @@ export class OfficialDocumentsService {
     });
     return {
       annualClearance: annualClearanceSnapshot,
+      association,
       body,
       documentTitle: ANNUAL_CLEARANCE_DECLARATION_DOCUMENT_TITLE,
       documentType: OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION,
       emittedAt: issuedAt.toISOString(),
-      footerNote:
-        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      footerNote: association.footerText,
       notes: annualClearance.notes ?? null,
       protocol,
       qrPayload: `ATRETU:${protocol}`,
@@ -883,12 +891,13 @@ export class OfficialDocumentsService {
     );
     const signers = await this.resolveSigners(definition.signers, student, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const association = await this.associationSettings.getSnapshotForDocuments();
     const issueDate = this.formatDateOnlyInSaoPaulo(issuedAt);
-    const issuePlaceDateText = `Terra Rica, ${this.formatLongDateInSaoPaulo(issuedAt)}`;
+    const issuePlaceDateText = `${association.issuePlace}, ${this.formatLongDateInSaoPaulo(issuedAt)}`;
     const studentSnapshot = {
       id: student.id,
       address: this.formatAddress(student.person),
-      city: student.person.addressCity || "Terra Rica",
+      city: student.person.addressCity || association.issuePlace,
       name: student.person.fullName,
       cpf: this.formatCpf(student.person.cpf),
       rg: this.formatRg(student.person.rg),
@@ -916,11 +925,11 @@ export class OfficialDocumentsService {
     });
     return {
       body,
+      association,
       documentTitle: TRANSPORT_REGULATION_DOCUMENT_TITLE,
       documentType: OfficialDocumentType.TRANSPORT_REGULATION,
       emittedAt: issuedAt.toISOString(),
-      footerNote:
-        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      footerNote: association.footerText,
       guardian,
       protocol,
       qrPayload: `ATRETU:${protocol}`,
@@ -960,9 +969,10 @@ export class OfficialDocumentsService {
     const refund = this.resolveTransportRefundRequestPayload(payload);
     const signers = await this.resolveSigners(definition.signers, student, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const association = await this.associationSettings.getSnapshotForDocuments();
     const enrollment = student.enrollments[0];
     const issueDate = this.formatDateOnlyInSaoPaulo(issuedAt);
-    const issuePlaceDateText = `Terra Rica, ${this.formatLongDateInSaoPaulo(issuedAt)}`;
+    const issuePlaceDateText = `${association.issuePlace}, ${this.formatLongDateInSaoPaulo(issuedAt)}`;
     const refundAmount = this.formatCurrency(refund.refundAmountCents);
     const refundAmountWords = this.moneyWords(refund.refundAmountCents);
     const paymentMethodText =
@@ -970,7 +980,7 @@ export class OfficialDocumentsService {
     const studentSnapshot = {
       id: student.id,
       address: this.formatAddress(student.person),
-      city: student.person.addressCity || "Terra Rica",
+      city: student.person.addressCity || association.issuePlace,
       name: student.person.fullName,
       cpf: this.formatCpf(student.person.cpf),
       rg: this.formatRg(student.person.rg),
@@ -1028,11 +1038,11 @@ export class OfficialDocumentsService {
     });
     return {
       body,
+      association,
       documentTitle: TRANSPORT_REFUND_REQUEST_DOCUMENT_TITLE,
       documentType: OfficialDocumentType.TRANSPORT_REFUND_REQUEST,
       emittedAt: issuedAt.toISOString(),
-      footerNote:
-        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      footerNote: association.footerText,
       protocol,
       qrPayload: `ATRETU:${protocol}`,
       signatureLabel: "",
@@ -1064,6 +1074,7 @@ export class OfficialDocumentsService {
     const term = this.resolveAdhesionTermPayload(payload);
     const signers = await this.resolveSigners(definition.signers, student, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const association = await this.associationSettings.getSnapshotForDocuments();
     const enrollment = student.enrollments[0];
     const installments = Array.from({ length: term.installmentCount }, (_, index) => {
       const dueDate = this.addMonthsClamped(term.firstInstallmentDate, index);
@@ -1114,15 +1125,15 @@ export class OfficialDocumentsService {
         templateVersion: definition.templateVersion,
         totalContractAmountCents,
       },
+      association,
       body,
       documentTitle: ADHESION_TERM_DOCUMENT_TITLE,
       documentType: OfficialDocumentType.ADHESION_TERM,
       emittedAt: issuedAt.toISOString(),
-      footerNote:
-        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      footerNote: association.footerText,
       protocol,
       qrPayload: `ATRETU:${protocol}`,
-      signatureLabel: `${student.person.addressCity || "Terra Rica"}, ${this.formatDate(issuedAt)}`,
+      signatureLabel: `${student.person.addressCity || association.issuePlace}, ${this.formatDate(issuedAt)}`,
       signatureName: primarySigner.name,
       signatureTitle: primarySigner.label,
       signers,
@@ -1134,7 +1145,7 @@ export class OfficialDocumentsService {
       student: {
         id: student.id,
         address: this.formatAddress(student.person),
-        city: student.person.addressCity || "Terra Rica",
+        city: student.person.addressCity || association.issuePlace,
         name: student.person.fullName,
         cpf: this.formatCpf(student.person.cpf),
         rg: this.formatRg(student.person.rg),
@@ -1165,8 +1176,9 @@ export class OfficialDocumentsService {
     const definition = getOfficialDocumentDefinition(documentType);
     const signers = await this.resolveSigners(definition.signers, student, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const association = await this.associationSettings.getSnapshotForDocuments();
     const address = this.formatAddress(student.person);
-    const issuedCity = student.person.addressCity || "Terra Rica";
+    const issuedCity = student.person.addressCity || association.issuePlace;
     const body = this.paragraphs([
       "Prezada Diretoria,",
       `Eu, ${student.person.fullName}, RG: ${this.formatRg(student.person.rg)}, CPF: ${this.formatCpf(student.person.cpf)}, residente e à ${address}, venho, por meio desta solicitação formal, requerer minha exclusão do quadro de sócios da ATRETU, com efeito imediato e caráter irrevogável, a partir da presente data. Solicito, outrossim, que seja cessada a emissão de cobranças de mensalidade em meu nome, e que a Tesouraria da ATRETU seja contatada para verificar eventuais pendências financeiras e/ou confirmar a quitação de meus compromissos como associado.`,
@@ -1175,11 +1187,11 @@ export class OfficialDocumentsService {
     ]);
     return {
       body,
+      association,
       documentTitle: definition.title,
       documentType,
       emittedAt: issuedAt.toISOString(),
-      footerNote:
-        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      footerNote: association.footerText,
       protocol,
       qrPayload: `ATRETU:${protocol}`,
       signatureLabel: `${issuedCity}, ${this.formatDate(issuedAt)}`,
@@ -1225,6 +1237,7 @@ export class OfficialDocumentsService {
     const term = this.resolveTerminationTermPayload(payload);
     const signers = await this.resolveSigners(definition.signers, student, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const association = await this.associationSettings.getSnapshotForDocuments();
     const studentName = student.person.fullName;
     const notificationDate = this.formatDate(term.notificationDate);
     const dueDate = this.formatDate(term.dueDate);
@@ -1243,14 +1256,14 @@ export class OfficialDocumentsService {
     ]);
     return {
       body,
+      association,
       documentTitle: definition.title,
       documentType: OfficialDocumentType.TERMINATION_TERM,
       emittedAt: issuedAt.toISOString(),
-      footerNote:
-        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      footerNote: association.footerText,
       protocol,
       qrPayload: `ATRETU:${protocol}`,
-      signatureLabel: `${student.person.addressCity || "Terra Rica"}, ${this.formatDate(issuedAt)}`,
+      signatureLabel: `${student.person.addressCity || association.issuePlace}, ${this.formatDate(issuedAt)}`,
       signatureName: primarySigner.name,
       signatureTitle: primarySigner.label,
       signers,
@@ -1262,7 +1275,7 @@ export class OfficialDocumentsService {
       student: {
         id: student.id,
         address: this.formatAddress(student.person),
-        city: student.person.addressCity || "Terra Rica",
+        city: student.person.addressCity || association.issuePlace,
         name: studentName,
         cpf: this.formatCpf(student.person.cpf),
         rg: this.formatRg(student.person.rg),
@@ -1293,6 +1306,7 @@ export class OfficialDocumentsService {
     const definition = getOfficialDocumentDefinition(documentType);
     const signers = await this.resolveSigners(definition.signers, null, issuedAt);
     const primarySigner = this.primarySigner(signers);
+    const association = await this.associationSettings.getSnapshotForDocuments();
     const approvalDate =
       payload?.approvalDate?.slice(0, 10) ?? INTERNAL_REGULATION_APPROVAL_DATE;
     const approvalDateValue = this.parseDateOnly(
@@ -1301,18 +1315,18 @@ export class OfficialDocumentsService {
     );
     return {
       approvalDate,
+      association,
       body: internalRegulationBody(),
       documentTitle: INTERNAL_REGULATION_DOCUMENT_TITLE,
       documentType,
       emittedAt: issuedAt.toISOString(),
-      footerNote:
-        "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+      footerNote: association.footerText,
       protocol,
       qrPayload: `ATRETU:${protocol}`,
       signatureLabel:
         approvalDate === INTERNAL_REGULATION_APPROVAL_DATE
           ? INTERNAL_REGULATION_APPROVAL_TEXT
-          : `Terra Rica, ${this.formatDate(approvalDateValue)}`,
+          : `${association.issuePlace}, ${this.formatDate(approvalDateValue)}`,
       signatureName: primarySigner.name,
       signatureTitle: primarySigner.label,
       signers,
@@ -1330,11 +1344,16 @@ export class OfficialDocumentsService {
     };
   }
 
-  private toPdfInput(
+  private async toPdfInput(
     snapshot: OfficialDocumentSnapshot,
     emittedBy: string,
-  ): OfficialDocumentPdfInput {
+  ): Promise<OfficialDocumentPdfInput> {
+    const association = snapshot.association ?? this.associationSettings.legacySnapshot();
+    const associationLogo =
+      await this.associationSettings.readLogoForSnapshot(association);
     return {
+      associationLogo,
+      associationName: association.legalName,
       body: snapshot.body,
       documentTitle: snapshot.documentTitle,
       emittedAt: new Date(snapshot.emittedAt),

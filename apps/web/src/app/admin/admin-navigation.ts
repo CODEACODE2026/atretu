@@ -9,6 +9,7 @@ import {
   FileBarChart2,
   FileText,
   LayoutDashboard,
+  Settings,
   RefreshCw,
   UserCog,
   Users,
@@ -25,6 +26,7 @@ export type AdminArea =
   | "finance"
   | "official-documents"
   | "reports"
+  | "settings"
   | "jobs"
   | "users"
   | "pre-registrations"
@@ -81,6 +83,13 @@ export const ADMIN_NAV_ITEMS = [
     icon: FileBarChart2,
     key: "reports",
     label: "Relatórios",
+  },
+  {
+    description: "Dados oficiais da associacao",
+    icon: Settings,
+    key: "settings",
+    label: "Configurações",
+    restricted: true,
   },
   {
     description: "Execucoes internas",

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 import { AuthModule } from "./auth/auth.module.js";
+import { AssociationSettingsModule } from "./association-settings/association-settings.module.js";
 import { BaseRecordsModule } from "./base-records/base-records.module.js";
 import { BusAssignmentsModule } from "./bus-assignments/bus-assignments.module.js";
 import { HttpErrorFilter } from "./common/http-exception.filter.js";
@@ -19,6 +20,7 @@ import { StudentsModule } from "./students/students.module.js";
 @Module({
   imports: [
     AppConfigModule,
+    AssociationSettingsModule,
     DatabaseModule,
     AuthModule,
     JobsModule,
