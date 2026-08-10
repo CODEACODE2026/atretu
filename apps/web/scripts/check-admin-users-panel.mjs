@@ -13,6 +13,13 @@ const includesAll = (source, values) => {
 };
 
 includesAll(navigation, [
+  "ADMIN_NAV_GROUPS",
+  "groupAdminNavItems",
+  'label: "VISÃO GERAL"',
+  'label: "ACADÊMICO"',
+  'label: "GESTÃO"',
+  'label: "ADMINISTRAÇÃO"',
+  'group: "administration"',
   '| "users"',
   'key: "users"',
   'label: "Usuários"',

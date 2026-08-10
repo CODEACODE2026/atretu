@@ -4,7 +4,11 @@ import { LogOut, Route, UserRound, X } from "lucide-react";
 import { useEffect } from "react";
 import type { ApiUser } from "../../../lib/api";
 import { getPrimaryRoleLabel } from "../../../lib/auth";
-import type { AdminArea, AdminNavItem } from "../admin-navigation";
+import {
+  groupAdminNavItems,
+  type AdminArea,
+  type AdminNavItem,
+} from "../admin-navigation";
 import { adminTheme, cx } from "../admin-theme";
 
 export function MobileNavigation({
@@ -55,7 +59,7 @@ export function MobileNavigation({
         onClick={onClose}
         type="button"
       />
-      <aside className="relative flex h-full w-[min(86vw,22rem)] flex-col border-r border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur">
+      <aside className="relative flex h-full min-h-0 w-[min(86vw,22rem)] flex-col border-r border-slate-200/80 bg-white/95 shadow-2xl backdrop-blur">
         <div className="flex h-16 items-center justify-between border-b border-slate-200/80 px-4">
           <div className="flex items-center gap-3">
             <div className={cx(adminTheme.atretuMark, "grid h-10 w-10 place-items-center rounded-xl text-sm font-bold")}>
@@ -78,43 +82,57 @@ export function MobileNavigation({
 
         <nav
           aria-label="Navegacao administrativa mobile"
-          className="flex-1 space-y-1 overflow-y-auto px-3 py-4"
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
         >
-          {items.map((item) => {
-            const Icon = item.icon;
-            const active = activeArea === item.key;
-            return (
-              <button
-                aria-current={active ? "page" : undefined}
-                className={cx(
-                  active
-                    ? "border-[#0F2E2E] bg-[#0F2E2E] text-white shadow-[0_10px_22px_rgba(15,46,46,0.16)]"
-                    : "border-transparent text-slate-600 hover:border-[#D8E9E4] hover:bg-[#F2F8F6] hover:text-[#0F2E2E]",
-                  "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left text-sm font-semibold transition duration-150 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 focus:ring-offset-2 motion-reduce:transition-none",
-                )}
-                key={item.key}
-                onClick={() => onNavigate(item.key)}
-                type="button"
+          {groupAdminNavItems(items).map((group, groupIndex) => (
+            <div
+              className={cx("space-y-1.5", groupIndex > 0 ? "mt-5" : "")}
+              key={group.key}
+            >
+              <div
+                aria-level={2}
+                className="px-3 text-[0.66rem] font-bold uppercase text-slate-400"
+                role="heading"
               >
-                <Icon size={18} />
-                <span>
-                  <span className="block">{item.label}</span>
-                  <span
-                    className={
+                {group.label}
+              </div>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const active = activeArea === item.key;
+                return (
+                  <button
+                    aria-current={active ? "page" : undefined}
+                    className={cx(
                       active
-                        ? "block text-xs font-medium text-slate-300"
-                        : "block text-xs font-normal text-slate-400"
-                    }
+                        ? "border-[#0F2E2E] bg-[#0F2E2E] text-white shadow-[0_10px_22px_rgba(15,46,46,0.16)]"
+                        : "border-transparent text-slate-600 hover:border-[#D8E9E4] hover:bg-[#F2F8F6] hover:text-[#0F2E2E]",
+                      "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left text-sm font-semibold transition duration-150 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 focus:ring-offset-2 motion-reduce:transition-none",
+                    )}
+                    key={item.key}
+                    onClick={() => onNavigate(item.key)}
+                    type="button"
                   >
-                    {item.description}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+                    <Icon className="shrink-0" size={18} />
+                    <span className="min-w-0">
+                      <span className="block truncate">{item.label}</span>
+                      <span
+                        className={
+                          active
+                            ? "block truncate text-xs font-medium text-slate-300"
+                            : "block truncate text-xs font-normal text-slate-400"
+                        }
+                      >
+                        {item.description}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
-        <div className="border-t border-slate-200/80 p-4">
+        <div className="shrink-0 border-t border-slate-200/80 p-4">
           <div className="flex items-center gap-3 rounded-xl border border-[#D8E9E4] bg-[#F8FAFA] p-3 shadow-sm">
             <div className="grid h-10 w-10 place-items-center rounded-full bg-white text-sm font-semibold text-[#14534D] ring-1 ring-[#B8D6CF]">
               {user.name.slice(0, 1).toUpperCase()}

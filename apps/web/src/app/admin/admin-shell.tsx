@@ -129,10 +129,17 @@ const DOMAINS: Array<{
 const DEFAULT_DOMAIN = DOMAINS[0]!;
 const ACCOUNT_NAV_ITEM = {
   description: "Dados pessoais e seguranca",
+  group: "administration",
   icon: UserRound,
   key: "account",
   label: "Minha Conta",
-} as const satisfies { description: string; icon: LucideIcon; key: AdminArea; label: string };
+} as const satisfies {
+  description: string;
+  group: "administration";
+  icon: LucideIcon;
+  key: AdminArea;
+  label: string;
+};
 
 export function AdminShell() {
   const router = useRouter();

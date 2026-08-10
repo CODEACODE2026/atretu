@@ -9,7 +9,11 @@ import {
 } from "lucide-react";
 import type { ApiUser } from "../../../lib/api";
 import { getPrimaryRoleLabel } from "../../../lib/auth";
-import type { AdminArea, AdminNavItem } from "../admin-navigation";
+import {
+  groupAdminNavItems,
+  type AdminArea,
+  type AdminNavItem,
+} from "../admin-navigation";
 import { adminTheme, cx } from "../admin-theme";
 
 export function AdminSidebar({
@@ -35,8 +39,8 @@ export function AdminSidebar({
     <aside
       className={
         collapsed
-          ? "fixed inset-y-0 left-0 z-30 hidden w-20 border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_rgba(15,23,42,0.03)] backdrop-blur md:flex md:flex-col"
-          : "fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_rgba(15,23,42,0.03)] backdrop-blur md:flex md:flex-col"
+          ? "fixed inset-y-0 left-0 z-30 hidden min-h-0 w-20 border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_rgba(15,23,42,0.03)] backdrop-blur md:flex md:flex-col"
+          : "fixed inset-y-0 left-0 z-30 hidden min-h-0 w-72 border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_rgba(15,23,42,0.03)] backdrop-blur md:flex md:flex-col"
       }
     >
       <div className="flex h-16 items-center justify-between gap-3 border-b border-slate-200/80 px-4">
@@ -67,20 +71,39 @@ export function AdminSidebar({
 
       <nav
         aria-label="Navegacao administrativa"
-        className="flex-1 space-y-1 overflow-y-auto px-3 py-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
       >
-        {items.map((item) => (
-          <SidebarItem
-            active={activeArea === item.key}
-            collapsed={collapsed}
-            item={item}
-            key={item.key}
-            onNavigate={onNavigate}
-          />
+        {groupAdminNavItems(items).map((group, groupIndex) => (
+          <div
+            className={cx(
+              collapsed ? "space-y-1" : "space-y-1.5",
+              groupIndex > 0 ? (collapsed ? "mt-3 pt-1" : "mt-5") : "",
+            )}
+            key={group.key}
+          >
+            {!collapsed ? (
+              <div
+                aria-level={2}
+                className="px-3 text-[0.66rem] font-bold uppercase text-slate-400"
+                role="heading"
+              >
+                {group.label}
+              </div>
+            ) : null}
+            {group.items.map((item) => (
+              <SidebarItem
+                active={activeArea === item.key}
+                collapsed={collapsed}
+                item={item}
+                key={item.key}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
         ))}
       </nav>
 
-      <div className="border-t border-slate-200/80 p-3">
+      <div className="shrink-0 border-t border-slate-200/80 p-3">
         <div
           className={
             collapsed
