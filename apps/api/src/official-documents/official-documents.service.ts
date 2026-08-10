@@ -1352,6 +1352,7 @@ export class OfficialDocumentsService {
     const associationLogo =
       await this.associationSettings.readLogoForSnapshot(association);
     return {
+      associationCnpj: association.cnpj,
       associationLogo,
       associationName: association.legalName,
       body: snapshot.body,

@@ -18,6 +18,7 @@ export type OfficialDocumentPdfInput = {
   emittedAt: Date;
   footerNote: string;
   associationName?: string;
+  associationCnpj?: string | null;
   associationLogo?: Buffer | null;
   layout?: "compact" | "standard";
   protocol: string;
@@ -81,23 +82,17 @@ export class OfficialDocumentPdfBuilder {
     const bodyWidth = A4.width - bodyX * 2;
     const bodyFontSize = compact ? 9.4 : 11;
     const bodyLineGap = compact ? 0.2 : 4;
-    const pageBodyStartY = compact ? 112 : 126;
-    const titleY = compact ? 160 : 168;
+    const pageBodyStartY = compact ? 58 : 72;
+    const titleY = compact ? 112 : 126;
     const footerTopY = A4.height - 104;
     const contentBottomLimit = footerTopY - 24;
-    const drawPageChrome = () => {
-      this.drawHeader(doc, input, logo);
-      this.drawFooter(doc, input, pageNumber);
-    };
     const addPage = () => {
       doc.addPage();
       pageNumber += 1;
-      drawPageChrome();
       return pageBodyStartY;
     };
 
-    drawPageChrome();
-    this.drawDocumentMeta(doc, input);
+    this.drawHeader(doc, input, logo);
 
     doc
       .font("Helvetica-Bold")
@@ -108,7 +103,7 @@ export class OfficialDocumentPdfBuilder {
         width: A4.width - 112,
       });
 
-    let y = compact ? Math.max(doc.y + 12, 194) : 230;
+    let y = compact ? Math.max(doc.y + 12, 150) : 176;
     input.body.forEach((block, index) => {
       const nextBlock = input.body[index + 1];
       const blockHeight = this.blockHeight(doc, block, bodyWidth, {
@@ -144,7 +139,7 @@ export class OfficialDocumentPdfBuilder {
       ? input.signatures
       : [{ label: input.signatureTitle, name: input.signatureName }];
     if (input.signaturePlacement === "body") {
-      this.drawQrPreparedBlock(doc, input, A4.width - 158, footerTopY - 150);
+      this.drawLastPageFooter(doc, input);
       return;
     }
     y = Math.max(y + 18, compact ? y : 500);
@@ -164,9 +159,7 @@ export class OfficialDocumentPdfBuilder {
     const signatureTop = y + 48;
     const gap = 18;
     const columns = Math.min(signatures.length, 3);
-    const reservedQrWidth = signatures.length === 2 ? 136 : 0;
-    const signatureWidth = bodyWidth - reservedQrWidth;
-    const columnWidth = (signatureWidth - gap * (columns - 1)) / columns;
+    const columnWidth = (bodyWidth - gap * (columns - 1)) / columns;
     signatures.forEach((signature, index) => {
       const column = index % columns;
       const row = Math.floor(index / columns);
@@ -196,12 +189,7 @@ export class OfficialDocumentPdfBuilder {
         });
     });
 
-    this.drawQrPreparedBlock(
-      doc,
-      input,
-      A4.width - 158,
-      Math.min(signatureTop + (signatures.length > 1 ? 62 : 8), footerTopY - 150),
-    );
+    this.drawLastPageFooter(doc, input);
   }
 
   private blockHeight(
@@ -530,116 +518,66 @@ export class OfficialDocumentPdfBuilder {
     input: OfficialDocumentPdfInput,
     logo: Buffer | null,
   ) {
-    doc.rect(0, 0, A4.width, 88).fill(COLORS.brand);
+    const headerTop = 24;
+    const logoWidth = 92;
+    const logoHeight = 44;
+    const logoX = A4.width - 56 - logoWidth;
+    const textX = 56;
+    const textWidth = logoX - textX - 18;
+    doc.rect(0, 0, A4.width, 90).fill("#FFFFFF");
     if (logo) {
-      doc.image(logo, 56, 24, { fit: [120, 40], valign: "center" });
+      doc.image(logo, logoX, headerTop, {
+        align: "center",
+        fit: [logoWidth, logoHeight],
+        valign: "center",
+      });
     } else {
       doc
-        .roundedRect(56, 24, 84, 40, 6)
-        .fill("#FFFFFF")
+        .rect(logoX, headerTop + 2, logoWidth, logoHeight - 4)
+        .stroke(COLORS.line)
         .font("Helvetica-Bold")
         .fontSize(12)
         .fillColor(COLORS.brand)
-        .text("ATRETU", 56, 38, { align: "center", width: 84 });
+        .text("ATRETU", logoX, headerTop + 17, {
+          align: "center",
+          width: logoWidth,
+        });
     }
     doc
       .font("Helvetica-Bold")
-      .fontSize(12)
-      .fillColor("#FFFFFF")
-      .text(input.associationName ?? "ATRETU", 206, 24, {
-        align: "right",
-        width: A4.width - 262,
+      .fontSize(10.6)
+      .fillColor(COLORS.ink)
+      .text(input.associationName ?? "ATRETU", textX, headerTop + 6, {
+        align: "center",
+        lineGap: 1,
+        width: textWidth,
       });
-    doc
-      .font("Helvetica")
-      .fontSize(8)
-      .fillColor("#DDEBFA")
-      .text("Documento oficial emitido pelo sistema Atretu", 206, 43, {
-        align: "right",
-        width: A4.width - 262,
-      });
-    doc.rect(0, 88, A4.width, 5).fill(COLORS.accent);
-  }
-
-  private drawDocumentMeta(
-    doc: PDFKit.PDFDocument,
-    input: OfficialDocumentPdfInput,
-  ) {
-    doc.roundedRect(56, 112, A4.width - 112, 34, 8).fill(COLORS.panel);
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .fillColor(COLORS.muted)
-      .text("PROTOCOLO", 72, 122, { width: 88 });
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor(COLORS.ink)
-      .text(input.protocol, 72, 133, { width: 150 });
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .fillColor(COLORS.muted)
-      .text("DATA", 252, 122, { width: 60 });
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor(COLORS.ink)
-      .text(this.formatDate(input.emittedAt), 252, 133, { width: 90 });
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .fillColor(COLORS.muted)
-      .text("VERSÃO", 420, 122, { width: 50 });
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor(COLORS.ink)
-      .text(`v${input.version}`, 420, 133, { width: 60 });
-  }
-
-  private drawQrPreparedBlock(
-    doc: PDFKit.PDFDocument,
-    input: OfficialDocumentPdfInput,
-    x: number,
-    y: number,
-  ) {
-    const size = 82;
-    doc.roundedRect(x - 10, y - 10, size + 20, 142, 8).fill("#FFFFFF").stroke(COLORS.line);
-    doc.rect(x, y, size, size).fill("#FFFFFF").stroke(COLORS.ink);
-    const cells = 9;
-    const cell = size / cells;
-    const seed = input.protocol
-      .split("")
-      .reduce((sum, char) => sum + char.charCodeAt(0), 0);
-    for (let row = 0; row < cells; row += 1) {
-      for (let col = 0; col < cells; col += 1) {
-        const finder =
-          (row < 3 && col < 3) ||
-          (row < 3 && col > 5) ||
-          (row > 5 && col < 3);
-        const filled = finder || (row * 7 + col * 11 + seed) % 5 === 0;
-        if (filled) {
-          doc.rect(x + col * cell, y + row * cell, cell, cell).fill(COLORS.ink);
-        }
-      }
+    if (input.associationCnpj) {
+      doc
+        .font("Helvetica")
+        .fontSize(8.6)
+        .fillColor(COLORS.muted)
+        .text(`CNPJ ${input.associationCnpj}`, textX, doc.y + 3, {
+          align: "center",
+          width: textWidth,
+        });
     }
     doc
-      .font("Helvetica-Bold")
-      .fontSize(7)
-      .fillColor(COLORS.ink)
-      .text("QR preparado", x - 4, y + size + 10, {
-        align: "center",
-        width: size + 8,
-      });
-    doc
-      .font("Helvetica")
-      .fontSize(6)
-      .fillColor(COLORS.muted)
-      .text(input.qrPayload, x - 4, y + size + 22, {
-        align: "center",
-        width: size + 8,
-      });
+      .moveTo(56, 82)
+      .lineTo(A4.width - 56, 82)
+      .strokeColor(COLORS.line)
+      .lineWidth(0.8)
+      .stroke();
+  }
+
+  private drawLastPageFooter(
+    doc: PDFKit.PDFDocument,
+    input: OfficialDocumentPdfInput,
+  ) {
+    const range = doc.bufferedPageRange();
+    const lastPageIndex = range.start + range.count - 1;
+    doc.switchToPage(lastPageIndex);
+    this.drawFooter(doc, input, range.count);
   }
 
   private drawFooter(

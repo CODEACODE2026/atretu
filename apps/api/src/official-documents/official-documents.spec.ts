@@ -578,6 +578,8 @@ function basePdfInput(body: string[]): OfficialDocumentPdfInput {
     emittedBy: "QA Oficial",
     footerNote:
       "ASSOCIACAO DE TRANSPORTE UNIVERSITARIO DE TERRA RICA | CNPJ 00.000.000/0001-00 | Avenida dos Universitarios, 1234 - Centro - Terra Rica/PR | Telefone (44) 99999-9999 - contato@atretu.org.br",
+    associationCnpj: "00.000.000/0001-00",
+    associationName: "ASSOCIACAO DE TRANSPORTE UNIVERSITARIO DE TERRA RICA",
     protocol: "ATRETU-2026-QA",
     qrPayload: "ATRETU:ATRETU-2026-QA:TERMINATION_LETTER",
     signatureLabel: "Terra Rica, 06/08/2026",
@@ -616,6 +618,100 @@ async function pageCount(input: OfficialDocumentPdfInput) {
   } finally {
     rendered.cleanup();
   }
+}
+
+async function pdfPages(input: OfficialDocumentPdfInput) {
+  const rendered = await renderPdf(input);
+  try {
+    const info = runCommand("pdfinfo", [rendered.filePath]);
+    const pages = Number(info.match(/^Pages:\s+(\d+)/m)?.[1] ?? 0);
+    assert.ok(pages, "pdfinfo must report page count");
+    return {
+      pages: Array.from({ length: pages }, (_, index) =>
+        runCommand("pdftotext", [
+          "-f",
+          String(index + 1),
+          "-l",
+          String(index + 1),
+          rendered.filePath,
+          "-",
+        ]),
+      ),
+      totalPages: pages,
+    };
+  } finally {
+    rendered.cleanup();
+  }
+}
+
+function countText(source: string, value: string) {
+  return source.split(value).length - 1;
+}
+
+function normalizePdfText(source: string) {
+  return source.replace(/\s+/g, " ").trim();
+}
+
+async function assertGlobalPdfStandard(input: OfficialDocumentPdfInput) {
+  const { pages, totalPages } = await pdfPages(input);
+  const allText = pages.join("\n---PAGE---\n");
+  const normalizedFirstPage = normalizePdfText(pages[0] ?? "");
+  const normalizedTitle = normalizePdfText(input.documentTitle.toUpperCase());
+  assert.ok(
+    normalizedFirstPage.includes(normalizedTitle),
+    `${input.documentTitle} title/header must be on the first page`,
+  );
+  pages.slice(1, -1).forEach((page, index) => {
+    const topOfPage = normalizePdfText(page).slice(0, 260);
+    assert.ok(
+      !topOfPage.includes(normalizedTitle),
+      `${input.documentTitle} title/header must not repeat on page ${index + 2}`,
+    );
+    if (input.associationCnpj) {
+      assert.ok(
+        !topOfPage.includes(`CNPJ ${input.associationCnpj}`),
+        `${input.documentTitle} institutional header must not repeat on page ${index + 2}`,
+      );
+    }
+  });
+  assert.equal(
+    countText(allText, "Emitido por"),
+    1,
+    `${input.documentTitle} must render the institutional footer only once`,
+  );
+  assert.ok(
+    pages[totalPages - 1]?.includes("Emitido por"),
+    `${input.documentTitle} footer must be on the last page`,
+  );
+  assert.ok(
+    !allText.includes(input.protocol),
+    `${input.documentTitle} must not render the technical protocol`,
+  );
+  assert.ok(
+    !allText.includes(input.qrPayload),
+    `${input.documentTitle} must not render the QR payload`,
+  );
+  assert.ok(
+    !/\bPROTOCOLO\b/.test(allText),
+    `${input.documentTitle} must not render the protocol metadata label`,
+  );
+  assert.ok(
+    !/\bVERS[ÃA]O\b/.test(allText),
+    `${input.documentTitle} must not render the version metadata label`,
+  );
+  assert.ok(
+    !/\bDATA\b/.test(allText),
+    `${input.documentTitle} must not render the technical date metadata label`,
+  );
+  assert.ok(
+    !allText.includes("QR preparado"),
+    `${input.documentTitle} must not render the QR block`,
+  );
+  assert.match(
+    allText,
+    /Presidente QA|Academico QA|Responsavel QA/i,
+    `${input.documentTitle} must keep signatures visible`,
+  );
 }
 
 async function assertNoHeaderOnlyPages(input: OfficialDocumentPdfInput) {
@@ -671,6 +767,7 @@ const longPages = await pageCount(basePdfInput(longLetterBody));
 assert.ok(longPages > 1, "really long official document must create extra pages");
 assert.ok(longPages < 8, "really long official document must not create header/footer-only pages");
 await assertNoHeaderOnlyPages(basePdfInput(longLetterBody));
+await assertGlobalPdfStandard(basePdfInput(longLetterBody));
 
 const internalRegulationInput: OfficialDocumentPdfInput = {
   body: internalRegulationBody(),
@@ -679,6 +776,9 @@ const internalRegulationInput: OfficialDocumentPdfInput = {
   emittedBy: "QA Oficial",
   footerNote:
     "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  associationCnpj: "49.682.667/0001-00",
+  associationName:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS",
   layout: "compact",
   protocol: "ATRETU-2026-REG",
   qrPayload: "ATRETU:ATRETU-2026-REG:INTERNAL_REGULATION",
@@ -696,6 +796,7 @@ assert.ok(
   "internal regulation must stay close to the legacy page count",
 );
 await assertNoHeaderOnlyPages(internalRegulationInput);
+await assertGlobalPdfStandard(internalRegulationInput);
 
 const adhesionTermInput: OfficialDocumentPdfInput = {
   body: adhesionTermBody({
@@ -729,6 +830,9 @@ const adhesionTermInput: OfficialDocumentPdfInput = {
   emittedBy: "QA Oficial",
   footerNote:
     "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  associationCnpj: "49.682.667/0001-00",
+  associationName:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS",
   protocol: "ATRETU-2026-ADESAO",
   qrPayload: "ATRETU:ATRETU-2026-ADESAO:ADHESION_TERM",
   signatureLabel: "Terra Rica, 06/08/2026",
@@ -757,6 +861,7 @@ assert.equal(
 const adhesionPages = await pageCount(adhesionTermInput);
 assert.ok(adhesionPages >= 1 && adhesionPages <= 3, "adhesion term must render in a compact A4 flow");
 await assertNoHeaderOnlyPages(adhesionTermInput);
+await assertGlobalPdfStandard(adhesionTermInput);
 
 const annualClearanceInput: OfficialDocumentPdfInput = {
   body: annualClearanceDeclarationBody({
@@ -778,6 +883,9 @@ const annualClearanceInput: OfficialDocumentPdfInput = {
   emittedBy: "QA Oficial",
   footerNote:
     "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  associationCnpj: "49.682.667/0001-00",
+  associationName:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS",
   layout: "compact",
   protocol: "ATRETU-2026-QUIT",
   qrPayload: "ATRETU:ATRETU-2026-QUIT:ANNUAL_CLEARANCE_DECLARATION",
@@ -804,6 +912,7 @@ assert.equal(
   "annual clearance declaration must fit in one A4 page",
 );
 await assertNoHeaderOnlyPages(annualClearanceInput);
+await assertGlobalPdfStandard(annualClearanceInput);
 
 const transportRegulationInput: OfficialDocumentPdfInput = {
   body: transportRegulationBody({
@@ -828,6 +937,9 @@ const transportRegulationInput: OfficialDocumentPdfInput = {
   emittedBy: "QA Oficial",
   footerNote:
     "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  associationCnpj: "49.682.667/0001-00",
+  associationName:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS",
   layout: "compact",
   protocol: "ATRETU-2026-TRANSP",
   qrPayload: "ATRETU:ATRETU-2026-TRANSP:TRANSPORT_REGULATION",
@@ -854,6 +966,7 @@ assert.ok(transportBody.includes("QUANDO INTERESSADO FOR MENOR DE IDADE"));
 const transportPages = await pageCount(transportRegulationInput);
 assert.equal(transportPages, 3, "transport regulation must stay at the legacy 3 pages");
 await assertNoHeaderOnlyPages(transportRegulationInput);
+await assertGlobalPdfStandard(transportRegulationInput);
 
 const refundRequestInput: OfficialDocumentPdfInput = {
   body: transportRefundRequestBody({
@@ -881,6 +994,9 @@ const refundRequestInput: OfficialDocumentPdfInput = {
   emittedBy: "QA Oficial",
   footerNote:
     "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS CNPJ 49.682.667/0001-00 | Av. Claudio Domingos Soletti, 1276, Centro CEP 87890-000 Terra Rica PR FONE:44 99941-3565 44 99144-1176 email - atretu2022@gmail.com",
+  associationCnpj: "49.682.667/0001-00",
+  associationName:
+    "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS",
   protocol: "ATRETU-2026-REEMB",
   qrPayload: "ATRETU:ATRETU-2026-REEMB:TRANSPORT_REFUND_REQUEST",
   signatureLabel: "",
@@ -906,5 +1022,6 @@ assert.ok(!refundBody.includes("Terra Ria"));
 assert.ok(refundBody.includes("Terra Rica, 07 de agosto de 2026"));
 assert.equal(await pageCount(refundRequestInput), 1, "refund request must fit in one A4 page");
 await assertNoHeaderOnlyPages(refundRequestInput);
+await assertGlobalPdfStandard(refundRequestInput);
 
 console.log("Official documents infrastructure guard OK");
