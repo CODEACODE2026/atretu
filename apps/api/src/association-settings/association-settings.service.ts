@@ -223,12 +223,22 @@ export class AssociationSettingsService {
   }
 
   private async ensureSeededLogo(currentStorageKey: string | null) {
-    if (currentStorageKey) {
+    if (currentStorageKey && currentStorageKey !== SEEDED_LOGO_STORAGE_KEY) {
       return;
+    }
+    if (currentStorageKey === SEEDED_LOGO_STORAGE_KEY) {
+      try {
+        await this.storage.read(SEEDED_LOGO_STORAGE_KEY);
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
     }
     const source = this.defaultLogoPath();
     if (!existsSync(source)) {
-      return;
+      throw new NotFoundException("Logo institucional seed indisponivel.");
     }
     const buffer = readFileSync(source);
     try {
@@ -237,6 +247,9 @@ export class AssociationSettingsService {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
         throw error;
       }
+    }
+    if (currentStorageKey === SEEDED_LOGO_STORAGE_KEY) {
+      return;
     }
     await this.prisma.associationSettings.update({
       where: { id: ASSOCIATION_SETTINGS_ID },
