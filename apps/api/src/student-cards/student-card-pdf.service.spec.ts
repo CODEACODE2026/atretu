@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { NotFoundException } from "@nestjs/common";
 import { StudentCardStatus, StudentCardType } from "@prisma/client";
+import sharp from "sharp";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
 import {
   STUDENT_CARD_PDF_LAYOUT,
@@ -13,6 +15,16 @@ const pngVertical = pngImage(300, 400);
 const pngHorizontal = pngImage(400, 240);
 const pngLarge = pngImage(1200, 1600);
 const pngSmall = pngImage(8, 8);
+const webpLogo = await sharp({
+  create: {
+    width: 80,
+    height: 40,
+    channels: 4,
+    background: { r: 40, g: 120, b: 200, alpha: 0.8 },
+  },
+})
+  .webp()
+  .toBuffer();
 const jpg = Buffer.from(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EFBABAQAAAAAAAAAAAAAAAAAAARD/2gAIAQEAAT8QH//Z",
   "base64",
@@ -34,6 +46,30 @@ const card = {
   invalidationNote: null,
   issuedByUserId: null,
   invalidatedByUserId: null,
+  associationSnapshot: {
+    city: "Terra Rica",
+    cnpj: "49.682.667/0001-00",
+    complement: null,
+    displayName: "ATRETU",
+    district: "Centro",
+    email: "atretu2022@gmail.com",
+    footerText: "ATRETU",
+    issuePlace: "Terra Rica",
+    issuePlaceWithState: "Terra Rica - PR",
+    legalName:
+      "ASSOCIAÇÃO TERRA-RIQUENSE DE ESTUDANTES TÉCNICOS E UNIVERSITÁRIOS",
+    logoContentType: "image/png",
+    logoFileName: "atretu-logo.png",
+    logoSizeBytes: png.byteLength,
+    logoStorageKey: "association/logo/seed-atretu-logo.png",
+    number: "1276",
+    postalCode: "87890-000",
+    primaryPhone: "44 99941-3565",
+    secondaryPhone: null,
+    state: "PR",
+    street: "Av. Claudio Domingos Soletti",
+    website: null,
+  },
   createdAt: new Date("2026-02-01T12:00:00Z"),
   updatedAt: new Date("2026-02-01T12:00:00Z"),
   student: {
@@ -111,8 +147,14 @@ const card = {
   },
 };
 
-function makeService(options?: { card?: unknown; photo?: unknown; photoBuffer?: Buffer }) {
+function makeService(options?: {
+  card?: unknown;
+  logoBuffer?: Buffer | null;
+  photo?: unknown;
+  photoBuffer?: Buffer;
+}) {
   let storageReads = 0;
+  let logoReads = 0;
   const prisma = {
     studentCard: {
       findFirst: async () =>
@@ -131,8 +173,25 @@ function makeService(options?: { card?: unknown; photo?: unknown; photoBuffer?: 
       return options?.photoBuffer ?? png;
     },
   };
+  const associationSettings = {
+    legacySnapshot: () => ({
+      ...(card.associationSnapshot as Record<string, unknown>),
+      logoStorageKey: "association/logo/seed-atretu-logo.png",
+    }),
+    readLogoForSnapshot: async () => {
+      logoReads += 1;
+      return options?.logoBuffer === undefined ? png : options.logoBuffer;
+    },
+  };
   return {
-    service: new StudentCardPdfService(prisma as never, storage as never),
+    service: new StudentCardPdfService(
+      prisma as never,
+      storage as never,
+      associationSettings as never,
+    ),
+    get logoReads() {
+      return logoReads;
+    },
     get storageReads() {
       return storageReads;
     },
@@ -145,6 +204,7 @@ assert.equal(result.filename, "carteirinha_alvaro-academico-de-sao-jose-com-nome
 assert.equal(result.disposition, FileDisposition.INLINE);
 assert.equal(result.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.ok(result.sizeBytes > 1000);
+assert.equal(withPhoto.logoReads, 1);
 assert.equal(withPhoto.storageReads, 1);
 assert.equal(STUDENT_CARD_PDF_LAYOUT.card.width, 270);
 assert.equal(STUDENT_CARD_PDF_LAYOUT.card.height, 172.5);
@@ -163,6 +223,33 @@ const noPhotoResult = await withoutPhoto.service.generate(
 );
 assert.equal(noPhotoResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.equal(withoutPhoto.storageReads, 0);
+assert.equal(withoutPhoto.logoReads, 1);
+
+const legacyWithoutSnapshot = makeService({
+  card: { ...card, associationSnapshot: null },
+  photo: null,
+});
+const legacyResult = await legacyWithoutSnapshot.service.generate(
+  "card-id",
+  FileDisposition.INLINE,
+);
+assert.equal(legacyResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
+assert.equal(legacyWithoutSnapshot.logoReads, 1);
+
+const webpLogoResult = await makeService({
+  logoBuffer: webpLogo,
+  photo: null,
+}).service.generate("card-id", FileDisposition.INLINE);
+assert.equal(webpLogoResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
+
+await assert.rejects(
+  () =>
+    makeService({ logoBuffer: null, photo: null }).service.generate(
+      "card-id",
+      FileDisposition.INLINE,
+    ),
+  /Logo institucional da carteirinha indisponivel/,
+);
 
 for (const photoBuffer of [
   pngVertical,
@@ -184,6 +271,17 @@ await assert.rejects(
   () => makeService({ card: null }).service.generate("missing", FileDisposition.INLINE),
   NotFoundException,
 );
+
+const schemaSource = readFileSync("prisma/schema.prisma", "utf8");
+assert.ok(schemaSource.includes("associationSnapshot  Json?"));
+assert.ok(schemaSource.includes('@map("association_snapshot")'));
+
+const serviceSource = readFileSync("src/student-cards/student-cards.service.ts", "utf8");
+assert.ok(serviceSource.includes("getSnapshotForDocuments()"));
+assert.ok(serviceSource.includes("associationSnapshot: associationSnapshot"));
+
+const moduleSource = readFileSync("src/student-cards/student-cards.module.ts", "utf8");
+assert.ok(moduleSource.includes("AssociationSettingsModule"));
 
 function pngImage(width: number, height: number) {
   const signature = Buffer.from("89504e470d0a1a0a", "hex");

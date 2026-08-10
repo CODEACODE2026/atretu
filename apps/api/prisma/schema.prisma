@@ -716,6 +716,7 @@ model StudentCard {
   cardType             StudentCardType                @map("card_type")
   sequenceNumber       Int                            @map("sequence_number")
   cardNumber           String                         @map("card_number") @db.VarChar(32)
+  associationSnapshot  Json?                          @map("association_snapshot")
   status               StudentCardStatus              @default(ACTIVE)
   issuedAt             DateTime                       @default(now()) @map("issued_at") @db.Timestamptz(6)
   invalidatedAt        DateTime?                      @map("invalidated_at") @db.Timestamptz(6)

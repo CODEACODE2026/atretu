@@ -10,9 +10,14 @@ import {
   StudentDocumentType,
 } from "@prisma/client";
 import PDFDocument from "pdfkit";
+import sharp from "sharp";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  AssociationSettingsService,
+  type AssociationSnapshot,
+} from "../association-settings/association-settings.service.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
 import { scopedInstitutionFilter } from "../auth/institution-scope.js";
@@ -50,6 +55,8 @@ export class StudentCardPdfService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(DocumentStorageService)
     private readonly storage: DocumentStorageService,
+    @Inject(AssociationSettingsService)
+    private readonly associationSettings: AssociationSettingsService,
   ) {}
 
   async generate(
@@ -79,8 +86,9 @@ export class StudentCardPdfService {
       },
     });
     const photoBuffer = photo ? await this.storage.read(photo.storageKey) : null;
-    const logoBuffer = this.loadOfficialLogo();
-    const buffer = await this.renderPdf(card, photoBuffer, logoBuffer);
+    const { logoBuffer, snapshot } = await this.resolveAssociationIdentity(card);
+    const normalizedLogo = await this.normalizeLogoForPdf(logoBuffer);
+    const buffer = await this.renderPdf(card, photoBuffer, normalizedLogo, snapshot);
     return {
       bytes: buffer,
       filename: this.filename(card),
@@ -107,6 +115,7 @@ export class StudentCardPdfService {
     card: StudentCardPdfRecord,
     photoBuffer: Buffer | null,
     logoBuffer: Buffer,
+    snapshot: AssociationSnapshot,
   ) {
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
@@ -115,10 +124,10 @@ export class StudentCardPdfService {
         autoFirstPage: true,
         compress: false,
         info: {
-          Title: "Carteirinha ATRETU",
-          Author: "ATRETU",
-          Creator: "ATRETU",
-          Producer: "ATRETU",
+          Title: `Carteirinha ${snapshot.displayName ?? snapshot.legalName}`,
+          Author: snapshot.legalName,
+          Creator: snapshot.displayName ?? snapshot.legalName,
+          Producer: snapshot.displayName ?? snapshot.legalName,
         },
       });
       const chunks: Buffer[] = [];
@@ -259,6 +268,16 @@ export class StudentCardPdfService {
       fit: [57, 19.5],
       valign: "center",
     });
+  }
+
+  private async normalizeLogoForPdf(logoBuffer: Buffer) {
+    try {
+      return await sharp(logoBuffer, { failOn: "none" }).png().toBuffer();
+    } catch {
+      throw new InternalServerErrorException(
+        "Logo institucional da carteirinha indisponivel.",
+      );
+    }
   }
 
   private drawPhoto(
@@ -461,7 +480,42 @@ export class StudentCardPdfService {
     return token || "academico";
   }
 
-  private loadOfficialLogo() {
+  private async resolveAssociationIdentity(card: StudentCardPdfRecord) {
+    const snapshot = this.toAssociationSnapshot(card.associationSnapshot);
+    if (snapshot) {
+      const logoBuffer = await this.associationSettings.readLogoForSnapshot(snapshot);
+      if (!logoBuffer) {
+        throw new InternalServerErrorException(
+          "Logo institucional da carteirinha indisponivel.",
+        );
+      }
+      return { logoBuffer, snapshot };
+    }
+
+    const legacySnapshot = this.associationSettings.legacySnapshot();
+    const logoBuffer =
+      (await this.associationSettings.readLogoForSnapshot(legacySnapshot)) ??
+      this.loadLegacyLogo();
+    return { logoBuffer, snapshot: legacySnapshot };
+  }
+
+  private toAssociationSnapshot(value: Prisma.JsonValue): AssociationSnapshot | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const snapshot = value as Partial<AssociationSnapshot>;
+    if (
+      typeof snapshot.legalName !== "string" ||
+      typeof snapshot.cnpj !== "string" ||
+      typeof snapshot.city !== "string" ||
+      typeof snapshot.state !== "string"
+    ) {
+      return null;
+    }
+    return snapshot as AssociationSnapshot;
+  }
+
+  private loadLegacyLogo() {
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const candidates = [
       path.join(moduleDir, "assets/atretu-logo.png"),
@@ -472,7 +526,7 @@ export class StudentCardPdfService {
     const found = candidates.find((candidate) => existsSync(candidate));
     if (!found) {
       throw new InternalServerErrorException(
-        "Logo oficial da ATRETU nao configurada",
+        "Logo institucional da carteirinha indisponivel.",
       );
     }
     return readFileSync(found);

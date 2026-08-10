@@ -19,6 +19,7 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
+import { AssociationSettingsService } from "../association-settings/association-settings.service.js";
 import {
   assertInstitutionInScope,
   scopedInstitutionFilter,
@@ -98,6 +99,8 @@ export class StudentCardsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AdministrativeAuditService)
     private readonly audit: AdministrativeAuditService,
+    @Inject(AssociationSettingsService)
+    private readonly associationSettings: AssociationSettingsService,
   ) {}
 
   async listStudentCards(query: ListStudentCardsDto, currentUser?: AuthUser) {
@@ -445,6 +448,8 @@ export class StudentCardsService {
       sequenceNumber,
       eligibility.academicYear.year,
     );
+    const associationSnapshot =
+      await this.associationSettings.getSnapshotForDocuments();
     const card = await tx.studentCard.create({
       data: {
         studentId,
@@ -457,6 +462,7 @@ export class StudentCardsService {
         cardType: body.cardType,
         sequenceNumber,
         cardNumber,
+        associationSnapshot: associationSnapshot as unknown as Prisma.InputJsonValue,
         issuedByUserId: userId,
       },
       include: this.cardInclude(),
