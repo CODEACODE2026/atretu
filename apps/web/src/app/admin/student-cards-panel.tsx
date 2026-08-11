@@ -42,7 +42,11 @@ import {
   StudentCardHistory,
   StudentCardNoActiveState,
 } from "./students/cards/student-card-profile-sections";
-import { selectCurrentStudentCard } from "./students/cards/student-card-display-utils";
+import {
+  expectedStudentCardType,
+  selectCurrentStudentCard,
+  selectPendingStudentCardRequirement,
+} from "./students/cards/student-card-display-utils";
 
 type PdfAction = "view" | "download" | "print";
 type PendingInvalidation = {
@@ -1012,6 +1016,12 @@ export function StudentCardsForStudent({
     void loadCards();
   }, [student.id]);
 
+  useEffect(() => {
+    setEnrollmentId(student.enrollments[0]?.id ?? "");
+    setCardType(expectedStudentCardType(student));
+    setPreview(null);
+  }, [student.id, student.activeBoardMembership?.id, student.enrollments[0]?.id]);
+
   async function loadCards() {
     setError("");
     setLoadingCards(true);
@@ -1084,6 +1094,11 @@ export function StudentCardsForStudent({
   }
 
   const currentCard = activeCard ?? selectCurrentStudentCard(student, cards);
+  const pendingRequirement = selectPendingStudentCardRequirement(
+    student,
+    cards,
+    currentCard,
+  );
   const historyCards = cards.filter((card) => card.id !== currentCard?.id);
 
   return (
@@ -1104,6 +1119,7 @@ export function StudentCardsForStudent({
 
       <StudentCardCurrentSummary
         activeCard={currentCard}
+        pendingRequirement={pendingRequirement}
         student={student}
         totalCards={cards.length}
       />
@@ -1123,7 +1139,12 @@ export function StudentCardsForStudent({
           onPdf={(card, action) => void handlePdf(card, action)}
         />
       ) : (
-        <StudentCardNoActiveState totalCards={cards.length} />
+        <StudentCardNoActiveState
+          onIssue={pendingRequirement ? () => void handleIssue() : undefined}
+          pendingRequirement={pendingRequirement}
+          saving={saving}
+          totalCards={cards.length}
+        />
       )}
 
       <StudentCardHistory

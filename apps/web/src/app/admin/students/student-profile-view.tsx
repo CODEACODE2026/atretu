@@ -111,6 +111,7 @@ export function StudentProfileView({
         activeCard: null,
         historyCount: 0,
         loading: false,
+        pendingRequirement: null,
         totalCards: 0,
       });
     }
@@ -190,6 +191,7 @@ export function StudentProfileView({
         onAction={handleAction}
         onBack={onBack}
         onToggleMenu={() => setMenuOpen((current) => !current)}
+        pendingRequirement={cardSummary.pendingRequirement}
         student={student}
       />
       <StudentProfileSummary

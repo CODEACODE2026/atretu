@@ -4,7 +4,13 @@ export type StudentCardProfileSummary = {
   activeCard: StudentCardRecord | null;
   historyCount: number;
   loading: boolean;
+  pendingRequirement: StudentCardRequirement | null;
   totalCards: number;
+};
+
+export type StudentCardRequirement = {
+  cardType: StudentCardRecord["cardType"];
+  enrollment: StudentDetail["enrollments"][number];
 };
 
 export function emptyStudentCardProfileSummary(): StudentCardProfileSummary {
@@ -12,6 +18,7 @@ export function emptyStudentCardProfileSummary(): StudentCardProfileSummary {
     activeCard: null,
     historyCount: 0,
     loading: true,
+    pendingRequirement: null,
     totalCards: 0,
   };
 }
@@ -25,6 +32,11 @@ export function buildStudentCardProfileSummary(
     activeCard,
     historyCount: cards.filter((card) => card.id !== activeCard?.id).length,
     loading: false,
+    pendingRequirement: selectPendingStudentCardRequirement(
+      student,
+      cards,
+      activeCard,
+    ),
     totalCards: cards.length,
   };
 }
@@ -42,10 +54,37 @@ export function selectCurrentStudentCard(
       (card) =>
         card.status === "ACTIVE" &&
         card.validity.usable &&
+        card.cardType === expectedStudentCardType(student) &&
         card.enrollment.id === currentEnrollment.id &&
         card.academicYear.id === currentEnrollment.academicYear.id,
     ) ?? null
   );
+}
+
+export function selectPendingStudentCardRequirement(
+  student: StudentDetail,
+  cards: StudentCardRecord[],
+  activeCard = selectCurrentStudentCard(student, cards),
+): StudentCardRequirement | null {
+  const currentEnrollment = student.enrollments[0];
+  if (
+    activeCard ||
+    !currentEnrollment ||
+    currentEnrollment.status !== "ACTIVE" ||
+    student.status !== "ACTIVE"
+  ) {
+    return null;
+  }
+  return {
+    cardType: expectedStudentCardType(student),
+    enrollment: currentEnrollment,
+  };
+}
+
+export function expectedStudentCardType(
+  student: StudentDetail,
+): StudentCardRecord["cardType"] {
+  return student.activeBoardMembership ? "BOARD_MEMBER" : "STUDENT";
 }
 
 export function cardTypeLabel(type: StudentCardRecord["cardType"]) {
@@ -98,4 +137,3 @@ export function invalidationReasonLabel(reason?: StudentCardRecord["invalidation
   };
   return reason ? labels[reason] ?? "Motivo não informado" : "Motivo não informado";
 }
-

@@ -13,6 +13,8 @@ import type { StudentCardRecord, StudentDetail } from "../../../lib/api";
 import { adminTheme, cx } from "../admin-theme";
 import { maskCpf } from "../../../lib/formatters";
 import { statusLabel } from "./student-profile-utils";
+import type { StudentCardRequirement } from "./cards/student-card-display-utils";
+import { cardTypeLabel } from "./cards/student-card-display-utils";
 
 export type StudentProfileAction =
   | "edit"
@@ -30,6 +32,7 @@ export function StudentProfileHeader({
   onAction,
   onBack,
   onToggleMenu,
+  pendingRequirement,
   student,
 }: {
   activeCard?: StudentCardRecord | null;
@@ -37,6 +40,7 @@ export function StudentProfileHeader({
   onAction: (action: StudentProfileAction) => void;
   onBack: () => void;
   onToggleMenu: () => void;
+  pendingRequirement?: StudentCardRequirement | null;
   student: StudentDetail;
 }) {
   const enrollment = student.enrollments[0];
@@ -73,7 +77,11 @@ export function StudentProfileHeader({
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 {activeCard
                   ? `Carteirinha ${activeCard.cardNumber}`
-                  : "Sem carteirinha ativa"}{" "}
+                  : pendingRequirement
+                    ? `Carteirinha de ${cardTypeLabel(
+                        pendingRequirement.cardType,
+                      )} pendente`
+                    : "Sem carteirinha ativa"}{" "}
                 ·{" "}
                 {maskCpf(student.person.cpf)}
               </p>

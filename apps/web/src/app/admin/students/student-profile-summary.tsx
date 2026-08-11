@@ -11,7 +11,10 @@ import {
 import type { BusAssignmentRecord, StudentDetail } from "../../../lib/api";
 import { adminTheme, cx } from "../admin-theme";
 import { statusLabel } from "./student-profile-utils";
-import type { StudentCardProfileSummary } from "./cards/student-card-display-utils";
+import {
+  cardTypeLabel,
+  type StudentCardProfileSummary,
+} from "./cards/student-card-display-utils";
 
 export function StudentProfileSummary({
   cardSummary,
@@ -25,6 +28,7 @@ export function StudentProfileSummary({
   transport?: BusAssignmentRecord | null;
 }) {
   const card = cardSummary.activeCard;
+  const pendingCard = cardSummary.pendingRequirement;
   const boardRole = student.activeBoardMembership?.role;
   const boardRoleLabel = boardRole ? boardMemberRoleLabel(boardRole) : null;
   const boardStartedAt = student.activeBoardMembership?.startedAt
@@ -56,14 +60,18 @@ export function StudentProfileSummary({
       label: "Carteirinha",
       helper: card
         ? card.cardNumber
+        : pendingCard
+          ? cardTypeLabel(pendingCard.cardType)
         : cardSummary.loading
           ? "Verificando..."
           : cardSummary.totalCards > 0
             ? `${cardSummary.historyCount} no histórico`
             : "Sem histórico",
-      tone: card ? "emerald" : cardSummary.totalCards > 0 ? "amber" : "slate",
+      tone: card ? "emerald" : pendingCard || cardSummary.totalCards > 0 ? "amber" : "slate",
       value: card
         ? "Emitida"
+        : pendingCard
+          ? "Pendente"
         : cardSummary.loading
           ? "Carregando"
           : cardSummary.totalCards > 0

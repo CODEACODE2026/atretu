@@ -15,6 +15,7 @@ import {
   cardStatusLabel,
   cardTypeLabel,
   invalidationReasonLabel,
+  type StudentCardRequirement,
   usabilityLabel,
 } from "./student-card-display-utils";
 
@@ -28,10 +29,12 @@ type CardActionProps = {
 
 export function StudentCardCurrentSummary({
   activeCard,
+  pendingRequirement,
   student,
   totalCards,
 }: {
   activeCard: StudentCardRecord | null;
+  pendingRequirement?: StudentCardRequirement | null;
   student: StudentDetail;
   totalCards: number;
 }) {
@@ -44,11 +47,21 @@ export function StudentCardCurrentSummary({
             Resumo da carteirinha atual
           </p>
           <h3 className="mt-1 text-lg font-semibold text-slate-950">
-            {activeCard ? `Carteirinha ${activeCard.cardNumber}` : "Sem carteirinha ativa"}
+            {activeCard
+              ? `Carteirinha ${activeCard.cardNumber}`
+              : pendingRequirement
+                ? `Carteirinha de ${cardTypeLabel(
+                    pendingRequirement.cardType,
+                  )} pendente`
+                : "Sem carteirinha ativa"}
           </h3>
           <p className="mt-1 text-sm text-slate-600">
             {activeCard
               ? "Carteirinha ativa, válida e vinculada ao contexto acadêmico atual."
+              : pendingRequirement
+                ? `O acadêmico precisa emitir a carteirinha de ${cardTypeLabel(
+                    pendingRequirement.cardType,
+                  )} para a matrícula atual.`
               : totalCards > 0
                 ? "Há carteirinhas no histórico, mas nenhuma está ativa para a matrícula atual."
                 : "Nenhuma carteirinha foi emitida para este acadêmico."}
@@ -59,18 +72,35 @@ export function StudentCardCurrentSummary({
             "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
             activeCard
               ? "bg-emerald-50 text-emerald-700"
+              : pendingRequirement
+                ? "bg-amber-50 text-amber-700"
               : totalCards > 0
                 ? "bg-amber-50 text-amber-700"
                 : "bg-slate-100 text-slate-600",
           )}
         >
-          {activeCard ? "Emitida" : totalCards > 0 ? "Sem carteirinha ativa" : "Não emitida"}
+          {activeCard
+            ? "Emitida"
+            : pendingRequirement
+              ? "Pendente de emissão"
+              : totalCards > 0
+                ? "Sem carteirinha ativa"
+                : "Não emitida"}
         </span>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StudentCardDetail label="Número" value={activeCard?.cardNumber ?? "-"} />
-        <StudentCardDetail label="Tipo" value={activeCard ? cardTypeLabel(activeCard.cardType) : "-"} />
+        <StudentCardDetail
+          label="Tipo"
+          value={
+            activeCard
+              ? cardTypeLabel(activeCard.cardType)
+              : pendingRequirement
+                ? cardTypeLabel(pendingRequirement.cardType)
+                : "-"
+          }
+        />
         <StudentCardDetail label="Situação" value={activeCard ? cardStatusLabel(activeCard) : "-"} />
         <StudentCardDetail
           label="Ano"
@@ -250,7 +280,17 @@ export function StudentCardHistory({
   );
 }
 
-export function StudentCardNoActiveState({ totalCards }: { totalCards: number }) {
+export function StudentCardNoActiveState({
+  onIssue,
+  pendingRequirement,
+  saving,
+  totalCards,
+}: {
+  onIssue?: () => void;
+  pendingRequirement?: StudentCardRequirement | null;
+  saving?: boolean;
+  totalCards: number;
+}) {
   return (
     <div className={cx(adminTheme.card, "grid gap-3 p-5 text-sm text-slate-600")}>
       <span className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
@@ -258,14 +298,35 @@ export function StudentCardNoActiveState({ totalCards }: { totalCards: number })
       </span>
       <div>
         <p className="font-semibold text-slate-950">
-          {totalCards > 0 ? "Sem carteirinha ativa" : "Não emitida"}
+          {pendingRequirement
+            ? `Carteirinha de ${cardTypeLabel(
+                pendingRequirement.cardType,
+              )} pendente de emissão`
+            : totalCards > 0
+              ? "Sem carteirinha ativa"
+              : "Não emitida"}
         </p>
         <p className="mt-1 text-slate-500">
-          {totalCards > 0
-            ? "Existe histórico de carteirinhas, mas nenhuma está ativa e utilizável para a matrícula atual."
-            : "A carteirinha será exibida aqui quando for gerada pelo fluxo atual."}
+          {pendingRequirement
+            ? `O acadêmico está elegível para emitir a carteirinha de ${cardTypeLabel(
+                pendingRequirement.cardType,
+              )} no fluxo atual.`
+            : totalCards > 0
+              ? "Existe histórico de carteirinhas, mas nenhuma está ativa e utilizável para a matrícula atual."
+              : "A carteirinha será exibida aqui quando for gerada pelo fluxo atual."}
         </p>
       </div>
+      {pendingRequirement && onIssue ? (
+        <button
+          className={cx(adminTheme.primaryButton, "w-fit")}
+          disabled={saving}
+          onClick={onIssue}
+          type="button"
+        >
+          <IdCard className="h-4 w-4" aria-hidden="true" />
+          {saving ? "Emitindo..." : "Emitir carteirinha"}
+        </button>
+      ) : null}
     </div>
   );
 }
