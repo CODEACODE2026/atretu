@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   AcademicYearStatus,
   BankSlipStatus,
+  BoardMembershipStatus,
   EnrollmentStatus,
   InvoiceStatus,
   Prisma,
@@ -281,7 +282,14 @@ export class DashboardService {
               id: true,
               createdAt: true,
               student: {
-                select: { id: true, person: { select: { fullName: true } } },
+                select: {
+                  id: true,
+                  boardMemberships: {
+                    where: { status: BoardMembershipStatus.ACTIVE },
+                    select: { id: true },
+                  },
+                  person: { select: { fullName: true } },
+                },
               },
               institution: { select: { name: true } },
               academicYear: { select: { year: true } },
@@ -432,7 +440,7 @@ export class DashboardService {
       this.listItem({
         id: item.id,
         label: item.student.person.fullName,
-        description: `${item.institution.name} - ${item.academicYear.year}`,
+        description: `${(item.student.boardMemberships?.length ?? 0) > 0 ? "Diretoria" : "Acadêmico"} - ${item.institution.name} - ${item.academicYear.year}`,
         status: "PENDING",
         date: item.createdAt.toISOString(),
         metadata: { studentId: item.student.id },

@@ -184,6 +184,9 @@ export class StudentCardsService {
                 },
                 take: 1,
               },
+              boardMemberships: {
+                where: { status: BoardMembershipStatus.ACTIVE },
+              },
             },
           },
         },
@@ -202,6 +205,7 @@ export class StudentCardsService {
         enrollment: this.toEnrollment(record),
         photoAvailable: record.student.documents.length > 0,
         joinedAt: record.student.joinedAt,
+        expectedCardType: this.expectedCardType(record.student),
         blockingReason: null,
       })),
       pagination: {
@@ -439,11 +443,7 @@ export class StudentCardsService {
       });
     }
 
-    const sequenceNumber = await this.nextSequenceNumber(
-      tx,
-      eligibility.academicYear.id,
-      body.cardType,
-    );
+    const sequenceNumber = await this.nextSequenceNumber(tx, eligibility.academicYear.id);
     const cardNumber = buildStudentCardNumber(
       sequenceNumber,
       eligibility.academicYear.year,
@@ -499,21 +499,19 @@ export class StudentCardsService {
   private async nextSequenceNumber(
     tx: Prisma.TransactionClient,
     academicYearId: string,
-    cardType: StudentCardType,
   ) {
     await tx.cardSequence.upsert({
-      where: { academicYearId_cardType: { academicYearId, cardType } },
-      create: { academicYearId, cardType, lastSequenceNumber: 0 },
+      where: { academicYearId },
+      create: { academicYearId, lastSequenceNumber: 0 },
       update: {},
     });
     await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM card_sequences
       WHERE academic_year_id = ${academicYearId}::uuid
-        AND card_type = ${cardType}::"StudentCardType"
       FOR UPDATE
     `;
     const sequence = await tx.cardSequence.findUnique({
-      where: { academicYearId_cardType: { academicYearId, cardType } },
+      where: { academicYearId },
     });
     if (!sequence) {
       throw new BadRequestException("Sequencia de carteirinha nao encontrada");
@@ -720,6 +718,14 @@ export class StudentCardsService {
       },
       activeBoardMembership: student.boardMemberships[0] ?? null,
     };
+  }
+
+  private expectedCardType(student: StudentWithPerson) {
+    return student.boardMemberships.some(
+      (membership) => membership.status === BoardMembershipStatus.ACTIVE,
+    )
+      ? StudentCardType.BOARD_MEMBER
+      : StudentCardType.STUDENT;
   }
 
   private toEnrollment(enrollment: EnrollmentWithRelations) {

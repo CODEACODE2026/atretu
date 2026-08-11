@@ -694,16 +694,13 @@ model Enrollment {
 }
 
 model CardSequence {
-  id                 String          @id @default(uuid()) @db.Uuid
-  academicYearId     String          @map("academic_year_id") @db.Uuid
-  cardType           StudentCardType @map("card_type")
-  lastSequenceNumber Int             @default(0) @map("last_sequence_number")
-  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
-  academicYear       AcademicYear    @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  id                 String       @id @default(uuid()) @db.Uuid
+  academicYearId     String       @unique @map("academic_year_id") @db.Uuid
+  lastSequenceNumber Int          @default(0) @map("last_sequence_number")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  academicYear       AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
 
-  @@unique([academicYearId, cardType])
-  @@index([cardType])
   @@map("card_sequences")
 }
 
@@ -734,8 +731,8 @@ model StudentCard {
   invalidatedBy        User?                          @relation("StudentCardInvalidatedBy", fields: [invalidatedByUserId], references: [id], onDelete: SetNull)
   studentHistoryEvents StudentHistoryEvent[]
 
-  @@unique([academicYearId, cardType, sequenceNumber])
-  @@unique([academicYearId, cardType, cardNumber])
+  @@unique([academicYearId, sequenceNumber])
+  @@unique([academicYearId, cardNumber])
   @@index([studentId, academicYearId])
   @@index([enrollmentId])
   @@index([boardMembershipId])

@@ -994,6 +994,7 @@ export type PendingStudentCardRecord = {
   institution: BaseRecord;
   academicYear: AcademicYear;
   enrollment: EnrollmentRecord;
+  expectedCardType: StudentCardType;
   photoAvailable: boolean;
   joinedAt: string;
   blockingReason: string | null;
