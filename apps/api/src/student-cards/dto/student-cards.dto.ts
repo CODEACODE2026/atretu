@@ -1,8 +1,10 @@
 import { Transform, Type } from "class-transformer";
 import {
+  ArrayMaxSize,
   IsEnum,
   IsInt,
   IsOptional,
+  IsArray,
   IsString,
   IsUUID,
   Max,
@@ -32,6 +34,12 @@ export enum SortOrder {
   DESC = "desc",
 }
 
+export enum StudentCardBatchTypeFilter {
+  ALL = "ALL",
+  STUDENT = "STUDENT",
+  BOARD_MEMBER = "BOARD_MEMBER",
+}
+
 export class ListStudentCardsDto {
   @IsOptional()
   @Type(() => Number)
@@ -55,6 +63,14 @@ export class ListStudentCardsDto {
   @IsOptional()
   @IsUUID()
   academicYearId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  shiftId?: string;
 
   @IsOptional()
   @IsEnum(StudentCardType)
@@ -142,4 +158,27 @@ export class StudentCardPdfDto {
   @IsEnum(FileDisposition)
   @Transform(({ value }) => (value === "" ? undefined : value))
   disposition: FileDisposition = FileDisposition.INLINE;
+}
+
+export class PrintStudentCardsBatchDto {
+  @IsUUID()
+  academicYearId!: string;
+
+  @IsOptional()
+  @IsEnum(StudentCardBatchTypeFilter)
+  cardType: StudentCardBatchTypeFilter = StudentCardBatchTypeFilter.ALL;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  shiftId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID("4", { each: true })
+  studentCardIds?: string[];
 }

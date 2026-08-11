@@ -578,9 +578,15 @@ export class StudentCardsService {
     currentUser?: AuthUser,
   ): Prisma.StudentCardWhereInput {
     const where: Prisma.StudentCardWhereInput = {};
-    const institutionFilter = scopedInstitutionFilter(currentUser);
-    if (institutionFilter) {
-      where.enrollment = { institutionId: institutionFilter };
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+    if (institutionFilter || query.shiftId) {
+      where.enrollment = {
+        ...(institutionFilter ? { institutionId: institutionFilter } : {}),
+        ...(query.shiftId ? { shiftId: query.shiftId } : {}),
+      };
     }
     if (query.academicYearId) {
       where.academicYearId = query.academicYearId;

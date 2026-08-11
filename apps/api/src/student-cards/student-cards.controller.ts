@@ -22,6 +22,7 @@ import {
   ListPendingStudentCardsDto,
   IssueStudentCardDto,
   ListStudentCardsDto,
+  PrintStudentCardsBatchDto,
   StudentCardPdfDto,
   StudentCardPreviewDto,
 } from "./dto/student-cards.dto.js";
@@ -83,6 +84,27 @@ export class StudentCardsController {
     response.setHeader(
       "Content-Disposition",
       `${pdf.disposition}; filename=\"${pdf.filename}\"`,
+    );
+    response.setHeader("Cache-Control", "no-store, private");
+    response.setHeader("Pragma", "no-cache");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.send(pdf.bytes);
+  }
+
+  @Post("student-cards/print-batch")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  async printStudentCardsBatch(
+    @Body() body: PrintStudentCardsBatchDto,
+    @CurrentUser() user: AuthUser,
+    @Res() response: Response,
+  ) {
+    const pdf = await this.studentCardPdf.generateBatch(body, user);
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Length", String(pdf.sizeBytes));
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${pdf.filename}"`,
     );
     response.setHeader("Cache-Control", "no-store, private");
     response.setHeader("Pragma", "no-cache");

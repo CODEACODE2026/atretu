@@ -16,6 +16,7 @@ import {
   api,
   type AcademicYear,
   type ApiUser,
+  type BaseRecord,
   type StudentCardPdfDisposition,
   type StudentCardInvalidationReason,
   type StudentCardPreview,
@@ -51,6 +52,8 @@ type PendingInvalidation = {
 export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [cards, setCards] = useState<StudentCardRecord[]>([]);
   const [years, setYears] = useState<AcademicYear[]>([]);
+  const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
+  const [shifts, setShifts] = useState<BaseRecord[]>([]);
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(null);
   const [preview, setPreview] = useState<StudentCardPreview | null>(null);
@@ -68,6 +71,16 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pdfBusyId, setPdfBusyId] = useState("");
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchYearId, setBatchYearId] = useState("");
+  const [batchCardType, setBatchCardType] = useState<"ALL" | StudentCardType>(
+    "ALL",
+  );
+  const [batchInstitutionId, setBatchInstitutionId] = useState("");
+  const [batchShiftId, setBatchShiftId] = useState("");
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchGenerating, setBatchGenerating] = useState(false);
   const [pendingInvalidation, setPendingInvalidation] =
     useState<PendingInvalidation>(null);
   const [invalidationReason, setInvalidationReason] =
@@ -98,12 +111,31 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
     void loadCards();
   }, [page, academicYearId, cardType, status, validity]);
 
+  useEffect(() => {
+    if (batchDialogOpen) {
+      void loadBatchCount();
+    }
+  }, [
+    batchDialogOpen,
+    batchYearId,
+    batchCardType,
+    batchInstitutionId,
+    batchShiftId,
+  ]);
+
   async function loadReferences() {
     try {
-      const response = await api.listAcademicYears({ status: "all" });
-      setYears(response.data);
-      const current = response.data.find((year) => year.isCurrent);
+      const [yearResponse, institutionResponse, shiftResponse] = await Promise.all([
+        api.listAcademicYears({ status: "all" }),
+        api.listInstitutions({ limit: 100, status: "active" }),
+        api.listShifts({ limit: 100, status: "active" }),
+      ]);
+      setYears(yearResponse.data);
+      setInstitutions(institutionResponse.data);
+      setShifts(shiftResponse.data);
+      const current = yearResponse.data.find((year) => year.isCurrent);
       setAcademicYearId(current?.id ?? "");
+      setBatchYearId(current?.id ?? "");
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar referências",
@@ -251,6 +283,81 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
     }
   }
 
+  async function loadBatchCount() {
+    if (!batchYearId) {
+      setBatchTotal(0);
+      return;
+    }
+    setBatchLoading(true);
+    setError("");
+    try {
+      const response = await api.listStudentCards({
+        page: 1,
+        limit: 1,
+        academicYearId: batchYearId,
+        cardType: batchCardType === "ALL" ? undefined : batchCardType,
+        institutionId: emptyToUndefined(batchInstitutionId),
+        shiftId: emptyToUndefined(batchShiftId),
+        status: "ACTIVE",
+        validity: "usable",
+        sort: "cardNumber",
+        order: "asc",
+      });
+      setBatchTotal(response.pagination.total);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao calcular lote");
+      setBatchTotal(0);
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  function openBatchDialog() {
+    setBatchDialogOpen(true);
+    setMessage("");
+    setError("");
+    setBatchYearId(academicYearId || years.find((year) => year.isCurrent)?.id || "");
+    setBatchCardType(cardType || "ALL");
+    setBatchInstitutionId("");
+    setBatchShiftId("");
+  }
+
+  async function generateBatchPdf() {
+    if (!batchYearId) {
+      setError("Selecione o ano letivo para imprimir.");
+      return;
+    }
+    if (batchTotal === 0) {
+      setError("Nenhuma carteirinha emitida encontrada para os filtros selecionados.");
+      return;
+    }
+    setBatchGenerating(true);
+    setMessage("");
+    setError("");
+    try {
+      const { blob, fileName } = await api.downloadStudentCardsBatchPdf({
+        academicYearId: batchYearId,
+        cardType: batchCardType,
+        institutionId: emptyToUndefined(batchInstitutionId),
+        shiftId: emptyToUndefined(batchShiftId),
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName || "carteirinhas_lote.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setBatchDialogOpen(false);
+      setMessage("PDF de impressão em lote gerado.");
+    } catch (caught) {
+      setError(pdfErrorMessage(caught));
+    } finally {
+      setBatchGenerating(false);
+    }
+  }
+
   return (
     <div className="grid min-w-0 gap-5">
       <AdminModuleHeader
@@ -374,6 +481,14 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               <option value="notUsable">Não utilizáveis</option>
             </select>
           </div>
+          <button
+            className={cx(adminTheme.secondaryButton, "w-full sm:w-auto")}
+            onClick={openBatchDialog}
+            type="button"
+          >
+            <Printer aria-hidden="true" className="h-4 w-4" />
+            Imprimir em lote
+          </button>
         </div>
         </div>
 
@@ -747,6 +862,119 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
           onReasonChange={setInvalidationReason}
           reason={invalidationReason}
         />
+      ) : null}
+      {batchDialogOpen ? (
+        <div
+          aria-modal="true"
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"
+          role="dialog"
+        >
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl">
+            <div className="border-b border-slate-200 p-4">
+              <h2 className="text-base font-semibold text-slate-950">
+                Imprimir carteirinhas em lote
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                O lote usa somente carteirinhas já emitidas e utilizáveis.
+              </p>
+            </div>
+            <div className="grid gap-4 p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Ano letivo
+                  <select
+                    className={adminTheme.control}
+                    onChange={(event) => setBatchYearId(event.target.value)}
+                    value={batchYearId}
+                  >
+                    <option value="">Selecione</option>
+                    {years.map((year) => (
+                      <option key={year.id} value={year.id}>
+                        {year.year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Tipo
+                  <select
+                    className={adminTheme.control}
+                    onChange={(event) =>
+                      setBatchCardType(event.target.value as "ALL" | StudentCardType)
+                    }
+                    value={batchCardType}
+                  >
+                    <option value="ALL">Todas</option>
+                    <option value="STUDENT">Acadêmico</option>
+                    <option value="BOARD_MEMBER">Diretoria</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Instituição
+                  <select
+                    className={adminTheme.control}
+                    onChange={(event) => setBatchInstitutionId(event.target.value)}
+                    value={batchInstitutionId}
+                  >
+                    <option value="">Todas</option>
+                    {institutions.map((institution) => (
+                      <option key={institution.id} value={institution.id}>
+                        {institution.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Turno
+                  <select
+                    className={adminTheme.control}
+                    onChange={(event) => setBatchShiftId(event.target.value)}
+                    value={batchShiftId}
+                  >
+                    <option value="">Todos</option>
+                    {shifts.map((shift) => (
+                      <option key={shift.id} value={shift.id}>
+                        {shift.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                {batchLoading ? (
+                  "Calculando carteirinhas..."
+                ) : batchTotal > 0 ? (
+                  <span>
+                    <strong className="text-slate-950">{batchTotal}</strong>{" "}
+                    carteirinha{batchTotal === 1 ? "" : "s"} selecionada
+                    {batchTotal === 1 ? "" : "s"} para impressão.
+                  </span>
+                ) : (
+                  "Nenhuma carteirinha emitida encontrada para os filtros selecionados."
+                )}
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-200 p-4 sm:flex-row sm:justify-end">
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={batchGenerating}
+                onClick={() => setBatchDialogOpen(false)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className={adminTheme.primaryButton}
+                disabled={batchGenerating || batchLoading || batchTotal === 0}
+                onClick={() => void generateBatchPdf()}
+                type="button"
+              >
+                <Printer aria-hidden="true" className="h-4 w-4" />
+                {batchGenerating ? "Gerando..." : "Gerar PDF para impressão"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

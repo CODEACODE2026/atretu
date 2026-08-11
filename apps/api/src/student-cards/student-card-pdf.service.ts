@@ -24,6 +24,12 @@ import { FileDisposition } from "../documents/dto/documents.dto.js";
 import { scopedInstitutionFilter } from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
+import {
+  PrintStudentCardsBatchDto,
+  StudentCardBatchTypeFilter,
+  StudentCardValidityFilter,
+} from "./dto/student-cards.dto.js";
+import { buildStudentCardValidityWhere } from "./student-cards.service.js";
 
 // PDFKit uses points. 360 x 230 px at 96 DPI equals 270 x 172.5 pt.
 const CARD = {
@@ -34,10 +40,30 @@ const PHOTO = {
   width: 104,
   height: 124,
 };
+const A4 = {
+  width: 595.28,
+  height: 841.89,
+};
+const BATCH_GRID = {
+  columns: 2,
+  rows: 4,
+  columnGap: 12,
+  rowGap: 10,
+  marginTop: 26,
+};
 export const STUDENT_CARD_PDF_LAYOUT = {
   card: CARD,
   photo: PHOTO,
   placeholderLabel: "Sem foto",
+} as const;
+export const STUDENT_CARD_BATCH_PDF_LAYOUT = {
+  page: A4,
+  grid: {
+    ...BATCH_GRID,
+    cardsPerPage: BATCH_GRID.columns * BATCH_GRID.rows,
+    marginLeft:
+      (A4.width - CARD.width * BATCH_GRID.columns - BATCH_GRID.columnGap) / 2,
+  },
 } as const;
 const COLORS = {
   boardBlue: "#366092",
@@ -98,6 +124,65 @@ export class StudentCardPdfService {
     };
   }
 
+  async generateBatch(body: PrintStudentCardsBatchDto, currentUser?: AuthUser) {
+    const cards = await this.findBatchCards(body, currentUser);
+    if (cards.length === 0) {
+      throw new NotFoundException(
+        "Nenhuma carteirinha emitida encontrada para os filtros selecionados.",
+      );
+    }
+    const studentIds = Array.from(new Set(cards.map((card) => card.studentId)));
+    const photos = await this.prisma.studentDocument.findMany({
+      where: {
+        studentId: { in: studentIds },
+        documentType: StudentDocumentType.PHOTO,
+        status: StudentDocumentStatus.ACTIVE,
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    });
+    const photoByStudent = new Map<string, string>();
+    for (const photo of photos) {
+      if (!photoByStudent.has(photo.studentId)) {
+        photoByStudent.set(photo.studentId, photo.storageKey);
+      }
+    }
+    const photoBuffers = new Map<string, Buffer | null>();
+    for (const card of cards) {
+      const storageKey = photoByStudent.get(card.studentId);
+      photoBuffers.set(
+        card.id,
+        storageKey ? await this.storage.read(storageKey) : null,
+      );
+    }
+    const logoCache = new Map<string, { logoBuffer: Buffer; snapshot: AssociationSnapshot }>();
+    const identities = new Map<
+      string,
+      { logoBuffer: Buffer; snapshot: AssociationSnapshot }
+    >();
+    for (const card of cards) {
+      const cacheKey = this.associationCacheKey(card.associationSnapshot);
+      const cached = logoCache.get(cacheKey);
+      if (cached) {
+        identities.set(card.id, cached);
+        continue;
+      }
+      const identity = await this.resolveAssociationIdentity(card);
+      const normalizedLogo = await this.normalizeLogoForPdf(identity.logoBuffer);
+      const normalizedIdentity = {
+        logoBuffer: normalizedLogo,
+        snapshot: identity.snapshot,
+      };
+      logoCache.set(cacheKey, normalizedIdentity);
+      identities.set(card.id, normalizedIdentity);
+    }
+    const buffer = await this.renderBatchPdf(cards, photoBuffers, identities);
+    return {
+      bytes: buffer,
+      filename: this.batchFilename(body),
+      sizeBytes: buffer.byteLength,
+    };
+  }
+
   private cardInclude() {
     return {
       student: { include: { person: true } },
@@ -139,6 +224,67 @@ export class StudentCardPdfService {
       this.drawPage(doc, card, photoBuffer, logoBuffer);
       doc.end();
     });
+  }
+
+  private renderBatchPdf(
+    cards: StudentCardPdfRecord[],
+    photoBuffers: Map<string, Buffer | null>,
+    identities: Map<string, { logoBuffer: Buffer; snapshot: AssociationSnapshot }>,
+  ) {
+    return new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({
+        size: "A4",
+        margin: 0,
+        autoFirstPage: false,
+        compress: false,
+        info: {
+          Title: "Impressao em lote de carteirinhas",
+          Author: "ATRETU",
+          Creator: "ATRETU",
+          Producer: "ATRETU",
+        },
+      });
+      const chunks: Buffer[] = [];
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("error", reject);
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+
+      cards.forEach((card, index) => {
+        const position = this.batchPosition(index);
+        if (position.newPage) {
+          doc.addPage({ size: "A4", margin: 0 });
+        }
+        const identity = identities.get(card.id);
+        if (!identity) {
+          throw new InternalServerErrorException(
+            "Identidade institucional da carteirinha indisponivel.",
+          );
+        }
+        this.drawCard(
+          doc,
+          position.x,
+          position.y,
+          card,
+          photoBuffers.get(card.id) ?? null,
+          identity.logoBuffer,
+        );
+      });
+      doc.end();
+    });
+  }
+
+  private batchPosition(index: number) {
+    const cardsPerPage = STUDENT_CARD_BATCH_PDF_LAYOUT.grid.cardsPerPage;
+    const pageIndex = index % cardsPerPage;
+    const column = pageIndex % BATCH_GRID.columns;
+    const row = Math.floor(pageIndex / BATCH_GRID.columns);
+    return {
+      newPage: pageIndex === 0,
+      x:
+        STUDENT_CARD_BATCH_PDF_LAYOUT.grid.marginLeft +
+        column * (CARD.width + BATCH_GRID.columnGap),
+      y: BATCH_GRID.marginTop + row * (CARD.height + BATCH_GRID.rowGap),
+    };
   }
 
   private drawPage(
@@ -511,6 +657,58 @@ export class StudentCardPdfService {
     const name = this.sanitizeFileToken(card.student.person.fullName);
     const number = this.sanitizeFileToken(card.cardNumber);
     return `carteirinha_${name}_${number}.pdf`;
+  }
+
+  private batchFilename(body: PrintStudentCardsBatchDto) {
+    const suffix =
+      body.cardType && body.cardType !== StudentCardBatchTypeFilter.ALL
+        ? body.cardType.toLowerCase().replace("_", "-")
+        : "todas";
+    return `carteirinhas_lote_${suffix}.pdf`;
+  }
+
+  private async findBatchCards(
+    body: PrintStudentCardsBatchDto,
+    currentUser?: AuthUser,
+  ) {
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      body.institutionId,
+    );
+    const where: Prisma.StudentCardWhereInput = {
+      academicYearId: body.academicYearId,
+      status: "ACTIVE",
+      ...(body.cardType && body.cardType !== StudentCardBatchTypeFilter.ALL
+        ? { cardType: body.cardType }
+        : {}),
+      ...(body.studentCardIds?.length
+        ? { id: { in: body.studentCardIds } }
+        : {}),
+      enrollment: {
+        ...(institutionFilter ? { institutionId: institutionFilter } : {}),
+        ...(body.shiftId ? { shiftId: body.shiftId } : {}),
+      },
+    };
+    return this.prisma.studentCard.findMany({
+      where: {
+        AND: [
+          where,
+          buildStudentCardValidityWhere(StudentCardValidityFilter.USABLE) ?? {},
+        ],
+      },
+      include: this.cardInclude(),
+      orderBy: [
+        { student: { person: { normalizedName: "asc" } } },
+        { sequenceNumber: "asc" },
+        { id: "asc" },
+      ],
+      take: 500,
+    });
+  }
+
+  private associationCacheKey(value: Prisma.JsonValue) {
+    const snapshot = this.toAssociationSnapshot(value);
+    return snapshot?.logoStorageKey ?? "legacy";
   }
 
   private sanitizeFileToken(value: string) {

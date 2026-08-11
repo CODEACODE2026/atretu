@@ -1004,6 +1004,8 @@ export type ListStudentCardsParams = {
   limit?: number;
   search?: string;
   academicYearId?: string;
+  institutionId?: string;
+  shiftId?: string;
   cardType?: StudentCardType;
   status?: StudentCardStatus;
   validity?: "all" | "usable" | "notUsable";
@@ -1020,6 +1022,14 @@ export type ListPendingStudentCardsParams = {
 };
 
 export type StudentCardPdfDisposition = "inline" | "attachment";
+
+export type PrintStudentCardsBatchPayload = {
+  academicYearId: string;
+  cardType?: "ALL" | StudentCardType;
+  institutionId?: string;
+  shiftId?: string;
+  studentCardIds?: string[];
+};
 
 export type InvoiceStatus = "OPEN" | "PAID" | "CANCELLED";
 export type InvoiceCancellationReason = "MANUAL_CORRECTION" | "DUPLICATE" | "OTHER";
@@ -2037,6 +2047,14 @@ export const api = {
         disposition,
       }),
     );
+  },
+
+  downloadStudentCardsBatchPdf(body: PrintStudentCardsBatchPayload) {
+    return requestBlob("/student-cards/print-batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
   },
 
   previewStudentCard(

@@ -6,9 +6,11 @@ import { StudentCardStatus, StudentCardType } from "@prisma/client";
 import sharp from "sharp";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
 import {
+  STUDENT_CARD_BATCH_PDF_LAYOUT,
   STUDENT_CARD_PDF_LAYOUT,
   StudentCardPdfService,
 } from "./student-card-pdf.service.js";
+import { StudentCardBatchTypeFilter } from "./dto/student-cards.dto.js";
 
 const png = pngImage(40, 40);
 const pngVertical = pngImage(300, 400);
@@ -148,30 +150,43 @@ const card = {
 };
 
 function makeService(options?: {
+  batchCards?: unknown[];
+  batchPhotos?: unknown[];
   card?: unknown;
   logoBuffer?: Buffer | null;
+  logoBuffersByKey?: Record<string, Buffer | null>;
   photo?: unknown;
   photoBuffer?: Buffer;
+  photoBuffersByStorageKey?: Record<string, Buffer>;
 }) {
   let storageReads = 0;
   let logoReads = 0;
   let legacySnapshotReads = 0;
   const requestedLogoKeys: Array<string | null> = [];
+  const studentCardFindManyCalls: unknown[] = [];
   const prisma = {
     studentCard: {
       findFirst: async () =>
         Object.hasOwn(options ?? {}, "card") ? options?.card : card,
+      findMany: async (args: unknown) => {
+        studentCardFindManyCalls.push(args);
+        return options?.batchCards ?? [];
+      },
     },
     studentDocument: {
       findFirst: async () =>
         options?.photo === undefined
           ? { id: "photo-id", storageKey: "students/student-id/PHOTO/photo-id/photo.png" }
           : options.photo,
+      findMany: async () => options?.batchPhotos ?? [],
     },
   };
   const storage = {
-    read: async () => {
+    read: async (storageKey: string) => {
       storageReads += 1;
+      if (options?.photoBuffersByStorageKey?.[storageKey]) {
+        return options.photoBuffersByStorageKey[storageKey];
+      }
       return options?.photoBuffer ?? png;
     },
   };
@@ -186,6 +201,13 @@ function makeService(options?: {
     readLogoForSnapshot: async (snapshot: { logoStorageKey?: string | null }) => {
       logoReads += 1;
       requestedLogoKeys.push(snapshot.logoStorageKey ?? null);
+      if (
+        snapshot.logoStorageKey &&
+        options?.logoBuffersByKey &&
+        snapshot.logoStorageKey in options.logoBuffersByKey
+      ) {
+        return options.logoBuffersByKey[snapshot.logoStorageKey];
+      }
       return options?.logoBuffer === undefined ? png : options.logoBuffer;
     },
   };
@@ -206,6 +228,9 @@ function makeService(options?: {
     },
     get requestedLogoKeys() {
       return requestedLogoKeys;
+    },
+    get studentCardFindManyCalls() {
+      return studentCardFindManyCalls;
     },
   };
 }
@@ -338,6 +363,115 @@ for (const photoBuffer of [
   assert.equal(generated.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 }
 
+assert.equal(STUDENT_CARD_BATCH_PDF_LAYOUT.page.width, 595.28);
+assert.equal(STUDENT_CARD_BATCH_PDF_LAYOUT.page.height, 841.89);
+assert.equal(STUDENT_CARD_BATCH_PDF_LAYOUT.grid.columns, 2);
+assert.equal(STUDENT_CARD_BATCH_PDF_LAYOUT.grid.rows, 4);
+assert.equal(STUDENT_CARD_BATCH_PDF_LAYOUT.grid.cardsPerPage, 8);
+assert.ok(STUDENT_CARD_BATCH_PDF_LAYOUT.grid.marginLeft > 0);
+
+const logoAKey = "association/logo/qa/logo-a.png";
+const logoBKey = "association/logo/qa/logo-b.webp";
+const batchCards = Array.from({ length: 9 }, (_, index) =>
+  batchCard({
+    cardType: index === 1 ? StudentCardType.BOARD_MEMBER : StudentCardType.STUDENT,
+    id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    logoStorageKey: index % 2 === 0 ? logoAKey : logoBKey,
+    name: `Aluno Lote ${String(index + 1).padStart(2, "0")}`,
+    sequenceNumber: index + 1,
+    studentId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+  }),
+);
+const batchService = makeService({
+  batchCards,
+  batchPhotos: [
+    {
+      id: "batch-photo",
+      studentId: batchCards[0]!.studentId,
+      storageKey: "students/batch/photo.png",
+    },
+  ],
+  logoBuffersByKey: {
+    [logoAKey]: pngHorizontal,
+    [logoBKey]: webpLogo,
+  },
+  photoBuffersByStorageKey: {
+    "students/batch/photo.png": pngVertical,
+  },
+});
+const batchResult = await batchService.service.generateBatch({
+  academicYearId: "academic-year-id",
+  cardType: StudentCardBatchTypeFilter.ALL,
+});
+assert.equal(batchResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
+assert.equal(batchResult.filename, "carteirinhas_lote_todas.pdf");
+assert.ok(batchResult.sizeBytes > 1000);
+assert.equal(batchService.storageReads, 1);
+assert.equal(batchService.logoReads, 2);
+assert.equal(batchService.legacySnapshotReads, 0);
+assert.deepEqual(batchService.requestedLogoKeys, [logoAKey, logoBKey]);
+const batchFindManyCall = (batchService.studentCardFindManyCalls as Array<{
+  orderBy: unknown[];
+  take: number;
+  where: { AND: unknown[] };
+}>)[0]!;
+assert.equal(batchFindManyCall.take, 500);
+assert.deepEqual(batchFindManyCall.orderBy, [
+  { student: { person: { normalizedName: "asc" } } },
+  { sequenceNumber: "asc" },
+  { id: "asc" },
+]);
+assert.equal(batchFindManyCall.where.AND.length, 2);
+
+const filteredBatch = makeService({ batchCards: [batchCards[0]!] });
+await filteredBatch.service.generateBatch({
+  academicYearId: "academic-year-id",
+  cardType: StudentCardBatchTypeFilter.BOARD_MEMBER,
+  institutionId: "institution-id",
+  shiftId: "shift-id",
+  studentCardIds: [batchCards[0]!.id],
+});
+const filteredFindManyCall = (filteredBatch.studentCardFindManyCalls as Array<{
+  where: {
+    AND: Array<{
+      academicYearId?: string;
+      cardType?: string;
+      enrollment?: { institutionId?: string; shiftId?: string };
+      id?: { in: string[] };
+      status?: string;
+    }>;
+  };
+}>)[0]!;
+assert.deepEqual(filteredFindManyCall.where.AND[0], {
+  academicYearId: "academic-year-id",
+  cardType: StudentCardType.BOARD_MEMBER,
+  enrollment: {
+    institutionId: "institution-id",
+    shiftId: "shift-id",
+  },
+  id: { in: [batchCards[0]!.id] },
+  status: "ACTIVE",
+});
+
+await assert.rejects(
+  () =>
+    makeService({ batchCards: [] }).service.generateBatch({
+      academicYearId: "academic-year-id",
+      cardType: StudentCardBatchTypeFilter.ALL,
+    }),
+  /Nenhuma carteirinha emitida encontrada/,
+);
+
+const legacyBatch = makeService({
+  batchCards: [batchCard({ associationSnapshot: null, id: "legacy-card-id" })],
+});
+const legacyBatchResult = await legacyBatch.service.generateBatch({
+  academicYearId: "academic-year-id",
+  cardType: StudentCardBatchTypeFilter.ALL,
+});
+assert.equal(legacyBatchResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
+assert.equal(legacyBatch.legacySnapshotReads, 1);
+
 await assert.rejects(
   () => makeService({ card: null }).service.generate("missing", FileDisposition.INLINE),
   NotFoundException,
@@ -359,6 +493,50 @@ assert.ok(builderSource.includes("StudentCardType.BOARD_MEMBER"));
 assert.ok(builderSource.includes("VÁLIDA PARA O ANO LETIVO"));
 assert.ok(builderSource.includes("card.academicYear.year"));
 assert.ok(!/qr|QRCode|qrcode/.test(builderSource));
+
+function batchCard(options: {
+  associationSnapshot?: typeof card.associationSnapshot | null;
+  cardType?: StudentCardType;
+  id?: string;
+  logoStorageKey?: string;
+  name?: string;
+  sequenceNumber?: number;
+  studentId?: string;
+} = {}) {
+  const sequenceNumber = options.sequenceNumber ?? 1;
+  const studentId = options.studentId ?? "student-id";
+  const fullName = options.name ?? card.student.person.fullName;
+  return {
+    ...card,
+    associationSnapshot:
+      options.associationSnapshot === undefined
+        ? {
+            ...(card.associationSnapshot as Record<string, unknown>),
+            logoStorageKey:
+              options.logoStorageKey ??
+              (card.associationSnapshot as { logoStorageKey: string })
+                .logoStorageKey,
+          }
+        : options.associationSnapshot,
+    cardNumber: `${sequenceNumber}2026`,
+    cardType: options.cardType ?? StudentCardType.STUDENT,
+    id: options.id ?? `batch-card-${sequenceNumber}`,
+    sequenceNumber,
+    studentId,
+    student: {
+      ...card.student,
+      id: studentId,
+      person: {
+        ...card.student.person,
+        fullName,
+        normalizedName: fullName
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase(),
+      },
+    },
+  };
+}
 
 function pngImage(width: number, height: number) {
   const signature = Buffer.from("89504e470d0a1a0a", "hex");
