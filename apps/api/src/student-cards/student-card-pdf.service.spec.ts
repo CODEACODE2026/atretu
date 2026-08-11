@@ -225,6 +225,18 @@ assert.equal(noPhotoResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.equal(withoutPhoto.storageReads, 0);
 assert.equal(withoutPhoto.logoReads, 1);
 
+const boardCardResult = await makeService({
+  card: {
+    ...card,
+    cardType: StudentCardType.BOARD_MEMBER,
+    boardMembershipId: "board-membership-id",
+    cardNumber: "22026",
+    sequenceNumber: 2,
+  },
+  photo: null,
+}).service.generate("card-id", FileDisposition.INLINE);
+assert.equal(boardCardResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
+
 const legacyWithoutSnapshot = makeService({
   card: { ...card, associationSnapshot: null },
   photo: null,
@@ -282,6 +294,12 @@ assert.ok(serviceSource.includes("associationSnapshot: associationSnapshot"));
 
 const moduleSource = readFileSync("src/student-cards/student-cards.module.ts", "utf8");
 assert.ok(moduleSource.includes("AssociationSettingsModule"));
+
+const builderSource = readFileSync("src/student-cards/student-card-pdf.service.ts", "utf8");
+assert.ok(builderSource.includes("StudentCardType.BOARD_MEMBER"));
+assert.ok(builderSource.includes("VÁLIDA PARA O ANO LETIVO"));
+assert.ok(builderSource.includes("card.academicYear.year"));
+assert.ok(!/qr|QRCode|qrcode/.test(builderSource));
 
 function pngImage(width: number, height: number) {
   const signature = Buffer.from("89504e470d0a1a0a", "hex");
