@@ -9,6 +9,7 @@ import {
   KeyRound,
   LockKeyhole,
   Mail,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -476,7 +477,7 @@ export function UsersPanel() {
 
         <div className="grid gap-4 p-4">
           <form
-            className="grid gap-3 lg:grid-cols-[minmax(220px,1.4fr)_repeat(3,minmax(150px,1fr))_auto]"
+            className="grid items-end gap-3 lg:grid-cols-[minmax(220px,1.4fr)_repeat(3,minmax(150px,1fr))_auto]"
             onSubmit={applySearch}
           >
             <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -549,13 +550,22 @@ export function UsersPanel() {
               </select>
             </label>
 
-            <button className={adminTheme.secondaryButton} type="submit">
+            <button
+              className={cx(adminTheme.secondaryButton, "w-full lg:w-auto")}
+              type="submit"
+            >
               <Search aria-hidden="true" className="h-4 w-4" />
               Buscar
             </button>
           </form>
 
-          <div className="flex flex-wrap gap-2">
+          <div
+            aria-label="Filtros rápidos"
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 px-3 py-2"
+          >
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Filtros rápidos
+            </span>
             <FilterToggle
               checked={neverLoggedIn}
               label="Nunca logou"
@@ -614,13 +624,13 @@ export function UsersPanel() {
                       <th className="w-[22%] border-b border-slate-200 px-3 py-3">
                         Usuário
                       </th>
-                      <th className="w-[13%] border-b border-slate-200 px-3 py-3">
+                      <th className="w-[11%] border-b border-slate-200 px-3 py-3">
                         Perfil
                       </th>
-                      <th className="w-[12%] border-b border-slate-200 px-3 py-3">
+                      <th className="w-[11%] border-b border-slate-200 px-3 py-3">
                         Status
                       </th>
-                      <th className="w-[21%] border-b border-slate-200 px-3 py-3">
+                      <th className="w-[16%] border-b border-slate-200 px-3 py-3">
                         Instituições
                       </th>
                       <th className="w-[14%] border-b border-slate-200 px-3 py-3">
@@ -629,7 +639,7 @@ export function UsersPanel() {
                       <th className="w-[10%] border-b border-slate-200 px-3 py-3">
                         Criado
                       </th>
-                      <th className="w-[8%] border-b border-slate-200 px-3 py-3 text-right">
+                      <th className="w-[16%] border-b border-slate-200 px-3 py-3 text-right">
                         Ações
                       </th>
                     </tr>
@@ -736,8 +746,8 @@ function UserTableRow({
   user: AdminUser;
 }) {
   return (
-    <tr className="align-top text-slate-700">
-      <td className="border-b border-slate-100 px-3 py-4">
+    <tr className="align-middle text-slate-700">
+      <td className="border-b border-slate-100 px-3 py-3">
         <div className="min-w-0">
           <p className="truncate font-semibold text-slate-950">{user.name}</p>
           <p className="mt-1 flex min-w-0 items-center gap-1 text-xs text-slate-500">
@@ -746,27 +756,29 @@ function UserTableRow({
           </p>
         </div>
       </td>
-      <td className="border-b border-slate-100 px-3 py-4">
+      <td className="border-b border-slate-100 px-3 py-3">
         <RoleBadges roles={user.roles} />
       </td>
-      <td className="border-b border-slate-100 px-3 py-4">
+      <td className="border-b border-slate-100 px-3 py-3">
         <UserStatusBadges user={user} />
       </td>
-      <td className="border-b border-slate-100 px-3 py-4">
+      <td className="border-b border-slate-100 px-3 py-3">
         <InstitutionTags user={user} />
       </td>
-      <td className="border-b border-slate-100 px-3 py-4 text-xs text-slate-600">
-        <p>{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : "Nunca logou"}</p>
+      <td className="border-b border-slate-100 px-3 py-3 text-xs leading-5 text-slate-600">
+        <p className="whitespace-nowrap">
+          {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : "Nunca logou"}
+        </p>
         {user.mustChangePassword ? (
           <p className="mt-1 font-semibold text-amber-700">
             Primeiro acesso pendente
           </p>
         ) : null}
       </td>
-      <td className="border-b border-slate-100 px-3 py-4 text-xs text-slate-600">
+      <td className="whitespace-nowrap border-b border-slate-100 px-3 py-3 text-xs text-slate-600">
         {formatDate(user.createdAt)}
       </td>
-      <td className="border-b border-slate-100 px-3 py-4">
+      <td className="border-b border-slate-100 px-3 py-3">
         <UserActions
           onBlock={onBlock}
           onEdit={onEdit}
@@ -795,6 +807,23 @@ function UserMobileCard({
   onUnblock: () => void;
   user: AdminUser;
 }) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!actionsOpen) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActionsOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [actionsOpen]);
+
   return (
     <article className={cx(adminTheme.softPanel, "p-4")}>
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -827,15 +856,65 @@ function UserMobileCard({
           <InfoBlock label="Criado em" value={formatDate(user.createdAt)} />
         </div>
       </div>
-      <div className="mt-4 flex justify-end">
-        <UserActions
-          onBlock={onBlock}
-          onEdit={onEdit}
-          onInstitutions={onInstitutions}
-          onResetPassword={onResetPassword}
-          onUnblock={onUnblock}
-          user={user}
-        />
+      <div className="relative mt-4 flex justify-end">
+        <button
+          aria-controls={`user-actions-${user.id}`}
+          aria-expanded={actionsOpen}
+          className={cx(adminTheme.secondaryButton, "w-full justify-center sm:w-auto")}
+          onClick={() => setActionsOpen((current) => !current)}
+          type="button"
+        >
+          <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
+          Ações
+        </button>
+        {actionsOpen ? (
+          <div
+            className="absolute bottom-12 right-0 z-10 grid w-full min-w-56 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-sm shadow-lg sm:w-64"
+            id={`user-actions-${user.id}`}
+            role="menu"
+          >
+            <UserMobileAction
+              icon={Pencil}
+              label="Editar usuário"
+              onClick={() => {
+                setActionsOpen(false);
+                onEdit();
+              }}
+            />
+            <UserMobileAction
+              icon={Building2}
+              label="Gerenciar instituições"
+              onClick={() => {
+                setActionsOpen(false);
+                onInstitutions();
+              }}
+            />
+            <UserMobileAction
+              icon={KeyRound}
+              label="Redefinir senha"
+              onClick={() => {
+                setActionsOpen(false);
+                onResetPassword();
+              }}
+            />
+            <UserMobileAction
+              icon={user.status === "INACTIVE" ? Unlock : LockKeyhole}
+              label={
+                user.status === "INACTIVE"
+                  ? "Desbloquear usuário"
+                  : "Bloquear usuário"
+              }
+              onClick={() => {
+                setActionsOpen(false);
+                if (user.status === "INACTIVE") {
+                  onUnblock();
+                } else {
+                  onBlock();
+                }
+              }}
+            />
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -858,48 +937,73 @@ function UserActions({
 }) {
   const inactive = user.status === "INACTIVE";
   return (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div className="flex flex-nowrap justify-end gap-1.5">
       <button
-        aria-label={`Editar ${user.name}`}
-        className={adminTheme.iconButton}
+        aria-label={`Editar usuário ${user.name}`}
+        className={cx(adminTheme.iconButton, "h-8 w-8")}
         onClick={onEdit}
-        title="Editar"
+        title="Editar usuário"
         type="button"
       >
-        <Pencil aria-hidden="true" className="h-4 w-4" />
+        <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
       </button>
       <button
-        aria-label={`Editar instituições de ${user.name}`}
-        className={adminTheme.iconButton}
+        aria-label={`Gerenciar instituições de ${user.name}`}
+        className={cx(adminTheme.iconButton, "h-8 w-8")}
         onClick={onInstitutions}
-        title="Instituições"
+        title="Gerenciar instituições"
         type="button"
       >
-        <Building2 aria-hidden="true" className="h-4 w-4" />
+        <Building2 aria-hidden="true" className="h-3.5 w-3.5" />
       </button>
       <button
-        aria-label={`Gerar nova senha temporária para ${user.name}`}
-        className={adminTheme.iconButton}
+        aria-label={`Redefinir senha de ${user.name}`}
+        className={cx(adminTheme.iconButton, "h-8 w-8")}
         onClick={onResetPassword}
-        title="Gerar nova senha temporária"
+        title="Redefinir senha"
         type="button"
       >
-        <KeyRound aria-hidden="true" className="h-4 w-4" />
+        <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
       </button>
       <button
-        aria-label={inactive ? `Desbloquear ${user.name}` : `Bloquear ${user.name}`}
-        className={adminTheme.iconButton}
+        aria-label={
+          inactive ? `Desbloquear usuário ${user.name}` : `Bloquear usuário ${user.name}`
+        }
+        className={cx(adminTheme.iconButton, "h-8 w-8")}
         onClick={inactive ? onUnblock : onBlock}
-        title={inactive ? "Desbloquear" : "Bloquear"}
+        title={inactive ? "Desbloquear usuário" : "Bloquear usuário"}
         type="button"
       >
         {inactive ? (
-          <Unlock aria-hidden="true" className="h-4 w-4" />
+          <Unlock aria-hidden="true" className="h-3.5 w-3.5" />
         ) : (
-          <LockKeyhole aria-hidden="true" className="h-4 w-4" />
+          <LockKeyhole aria-hidden="true" className="h-3.5 w-3.5" />
         )}
       </button>
     </div>
+  );
+}
+
+function UserMobileAction({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: typeof Pencil;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="inline-flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15"
+      onClick={onClick}
+      role="menuitem"
+      title={label}
+      type="button"
+    >
+      <Icon aria-hidden="true" className="h-4 w-4 text-slate-500" />
+      {label}
+    </button>
   );
 }
 
@@ -1169,10 +1273,10 @@ function FilterToggle({
   return (
     <label
       className={cx(
-        "inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-sm font-semibold shadow-sm transition",
+        "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
         checked
           ? "border-[#1F6F5F] bg-[#F2F8F6] text-[#0F2E2E]"
-          : "border-slate-200 bg-white text-slate-600",
+          : "border-slate-200 bg-white/90 text-slate-600",
       )}
     >
       <input
@@ -1262,19 +1366,27 @@ function InstitutionTags({ user }: { user: AdminUser }) {
   if (user.institutions.length === 0) {
     return <span className="text-sm text-slate-500">Sem instituição</span>;
   }
+  const visibleInstitutions = user.institutions.slice(0, 1);
   return (
     <div className="flex flex-wrap gap-1.5">
-      {user.institutions.slice(0, 3).map((institution) => (
+      {visibleInstitutions.map((institution) => (
         <span
-          className="max-w-full rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600"
+          className="max-w-[11rem] truncate rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600"
           key={institution.id}
+          title={institution.name}
         >
-          <span className="break-words">{institution.name}</span>
+          {institution.name}
         </span>
       ))}
-      {user.institutions.length > 3 ? (
-        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
-          +{user.institutions.length - 3}
+      {user.institutions.length > visibleInstitutions.length ? (
+        <span
+          className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500"
+          title={user.institutions
+            .slice(visibleInstitutions.length)
+            .map((institution) => institution.name)
+            .join(", ")}
+        >
+          +{user.institutions.length - visibleInstitutions.length}
         </span>
       ) : null}
     </div>
