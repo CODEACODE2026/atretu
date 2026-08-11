@@ -155,6 +155,8 @@ function makeService(options?: {
 }) {
   let storageReads = 0;
   let logoReads = 0;
+  let legacySnapshotReads = 0;
+  const requestedLogoKeys: Array<string | null> = [];
   const prisma = {
     studentCard: {
       findFirst: async () =>
@@ -174,12 +176,16 @@ function makeService(options?: {
     },
   };
   const associationSettings = {
-    legacySnapshot: () => ({
-      ...(card.associationSnapshot as Record<string, unknown>),
-      logoStorageKey: "association/logo/seed-atretu-logo.png",
-    }),
-    readLogoForSnapshot: async () => {
+    legacySnapshot: () => {
+      legacySnapshotReads += 1;
+      return {
+        ...(card.associationSnapshot as Record<string, unknown>),
+        logoStorageKey: "association/logo/seed-atretu-logo.png",
+      };
+    },
+    readLogoForSnapshot: async (snapshot: { logoStorageKey?: string | null }) => {
       logoReads += 1;
+      requestedLogoKeys.push(snapshot.logoStorageKey ?? null);
       return options?.logoBuffer === undefined ? png : options.logoBuffer;
     },
   };
@@ -195,6 +201,12 @@ function makeService(options?: {
     get storageReads() {
       return storageReads;
     },
+    get legacySnapshotReads() {
+      return legacySnapshotReads;
+    },
+    get requestedLogoKeys() {
+      return requestedLogoKeys;
+    },
   };
 }
 
@@ -205,6 +217,10 @@ assert.equal(result.disposition, FileDisposition.INLINE);
 assert.equal(result.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.ok(result.sizeBytes > 1000);
 assert.equal(withPhoto.logoReads, 1);
+assert.equal(withPhoto.legacySnapshotReads, 0);
+assert.deepEqual(withPhoto.requestedLogoKeys, [
+  "association/logo/seed-atretu-logo.png",
+]);
 assert.equal(withPhoto.storageReads, 1);
 assert.equal(STUDENT_CARD_PDF_LAYOUT.card.width, 270);
 assert.equal(STUDENT_CARD_PDF_LAYOUT.card.height, 172.5);
@@ -224,8 +240,9 @@ const noPhotoResult = await withoutPhoto.service.generate(
 assert.equal(noPhotoResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.equal(withoutPhoto.storageReads, 0);
 assert.equal(withoutPhoto.logoReads, 1);
+assert.equal(withoutPhoto.legacySnapshotReads, 0);
 
-const boardCardResult = await makeService({
+const boardCard = makeService({
   card: {
     ...card,
     cardType: StudentCardType.BOARD_MEMBER,
@@ -234,8 +251,46 @@ const boardCardResult = await makeService({
     sequenceNumber: 2,
   },
   photo: null,
-}).service.generate("card-id", FileDisposition.INLINE);
+});
+const boardCardResult = await boardCard.service.generate(
+  "card-id",
+  FileDisposition.INLINE,
+);
 assert.equal(boardCardResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
+assert.equal(boardCard.logoReads, 1);
+assert.equal(boardCard.legacySnapshotReads, 0);
+assert.deepEqual(boardCard.requestedLogoKeys, [
+  "association/logo/seed-atretu-logo.png",
+]);
+
+const customSnapshotCard = makeService({
+  card: {
+    ...card,
+    associationSnapshot: {
+      ...(card.associationSnapshot as Record<string, unknown>),
+      displayName: "LOGO B",
+      legalName: "ASSOCIACAO LOGO B",
+      logoContentType: "image/webp",
+      logoFileName: "logo-b.webp",
+      logoStorageKey: "association/logo/2026-08-11/logo-b.webp",
+    },
+  },
+  logoBuffer: webpLogo,
+  photo: null,
+});
+const customSnapshotResult = await customSnapshotCard.service.generate(
+  "card-id",
+  FileDisposition.INLINE,
+);
+assert.equal(
+  customSnapshotResult.bytes.subarray(0, 5).toString("ascii"),
+  "%PDF-",
+);
+assert.equal(customSnapshotCard.logoReads, 1);
+assert.equal(customSnapshotCard.legacySnapshotReads, 0);
+assert.deepEqual(customSnapshotCard.requestedLogoKeys, [
+  "association/logo/2026-08-11/logo-b.webp",
+]);
 
 const legacyWithoutSnapshot = makeService({
   card: { ...card, associationSnapshot: null },
@@ -247,6 +302,10 @@ const legacyResult = await legacyWithoutSnapshot.service.generate(
 );
 assert.equal(legacyResult.bytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.equal(legacyWithoutSnapshot.logoReads, 1);
+assert.equal(legacyWithoutSnapshot.legacySnapshotReads, 1);
+assert.deepEqual(legacyWithoutSnapshot.requestedLogoKeys, [
+  "association/logo/seed-atretu-logo.png",
+]);
 
 const webpLogoResult = await makeService({
   logoBuffer: webpLogo,
