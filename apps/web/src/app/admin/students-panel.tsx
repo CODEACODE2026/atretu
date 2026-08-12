@@ -1414,7 +1414,7 @@ export function ReenrollmentsPanel() {
       const nextPreview = await api.previewReenrollment(candidate.id, academicYearId);
       setPreview(nextPreview);
       setEnrollment({
-        academicYearId,
+        academicYearId: nextPreview.academicYear.id,
         institutionId: nextPreview.previousEnrollment?.institution.id ?? "",
         shiftId: nextPreview.previousEnrollment?.shift.id ?? "",
         course: nextPreview.previousEnrollment?.course ?? "",
@@ -1506,16 +1506,16 @@ export function ReenrollmentsPanel() {
         />
       </div>
 
-      <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(340px,430px)]">
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)] 2xl:grid-cols-[minmax(0,1.65fr)_minmax(400px,0.9fr)]">
       <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
         <AdminSectionHeader
           description="Busque candidatos e escolha o ano letivo de destino."
           title="Candidatos elegíveis"
         />
         <div className="border-b border-slate-200/80 p-4">
-          <div className="flex min-w-0 flex-wrap items-end gap-2">
+          <div className="grid min-w-0 items-end gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(180px,220px)]">
             <form
-              className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row"
+              className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
               onSubmit={(event) => {
                 event.preventDefault();
                 void loadCandidates(search);
@@ -1529,7 +1529,7 @@ export function ReenrollmentsPanel() {
                 value={search}
               />
               <button
-                className={adminTheme.primaryButton}
+                className={cx(adminTheme.primaryButton, "w-full sm:w-auto")}
                 type="submit"
               >
                 <Search aria-hidden="true" className="h-4 w-4" />
@@ -1618,7 +1618,7 @@ export function ReenrollmentsPanel() {
             </tbody>
           </table>
         </div>
-        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 p-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr))]">
           {loading ? (
             <AdminEmptyState loading title="Carregando candidatos" />
           ) : candidates.length === 0 ? (
@@ -1641,18 +1641,18 @@ export function ReenrollmentsPanel() {
                   </p>
                 </div>
                 <div className="grid gap-1 text-xs text-slate-600">
-                  <span>
+                  <span className="break-words">
                     Ano letivo: {candidate.currentEnrollment?.academicYear.year ?? "-"}
                   </span>
-                  <span>
+                  <span className="break-words">
                     Instituicao:{" "}
                     {candidate.currentEnrollment?.institution.name ?? "-"}
                   </span>
-                  <span>Curso: {candidate.currentEnrollment?.course ?? "-"}</span>
+                  <span className="break-words">Curso: {candidate.currentEnrollment?.course ?? "-"}</span>
                 </div>
                 <div>
                   <button
-                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
+                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs max-[420px]:w-full")}
                     onClick={() => void selectCandidate(candidate)}
                     type="button"
                   >
@@ -1675,33 +1675,34 @@ export function ReenrollmentsPanel() {
         />
 
         {selected && preview ? (
-          <div className="grid gap-3 p-4">
-            <div className={cx(adminTheme.softPanel, "p-3 text-sm")}>
-              <p className="font-medium text-slate-950">
+          <div className="grid gap-4 p-4 sm:p-5">
+            <div className={cx(adminTheme.softPanel, "min-w-0 p-3 text-sm leading-5")}>
+              <p className="break-words font-medium text-slate-950">
                 {selected.person.fullName}
               </p>
-              <p className="mt-1 text-slate-600">
+              <p className="mt-1 break-words text-slate-600">
                 Matrícula anterior preservada:{" "}
                 {preview.previousEnrollment
                   ? `${preview.previousEnrollment.academicYear.year} - ${preview.previousEnrollment.institution.name}`
                   : "sem matrícula anterior"}
               </p>
-              <p className="mt-1 text-slate-600">
+              <p className="mt-1 break-words text-slate-600">
                 Instituição: {preview.previousEnrollment?.institution.name ?? "-"}
               </p>
-              <p className="mt-1 text-slate-600">
+              <p className="mt-1 break-words text-slate-600">
                 Transporte anterior:{" "}
                 {preview.previousBusAssignment?.bus.name ?? "sem referência"}
               </p>
-              <p className="mt-1 text-slate-600">
+              <p className="mt-1 break-words text-slate-600">
                 Esta rematrícula não gera boleto, carteirinha ou cópia de documentos.
               </p>
               {preview.blockingReason ? (
-                <p className="mt-2 text-red-700">{preview.blockingReason}</p>
+                <p className="mt-2 break-words text-red-700">{preview.blockingReason}</p>
               ) : null}
             </div>
 
             <EnrollmentFields
+              adaptiveLayout
               enrollment={enrollment}
               institutions={institutions}
               setEnrollment={setEnrollment}
@@ -1715,7 +1716,7 @@ export function ReenrollmentsPanel() {
                 Transporte opcional
               </h3>
               <select
-                className={adminTheme.control}
+                className={cx(adminTheme.control, "w-full min-w-0")}
                 onChange={(event) => setBusId(event.target.value)}
                 value={busId}
               >
@@ -1727,7 +1728,7 @@ export function ReenrollmentsPanel() {
                 ))}
               </select>
               <input
-                className={adminTheme.control}
+                className={cx(adminTheme.control, "w-full min-w-0")}
                 maxLength={240}
                 onChange={(event) => setNote(event.target.value)}
                 placeholder="Observação opcional"
@@ -1852,6 +1853,7 @@ function GuardianFields({
 }
 
 function EnrollmentFields({
+  adaptiveLayout = false,
   enrollment,
   institutions,
   setEnrollment,
@@ -1859,6 +1861,7 @@ function EnrollmentFields({
   title = "Matricula inicial",
   years,
 }: {
+  adaptiveLayout?: boolean;
   enrollment: StudentPayload["enrollment"];
   institutions: BaseRecord[];
   setEnrollment: (enrollment: StudentPayload["enrollment"]) => void;
@@ -1869,13 +1872,24 @@ function EnrollmentFields({
   function update(key: keyof StudentPayload["enrollment"], value: string) {
     setEnrollment({ ...enrollment, [key]: value });
   }
+  const pairGrid = adaptiveLayout
+    ? "grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr))]"
+    : "grid gap-3 sm:grid-cols-2";
+  const labelClassName = adaptiveLayout
+    ? "block min-w-0 text-sm font-medium text-slate-700"
+    : undefined;
+  const controlClassName = adaptiveLayout
+    ? cx(adminTheme.control, "mt-1 w-full min-w-0")
+    : undefined;
 
   return (
     <div className="mt-4 grid gap-3">
       <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={pairGrid}>
         <LabeledSelect
+          controlClassName={controlClassName}
           label="Ano Letivo"
+          labelClassName={labelClassName}
           onChange={(value) => update("academicYearId", value)}
           options={years.map((year) => ({
             label: year.isCurrent ? `${year.year} atual` : String(year.year),
@@ -1885,19 +1899,37 @@ function EnrollmentFields({
           value={enrollment.academicYearId}
         />
         <LabeledSelect
+          controlClassName={controlClassName}
           label="Instituicao"
+          labelClassName={labelClassName}
           onChange={(value) => update("institutionId", value)}
           options={institutions.map((item) => ({ label: item.name, value: item.id }))}
           required
           value={enrollment.institutionId}
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Curso" onChange={(value) => update("course", value)} required value={enrollment.course} />
-        <Field label="Serie" onChange={(value) => update("grade", value)} required value={enrollment.grade} />
+      <div className={pairGrid}>
+        <Field
+          controlClassName={controlClassName}
+          label="Curso"
+          labelClassName={labelClassName}
+          onChange={(value) => update("course", value)}
+          required
+          value={enrollment.course}
+        />
+        <Field
+          controlClassName={controlClassName}
+          label="Serie"
+          labelClassName={labelClassName}
+          onChange={(value) => update("grade", value)}
+          required
+          value={enrollment.grade}
+        />
       </div>
       <LabeledSelect
+        controlClassName={controlClassName}
         label="Turno"
+        labelClassName={labelClassName}
         onChange={(value) => update("shiftId", value)}
         options={shifts.map((item) => ({ label: item.name, value: item.id }))}
         required
@@ -2634,7 +2666,9 @@ function StatusBadge({ status }: { status: StudentSummary["status"] }) {
 }
 
 function Field({
+  controlClassName,
   label,
+  labelClassName,
   maxLength,
   onChange,
   placeholder,
@@ -2642,7 +2676,9 @@ function Field({
   type = "text",
   value,
 }: {
+  controlClassName?: string;
   label: string;
+  labelClassName?: string;
   maxLength?: number;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -2651,10 +2687,10 @@ function Field({
   value: string;
 }) {
   return (
-    <label className="block text-sm font-medium text-slate-700">
+    <label className={labelClassName ?? "block text-sm font-medium text-slate-700"}>
       {label}
       <input
-        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+        className={controlClassName ?? "mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"}
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -2667,23 +2703,27 @@ function Field({
 }
 
 function LabeledSelect({
+  controlClassName,
   label,
+  labelClassName,
   onChange,
   options,
   required,
   value,
 }: {
+  controlClassName?: string;
   label: string;
+  labelClassName?: string;
   onChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
   required?: boolean;
   value: string;
 }) {
   return (
-    <label className="block text-sm font-medium text-slate-700">
+    <label className={labelClassName ?? "block text-sm font-medium text-slate-700"}>
       {label}
       <select
-        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+        className={controlClassName ?? "mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"}
         onChange={(event) => onChange(event.target.value)}
         required={required}
         value={value}
@@ -2713,7 +2753,7 @@ function Select({
   return (
     <select
       aria-label={label}
-      className="rounded border border-slate-300 px-3 py-2 text-sm"
+      className={cx(adminTheme.control, "w-full min-w-0")}
       onChange={(event) => onChange(event.target.value)}
       value={value}
     >
