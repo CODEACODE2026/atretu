@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  X,
   XCircle,
 } from "lucide-react";
 import {
@@ -34,7 +35,7 @@ import {
 } from "../../lib/api";
 import { canAccessRestrictedAdmin } from "../../lib/auth";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
-import { mapApiErrorMessage } from "../../lib/formatters";
+import { mapApiErrorMessage, maskCpf } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import {
   BankSlipDialog,
@@ -117,6 +118,7 @@ export function FinancePanel({
   const [students, setStudents] = useState<StudentSummary[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(null);
   const [preview, setPreview] = useState<InvoicePreview | null>(null);
+  const [createInvoiceDialogOpen, setCreateInvoiceDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
   const defaultMonth = useMemo(() => currentMonthRange(), []);
@@ -199,6 +201,8 @@ export function FinancePanel({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [invoiceLoadError, setInvoiceLoadError] = useState("");
+  const createInvoiceButtonRef = useRef<HTMLButtonElement | null>(null);
+  const studentSearchInputRef = useRef<HTMLInputElement | null>(null);
   const issueBatchProgressEvents = useMemo(
     () => latestIssueBatchEvents(issueBatchItems),
     [issueBatchItems],
@@ -259,6 +263,20 @@ export function FinancePanel({
     search,
     status,
   }) || invoiceQuickFilter !== "all";
+  const selectedInvoiceEnrollment = selectedStudent?.enrollments.find(
+    (enrollment) => enrollment.id === invoiceEnrollmentId,
+  );
+  const invoiceAmountCents = parseMoneyToCentsSafe(amount);
+  const isInvoiceFormValid =
+    Boolean(selectedStudent) &&
+    Boolean(invoiceEnrollmentId) &&
+    typeof invoiceAmountCents === "number" &&
+    invoiceAmountCents > 0 &&
+    Boolean(dueDate);
+  const canSubmitInvoice =
+    isInvoiceFormValid &&
+    selectedStudent?.canReceiveFutureInvoices !== false &&
+    preview?.eligible === true;
 
   useEffect(() => {
     void loadReferences();
@@ -300,6 +318,20 @@ export function FinancePanel({
     paidAtFrom,
     paidAtTo,
   ]);
+
+  useEffect(() => {
+    if (!createInvoiceDialogOpen) {
+      return;
+    }
+    window.setTimeout(() => studentSearchInputRef.current?.focus(), 0);
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !saving) {
+        closeCreateInvoiceDialog();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [createInvoiceDialogOpen, saving]);
 
   useEffect(() => {
     if (!issueBatch || !isIssueBatchRunning(issueBatch)) {
@@ -443,10 +475,16 @@ export function FinancePanel({
   }
 
   async function searchStudents(nextSearch = studentSearch) {
+    const trimmedSearch = nextSearch.trim();
+    if (trimmedSearch.length < 2) {
+      setStudents([]);
+      setError("Informe ao menos 2 caracteres para buscar acadêmico.");
+      return;
+    }
     setError("");
     try {
       const response = await api.listStudents({
-        search: nextSearch,
+        search: trimmedSearch,
         status: "all",
         limit: 10,
       });
@@ -490,6 +528,10 @@ export function FinancePanel({
       setError("Selecione academico e matricula");
       return;
     }
+    if (preview?.eligible !== true) {
+      setError("Revise a fatura e confirme a elegibilidade antes de criar.");
+      return;
+    }
     let amountCents: number;
     try {
       amountCents = parseMoneyToCents(amount);
@@ -512,12 +554,35 @@ export function FinancePanel({
       setAmount("");
       setDescription("");
       setPreview(null);
+      setSelectedStudent(null);
+      setInvoiceEnrollmentId("");
+      setStudents([]);
+      setStudentSearch("");
+      setCreateInvoiceDialogOpen(false);
       await loadInvoices();
+      window.setTimeout(() => createInvoiceButtonRef.current?.focus(), 0);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao criar fatura");
     } finally {
       setSaving(false);
     }
+  }
+
+  function openCreateInvoiceDialog() {
+    setFinanceArea("invoices");
+    setError("");
+    setMessage("");
+    setPreview(null);
+    setCreateInvoiceDialogOpen(true);
+  }
+
+  function closeCreateInvoiceDialog() {
+    if (saving) {
+      return;
+    }
+    setCreateInvoiceDialogOpen(false);
+    setPreview(null);
+    window.setTimeout(() => createInvoiceButtonRef.current?.focus(), 0);
   }
 
   async function handleCancel(
@@ -1225,7 +1290,8 @@ export function FinancePanel({
           <div className="flex flex-wrap gap-2">
             <button
               className={adminTheme.primaryButton}
-              onClick={() => document.getElementById("finance-create-invoice")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              onClick={openCreateInvoiceDialog}
+              ref={createInvoiceButtonRef}
               type="button"
             >
               <Plus aria-hidden="true" className="h-4 w-4" />
@@ -1525,6 +1591,266 @@ export function FinancePanel({
         onConfirmRetry={confirmRetryIssueBatch}
         saving={saving}
       />
+      {createInvoiceDialogOpen ? (
+        <div
+          aria-labelledby="create-invoice-dialog-title"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-end overflow-x-hidden bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-4"
+          role="dialog"
+        >
+          <form
+            className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:max-w-3xl sm:rounded-2xl"
+            onSubmit={handleCreate}
+          >
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-5">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-normal text-[#1F6F5F]">
+                  Faturas
+                </p>
+                <h2
+                  className="mt-1 text-lg font-bold text-slate-950 sm:text-xl"
+                  id="create-invoice-dialog-title"
+                >
+                  Nova fatura
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Busque o acadêmico, revise a matrícula e crie a fatura sem alterar regras financeiras.
+                </p>
+              </div>
+              <button
+                aria-label="Fechar nova fatura"
+                className={adminTheme.iconButton}
+                disabled={saving}
+                onClick={closeCreateInvoiceDialog}
+                type="button"
+              >
+                <X aria-hidden="true" className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+              {error ? (
+                <p className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </p>
+              ) : null}
+
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                <section className="min-w-0">
+                  <h3 className="text-sm font-semibold text-slate-950">
+                    Selecionar acadêmico
+                  </h3>
+                  <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row">
+                    <label className="min-w-0 flex-1">
+                      <span className="sr-only">Buscar acadêmico</span>
+                      <input
+                        className={cx(adminTheme.control, "w-full min-w-0")}
+                        onChange={(event) => {
+                          setStudentSearch(event.target.value);
+                          setPreview(null);
+                        }}
+                        placeholder="Nome, CPF ou carteirinha"
+                        ref={studentSearchInputRef}
+                        type="search"
+                        value={studentSearch}
+                      />
+                    </label>
+                    <button
+                      className={adminTheme.primaryButton}
+                      onClick={() => void searchStudents(studentSearch)}
+                      type="button"
+                    >
+                      <Search aria-hidden="true" className="h-4 w-4" />
+                      Buscar
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    A busca usa o endpoint atual e mantém limite de 10 resultados.
+                  </p>
+
+                  <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1">
+                    {students.length === 0 ? (
+                      <div className={cx(adminTheme.softPanel, "p-3 text-sm text-slate-600")}>
+                        Nenhum acadêmico carregado. Faça uma busca para iniciar.
+                      </div>
+                    ) : null}
+                    {students.map((student) => {
+                      const selected = selectedStudent?.id === student.id;
+                      return (
+                        <button
+                          className={cx(
+                            "rounded-lg border p-3 text-left text-sm transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15",
+                            selected
+                              ? "border-[#1F6F5F] bg-[#F2F8F6]"
+                              : "border-slate-200 bg-white",
+                          )}
+                          key={student.id}
+                          onClick={() => void selectStudent(student.id)}
+                          type="button"
+                        >
+                          <span className="block font-medium text-slate-950">
+                            {student.person.fullName}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-600">
+                            CPF {student.person.cpfMasked} · Carteirinha{" "}
+                            {student.currentStudentCard?.cardNumber ?? "sem número ativo"}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-500">
+                            {student.currentEnrollment
+                              ? `${student.currentEnrollment.academicYear.year} · ${student.currentEnrollment.institution.name}`
+                              : "Sem matrícula atual"}
+                          </span>
+                          {!student.canReceiveFutureInvoices ? (
+                            <span className="mt-2 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                              Exige revisão de elegibilidade
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section className="min-w-0">
+                  <h3 className="text-sm font-semibold text-slate-950">
+                    Dados e revisão
+                  </h3>
+                  {selectedStudent ? (
+                    <div className="mt-3 grid gap-3 text-sm">
+                      <div className={cx(adminTheme.softPanel, "p-3")}>
+                        <p className="font-semibold text-slate-950">
+                          {selectedStudent.person.fullName}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          CPF {maskCpf(selectedStudent.person.cpf)}
+                        </p>
+                        {!selectedStudent.canReceiveFutureInvoices ? (
+                          <p className="mt-2 text-xs font-semibold text-amber-700">
+                            Este acadêmico possui regra de elegibilidade que pode impedir nova fatura. Gere a revisão para ver o motivo.
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <label className="grid gap-1 font-medium text-slate-700">
+                        Matrícula/ano letivo
+                        <select
+                          className={adminTheme.control}
+                          onChange={(event) => {
+                            setInvoiceEnrollmentId(event.target.value);
+                            setPreview(null);
+                          }}
+                          required
+                          value={invoiceEnrollmentId}
+                        >
+                          <option value="">Selecione uma matrícula</option>
+                          {selectedStudent.enrollments.map((enrollment) => (
+                            <option key={enrollment.id} value={enrollment.id}>
+                              {enrollment.academicYear.year} - {enrollment.institution.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="grid gap-1 font-medium text-slate-700">
+                          Valor
+                          <input
+                            className={adminTheme.control}
+                            inputMode="decimal"
+                            onChange={(event) => {
+                              setAmount(event.target.value);
+                              setPreview(null);
+                            }}
+                            placeholder="Ex.: 150,00"
+                            required
+                            value={amount}
+                          />
+                        </label>
+                        <label className="grid gap-1 font-medium text-slate-700">
+                          Vencimento
+                          <input
+                            className={adminTheme.control}
+                            onChange={(event) => {
+                              setDueDate(event.target.value);
+                              setPreview(null);
+                            }}
+                            required
+                            type="date"
+                            value={dueDate}
+                          />
+                        </label>
+                      </div>
+
+                      <label className="grid gap-1 font-medium text-slate-700">
+                        Descrição opcional
+                        <input
+                          className={adminTheme.control}
+                          maxLength={300}
+                          onChange={(event) => setDescription(event.target.value)}
+                          placeholder="Ex.: Mensalidade de agosto"
+                          value={description}
+                        />
+                      </label>
+
+                      <div className={cx(adminTheme.softPanel, "grid gap-1 p-3 text-xs text-slate-600")}>
+                        <p className="font-semibold text-slate-950">Resumo</p>
+                        <p>Acadêmico: {selectedStudent.person.fullName}</p>
+                        <p>
+                          Matrícula:{" "}
+                          {selectedInvoiceEnrollment
+                            ? `${selectedInvoiceEnrollment.academicYear.year} - ${selectedInvoiceEnrollment.institution.name}`
+                            : "não selecionada"}
+                        </p>
+                        <p>
+                          Valor:{" "}
+                          {typeof invoiceAmountCents === "number"
+                            ? formatCents(invoiceAmountCents)
+                            : "não informado"}
+                        </p>
+                        <p>Vencimento: {dueDate ? formatDate(dueDate) : "não informado"}</p>
+                      </div>
+
+                      <button
+                        className={adminTheme.secondaryButton}
+                        disabled={!isInvoiceFormValid || saving}
+                        onClick={() => void handlePreview()}
+                        type="button"
+                      >
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                        Revisar fatura
+                      </button>
+                      {preview ? <InvoicePreviewBox preview={preview} /> : null}
+                    </div>
+                  ) : (
+                    <div className={cx(adminTheme.softPanel, "mt-3 p-4 text-sm text-slate-600")}>
+                      Selecione um acadêmico nos resultados para preencher a fatura.
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-200 px-4 py-3 sm:flex-row sm:justify-end sm:px-5">
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={saving}
+                onClick={closeCreateInvoiceDialog}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className={adminTheme.primaryButton}
+                disabled={!canSubmitInvoice || saving}
+                type="submit"
+              >
+                <FileText className="h-4 w-4" aria-hidden="true" />
+                {saving ? "Criando..." : "Criar fatura"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
       {financeArea === "batches" ? (
         batchManagementSection
       ) : (
@@ -1702,128 +2028,6 @@ export function FinancePanel({
         <Pagination page={page} setPage={setPage} totalPages={totalPages} />
       </section>
 
-      <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-        <div className={cx(adminTheme.card, "min-w-0 p-4")} id="finance-create-invoice">
-          <h2 className="text-base font-semibold text-slate-950">
-            Criar fatura
-          </h2>
-          <form
-            className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void searchStudents(studentSearch);
-            }}
-          >
-            <input
-              className={cx(adminTheme.control, "min-w-0 flex-1")}
-              onChange={(event) => setStudentSearch(event.target.value)}
-              placeholder="Buscar acadêmico"
-              type="search"
-              value={studentSearch}
-            />
-            <button
-              className={adminTheme.primaryButton}
-              type="submit"
-            >
-              Buscar
-            </button>
-          </form>
-          <div className="mt-3 grid gap-2">
-            {students.map((student) => (
-              <button
-                className="rounded border border-slate-200 p-3 text-left text-sm hover:bg-slate-50"
-                key={student.id}
-                onClick={() => void selectStudent(student.id)}
-                type="button"
-              >
-                <span className="block font-medium text-slate-950">
-                  {student.person.fullName}
-                </span>
-                <span className="text-xs text-slate-600">
-                  {student.person.cpfMasked} -{" "}
-                  {student.currentEnrollment?.academicYear.year ?? "sem matrícula"}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <form
-          className={cx(adminTheme.card, "min-w-0 p-4")}
-          onSubmit={handleCreate}
-        >
-          <h2 className="text-base font-semibold text-slate-950">
-            Confirmação
-          </h2>
-          {selectedStudent ? (
-            <div className="mt-3 grid gap-3 text-sm">
-              <p className="font-medium text-slate-950">
-                {selectedStudent.person.fullName}
-              </p>
-              <select
-                className={adminTheme.control}
-                onChange={(event) => {
-                  setInvoiceEnrollmentId(event.target.value);
-                  setPreview(null);
-                }}
-                required
-                value={invoiceEnrollmentId}
-              >
-                <option value="">Matrícula</option>
-                {selectedStudent.enrollments.map((enrollment) => (
-                  <option key={enrollment.id} value={enrollment.id}>
-                    {enrollment.academicYear.year} - {enrollment.institution.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className={adminTheme.control}
-                inputMode="decimal"
-                onChange={(event) => setAmount(event.target.value)}
-                placeholder="Valor em reais"
-                required
-                value={amount}
-              />
-              <input
-                className={adminTheme.control}
-                onChange={(event) => setDueDate(event.target.value)}
-                required
-                type="date"
-                value={dueDate}
-              />
-              <input
-                className={adminTheme.control}
-                maxLength={300}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Descrição opcional"
-                value={description}
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  className={adminTheme.secondaryButton}
-                  onClick={() => void handlePreview()}
-                  type="button"
-                >
-                  Preview
-                </button>
-                <button
-                  className={adminTheme.primaryButton}
-                  disabled={saving}
-                  type="submit"
-                >
-                  Criar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-slate-500">
-              Selecione um acadêmico para criar fatura.
-            </p>
-          )}
-
-          {preview ? <InvoicePreviewBox preview={preview} /> : null}
-        </form>
-      </div>
         </>
       )}
 
