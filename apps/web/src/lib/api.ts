@@ -885,6 +885,7 @@ export type ListStudentsParams = {
   shiftId?: string;
   course?: string;
   status?: "active" | "suspended" | "terminated" | "all";
+  boardMembership?: "all" | "active" | "inactive";
   sort?: "cardNumber" | "name" | "joinedAt" | "createdAt";
   order?: "asc" | "desc";
 };

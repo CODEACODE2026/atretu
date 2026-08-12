@@ -23,6 +23,12 @@ export enum StudentStatusFilter {
   ALL = "all",
 }
 
+export enum StudentBoardMembershipFilter {
+  ALL = "all",
+  ACTIVE = "active",
+  INACTIVE = "inactive",
+}
+
 export enum StudentSort {
   CARD_NUMBER = "cardNumber",
   NAME = "name",
@@ -76,6 +82,10 @@ export class ListStudentsDto {
   @IsOptional()
   @IsEnum(StudentStatusFilter)
   status = StudentStatusFilter.ACTIVE;
+
+  @IsOptional()
+  @IsEnum(StudentBoardMembershipFilter)
+  boardMembership = StudentBoardMembershipFilter.ALL;
 
   @IsOptional()
   @IsUUID()

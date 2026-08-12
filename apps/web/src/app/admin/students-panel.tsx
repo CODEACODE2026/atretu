@@ -122,6 +122,9 @@ export function StudentsPanel({
   const [statusFilter, setStatusFilter] = useState<
     "active" | "suspended" | "terminated" | "all"
   >("active");
+  const [boardMembershipFilter, setBoardMembershipFilter] = useState<
+    "all" | "active" | "inactive"
+  >("all");
   const [history, setHistory] = useState<StudentHistoryEvent[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -157,7 +160,14 @@ export function StudentsPanel({
 
   useEffect(() => {
     void loadStudents();
-  }, [page, academicYearId, institutionId, shiftId, statusFilter]);
+  }, [
+    page,
+    academicYearId,
+    institutionId,
+    shiftId,
+    statusFilter,
+    boardMembershipFilter,
+  ]);
 
   useEffect(() => {
     if (selected || !enrollment.academicYearId) {
@@ -217,6 +227,7 @@ export function StudentsPanel({
         institutionId,
         shiftId,
         status: statusFilter,
+        boardMembership: boardMembershipFilter,
       });
       setStudents(response.data);
       setTotalPages(Math.max(response.pagination.totalPages, 1));
@@ -233,6 +244,7 @@ export function StudentsPanel({
     setInstitutionId("");
     setShiftId("");
     setStatusFilter("active");
+    setBoardMembershipFilter("all");
     setPage(1);
     void loadStudents("");
   }
@@ -739,7 +751,12 @@ export function StudentsPanel({
       ? "1 academico encontrado"
       : `${students.length} academicos nesta pagina`;
   const hasActiveFilters = Boolean(
-    search || academicYearId || institutionId || shiftId || statusFilter !== "active",
+    search ||
+      academicYearId ||
+      institutionId ||
+      shiftId ||
+      statusFilter !== "active" ||
+      boardMembershipFilter !== "all",
   );
 
   async function handleCreated() {
@@ -874,7 +891,7 @@ export function StudentsPanel({
             </button>
           </form>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
             <StudentFilterSelect
               label="Ano"
               onChange={(value) => {
@@ -930,6 +947,21 @@ export function StudentsPanel({
                 { label: "Todos", value: "all" },
               ]}
               value={statusFilter}
+            />
+            <StudentFilterSelect
+              label="Diretoria"
+              onChange={(value) => {
+                setBoardMembershipFilter(
+                  (value || "all") as "all" | "active" | "inactive",
+                );
+                setPage(1);
+              }}
+              options={[
+                { label: "Todos", value: "all" },
+                { label: "Somente Diretoria", value: "active" },
+                { label: "Fora da Diretoria", value: "inactive" },
+              ]}
+              value={boardMembershipFilter}
             />
           </div>
         </div>

@@ -59,6 +59,7 @@ import {
   ReinstateStudentDto,
   ReenrollStudentDto,
   SortOrder,
+  StudentBoardMembershipFilter,
   StartBoardMembershipDto,
   StudentSort,
   StudentStatusFilter,
@@ -1515,6 +1516,12 @@ export class StudentsService {
       ];
     }
 
+    if (query.boardMembership === StudentBoardMembershipFilter.ACTIVE) {
+      where.boardMemberships = { some: { status: BoardMembershipStatus.ACTIVE } };
+    } else if (query.boardMembership === StudentBoardMembershipFilter.INACTIVE) {
+      where.boardMemberships = { none: { status: BoardMembershipStatus.ACTIVE } };
+    }
+
     const enrollmentFilters: Prisma.EnrollmentWhereInput = {};
     if (query.academicYearId) {
       enrollmentFilters.academicYearId = query.academicYearId;
@@ -1663,6 +1670,22 @@ export class StudentsService {
         ...(cpfSearch ? [Prisma.sql`p.cpf LIKE ${`%${cpfSearch}%`}`] : []),
       ];
       conditions.push(Prisma.sql`(${Prisma.join(searchConditions, " OR ")})`);
+    }
+
+    if (query.boardMembership === StudentBoardMembershipFilter.ACTIVE) {
+      conditions.push(Prisma.sql`EXISTS (
+        SELECT 1
+        FROM board_memberships bm
+        WHERE bm.student_id = s.id
+          AND bm.status = ${BoardMembershipStatus.ACTIVE}::"BoardMembershipStatus"
+      )`);
+    } else if (query.boardMembership === StudentBoardMembershipFilter.INACTIVE) {
+      conditions.push(Prisma.sql`NOT EXISTS (
+        SELECT 1
+        FROM board_memberships bm
+        WHERE bm.student_id = s.id
+          AND bm.status = ${BoardMembershipStatus.ACTIVE}::"BoardMembershipStatus"
+      )`);
     }
 
     const enrollmentConditions: Prisma.Sql[] = [];
