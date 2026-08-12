@@ -643,6 +643,19 @@ export class DashboardService {
         followUpTo: this.toDateOnly(today),
       }),
     );
+    const partialPaymentReviewMetric = this.metric(
+      "partialPaymentReview",
+      "Pagamentos parciais em revisao",
+      collectionsSummary.partialPaymentReviewCount,
+      this.formatInteger(collectionsSummary.partialPaymentReviewCount),
+      "Casos aguardando revisao operacional",
+      collectionsSummary.partialPaymentReviewCount > 0 ? "warning" : "success",
+      href({
+        area: "finance",
+        financeArea: "collections",
+        collectionOperationalStatus: "PARTIAL_PAYMENT_REVIEW",
+      }),
+    );
     const overdueFollowUpsMetric = this.metric(
       "overdueFollowUps",
       "Follow-ups atrasados",
@@ -718,6 +731,17 @@ export class DashboardService {
       activeAssignmentsByBusPart,
       activeBusesPart,
     ];
+    const operationalAttentionMetrics = [
+      overdueFollowUpsMetric,
+      followUpsTodayMetric,
+      promisesBrokenMetric,
+      partialPaymentReviewMetric,
+      bankSlipErrorsMetric,
+      pendingPreRegistrationsMetric,
+      pendingStudentCardsMetric,
+      documentsAttentionMetric,
+      fullBusesMetric,
+    ].filter((metric) => metric.value > 0);
     const operationalBlocks: DashboardOperationalBlock[] = [
       {
         key: "academics",
@@ -792,10 +816,10 @@ export class DashboardService {
       },
       {
         key: "quickActions",
-        title: "Acoes rapidas",
-        description: "Entradas diretas para as operacoes mais frequentes",
+        title: "Pendencias operacionais",
+        description: "Itens que pedem atencao antes da rotina",
         status: "loaded",
-        metrics: [],
+        metrics: operationalAttentionMetrics,
         shortcuts: this.quickShortcuts(href),
       },
     ];
@@ -1450,31 +1474,6 @@ export class DashboardService {
         key: "collections",
         label: "Nova cobranca",
         href: href({ area: "finance", financeArea: "collections" }),
-      },
-      {
-        key: "finance",
-        label: "Emitir boletos",
-        href: href({ area: "finance" }),
-      },
-      {
-        key: "finance-import",
-        label: "Importar retorno",
-        href: href({ area: "finance" }),
-      },
-      {
-        key: "buses",
-        label: "Cadastrar onibus",
-        href: href({ area: "base", baseDomain: "buses" }),
-      },
-      {
-        key: "institutions",
-        label: "Cadastrar instituicao",
-        href: href({ area: "base", baseDomain: "institutions" }),
-      },
-      {
-        key: "reports",
-        label: "Relatorios",
-        href: "/admin?area=dashboard",
       },
     ];
   }

@@ -169,6 +169,8 @@ async function testEmptyOverviewStructure() {
   assert.equal(overview.operationalBlocks.length, 5);
   assert.equal(overview.operationalBlocks[0]?.key, "academics");
   assert.equal(overview.operationalBlocks[4]?.key, "quickActions");
+  assert.equal(overview.operationalBlocks[4]?.title, "Pendencias operacionais");
+  assert.deepEqual(overview.operationalBlocks[4]?.metrics, []);
   assert.deepEqual(overview.agendaToday.collectionFollowUps, []);
   assert.deepEqual(overview.criticalAlerts, []);
   assert.deepEqual(overview.financeAndCollections.criticalCases, []);
@@ -181,6 +183,10 @@ async function testEmptyOverviewStructure() {
   assert.deepEqual(overview.charts.studentsByInstitution.data, []);
   assert.equal(overview.charts.preRegistrationsByMonth.data.length, 6);
   assert.ok(overview.quickShortcuts.some((item) => item.key === "collections"));
+  assert.deepEqual(
+    overview.quickShortcuts.map((item) => item.key),
+    ["students", "collections"],
+  );
 }
 
 async function testOverviewWithAggregatedData() {
@@ -249,6 +255,24 @@ async function testOverviewWithAggregatedData() {
     (block) => block.key === "quickActions",
   );
   assert.equal(quickActions?.shortcuts?.some((item) => item.label === "Novo aluno"), true);
+  assert.equal(
+    quickActions?.shortcuts?.some((item) => item.label === "Cadastrar onibus"),
+    false,
+  );
+  assert.deepEqual(
+    quickActions?.metrics.map((metric) => metric.key),
+    [
+      "overdueFollowUps",
+      "followUpsToday",
+      "promisesBroken",
+      "partialPaymentReview",
+      "bankSlipErrors",
+      "pendingPreRegistrations",
+      "pendingStudentCards",
+      "incompleteDocuments",
+      "fullBuses",
+    ],
+  );
   assert.equal(overview.agendaToday.collectionFollowUps.length, 1);
   assert.equal(overview.financeAndCollections.criticalCases.length, 1);
   assert.equal(overview.academicsAndDocuments.recentItems.length, 1);

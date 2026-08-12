@@ -1,10 +1,11 @@
 "use client";
 
-import { Activity, RefreshCw, Route } from "lucide-react";
+import { Activity, ChevronRight, RefreshCw, Route } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   api,
   type AdminDashboardResponse,
+  type DashboardMetric,
   type DashboardOverviewParams,
   type DashboardQuickShortcut,
 } from "../../lib/api";
@@ -18,7 +19,6 @@ import {
   DashboardListCard,
   DashboardMetricStrip,
   DashboardOperationalCard,
-  DashboardQuickShortcuts,
   DashboardSection,
   dashboardSectionIcons,
   type DashboardIndicatorKey,
@@ -168,8 +168,10 @@ export function DashboardPanel({
                 text={block.error ?? "Não foi possível carregar este bloco."}
               />
             ) : block.key === "quickActions" ? (
-              <DashboardQuickShortcuts
+              <DashboardOperationalFocus
                 isShortcutAvailable={isShortcutAvailable}
+                metrics={block.metrics}
+                onNavigateHref={onNavigateHref}
                 onShortcut={onShortcut}
                 shortcuts={block.shortcuts ?? dashboard.quickShortcuts}
               />
@@ -427,18 +429,114 @@ export function DashboardPanel({
 
       <DashboardSection
         icon={dashboardSectionIcons.shortcuts}
-        subtitle="Acesso direto aos módulos operacionais"
-        title="Ações rápidas"
+        subtitle="Itens que pedem atenção antes da rotina"
+        title="Pendências operacionais"
         tone="neutral"
       >
-        <DashboardQuickShortcuts
+        <DashboardOperationalFocus
           isShortcutAvailable={isShortcutAvailable}
+          metrics={[]}
+          onNavigateHref={onNavigateHref}
           onShortcut={onShortcut}
           shortcuts={dashboard.quickShortcuts}
         />
       </DashboardSection>
         </>
       )}
+    </div>
+  );
+}
+
+function DashboardOperationalFocus({
+  isShortcutAvailable,
+  metrics,
+  onNavigateHref,
+  onShortcut,
+  shortcuts,
+}: {
+  isShortcutAvailable: (shortcut: DashboardQuickShortcut) => boolean;
+  metrics: DashboardMetric[];
+  onNavigateHref?: (href: string) => void;
+  onShortcut?: (shortcut: DashboardQuickShortcut) => void;
+  shortcuts: DashboardQuickShortcut[];
+}) {
+  const availableShortcuts = shortcuts.filter(isShortcutAvailable);
+
+  return (
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,0.34fr)]">
+      <div className="min-w-0">
+        {metrics.length === 0 ? (
+          <DashboardEmptyState
+            compact
+            text="Nenhuma pendência operacional no momento."
+          />
+        ) : (
+          <div className="grid min-w-0 gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+            {metrics.map((metric) => (
+              <button
+                className="group grid min-w-0 gap-2 rounded-xl border border-slate-200/80 bg-white/85 px-3 py-2.5 text-left shadow-sm transition duration-150 hover:border-[#8DB7AD] hover:bg-[#F2F8F6] focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 focus:ring-offset-2 disabled:cursor-default disabled:hover:border-slate-200/80 disabled:hover:bg-white/85 motion-reduce:transition-none"
+                disabled={!metric.href || !onNavigateHref}
+                key={metric.key}
+                onClick={() => {
+                  if (metric.href) {
+                    onNavigateHref?.(metric.href);
+                  }
+                }}
+                type="button"
+              >
+                <span className="flex min-w-0 items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block text-xs font-semibold uppercase text-slate-500">
+                      {metric.label}
+                    </span>
+                    <span className="mt-1 block break-words text-sm leading-5 text-slate-600">
+                      {metric.context ?? "Sem contexto adicional."}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xl font-bold tracking-normal text-slate-950">
+                    {metric.formattedValue}
+                  </span>
+                </span>
+                {metric.href && onNavigateHref ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#14534D]">
+                    Ver
+                    <ChevronRight
+                      aria-hidden="true"
+                      className="transition group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                      size={14}
+                    />
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {availableShortcuts.length > 0 ? (
+        <div className="min-w-0 rounded-xl border border-slate-200/80 bg-[#F8FAFA]/70 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
+            Ações úteis
+          </p>
+          <div className="grid min-w-0 gap-2">
+            {availableShortcuts.map((shortcut) => (
+              <button
+                className="group flex min-h-10 min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-left text-sm font-semibold text-slate-700 transition duration-150 hover:border-[#8DB7AD] hover:bg-[#F2F8F6] hover:text-[#0F2E2E] focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 focus:ring-offset-2 motion-reduce:transition-none"
+                key={shortcut.key}
+                onClick={() => onShortcut?.(shortcut)}
+                type="button"
+              >
+                <span className="min-w-0 break-words">{shortcut.label}</span>
+                <ChevronRight
+                  aria-hidden="true"
+                  className="shrink-0 text-slate-400 transition group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                  size={15}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
