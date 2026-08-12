@@ -16,22 +16,28 @@ export function CollectionFollowUpCard({
 }) {
   return (
     <article className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex min-w-0 items-start justify-between gap-3">
+      <div className="grid min-w-0 gap-2">
         <div className="min-w-0">
-          <p className="break-words text-sm font-semibold text-slate-950">
+          <p
+            className="truncate text-sm font-semibold text-slate-950"
+            title={caseItem.student.person.fullName}
+          >
             {caseItem.student.person.fullName}
           </p>
-          <p className="mt-1 break-words text-xs text-slate-500">
+          <p
+            className="mt-1 truncate text-xs text-slate-500"
+            title={caseItem.enrollment.institution.name}
+          >
             {caseItem.enrollment.institution.name}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+        <div className="flex min-w-0 flex-wrap gap-1">
           <CollectionPriorityBadge priority={caseItem.priority} />
           <CollectionStatusBadge status={caseItem.operationalStatus} />
         </div>
       </div>
 
-      <div className="grid gap-2 text-sm sm:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-2 gap-2 text-sm max-[420px]:grid-cols-1">
         <Info label="Pendente" value={formatOutstanding(caseItem)} />
         <Info
           label="Retorno"
@@ -52,12 +58,12 @@ export function CollectionFollowUpCard({
         />
       </div>
 
-      <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
-        <span className="inline-flex items-center gap-1">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <span className="inline-flex min-w-0 items-center gap-1">
           <CalendarClock aria-hidden className="h-4 w-4" />
-          Follow-up operacional
+          <span className="truncate">Follow-up operacional</span>
         </span>
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex min-w-0 items-center gap-1">
           <Clock3 aria-hidden className="h-4 w-4" />
           {caseItem.invoiceId.slice(0, 8)}
         </span>
@@ -65,7 +71,7 @@ export function CollectionFollowUpCard({
 
       <div className="flex justify-end">
         <button
-          className={cx(adminTheme.secondaryButton, "h-9")}
+          className={cx(adminTheme.secondaryButton, "h-9 max-[420px]:w-full")}
           onClick={() => onOpenDetail(caseItem.invoiceId)}
           type="button"
         >

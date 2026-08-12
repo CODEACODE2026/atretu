@@ -27,7 +27,7 @@ export function CollectionFollowUpList({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 xl:grid-cols-4">
+      <div className="mt-4 grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr))]">
         {grouped.map((group) => (
           <div
             className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/70 p-3"
@@ -43,9 +43,9 @@ export function CollectionFollowUpList({
             </div>
             <div className="mt-3 grid gap-2">
               {group.items.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center">
-                  <Inbox aria-hidden className="mx-auto h-6 w-6 text-slate-400" />
-                  <p className="mt-2 text-sm text-slate-500">Sem retornos</p>
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-center">
+                  <Inbox aria-hidden className="mx-auto h-5 w-5 text-slate-400" />
+                  <p className="mt-1 text-sm text-slate-500">Sem retornos</p>
                 </div>
               ) : (
                 group.items.slice(0, 5).map((item) => (
