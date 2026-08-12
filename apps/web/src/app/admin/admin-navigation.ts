@@ -2,6 +2,7 @@
 
 import {
   BriefcaseBusiness,
+  ClipboardList,
   CreditCard,
   FileBarChart2,
   FileText,
@@ -31,10 +32,7 @@ export type AdminArea =
   | "base";
 
 export type AdminNavGroupKey =
-  | "academic"
-  | "administration"
-  | "management"
-  | "overview";
+  "academic" | "administration" | "management" | "overview";
 
 export type AdminNavItem = {
   description: string;
@@ -100,6 +98,13 @@ export const ADMIN_NAV_ITEMS = [
     icon: FileBarChart2,
     key: "reports",
     label: "Relatórios",
+  },
+  {
+    description: "Instituições, turnos e ônibus",
+    group: "administration",
+    icon: ClipboardList,
+    key: "base",
+    label: "Cadastros Base",
   },
   {
     description: "Dados oficiais da associacao",

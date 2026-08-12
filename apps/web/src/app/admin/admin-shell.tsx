@@ -27,7 +27,10 @@ import {
   type DashboardQuickShortcut,
   type ListRecordsParams,
 } from "../../lib/api";
-import { canAccessOperationalAdmin, canAccessRestrictedAdmin } from "../../lib/auth";
+import {
+  canAccessOperationalAdmin,
+  canAccessRestrictedAdmin,
+} from "../../lib/auth";
 import { AccountPanel } from "./account-panel";
 import { AcademicYearsPanel } from "./academic-years-panel";
 import { ADMIN_NAV_ITEMS, type AdminArea } from "./admin-navigation";
@@ -250,8 +253,8 @@ function AdminWorkspace({
   const currentItem =
     area === "account"
       ? ACCOUNT_NAV_ITEM
-      : visibleTabs.find((tab) => tab.key === area) ??
-        (hasOperationalAccess ? ADMIN_NAV_ITEMS[0] : ACCOUNT_NAV_ITEM);
+      : (visibleTabs.find((tab) => tab.key === area) ??
+        (hasOperationalAccess ? ADMIN_NAV_ITEMS[0] : ACCOUNT_NAV_ITEM));
   const shortcutTargets: Record<
     string,
     { area: AdminArea; baseDomain?: DomainKey; financeArea?: FinanceArea }
@@ -274,7 +277,10 @@ function AdminWorkspace({
 
     window.addEventListener("atretu:session-invalid", handleSessionInvalid);
     return () => {
-      window.removeEventListener("atretu:session-invalid", handleSessionInvalid);
+      window.removeEventListener(
+        "atretu:session-invalid",
+        handleSessionInvalid,
+      );
     };
   }, [onRequireLogin]);
 
@@ -404,7 +410,10 @@ function AdminWorkspace({
           {!hasOperationalAccess ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-800 shadow-sm">
               <div className="flex gap-3">
-                <ShieldAlert aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                <ShieldAlert
+                  aria-hidden="true"
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                />
                 <span>
                   Seu perfil esta autenticado, mas nao possui acesso operacional
                   nesta Sprint. Minha Conta permanece disponivel.
@@ -865,6 +874,7 @@ function BaseRecordsPanel({
   );
   const selectedYearLabel =
     years.find((item) => item.id === academicYearId)?.year ?? "Todos";
+  const tableColumnCount = currentDomain.hasCapacity ? 7 : 4;
 
   return (
     <div className="grid min-w-0 gap-5">
@@ -908,7 +918,7 @@ function BaseRecordsPanel({
       </div>
 
       <section className={cx(adminTheme.card, "min-w-0 overflow-hidden p-4")}>
-        <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="flex min-w-0 flex-wrap gap-2">
             {DOMAINS.map((item) => (
               <button
@@ -928,22 +938,25 @@ function BaseRecordsPanel({
           </div>
 
           <form
-            className="flex w-full min-w-0 flex-col gap-2 sm:flex-row xl:w-auto"
+            className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-end xl:w-auto"
             onSubmit={(event) => {
               event.preventDefault();
               setPage(1);
               void loadRecords(search);
             }}
           >
-            <input
-              className={cx(adminTheme.control, "min-w-0 flex-1 xl:w-80")}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Pesquisar"
-              type="search"
-              value={search}
-            />
+            <label className="grid min-w-0 flex-1 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:w-80">
+              Pesquisar
+              <input
+                className={cx(adminTheme.control, "min-w-0")}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Pesquisar"
+                type="search"
+                value={search}
+              />
+            </label>
             <button
-              className={cx(adminTheme.primaryButton, "justify-center")}
+              className={cx(adminTheme.primaryButton, "h-10 justify-center")}
               type="submit"
             >
               <Search aria-hidden="true" className="h-4 w-4" />
@@ -953,7 +966,7 @@ function BaseRecordsPanel({
         </div>
       </section>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(280px,0.34fr)_minmax(0,1fr)]">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
         <form
           className={cx(adminTheme.card, "min-w-0 p-4")}
           onSubmit={handleSubmit}
@@ -1048,10 +1061,11 @@ function BaseRecordsPanel({
             title="Registros cadastrados"
           />
 
-          <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200/80 bg-slate-50/50 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-wrap gap-2">
+          <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200/80 bg-slate-50/50 p-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-end">
               <select
-                className={adminTheme.control}
+                aria-label="Status"
+                className={cx(adminTheme.control, "min-w-0")}
                 onChange={(event) => {
                   setStatus(event.target.value as StatusFilter);
                   setPage(1);
@@ -1064,7 +1078,8 @@ function BaseRecordsPanel({
               </select>
               {currentDomain.hasCapacity ? (
                 <select
-                  className={adminTheme.control}
+                  aria-label="Ano letivo"
+                  className={cx(adminTheme.control, "min-w-0")}
                   onChange={(event) => {
                     setAcademicYearId(event.target.value);
                     setSelectedBus(null);
@@ -1082,7 +1097,8 @@ function BaseRecordsPanel({
                 </select>
               ) : null}
               <select
-                className={adminTheme.control}
+                aria-label="Ordenar por"
+                className={cx(adminTheme.control, "min-w-0")}
                 onChange={(event) => setSort(event.target.value as SortField)}
                 value={sort}
               >
@@ -1092,7 +1108,8 @@ function BaseRecordsPanel({
                 <option value="updatedAt">Atualização</option>
               </select>
               <select
-                className={adminTheme.control}
+                aria-label="Direção da ordenação"
+                className={cx(adminTheme.control, "min-w-0")}
                 onChange={(event) =>
                   setOrder(event.target.value as "asc" | "desc")
                 }
@@ -1102,7 +1119,7 @@ function BaseRecordsPanel({
                 <option value="desc">Desc</option>
               </select>
             </div>
-            <div className="text-sm text-slate-600">
+            <div className="min-w-0 text-sm text-slate-600 xl:text-right">
               {currentDomain.hasCapacity
                 ? `Ano letivo: ${selectedYearLabel}`
                 : "Filtros aplicados ao cadastro atual"}
@@ -1114,35 +1131,64 @@ function BaseRecordsPanel({
           ) : null}
           {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
 
-          <div className="hidden max-w-full overflow-x-auto md:block">
-            <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+          <div className="hidden max-w-full min-w-0 lg:block">
+            <table className="w-full table-fixed border-collapse text-left text-sm">
+              <colgroup>
+                <col
+                  className={currentDomain.hasCapacity ? "w-[25%]" : "w-[46%]"}
+                />
+                {currentDomain.hasCapacity ? (
+                  <>
+                    <col className="w-[6%]" />
+                    <col className="w-[6%]" />
+                    <col className="w-[8%]" />
+                  </>
+                ) : null}
+                <col
+                  className={currentDomain.hasCapacity ? "w-[10%]" : "w-[16%]"}
+                />
+                <col
+                  className={currentDomain.hasCapacity ? "w-[14%]" : "w-[18%]"}
+                />
+                <col
+                  className={currentDomain.hasCapacity ? "w-[31%]" : "w-[20%]"}
+                />
+              </colgroup>
               <thead className="border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-[0.08em] text-slate-500">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Nome</th>
+                  <th className="px-3 py-3 font-semibold">Nome</th>
                   {currentDomain.hasCapacity ? (
-                    <th className="px-4 py-3 font-semibold">Capacidade</th>
+                    <th className="px-1 py-3 text-center font-semibold">
+                      Cap.
+                    </th>
                   ) : null}
                   {currentDomain.hasCapacity ? (
                     <>
-                      <th className="px-4 py-3 font-semibold">Ocupados</th>
-                      <th className="px-4 py-3 font-semibold">Disponíveis</th>
+                      <th className="px-1 py-3 text-center font-semibold">
+                        Ocup.
+                      </th>
+                      <th className="px-1 py-3 text-center font-semibold">
+                        Disp.
+                      </th>
                     </>
                   ) : null}
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-4 py-3 font-semibold">Atualizado</th>
-                  <th className="px-4 py-3 font-semibold">Ações</th>
+                  <th className="px-2 py-3 font-semibold">Status</th>
+                  <th className="px-3 py-3 font-semibold">Atualizado</th>
+                  <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">
+                    Ações
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-6" colSpan={6}>
+                    <td className="px-4 py-6" colSpan={tableColumnCount}>
                       <AdminEmptyState loading title="Carregando registros" />
                     </td>
                   </tr>
                 ) : records.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6" colSpan={6}>
+                    <td className="px-4 py-6" colSpan={tableColumnCount}>
                       <AdminEmptyState
                         description="Ajuste os filtros ou cadastre um novo registro."
                         title="Nenhum registro encontrado"
@@ -1155,22 +1201,27 @@ function BaseRecordsPanel({
                       className="transition-colors hover:bg-slate-50/70"
                       key={record.id}
                     >
-                      <td className="px-4 py-3 font-medium text-slate-950">
-                        {record.name}
+                      <td className="px-3 py-3 font-medium text-slate-950">
+                        <span
+                          className="block max-w-full break-words leading-5"
+                          title={record.name}
+                        >
+                          {record.name}
+                        </span>
                       </td>
                       {currentDomain.hasCapacity ? (
-                        <td className="px-4 py-3 text-slate-700">
+                        <td className="px-2 py-3 text-center text-slate-700">
                           {"capacity" in record ? record.capacity : ""}
                         </td>
                       ) : null}
                       {currentDomain.hasCapacity ? (
                         <>
-                          <td className="px-4 py-3 text-slate-700">
+                          <td className="px-2 py-3 text-center text-slate-700">
                             {"occupiedSeats" in record
                               ? (record.occupiedSeats ?? 0)
                               : ""}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-2 py-3 text-center">
                             {"availableSeats" in record ? (
                               <span
                                 className={cx(
@@ -1186,29 +1237,37 @@ function BaseRecordsPanel({
                           </td>
                         </>
                       ) : null}
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         <AdminStatusBadge
                           tone={record.status === "ACTIVE" ? "green" : "slate"}
                         >
                           {record.status === "ACTIVE" ? "Ativo" : "Inativo"}
                         </AdminStatusBadge>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                         {new Date(record.updatedAt).toLocaleDateString("pt-BR")}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
+                      <td className="px-3 py-3">
+                        <div className="flex flex-nowrap justify-end gap-1.5">
                           <button
-                            className={adminTheme.secondaryButton}
+                            aria-label={`Editar ${record.name}`}
+                            className={cx(
+                              adminTheme.secondaryButton,
+                              "h-8 px-2",
+                            )}
                             onClick={() => startEdit(record)}
+                            title={`Editar ${record.name}`}
                             type="button"
                           >
                             <Pencil aria-hidden="true" className="h-4 w-4" />
-                            Editar
+                            <span className="sr-only">Editar</span>
                           </button>
                           {currentDomain.hasCapacity ? (
                             <button
-                              className={adminTheme.secondaryButton}
+                              className={cx(
+                                adminTheme.secondaryButton,
+                                "h-8 px-2 text-xs",
+                              )}
                               onClick={() => void openBus(record)}
                               type="button"
                             >
@@ -1216,7 +1275,10 @@ function BaseRecordsPanel({
                             </button>
                           ) : null}
                           <button
-                            className={adminTheme.secondaryButton}
+                            className={cx(
+                              adminTheme.secondaryButton,
+                              "h-8 px-2 text-xs",
+                            )}
                             onClick={() =>
                               setPendingAction({
                                 record,
@@ -1240,7 +1302,7 @@ function BaseRecordsPanel({
               </tbody>
             </table>
           </div>
-          <div className="grid gap-3 p-4 md:hidden">
+          <div className="grid gap-3 p-4 lg:hidden">
             {loading ? (
               <AdminEmptyState loading title="Carregando registros" />
             ) : records.length === 0 ? (
@@ -1342,8 +1404,8 @@ function BaseRecordsPanel({
               Fechar
             </button>
           </div>
-          <div className="hidden max-w-full overflow-x-auto md:block">
-            <table className="w-full min-w-[760px] text-left text-sm">
+          <div className="hidden max-w-full overflow-x-auto lg:block">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50/80 text-xs uppercase tracking-[0.08em] text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Acadêmico</th>
@@ -1390,7 +1452,7 @@ function BaseRecordsPanel({
               </tbody>
             </table>
           </div>
-          <div className="grid gap-3 p-4 md:hidden">
+          <div className="grid gap-3 p-4 lg:hidden">
             {busAssignments.length === 0 ? (
               <AdminEmptyState title="Nenhum acadêmico vinculado neste ano letivo" />
             ) : (
