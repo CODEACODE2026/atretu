@@ -7,6 +7,7 @@ import {
   Eye,
   IdCard,
   ImageOff,
+  MoreHorizontal,
   Printer,
   Search,
   ShieldAlert,
@@ -59,16 +60,21 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
   const [shifts, setShifts] = useState<BaseRecord[]>([]);
   const [students, setStudents] = useState<StudentSummary[]>([]);
-  const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<StudentDetail | null>(
+    null,
+  );
   const [preview, setPreview] = useState<StudentCardPreview | null>(null);
   const [search, setSearch] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
   const [academicYearId, setAcademicYearId] = useState("");
   const [cardType, setCardType] = useState<StudentCardType | "">("");
   const [status, setStatus] = useState<StudentCardStatus | "">("");
-  const [validity, setValidity] = useState<"all" | "usable" | "notUsable">("all");
+  const [validity, setValidity] = useState<"all" | "usable" | "notUsable">(
+    "all",
+  );
   const [issueEnrollmentId, setIssueEnrollmentId] = useState("");
-  const [issueCardType, setIssueCardType] = useState<StudentCardType>("STUDENT");
+  const [issueCardType, setIssueCardType] =
+    useState<StudentCardType>("STUDENT");
   const [note, setNote] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -85,6 +91,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [batchTotal, setBatchTotal] = useState(0);
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchGenerating, setBatchGenerating] = useState(false);
+  const [openActionsCardId, setOpenActionsCardId] = useState("");
   const [pendingInvalidation, setPendingInvalidation] =
     useState<PendingInvalidation>(null);
   const [invalidationReason, setInvalidationReason] =
@@ -93,7 +100,8 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const canUseAdministrativeIssue = user.roles.includes("SUPER_ADMIN");
-  const canShowAdministrativeIssue = canUseAdministrativeIssue && cards.length === 0;
+  const canShowAdministrativeIssue =
+    canUseAdministrativeIssue && cards.length === 0;
 
   const summary = useMemo(
     () => ({
@@ -127,13 +135,41 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
     batchShiftId,
   ]);
 
+  useEffect(() => {
+    if (!openActionsCardId) {
+      return;
+    }
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest("[data-card-actions-menu]") ||
+        target?.closest("[data-card-actions-trigger]")
+      ) {
+        return;
+      }
+      setOpenActionsCardId("");
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpenActionsCardId("");
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openActionsCardId]);
+
   async function loadReferences() {
     try {
-      const [yearResponse, institutionResponse, shiftResponse] = await Promise.all([
-        api.listAcademicYears({ status: "all" }),
-        api.listInstitutions({ limit: 100, status: "active" }),
-        api.listShifts({ limit: 100, status: "active" }),
-      ]);
+      const [yearResponse, institutionResponse, shiftResponse] =
+        await Promise.all([
+          api.listAcademicYears({ status: "all" }),
+          api.listInstitutions({ limit: 100, status: "active" }),
+          api.listShifts({ limit: 100, status: "active" }),
+        ]);
       setYears(yearResponse.data);
       setInstitutions(institutionResponse.data);
       setShifts(shiftResponse.data);
@@ -142,7 +178,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       setBatchYearId(current?.id ?? "");
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Erro ao carregar referências",
+        caught instanceof Error
+          ? caught.message
+          : "Erro ao carregar referências",
       );
     }
   }
@@ -179,7 +217,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       });
       setStudents(response.data);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao buscar acadêmico");
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao buscar acadêmico",
+      );
     }
   }
 
@@ -191,9 +231,13 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       setSelectedStudent(detail);
       const defaultEnrollment = detail.enrollments[0];
       setIssueEnrollmentId(defaultEnrollment?.id ?? "");
-      setIssueCardType(detail.activeBoardMembership ? "BOARD_MEMBER" : "STUDENT");
+      setIssueCardType(
+        detail.activeBoardMembership ? "BOARD_MEMBER" : "STUDENT",
+      );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao abrir acadêmico");
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao abrir acadêmico",
+      );
     }
   }
 
@@ -210,7 +254,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       });
       setPreview(response);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao visualizar prévia");
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao visualizar prévia",
+      );
     }
   }
 
@@ -241,6 +287,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   }
 
   function requestInvalidation(card: StudentCardRecord) {
+    setOpenActionsCardId("");
     setPendingInvalidation({ card });
     setInvalidationReason("MANUAL_CORRECTION");
     setInvalidationNote("");
@@ -275,6 +322,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   }
 
   async function handlePdf(card: StudentCardRecord, action: PdfAction) {
+    setOpenActionsCardId("");
     setMessage("");
     setError("");
     setPdfBusyId(`${card.id}:${action}`);
@@ -309,7 +357,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       });
       setBatchTotal(response.pagination.total);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao calcular lote");
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao calcular lote",
+      );
       setBatchTotal(0);
     } finally {
       setBatchLoading(false);
@@ -320,7 +370,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
     setBatchDialogOpen(true);
     setMessage("");
     setError("");
-    setBatchYearId(academicYearId || years.find((year) => year.isCurrent)?.id || "");
+    setBatchYearId(
+      academicYearId || years.find((year) => year.isCurrent)?.id || "",
+    );
     setBatchCardType(cardType || "ALL");
     setBatchInstitutionId("");
     setBatchShiftId("");
@@ -332,7 +384,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       return;
     }
     if (batchTotal === 0) {
-      setError("Nenhuma carteirinha emitida encontrada para os filtros selecionados.");
+      setError(
+        "Nenhuma carteirinha emitida encontrada para os filtros selecionados.",
+      );
       return;
     }
     setBatchGenerating(true);
@@ -408,112 +462,137 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
           title="Carteirinhas emitidas"
         />
         <div className="border-b border-slate-200/80 p-4">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <form
-            className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row"
+            className="grid min-w-0 items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(260px,1.2fr)_auto_minmax(96px,0.5fr)_minmax(116px,0.6fr)] xl:grid-cols-[minmax(260px,1.4fr)_auto_minmax(96px,0.55fr)_minmax(116px,0.65fr)_minmax(118px,0.65fr)_minmax(132px,0.75fr)_auto]"
             onSubmit={(event) => {
               event.preventDefault();
               setPage(1);
               void loadCards(search);
             }}
           >
-            <input
-              className={cx(adminTheme.control, "min-w-0 flex-1")}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por nome, CPF ou número"
-              type="search"
-              value={search}
-            />
+            <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Busca
+              <input
+                className={cx(adminTheme.control, "min-w-0")}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Nome, CPF ou número"
+                type="search"
+                value={search}
+              />
+            </label>
             <button
-              className={adminTheme.primaryButton}
+              className={cx(adminTheme.primaryButton, "h-10 w-full xl:w-auto")}
               type="submit"
             >
               <Search aria-hidden="true" className="h-4 w-4" />
               Buscar
             </button>
+            <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Ano
+              <select
+                className={cx(adminTheme.control, "min-w-0")}
+                onChange={(event) => {
+                  setAcademicYearId(event.target.value);
+                  setPage(1);
+                }}
+                value={academicYearId}
+              >
+                <option value="">Todos</option>
+                {years.map((year) => (
+                  <option key={year.id} value={year.id}>
+                    {year.year}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Tipo
+              <select
+                className={cx(adminTheme.control, "min-w-0")}
+                onChange={(event) => {
+                  setCardType(event.target.value as StudentCardType | "");
+                  setPage(1);
+                }}
+                value={cardType}
+              >
+                <option value="">Todos</option>
+                <option value="STUDENT">Acadêmico</option>
+                <option value="BOARD_MEMBER">Diretoria</option>
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Situação
+              <select
+                className={cx(adminTheme.control, "min-w-0")}
+                onChange={(event) => {
+                  setStatus(event.target.value as StudentCardStatus | "");
+                  setPage(1);
+                }}
+                value={status}
+              >
+                <option value="">Todas</option>
+                <option value="ACTIVE">Ativa</option>
+                <option value="INVALIDATED">Invalidada</option>
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Validade
+              <select
+                className={cx(adminTheme.control, "min-w-0")}
+                onChange={(event) => {
+                  setValidity(
+                    event.target.value as "all" | "usable" | "notUsable",
+                  );
+                  setPage(1);
+                }}
+                value={validity}
+              >
+                <option value="all">Todas</option>
+                <option value="usable">Utilizáveis</option>
+                <option value="notUsable">Não utilizáveis</option>
+              </select>
+            </label>
+            <button
+              className={cx(
+                adminTheme.secondaryButton,
+                "h-10 w-full xl:w-auto",
+              )}
+              onClick={openBatchDialog}
+              type="button"
+            >
+              <Printer aria-hidden="true" className="h-4 w-4" />
+              Imprimir em lote
+            </button>
           </form>
-          <div className="grid w-full min-w-0 gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-4">
-            <select
-              className={cx(adminTheme.control, "min-w-0")}
-              onChange={(event) => {
-                setAcademicYearId(event.target.value);
-                setPage(1);
-              }}
-              value={academicYearId}
-            >
-              <option value="">Ano</option>
-              {years.map((year) => (
-                <option key={year.id} value={year.id}>
-                  {year.year}
-                </option>
-              ))}
-            </select>
-            <select
-              className={cx(adminTheme.control, "min-w-0")}
-              onChange={(event) => {
-                setCardType(event.target.value as StudentCardType | "");
-                setPage(1);
-              }}
-              value={cardType}
-            >
-              <option value="">Tipo</option>
-              <option value="STUDENT">Acadêmico</option>
-              <option value="BOARD_MEMBER">Diretoria</option>
-            </select>
-            <select
-              className={cx(adminTheme.control, "min-w-0")}
-              onChange={(event) => {
-                setStatus(event.target.value as StudentCardStatus | "");
-                setPage(1);
-              }}
-              value={status}
-            >
-              <option value="">Situação</option>
-              <option value="ACTIVE">Ativa</option>
-              <option value="INVALIDATED">Invalidada</option>
-            </select>
-            <select
-              className={cx(adminTheme.control, "min-w-0")}
-              onChange={(event) => {
-                setValidity(event.target.value as "all" | "usable" | "notUsable");
-                setPage(1);
-              }}
-              value={validity}
-            >
-              <option value="all">Todas</option>
-              <option value="usable">Utilizáveis</option>
-              <option value="notUsable">Não utilizáveis</option>
-            </select>
-          </div>
-          <button
-            className={cx(adminTheme.secondaryButton, "w-full sm:w-auto")}
-            onClick={openBatchDialog}
-            type="button"
-          >
-            <Printer aria-hidden="true" className="h-4 w-4" />
-            Imprimir em lote
-          </button>
-        </div>
         </div>
 
-        {message ? (
-          <AdminFeedback tone="green">{message}</AdminFeedback>
-        ) : null}
+        {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
         {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
 
         <div className="hidden max-w-full overflow-x-auto lg:block">
-          <table className="w-full min-w-[880px] text-left text-sm">
+          <table className="w-full min-w-[960px] table-fixed text-left text-sm">
+            <colgroup>
+              <col className="w-[7%]" />
+              <col className="w-[6%]" />
+              <col className="w-[16%]" />
+              <col className="w-[9%]" />
+              <col className="w-[5%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[12%]" />
+              <col className="w-[29%]" />
+            </colgroup>
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Número</th>
-                <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3">Acadêmico</th>
-                <th className="px-4 py-3">CPF</th>
-                <th className="px-4 py-3">Ano</th>
-                <th className="px-4 py-3">Situação</th>
-                <th className="px-4 py-3">Validade</th>
-                <th className="px-4 py-3">Emissão</th>
-                <th className="px-4 py-3">Ações</th>
+                <th className="px-3 py-2.5">Número</th>
+                <th className="px-3 py-2.5">Tipo</th>
+                <th className="px-3 py-2.5">Acadêmico</th>
+                <th className="px-3 py-2.5">CPF</th>
+                <th className="px-3 py-2.5">Ano</th>
+                <th className="px-3 py-2.5">Situação</th>
+                <th className="px-3 py-2.5">Validade</th>
+                <th className="px-3 py-2.5">Emissão</th>
+                <th className="px-3 py-2.5">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -534,87 +613,49 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 </tr>
               ) : (
                 cards.map((card) => (
-                  <tr key={card.id}>
-                    <td className="px-4 py-3 font-medium text-slate-950">
+                  <tr className="align-middle" key={card.id}>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-950">
                       {card.cardNumber}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="px-3 py-2.5 text-slate-700">
                       {cardTypeLabel(card.cardType)}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {card.student.person.fullName}
+                    <td className="px-3 py-2.5 text-slate-700">
+                      <span className="line-clamp-2 break-words">
+                        {card.student.person.fullName}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-700">
                       {card.student.person.cpfMasked}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-700">
                       {card.academicYear.year}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="px-3 py-2.5 text-slate-700">
                       <StudentCardStatusBadge card={card} />
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="px-3 py-2.5 text-slate-700">
                       <StudentCardValidityBadges card={card} />
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-700">
                       {formatDateTime(card.issuedAt)}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-                          disabled={Boolean(pdfBusyId)}
-                          onClick={() => void handlePdf(card, "view")}
-                          type="button"
-                        >
-                          <Eye aria-hidden="true" className="h-3.5 w-3.5" />
-                          {pdfBusyId === `${card.id}:view`
-                            ? "Abrindo..."
-                            : card.status === "INVALIDATED"
-                              ? "Visualizar histórico"
-                              : "Visualizar"}
-                        </button>
-                        <button
-                          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-                          disabled={Boolean(pdfBusyId)}
-                          onClick={() => void handlePdf(card, "download")}
-                          type="button"
-                        >
-                          <Download aria-hidden="true" className="h-3.5 w-3.5" />
-                          {pdfBusyId === `${card.id}:download`
-                            ? "Baixando..."
-                            : "Baixar PDF"}
-                        </button>
-                        <button
-                          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-                          disabled={Boolean(pdfBusyId) || card.status !== "ACTIVE"}
-                          onClick={() => void handlePdf(card, "print")}
-                          type="button"
-                          title={
-                            card.status === "ACTIVE"
-                              ? undefined
-                              : "Carteirinha invalidada"
-                          }
-                        >
-                          <Printer aria-hidden="true" className="h-3.5 w-3.5" />
-                          {pdfBusyId === `${card.id}:print`
-                            ? "Abrindo..."
-                            : "Imprimir"}
-                        </button>
-                        <button
-                          className="inline-flex h-8 items-center justify-center rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-60"
-                          disabled={saving || card.status !== "ACTIVE"}
-                          onClick={() => requestInvalidation(card)}
-                          type="button"
-                        >
-                          Invalidar
-                        </button>
-                      </div>
-                      {card.status === "INVALIDATED" ? (
-                        <p className="mt-1 text-xs text-amber-700">
-                          Carteirinha invalidada.
-                        </p>
-                      ) : null}
+                    <td className="px-1.5 py-2.5">
+                      <StudentCardListActions
+                        card={card}
+                        onInvalidate={requestInvalidation}
+                        onPdf={(nextCard, action) =>
+                          void handlePdf(nextCard, action)
+                        }
+                        onToggleMore={(cardId) =>
+                          setOpenActionsCardId((current) =>
+                            current === cardId ? "" : cardId,
+                          )
+                        }
+                        open={openActionsCardId === card.id}
+                        pdfBusyId={pdfBusyId}
+                        saving={saving}
+                      />
                     </td>
                   </tr>
                 ))
@@ -633,7 +674,10 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
           ) : (
             cards.map((card) => (
               <article
-                className={cx(adminTheme.card, "grid min-w-0 gap-3 p-3 text-sm")}
+                className={cx(
+                  adminTheme.card,
+                  "grid min-w-0 gap-3 p-3 text-sm",
+                )}
                 key={card.id}
               >
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -657,48 +701,20 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                   </span>
                   <span>Emissão: {formatDateTime(card.issuedAt)}</span>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-                    disabled={Boolean(pdfBusyId)}
-                    onClick={() => void handlePdf(card, "view")}
-                    type="button"
-                  >
-                    <Eye aria-hidden="true" className="h-3.5 w-3.5" />
-                    {pdfBusyId === `${card.id}:view`
-                      ? "Abrindo..."
-                      : card.status === "INVALIDATED"
-                        ? "Visualizar histórico"
-                        : "Visualizar"}
-                  </button>
-                  <button
-                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-                    disabled={Boolean(pdfBusyId)}
-                    onClick={() => void handlePdf(card, "download")}
-                    type="button"
-                  >
-                    <Download aria-hidden="true" className="h-3.5 w-3.5" />
-                    {pdfBusyId === `${card.id}:download` ? "Baixando..." : "Baixar PDF"}
-                  </button>
-                  <button
-                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-                    disabled={Boolean(pdfBusyId) || card.status !== "ACTIVE"}
-                    onClick={() => void handlePdf(card, "print")}
-                    type="button"
-                    title={card.status === "ACTIVE" ? undefined : "Carteirinha invalidada"}
-                  >
-                    <Printer aria-hidden="true" className="h-3.5 w-3.5" />
-                    {pdfBusyId === `${card.id}:print` ? "Abrindo..." : "Imprimir"}
-                  </button>
-                  <button
-                    className="inline-flex h-8 items-center justify-center rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-60"
-                    disabled={saving || card.status !== "ACTIVE"}
-                    onClick={() => requestInvalidation(card)}
-                    type="button"
-                  >
-                    Invalidar
-                  </button>
-                </div>
+                <StudentCardListActions
+                  card={card}
+                  mobile
+                  onInvalidate={requestInvalidation}
+                  onPdf={(nextCard, action) => void handlePdf(nextCard, action)}
+                  onToggleMore={(cardId) =>
+                    setOpenActionsCardId((current) =>
+                      current === cardId ? "" : cardId,
+                    )
+                  }
+                  open={openActionsCardId === card.id}
+                  pdfBusyId={pdfBusyId}
+                  saving={saving}
+                />
               </article>
             ))
           )}
@@ -718,7 +734,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
           <button
             className="rounded border border-slate-300 px-3 py-2 disabled:opacity-50"
             disabled={page >= totalPages}
-            onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
+            onClick={() =>
+              setPage((current) => Math.min(current + 1, totalPages))
+            }
             type="button"
           >
             Próxima
@@ -727,133 +745,132 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       </section>
 
       {canUseAdministrativeIssue ? (
-      <details className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-amber-950">
-          Emissão administrativa excepcional
-        </summary>
-        <p className="mt-2 text-xs text-amber-800">
-          Use somente para correção administrativa. O fluxo normal gera a
-          carteirinha automaticamente no cadastro ou aprovação do acadêmico.
-        </p>
-        <div className="mt-4 grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-        <div className={cx(adminTheme.card, "min-w-0 p-4")}>
-          <h2 className="text-base font-semibold text-slate-950">
-            Localizar acadêmico
-          </h2>
-          <form
-            className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void searchStudents(studentSearch);
-            }}
-          >
-            <input
-              className={cx(adminTheme.control, "min-w-0 flex-1")}
-              onChange={(event) => setStudentSearch(event.target.value)}
-              placeholder="Buscar acadêmico"
-              type="search"
-              value={studentSearch}
-            />
-            <button
-              className={adminTheme.primaryButton}
-              type="submit"
-            >
-              Buscar
-            </button>
-          </form>
-          <div className="mt-3 grid gap-2">
-            {students.map((student) => (
-              <button
-                className="rounded border border-slate-200 p-3 text-left text-sm hover:bg-slate-50"
-                key={student.id}
-                onClick={() => void selectStudent(student.id)}
-                type="button"
-              >
-                <span className="block font-medium text-slate-950">
-                  {student.person.fullName}
-                </span>
-                <span className="text-xs text-slate-600">
-                  {student.person.cpfMasked} -{" "}
-                  {student.currentEnrollment?.academicYear.year ?? "sem matrícula"}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <form
-          className={cx(adminTheme.card, "min-w-0 p-4")}
-          onSubmit={handleIssue}
-        >
-          <h2 className="text-base font-semibold text-slate-950">
-            Confirmação administrativa
-          </h2>
-          {selectedStudent ? (
-            <div className="mt-3 grid gap-3 text-sm">
-              <p className="font-medium text-slate-950">
-                {selectedStudent.person.fullName}
-              </p>
-              <select
-                className={adminTheme.control}
-                onChange={(event) => {
-                  setIssueEnrollmentId(event.target.value);
-                  setPreview(null);
+        <details className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-amber-950">
+            Emissão administrativa excepcional
+          </summary>
+          <p className="mt-2 text-xs text-amber-800">
+            Use somente para correção administrativa. O fluxo normal gera a
+            carteirinha automaticamente no cadastro ou aprovação do acadêmico.
+          </p>
+          <div className="mt-4 grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+            <div className={cx(adminTheme.card, "min-w-0 p-4")}>
+              <h2 className="text-base font-semibold text-slate-950">
+                Localizar acadêmico
+              </h2>
+              <form
+                className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void searchStudents(studentSearch);
                 }}
-                required
-                value={issueEnrollmentId}
               >
-                <option value="">Matrícula</option>
-                {selectedStudent.enrollments.map((enrollment) => (
-                  <option key={enrollment.id} value={enrollment.id}>
-                    {enrollment.academicYear.year} - {enrollment.institution.name}
-                  </option>
+                <input
+                  className={cx(adminTheme.control, "min-w-0 flex-1")}
+                  onChange={(event) => setStudentSearch(event.target.value)}
+                  placeholder="Buscar acadêmico"
+                  type="search"
+                  value={studentSearch}
+                />
+                <button className={adminTheme.primaryButton} type="submit">
+                  Buscar
+                </button>
+              </form>
+              <div className="mt-3 grid gap-2">
+                {students.map((student) => (
+                  <button
+                    className="rounded border border-slate-200 p-3 text-left text-sm hover:bg-slate-50"
+                    key={student.id}
+                    onClick={() => void selectStudent(student.id)}
+                    type="button"
+                  >
+                    <span className="block font-medium text-slate-950">
+                      {student.person.fullName}
+                    </span>
+                    <span className="text-xs text-slate-600">
+                      {student.person.cpfMasked} -{" "}
+                      {student.currentEnrollment?.academicYear.year ??
+                        "sem matrícula"}
+                    </span>
+                  </button>
                 ))}
-              </select>
-              <select
-                className={adminTheme.control}
-                onChange={(event) => {
-                  setIssueCardType(event.target.value as StudentCardType);
-                  setPreview(null);
-                }}
-                value={issueCardType}
-              >
-                <option value="STUDENT">Acadêmico</option>
-                <option value="BOARD_MEMBER">Diretoria</option>
-              </select>
-              <input
-                className={adminTheme.control}
-                maxLength={300}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="Observação opcional"
-                value={note}
-              />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  className={adminTheme.secondaryButton}
-                  onClick={() => void handlePreview()}
-                  type="button"
-                >
-                  Visualizar prévia administrativa
-                </button>
-                <button
-                  className={adminTheme.primaryButton}
-                  disabled={saving}
-                  type="submit"
-                >
-                  Emitir excepcional
-                </button>
               </div>
             </div>
-          ) : (
-            <p className="mt-3 text-sm text-slate-500">
-              Selecione um acadêmico para a correção administrativa.
-            </p>
-          )}
 
-          {preview ? <StudentCardPreviewBox preview={preview} /> : null}
-        </form>
-      </div>
-      </details>
+            <form
+              className={cx(adminTheme.card, "min-w-0 p-4")}
+              onSubmit={handleIssue}
+            >
+              <h2 className="text-base font-semibold text-slate-950">
+                Confirmação administrativa
+              </h2>
+              {selectedStudent ? (
+                <div className="mt-3 grid gap-3 text-sm">
+                  <p className="font-medium text-slate-950">
+                    {selectedStudent.person.fullName}
+                  </p>
+                  <select
+                    className={adminTheme.control}
+                    onChange={(event) => {
+                      setIssueEnrollmentId(event.target.value);
+                      setPreview(null);
+                    }}
+                    required
+                    value={issueEnrollmentId}
+                  >
+                    <option value="">Matrícula</option>
+                    {selectedStudent.enrollments.map((enrollment) => (
+                      <option key={enrollment.id} value={enrollment.id}>
+                        {enrollment.academicYear.year} -{" "}
+                        {enrollment.institution.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className={adminTheme.control}
+                    onChange={(event) => {
+                      setIssueCardType(event.target.value as StudentCardType);
+                      setPreview(null);
+                    }}
+                    value={issueCardType}
+                  >
+                    <option value="STUDENT">Acadêmico</option>
+                    <option value="BOARD_MEMBER">Diretoria</option>
+                  </select>
+                  <input
+                    className={adminTheme.control}
+                    maxLength={300}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="Observação opcional"
+                    value={note}
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <button
+                      className={adminTheme.secondaryButton}
+                      onClick={() => void handlePreview()}
+                      type="button"
+                    >
+                      Visualizar prévia administrativa
+                    </button>
+                    <button
+                      className={adminTheme.primaryButton}
+                      disabled={saving}
+                      type="submit"
+                    >
+                      Emitir excepcional
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">
+                  Selecione um acadêmico para a correção administrativa.
+                </p>
+              )}
+
+              {preview ? <StudentCardPreviewBox preview={preview} /> : null}
+            </form>
+          </div>
+        </details>
       ) : null}
       {pendingInvalidation ? (
         <StudentCardInvalidationDialog
@@ -904,7 +921,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                   <select
                     className={adminTheme.control}
                     onChange={(event) =>
-                      setBatchCardType(event.target.value as "ALL" | StudentCardType)
+                      setBatchCardType(
+                        event.target.value as "ALL" | StudentCardType,
+                      )
                     }
                     value={batchCardType}
                   >
@@ -917,7 +936,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                   Instituição
                   <select
                     className={adminTheme.control}
-                    onChange={(event) => setBatchInstitutionId(event.target.value)}
+                    onChange={(event) =>
+                      setBatchInstitutionId(event.target.value)
+                    }
                     value={batchInstitutionId}
                   >
                     <option value="">Todas</option>
@@ -999,7 +1020,9 @@ export function StudentCardsForStudent({
 }) {
   const [cards, setCards] = useState<StudentCardRecord[]>([]);
   const [preview, setPreview] = useState<StudentCardPreview | null>(null);
-  const [enrollmentId, setEnrollmentId] = useState(student.enrollments[0]?.id ?? "");
+  const [enrollmentId, setEnrollmentId] = useState(
+    student.enrollments[0]?.id ?? "",
+  );
   const [cardType, setCardType] = useState<StudentCardType>(
     student.activeBoardMembership ? "BOARD_MEMBER" : "STUDENT",
   );
@@ -1010,7 +1033,8 @@ export function StudentCardsForStudent({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const canUseAdministrativeIssue = user.roles.includes("SUPER_ADMIN");
-  const canShowAdministrativeIssue = canUseAdministrativeIssue && cards.length === 0;
+  const canShowAdministrativeIssue =
+    canUseAdministrativeIssue && cards.length === 0;
 
   useEffect(() => {
     void loadCards();
@@ -1020,7 +1044,11 @@ export function StudentCardsForStudent({
     setEnrollmentId(student.enrollments[0]?.id ?? "");
     setCardType(expectedStudentCardType(student));
     setPreview(null);
-  }, [student.id, student.activeBoardMembership?.id, student.enrollments[0]?.id]);
+  }, [
+    student.id,
+    student.activeBoardMembership?.id,
+    student.enrollments[0]?.id,
+  ]);
 
   async function loadCards() {
     setError("");
@@ -1030,7 +1058,9 @@ export function StudentCardsForStudent({
       setCards(response.data);
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Erro ao carregar carteirinhas",
+        caught instanceof Error
+          ? caught.message
+          : "Erro ao carregar carteirinhas",
       );
     } finally {
       setLoadingCards(false);
@@ -1050,7 +1080,9 @@ export function StudentCardsForStudent({
       });
       setPreview(response);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao visualizar prévia");
+      setError(
+        caught instanceof Error ? caught.message : "Erro ao visualizar prévia",
+      );
     }
   }
 
@@ -1124,8 +1156,11 @@ export function StudentCardsForStudent({
         totalCards={cards.length}
       />
 
-      <p className={cx(adminTheme.softPanel, "px-3 py-2 text-xs text-slate-600")}>
-        Foto opcional: quando a foto estiver indisponível, o PDF usa uma imagem padrão.
+      <p
+        className={cx(adminTheme.softPanel, "px-3 py-2 text-xs text-slate-600")}
+      >
+        Foto opcional: quando a foto estiver indisponível, o PDF usa uma imagem
+        padrão.
       </p>
 
       {loadingCards && cards.length === 0 ? (
@@ -1154,72 +1189,75 @@ export function StudentCardsForStudent({
       />
 
       {canShowAdministrativeIssue ? (
-      <details className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-        <summary className="cursor-pointer text-xs font-semibold text-amber-950">
-          Correção administrativa
-        </summary>
-        <p className="mt-2 text-xs text-amber-800">
-          Use somente quando for necessário corrigir uma carteirinha fora do
-          fluxo automático.
-        </p>
-      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <select
-            className={adminTheme.control}
-            onChange={(event) => {
-              setEnrollmentId(event.target.value);
-              setPreview(null);
-            }}
-            value={enrollmentId}
-          >
-            <option value="">Matrícula</option>
-            {student.enrollments.map((enrollment) => (
-              <option key={enrollment.id} value={enrollment.id}>
-                {enrollment.academicYear.year} - {enrollment.institution.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className={adminTheme.control}
-            onChange={(event) => {
-              setCardType(event.target.value as StudentCardType);
-              setPreview(null);
-            }}
-            value={cardType}
-          >
-            <option value="STUDENT">Acadêmico</option>
-            <option value="BOARD_MEMBER">Diretoria</option>
-          </select>
-        </div>
-        <input
-          className={cx(adminTheme.control, "mt-2 w-full")}
-          maxLength={300}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Observação opcional"
-          value={note}
-        />
-        <div className="mt-2 flex flex-wrap gap-2">
-          <button
-            className={adminTheme.secondaryButton}
-            onClick={() => void handlePreview()}
-            type="button"
-          >
-            Visualizar prévia administrativa
-          </button>
-          <button
-            className={adminTheme.primaryButton}
-            disabled={saving}
-            onClick={() => void handleIssue()}
-            type="button"
-          >
-            Emitir excepcional
-          </button>
-        </div>
-        {preview ? <StudentCardPreviewBox preview={preview} /> : null}
-      </div>
-      </details>
+        <details className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-amber-950">
+            Correção administrativa
+          </summary>
+          <p className="mt-2 text-xs text-amber-800">
+            Use somente quando for necessário corrigir uma carteirinha fora do
+            fluxo automático.
+          </p>
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <select
+                className={adminTheme.control}
+                onChange={(event) => {
+                  setEnrollmentId(event.target.value);
+                  setPreview(null);
+                }}
+                value={enrollmentId}
+              >
+                <option value="">Matrícula</option>
+                {student.enrollments.map((enrollment) => (
+                  <option key={enrollment.id} value={enrollment.id}>
+                    {enrollment.academicYear.year} -{" "}
+                    {enrollment.institution.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={adminTheme.control}
+                onChange={(event) => {
+                  setCardType(event.target.value as StudentCardType);
+                  setPreview(null);
+                }}
+                value={cardType}
+              >
+                <option value="STUDENT">Acadêmico</option>
+                <option value="BOARD_MEMBER">Diretoria</option>
+              </select>
+            </div>
+            <input
+              className={cx(adminTheme.control, "mt-2 w-full")}
+              maxLength={300}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Observação opcional"
+              value={note}
+            />
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                className={adminTheme.secondaryButton}
+                onClick={() => void handlePreview()}
+                type="button"
+              >
+                Visualizar prévia administrativa
+              </button>
+              <button
+                className={adminTheme.primaryButton}
+                disabled={saving}
+                onClick={() => void handleIssue()}
+                type="button"
+              >
+                Emitir excepcional
+              </button>
+            </div>
+            {preview ? <StudentCardPreviewBox preview={preview} /> : null}
+          </div>
+        </details>
       ) : null}
-      {message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}
+      {message ? (
+        <p className="mt-2 text-xs text-emerald-700">{message}</p>
+      ) : null}
       {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
     </div>
   );
@@ -1237,8 +1275,8 @@ function StudentCardPreviewBox({ preview }: { preview: StudentCardPreview }) {
       <p>Ano letivo: {preview.academicYear.year}</p>
       <p>Instituição: {preview.enrollment.institution.name}</p>
       <p>
-        Curso/série/turno: {preview.enrollment.course} / {preview.enrollment.grade} /{" "}
-        {preview.enrollment.shift.name}
+        Curso/série/turno: {preview.enrollment.course} /{" "}
+        {preview.enrollment.grade} / {preview.enrollment.shift.name}
       </p>
       <p>Diretoria ativa: {preview.activeBoardMembership ? "sim" : "não"}</p>
       <p>Tipo: {cardTypeLabel(preview.cardType)}</p>
@@ -1250,6 +1288,120 @@ function StudentCardPreviewBox({ preview }: { preview: StudentCardPreview }) {
             )})`
           : "nenhuma"}
       </p>
+    </div>
+  );
+}
+
+function StudentCardListActions({
+  card,
+  mobile = false,
+  onInvalidate,
+  onPdf,
+  onToggleMore,
+  open,
+  pdfBusyId,
+  saving,
+}: {
+  card: StudentCardRecord;
+  mobile?: boolean;
+  onInvalidate: (card: StudentCardRecord) => void;
+  onPdf: (card: StudentCardRecord, action: PdfAction) => void;
+  onToggleMore: (cardId: string) => void;
+  open: boolean;
+  pdfBusyId: string;
+  saving: boolean;
+}) {
+  const viewLabel =
+    card.status === "INVALIDATED" ? "Visualizar histórico" : "Visualizar";
+  const canUseSecondaryActions = card.status === "ACTIVE";
+  const actionButtonClass = cx(
+    adminTheme.secondaryButton,
+    "h-8 whitespace-nowrap text-[11px]",
+    mobile ? "flex-1 px-2 sm:flex-none" : "px-1.5",
+  );
+  const menuId = `student-card-actions-${card.id}`;
+
+  return (
+    <div
+      className={cx(
+        "relative flex gap-1.5",
+        mobile ? "flex-wrap" : "items-center gap-0.5 whitespace-nowrap",
+      )}
+    >
+      <button
+        aria-label={`${viewLabel} ${card.cardNumber}`}
+        className={actionButtonClass}
+        disabled={Boolean(pdfBusyId)}
+        onClick={() => onPdf(card, "view")}
+        title={viewLabel}
+        type="button"
+      >
+        <Eye aria-hidden="true" className="h-3 w-3" />
+        {pdfBusyId === `${card.id}:view` ? "Abrindo..." : viewLabel}
+      </button>
+      <button
+        aria-label={`Baixar PDF ${card.cardNumber}`}
+        className={actionButtonClass}
+        disabled={Boolean(pdfBusyId)}
+        onClick={() => onPdf(card, "download")}
+        title="Baixar PDF"
+        type="button"
+      >
+        <Download aria-hidden="true" className="h-3 w-3" />
+        {pdfBusyId === `${card.id}:download` ? "Baixando..." : "Baixar PDF"}
+      </button>
+      {canUseSecondaryActions ? (
+        <div className="relative" data-card-actions-menu>
+          <button
+            aria-controls={menuId}
+            aria-expanded={open}
+            aria-haspopup="menu"
+            aria-label={`Mais ações da carteirinha ${card.cardNumber}`}
+            className={cx(
+              adminTheme.secondaryButton,
+              "h-8 whitespace-nowrap text-[11px]",
+              mobile ? "w-full px-2 sm:w-auto" : "w-8 px-0",
+            )}
+            data-card-actions-trigger
+            onClick={() => onToggleMore(card.id)}
+            title="Mais ações"
+            type="button"
+          >
+            <MoreHorizontal aria-hidden="true" className="h-3 w-3" />
+            <span className={mobile ? "" : "sr-only"}>Mais ações</span>
+          </button>
+          {open ? (
+            <div
+              className="absolute right-0 z-30 mt-2 grid min-w-44 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-xl"
+              id={menuId}
+              role="menu"
+            >
+              <button
+                className="flex items-center gap-2 px-3 py-2 text-left text-slate-700 transition hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
+                disabled={Boolean(pdfBusyId)}
+                onClick={() => onPdf(card, "print")}
+                role="menuitem"
+                title="Imprimir"
+                type="button"
+              >
+                <Printer aria-hidden="true" className="h-4 w-4" />
+                {pdfBusyId === `${card.id}:print` ? "Abrindo..." : "Imprimir"}
+              </button>
+              <button
+                className="flex items-center gap-2 px-3 py-2 text-left text-red-700 transition hover:bg-red-50 focus:bg-red-50 focus:outline-none disabled:opacity-60"
+                disabled={saving}
+                onClick={() => onInvalidate(card)}
+                role="menuitem"
+                title="Invalidar carteirinha"
+                type="button"
+              >
+                <XCircle aria-hidden="true" className="h-4 w-4" />
+                Invalidar
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1273,9 +1425,8 @@ function StudentCardValidityBadges({ card }: { card: StudentCardRecord }) {
           ? "Utilizável"
           : validityReasonLabel(card.validity.reason)}
       </AdminStatusBadge>
-      {hasPhotoIssue ? <AdminStatusBadge tone="orange">Sem foto</AdminStatusBadge> : null}
-      {card.status === "INVALIDATED" ? (
-        <AdminStatusBadge tone="red">Sem emissão</AdminStatusBadge>
+      {hasPhotoIssue ? (
+        <AdminStatusBadge tone="orange">Sem foto</AdminStatusBadge>
       ) : null}
     </span>
   );
@@ -1322,8 +1473,8 @@ function StudentCardInvalidationDialog({
               Invalidar carteirinha
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              {card.cardNumber} de {card.student.person.fullName}. A regra funcional
-              permanece a mesma; informe o motivo antes de confirmar.
+              {card.cardNumber} de {card.student.person.fullName}. A regra
+              funcional permanece a mesma; informe o motivo antes de confirmar.
             </p>
           </div>
         </div>
@@ -1333,7 +1484,9 @@ function StudentCardInvalidationDialog({
             <select
               className={adminTheme.control}
               onChange={(event) =>
-                onReasonChange(event.target.value as StudentCardInvalidationReason)
+                onReasonChange(
+                  event.target.value as StudentCardInvalidationReason,
+                )
               }
               value={reason}
             >
@@ -1356,7 +1509,11 @@ function StudentCardInvalidationDialog({
           </label>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50/80 px-5 py-4">
-          <button className={adminTheme.secondaryButton} onClick={onCancel} type="button">
+          <button
+            className={adminTheme.secondaryButton}
+            onClick={onCancel}
+            type="button"
+          >
             Cancelar
           </button>
           <button
@@ -1380,13 +1537,14 @@ function cardTypeLabel(type: StudentCardType) {
 
 function validityReasonLabel(reason?: string | null) {
   const labels: Record<string, string> = {
-    CARD_INVALIDATED: "Invalidada",
+    CARD_INVALIDATED: "Não utilizável",
     STUDENT_SUSPENDED: "Acadêmico suspenso",
     STUDENT_TERMINATED: "Acadêmico desligado",
     BOARD_MEMBERSHIP_ENDED: "Diretoria encerrada",
-    BOARD_MEMBERSHIP_ACTIVE_REQUIRES_BOARD_CARD: "Substituída por carteirinha de diretoria",
+    BOARD_MEMBERSHIP_ACTIVE_REQUIRES_BOARD_CARD:
+      "Substituída por carteirinha de diretoria",
   };
-  return reason ? labels[reason] ?? "Não utilizável" : "Não utilizável";
+  return reason ? (labels[reason] ?? "Não utilizável") : "Não utilizável";
 }
 
 async function openStudentCardPdf(card: StudentCardRecord, action: PdfAction) {
@@ -1399,7 +1557,10 @@ async function openStudentCardPdf(card: StudentCardRecord, action: PdfAction) {
   }
 
   try {
-    const { blob, fileName } = await api.downloadStudentCardPdf(card.id, disposition);
+    const { blob, fileName } = await api.downloadStudentCardPdf(
+      card.id,
+      disposition,
+    );
     const url = URL.createObjectURL(blob);
     if (action === "download") {
       const link = document.createElement("a");
@@ -1455,8 +1616,15 @@ function emptyToUndefined(value?: string) {
 }
 
 function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
+  const date = new Date(value);
+  const datePart = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+  return `${datePart} ${timePart}`;
 }
