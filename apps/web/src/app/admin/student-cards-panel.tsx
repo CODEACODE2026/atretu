@@ -68,9 +68,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [studentSearch, setStudentSearch] = useState("");
   const [academicYearId, setAcademicYearId] = useState("");
   const [cardType, setCardType] = useState<StudentCardType | "">("");
-  const [status, setStatus] = useState<StudentCardStatus | "">("");
+  const [status, setStatus] = useState<StudentCardStatus | "">("ACTIVE");
   const [validity, setValidity] = useState<"all" | "usable" | "notUsable">(
-    "all",
+    "usable",
   );
   const [issueEnrollmentId, setIssueEnrollmentId] = useState("");
   const [issueCardType, setIssueCardType] =
@@ -525,7 +525,12 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
               <select
                 className={cx(adminTheme.control, "min-w-0")}
                 onChange={(event) => {
-                  setStatus(event.target.value as StudentCardStatus | "");
+                  const nextStatus = event.target.value as
+                    StudentCardStatus | "";
+                  setStatus(nextStatus);
+                  if (nextStatus !== "ACTIVE") {
+                    setValidity("all");
+                  }
                   setPage(1);
                 }}
                 value={status}
