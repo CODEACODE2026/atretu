@@ -124,10 +124,17 @@ export function sortInvoicesOperationally(
     if (leftRank !== rightRank) {
       return leftRank - rightRank;
     }
-    const leftDue = new Date(left.dueDate).getTime();
-    const rightDue = new Date(right.dueDate).getTime();
+    if (left.status === "PAID" && right.status === "PAID") {
+      const leftPaid = paidDateKey(invoiceBankSlip(left, bankSlips)) ?? dateKey(left.updatedAt);
+      const rightPaid = paidDateKey(invoiceBankSlip(right, bankSlips)) ?? dateKey(right.updatedAt);
+      if (leftPaid !== rightPaid) {
+        return rightPaid.localeCompare(leftPaid);
+      }
+    }
+    const leftDue = dateKey(left.dueDate);
+    const rightDue = dateKey(right.dueDate);
     if (leftDue !== rightDue) {
-      return leftDue - rightDue;
+      return leftDue.localeCompare(rightDue);
     }
     return left.id.localeCompare(right.id);
   });
@@ -248,15 +255,26 @@ function isPaidInPeriod(
   );
 }
 
+export function isInvoiceDueTodayForDisplay(invoice: Pick<InvoiceRecord, "dueDate">, now = new Date()) {
+  return dateKey(invoice.dueDate) === todayDateKey(now);
+}
+
+export function isInvoiceUpcomingForDisplay(
+  invoice: Pick<InvoiceRecord, "dueDate" | "overdue">,
+  now = new Date(),
+) {
+  if (invoice.overdue || isInvoiceDueTodayForDisplay(invoice, now)) {
+    return false;
+  }
+  return dateKey(invoice.dueDate) > todayDateKey(now);
+}
+
 function isDueToday(invoice: InvoiceRecord) {
-  return dateKey(invoice.dueDate) === dateKey(new Date().toISOString());
+  return isInvoiceDueTodayForDisplay(invoice);
 }
 
 function isUpcoming(invoice: InvoiceRecord) {
-  if (invoice.overdue || isDueToday(invoice)) {
-    return false;
-  }
-  return new Date(invoice.dueDate).getTime() > startOfToday().getTime();
+  return isInvoiceUpcomingForDisplay(invoice);
 }
 
 function isPartialOrReview(
@@ -274,10 +292,23 @@ function isPartialOrReview(
 }
 
 function dateKey(value: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
   return new Date(value).toISOString().slice(0, 10);
 }
 
-function startOfToday() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+function todayDateKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+  }).formatToParts(now);
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`;
+}
+
+function paidDateKey(bankSlip: BankSlipListRecord | null | undefined) {
+  return bankSlip?.paidAt ? dateKey(bankSlip.paidAt) : null;
 }

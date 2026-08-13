@@ -34,7 +34,7 @@ async function testListInvoicesIncludesBankSlipSummaryWithoutNPlusOne() {
     institutionId: "institution-1",
     academicYearId: "academic-year-1",
     status: InvoiceStatus.OPEN,
-    sort: "dueDate",
+    sort: "createdAt",
     order: "asc",
   } as never);
 
@@ -262,7 +262,7 @@ async function testListInvoicesSummaryUsesAllFilteredInvoices() {
     academicYearId: "academic-year-1",
     dueDateFrom: "2026-06-01",
     dueDateTo: "2026-12-31",
-    sort: "dueDate",
+    sort: "createdAt",
     order: "asc",
   } as never);
   const secondPage = await service.listInvoices({
@@ -274,7 +274,7 @@ async function testListInvoicesSummaryUsesAllFilteredInvoices() {
     academicYearId: "academic-year-1",
     dueDateFrom: "2026-06-01",
     dueDateTo: "2026-12-31",
-    sort: "dueDate",
+    sort: "createdAt",
     order: "asc",
   } as never);
   const paidOnly = await service.listInvoices({
@@ -287,7 +287,7 @@ async function testListInvoicesSummaryUsesAllFilteredInvoices() {
     dueDateFrom: "2026-06-01",
     dueDateTo: "2026-12-31",
     status: InvoiceStatus.PAID,
-    sort: "dueDate",
+    sort: "createdAt",
     order: "asc",
   } as never);
   const overdueOnly = await service.listInvoices({
@@ -299,7 +299,7 @@ async function testListInvoicesSummaryUsesAllFilteredInvoices() {
     academicYearId: "academic-year-1",
     dueDateFrom: "2026-06-01",
     dueDateTo: "2026-12-31",
-    sort: "dueDate",
+    sort: "createdAt",
     order: "asc",
   } as never);
 
@@ -401,7 +401,7 @@ async function testListInvoicesFiltersPaidInvoicesByPaymentDate() {
     paidAtFrom: "2026-07-01",
     paidAtTo: "2026-07-31",
     status: InvoiceStatus.PAID,
-    sort: "dueDate",
+    sort: "createdAt",
     order: "asc",
   } as never);
 
@@ -419,6 +419,56 @@ async function testListInvoicesFiltersPaidInvoicesByPaymentDate() {
     false,
   );
   assert.equal(hasNestedValue(prisma.invoice.findManyCalls[0]?.where, "institution-1"), true);
+}
+
+async function testListInvoicesUsesOperationalOrderBeforePagination() {
+  const prisma = new FakePrisma(
+    [
+      invoiceRecord({ id: "paid", dueDate: "2026-06-01", status: InvoiceStatus.PAID, bankSlip: bankSlipRecord({
+        invoiceId: "paid",
+        paidAt: new Date("2026-07-14T18:00:00.000Z"),
+        status: BankSlipStatus.PAID,
+      }) }),
+      invoiceRecord({ id: "cancelled", dueDate: "2026-06-01", status: InvoiceStatus.CANCELLED }),
+      invoiceRecord({ id: "due-tomorrow", dueDate: "2026-07-16" }),
+      invoiceRecord({ id: "overdue-recent", dueDate: "2026-07-10" }),
+      invoiceRecord({ id: "future", dueDate: "2026-07-22" }),
+      invoiceRecord({ id: "due-today", dueDate: "2026-07-15" }),
+      invoiceRecord({ id: "overdue-old", dueDate: "2026-06-25" }),
+    ],
+    { applyQuery: true },
+  );
+  const service = new InvoicesService(prisma as never);
+  (service as unknown as { todayProvider: () => Date }).todayProvider = () =>
+    new Date("2026-07-15T12:00:00.000Z");
+
+  const firstPage = await service.listInvoices({
+    page: 1,
+    limit: 5,
+    overdue: "all",
+    sort: "dueDate",
+    order: "asc",
+  } as never);
+  const secondPage = await service.listInvoices({
+    page: 2,
+    limit: 5,
+    overdue: "all",
+    sort: "dueDate",
+    order: "asc",
+  } as never);
+
+  assert.deepEqual(
+    firstPage.data.map((invoice) => invoice.id),
+    ["overdue-old", "overdue-recent", "due-today", "due-tomorrow", "future"],
+  );
+  assert.deepEqual(
+    secondPage.data.map((invoice) => invoice.id),
+    ["paid", "cancelled"],
+  );
+  assert.equal(firstPage.pagination.total, 7);
+  assert.equal(secondPage.pagination.total, 7);
+  assert.match(JSON.stringify(prisma.invoice.findManyCalls[0]?.where), /"id"/);
+  assert.equal(prisma.invoice.findManyCalls[0]?.skip, undefined);
 }
 
 class FakePrisma {
@@ -537,6 +587,26 @@ class FakePrisma {
     countCalls: [] as Record<string, unknown>[],
   };
 
+  $queryRaw = async (sql: { strings: string[]; values: unknown[] }) => {
+    const limitIndex = sql.strings.findIndex((part) => part.endsWith("LIMIT "));
+    const offsetIndex = sql.strings.findIndex((part) => part.endsWith("OFFSET "));
+    const limit =
+      limitIndex >= 0 && typeof sql.values[limitIndex] === "number"
+        ? sql.values[limitIndex]
+        : this.invoiceRecords.length;
+    const offset =
+      offsetIndex >= 0 && typeof sql.values[offsetIndex] === "number"
+        ? sql.values[offsetIndex]
+        : 0;
+    const rows = (this.applyQuery
+      ? this.invoiceRecords.filter((record) => matchesOperationalSql(record, sql))
+      : this.invoiceRecords)
+      .sort(sortOperationallyForSpec)
+      .slice(offset, offset + limit)
+      .map((record) => ({ id: record.id }));
+    return rows;
+  };
+
   private filterInvoices(where: unknown) {
     if (!this.applyQuery) {
       return this.invoiceRecords;
@@ -555,6 +625,10 @@ function matchesInvoiceWhere(
   const input = where as Record<string, unknown>;
   const and = input.AND;
   if (Array.isArray(and) && and.some((item) => !matchesInvoiceWhere(invoice, item))) {
+    return false;
+  }
+  const id = input.id as { in?: string[] } | undefined;
+  if (id?.in && !id.in.includes(invoice.id)) {
     return false;
   }
   const not = input.NOT;
@@ -609,6 +683,115 @@ function matchesInvoiceWhere(
     return false;
   }
   return true;
+}
+
+function matchesOperationalSql(
+  invoice: ReturnType<typeof invoiceRecord>,
+  sql: { strings: string[]; values: unknown[] },
+) {
+  for (let index = 0; index < sql.values.length; index += 1) {
+    const before = sql.strings[index] ?? "";
+    const after = sql.strings[index + 1] ?? "";
+    const value = sql.values[index];
+    if (before.includes("ORDER BY")) {
+      break;
+    }
+    if (before.includes("i.status = ") && after.startsWith('::"InvoiceStatus"')) {
+      if (invoice.status !== value) {
+        return false;
+      }
+    }
+    if (before.includes("e.academic_year_id =") && invoice.enrollment.academicYear.id !== value) {
+      return false;
+    }
+    if (before.includes("e.institution_id =") && invoice.enrollment.institution.id !== value) {
+      return false;
+    }
+    if (before.includes("i.due_date >=") && typeof value === "string") {
+      if (dateOnly(invoice.dueDate) < value) {
+        return false;
+      }
+    }
+    if (before.includes("i.due_date <=") && typeof value === "string") {
+      if (dateOnly(invoice.dueDate) > value) {
+        return false;
+      }
+    }
+    if (before.includes("i.due_date <") && typeof value === "string") {
+      if (!(invoice.status === InvoiceStatus.OPEN && dateOnly(invoice.dueDate) < value)) {
+        return false;
+      }
+    }
+    if (before.includes("p.normalized_name LIKE") && typeof value === "string") {
+      const expected = value.replace(/%/g, "");
+      const cpfValue = sql.values[index + 1];
+      const cpfExpected = typeof cpfValue === "string" ? cpfValue.replace(/%/g, "") : "";
+      if (
+        !invoice.student.person.normalizedName.includes(expected) &&
+        !(cpfExpected && invoice.student.person.cpf.includes(cpfExpected))
+      ) {
+        return false;
+      }
+    }
+    if (before.includes("bs.status = ") && after.startsWith('::"BankSlipStatus"')) {
+      if (invoice.bankSlip?.status !== value) {
+        return false;
+      }
+    }
+    if (before.includes("bs.paid_at >=") && typeof value === "string") {
+      if (!invoice.bankSlip?.paidAt || dateOnly(invoice.bankSlip.paidAt) < value) {
+        return false;
+      }
+    }
+    if (before.includes("bs.paid_at <") && typeof value === "string") {
+      if (!invoice.bankSlip?.paidAt || dateOnly(invoice.bankSlip.paidAt) > value) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function sortOperationallyForSpec(
+  left: ReturnType<typeof invoiceRecord>,
+  right: ReturnType<typeof invoiceRecord>,
+) {
+  const rankDiff = operationalRankForSpec(left) - operationalRankForSpec(right);
+  if (rankDiff !== 0) {
+    return rankDiff;
+  }
+  if (left.status === InvoiceStatus.PAID && right.status === InvoiceStatus.PAID) {
+    return (
+      (right.bankSlip?.paidAt ?? right.updatedAt).getTime() -
+      (left.bankSlip?.paidAt ?? left.updatedAt).getTime()
+    );
+  }
+  const dueDiff = dateOnly(left.dueDate).localeCompare(dateOnly(right.dueDate));
+  if (dueDiff !== 0) {
+    return dueDiff;
+  }
+  return right.createdAt.getTime() - left.createdAt.getTime() || left.id.localeCompare(right.id);
+}
+
+function operationalRankForSpec(invoice: ReturnType<typeof invoiceRecord>) {
+  const today = "2026-07-15";
+  if (invoice.status === InvoiceStatus.OPEN && dateOnly(invoice.dueDate) < today) {
+    return 1;
+  }
+  if (invoice.status === InvoiceStatus.OPEN) {
+    return 2;
+  }
+  if (invoice.status === InvoiceStatus.PAID) {
+    return 3;
+  }
+  if (invoice.status === InvoiceStatus.CANCELLED) {
+    return 4;
+  }
+  return 5;
+}
+
+function dateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
 }
 
 function matchesInvoiceSearch(
@@ -746,6 +929,7 @@ await testListInvoicesIncludesBankSlipSummaryWithoutNPlusOne();
 await testStudentInvoicesReuseAggregatedBankSlipSummary();
 await testListInvoicesSummaryUsesAllFilteredInvoices();
 await testListInvoicesFiltersPaidInvoicesByPaymentDate();
+await testListInvoicesUsesOperationalOrderBeforePagination();
 
 function hasNestedPaidAtFilter(value: unknown) {
   const serialized = JSON.stringify(value);

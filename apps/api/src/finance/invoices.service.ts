@@ -25,8 +25,8 @@ import type { AuthUser } from "../users/users.service.js";
 import { getFutureInvoiceBlockingReason } from "../students/lifecycle.js";
 import {
   isInvoiceOverdue,
+  localDateKey,
   parseInvoiceDueDate,
-  toUtcDateOnly,
 } from "./due-date.js";
 import {
   CancelInvoiceDto,
@@ -50,7 +50,7 @@ export function buildInvoiceOverdueWhere(
   }
   const overdueWhere: Prisma.InvoiceWhereInput = {
     status: InvoiceStatus.OPEN,
-    dueDate: { lt: toUtcDateOnly(today) },
+    dueDate: { lt: parseInvoiceDueDate(localDateKey(today)) },
   };
   return filter === InvoiceOverdueFilter.OVERDUE
     ? overdueWhere
@@ -76,27 +76,43 @@ function addUtcDays(date: Date, days: number) {
 
 @Injectable()
 export class InvoicesService {
+  private todayProvider = () => new Date();
+
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async listInvoices(query: ListInvoicesDto, currentUser?: AuthUser) {
     const where = combineInvoiceWhere(
       this.buildInvoiceWhere(query, currentUser),
-      buildInvoiceOverdueWhere(query.overdue),
+      buildInvoiceOverdueWhere(query.overdue, this.todayProvider()),
     );
     const pagination = this.resolvePagination(query);
-    const orderBy = this.buildOrderBy(query);
+    const operationalOrder = this.shouldUseOperationalOrder(query);
+    const operationalPageIds = operationalOrder
+      ? await this.findOperationalInvoicePageIds(query, currentUser, pagination)
+      : null;
+    const orderBy = operationalOrder ? null : this.buildOrderBy(query);
     const [records, total, summary] = await Promise.all([
-      this.prisma.invoice.findMany({
-        where,
-        orderBy,
-        skip: pagination.skip,
-        take: pagination.limit,
-        include: this.invoiceInclude(),
-      }),
+      operationalPageIds
+        ? operationalPageIds.length > 0
+          ? this.prisma.invoice.findMany({
+              where: { AND: [where, { id: { in: operationalPageIds } }] },
+              include: this.invoiceInclude(),
+            })
+          : Promise.resolve([])
+        : this.prisma.invoice.findMany({
+            where,
+            orderBy: orderBy ?? undefined,
+            skip: pagination.skip,
+            take: pagination.limit,
+            include: this.invoiceInclude(),
+          }),
       this.prisma.invoice.count({ where }),
       this.buildInvoiceSummary(where),
     ]);
-    const data = records.map((record) => this.toInvoiceSummary(record));
+    const orderedRecords = operationalPageIds
+      ? this.applyIdOrder(records, operationalPageIds)
+      : records;
+    const data = orderedRecords.map((record) => this.toInvoiceSummary(record));
 
     return {
       data,
@@ -486,6 +502,118 @@ export class InvoicesService {
       ];
     }
     return [{ dueDate: direction }, { createdAt: "desc" }, { id: "asc" }];
+  }
+
+  private shouldUseOperationalOrder(query: ListInvoicesDto) {
+    return query.sort === InvoiceSort.DUE_DATE && query.order !== SortOrder.DESC;
+  }
+
+  private async findOperationalInvoicePageIds(
+    query: ListInvoicesDto,
+    currentUser: AuthUser | undefined,
+    pagination: { limit: number; page: number; skip: number },
+  ) {
+    const today = localDateKey(this.todayProvider());
+    const conditions = this.buildOperationalInvoiceSqlConditions(query, currentUser);
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`
+        SELECT i.id
+        FROM invoices i
+        JOIN students s ON s.id = i.student_id
+        JOIN people p ON p.id = s.person_id
+        JOIN enrollments e ON e.id = i.enrollment_id
+        LEFT JOIN bank_slips bs ON bs.invoice_id = i.id
+        WHERE ${conditions}
+        ORDER BY
+          CASE
+            WHEN i.status = 'OPEN' AND i.due_date < ${today}::date THEN 1
+            WHEN i.status = 'OPEN' THEN 2
+            WHEN i.status = 'PAID' THEN 3
+            WHEN i.status = 'CANCELLED' THEN 4
+            ELSE 5
+          END ASC,
+          CASE WHEN i.status = 'OPEN' AND i.due_date < ${today}::date THEN i.due_date END ASC,
+          CASE WHEN i.status = 'OPEN' AND i.due_date >= ${today}::date THEN i.due_date END ASC,
+          CASE WHEN i.status = 'PAID' THEN COALESCE(bs.paid_at, i.updated_at) END DESC,
+          i.created_at DESC,
+          i.id ASC
+        LIMIT ${pagination.limit}
+        OFFSET ${pagination.skip}
+      `,
+    );
+    return rows.map((row) => row.id);
+  }
+
+  private buildOperationalInvoiceSqlConditions(
+    query: ListInvoicesDto,
+    currentUser?: AuthUser,
+  ) {
+    const conditions: Prisma.Sql[] = [Prisma.sql`TRUE`];
+    const today = localDateKey(this.todayProvider());
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+    );
+
+    if (query.status) {
+      conditions.push(Prisma.sql`i.status = ${query.status}::"InvoiceStatus"`);
+    }
+    if (query.academicYearId) {
+      conditions.push(Prisma.sql`e.academic_year_id = ${query.academicYearId}::uuid`);
+    }
+    if (typeof institutionFilter === "string") {
+      conditions.push(Prisma.sql`e.institution_id = ${institutionFilter}::uuid`);
+    } else if (institutionFilter?.in.length === 0) {
+      conditions.push(Prisma.sql`FALSE`);
+    } else if (institutionFilter?.in.length) {
+      conditions.push(
+        Prisma.sql`e.institution_id IN (${Prisma.join(
+          institutionFilter.in.map((id) => Prisma.sql`${id}::uuid`),
+        )})`,
+      );
+    }
+    if (query.dueDateFrom) {
+      conditions.push(Prisma.sql`i.due_date >= ${query.dueDateFrom}::date`);
+    }
+    if (query.dueDateTo) {
+      conditions.push(Prisma.sql`i.due_date <= ${query.dueDateTo}::date`);
+    }
+    if (query.paidAtFrom) {
+      conditions.push(
+        Prisma.sql`bs.status = ${BankSlipStatus.PAID}::"BankSlipStatus" AND bs.paid_at >= ${query.paidAtFrom}::date`,
+      );
+    }
+    if (query.paidAtTo) {
+      conditions.push(
+        Prisma.sql`bs.status = ${BankSlipStatus.PAID}::"BankSlipStatus" AND bs.paid_at < (${query.paidAtTo}::date + INTERVAL '1 day')`,
+      );
+    }
+    if (query.search) {
+      const normalizedSearch = this.normalizeName(query.search);
+      const cpfSearch = normalizeCpf(query.search);
+      conditions.push(
+        cpfSearch
+          ? Prisma.sql`(p.normalized_name LIKE ${`%${normalizedSearch}%`} OR p.cpf LIKE ${`%${cpfSearch}%`})`
+          : Prisma.sql`p.normalized_name LIKE ${`%${normalizedSearch}%`}`,
+      );
+    }
+    if (query.overdue === InvoiceOverdueFilter.OVERDUE) {
+      conditions.push(Prisma.sql`i.status = 'OPEN' AND i.due_date < ${today}::date`);
+    } else if (query.overdue === InvoiceOverdueFilter.NOT_OVERDUE) {
+      conditions.push(Prisma.sql`NOT (i.status = 'OPEN' AND i.due_date < ${today}::date)`);
+    }
+
+    return Prisma.join(conditions, " AND ");
+  }
+
+  private applyIdOrder(
+    records: InvoiceWithRelations[],
+    orderedIds: string[],
+  ): InvoiceWithRelations[] {
+    const order = new Map(orderedIds.map((id, index) => [id, index]));
+    return [...records].sort(
+      (left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0),
+    );
   }
 
   private resolvePagination(query: ListInvoicesDto) {
