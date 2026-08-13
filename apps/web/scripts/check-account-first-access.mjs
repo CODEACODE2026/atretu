@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const accountPanel = readFileSync("src/app/admin/account-panel.tsx", "utf8");
 const firstAccess = readFileSync("src/app/first-access/page.tsx", "utf8");
+const home = readFileSync("src/app/page.tsx", "utf8");
 const login = readFileSync("src/app/login/login-form.tsx", "utf8");
 const shell = readFileSync("src/app/admin/admin-shell.tsx", "utf8");
 const api = readFileSync("src/lib/api.ts", "utf8");
@@ -36,7 +37,31 @@ includesAll(login, [
   '"/first-access"',
   "atretu_login_notice",
   "Credenciais invalidas ou acesso indisponivel.",
+  "Acessar sistema",
+  "Mostrar senha",
+  "Ocultar senha",
 ]);
+
+includesAll(home, ["redirect(\"/login\")"]);
+
+for (const [label, source] of [
+  ["home", home],
+  ["login", login],
+]) {
+  for (const forbidden of [
+    "/pre-cadastro",
+    "Pre-cadastro",
+    "pre-cadastro",
+    "Fazer cadastro",
+    "Criar conta",
+  ]) {
+    assert.equal(
+      source.includes(forbidden),
+      false,
+      `${label} must not expose ${forbidden}`,
+    );
+  }
+}
 
 includesAll(accountPanel, [
   "AdminModuleHeader",
