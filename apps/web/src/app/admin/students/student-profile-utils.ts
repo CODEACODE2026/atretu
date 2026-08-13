@@ -8,6 +8,14 @@ import type {
 } from "../../../lib/api";
 import { onlyDigits } from "../../../lib/formatters";
 
+export const STUDENT_HISTORY_PAGE_SIZE = 20;
+
+export type StudentHistoryCategory =
+  | "all"
+  | "finance"
+  | "cards"
+  | "academic";
+
 export function emptyToUndefined(value?: string) {
   const trimmed = value?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : undefined;
@@ -104,6 +112,107 @@ export function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
   return labels[eventType];
 }
 
+export function historyEventCategory(
+  eventType: StudentHistoryEvent["eventType"],
+): Exclude<StudentHistoryCategory, "all"> {
+  if (
+    eventType === "INVOICE_CREATED" ||
+    eventType === "INVOICE_CANCELLED" ||
+    eventType === "BANK_SLIP_ISSUED" ||
+    eventType === "BANK_SLIP_PAYMENT_CONFIRMED" ||
+    eventType === "BANK_SLIP_CANCELLATION_REQUESTED" ||
+    eventType === "BANK_SLIP_CANCELLED"
+  ) {
+    return "finance";
+  }
+  if (
+    eventType === "STUDENT_CARD_ISSUED" ||
+    eventType === "STUDENT_CARD_INVALIDATED"
+  ) {
+    return "cards";
+  }
+  return "academic";
+}
+
+export function filterStudentHistoryEvents(
+  events: StudentHistoryEvent[],
+  category: StudentHistoryCategory,
+) {
+  if (category === "all") {
+    return events;
+  }
+  return events.filter((event) => historyEventCategory(event.eventType) === category);
+}
+
+export function getVisibleStudentHistoryEvents(
+  events: StudentHistoryEvent[],
+  category: StudentHistoryCategory,
+  visibleCount: number,
+) {
+  return filterStudentHistoryEvents(events, category).slice(0, visibleCount);
+}
+
+export function groupStudentHistoryEventsByMonth(events: StudentHistoryEvent[]) {
+  const groups = new Map<string, { key: string; label: string; events: StudentHistoryEvent[] }>();
+  for (const event of events) {
+    const date = new Date(event.occurredAt);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const label = new Intl.DateTimeFormat("pt-BR", {
+      month: "long",
+      year: "numeric",
+    }).format(date);
+    const normalizedLabel = label.charAt(0).toUpperCase() + label.slice(1);
+    const group = groups.get(key) ?? { key, label: normalizedLabel, events: [] };
+    group.events.push(event);
+    groups.set(key, group);
+  }
+  return Array.from(groups.values());
+}
+
+export function historyEventDescription(event: StudentHistoryEvent) {
+  if (event.justification) {
+    return event.justification;
+  }
+  if (event.suspensionReason) {
+    return `Motivo: ${reasonLabel(event.suspensionReason)}`;
+  }
+  if (event.terminationReason) {
+    return `Tipo: ${terminationLabel(event.terminationReason)}`;
+  }
+  if (event.bus) {
+    return `Onibus: ${event.bus.name}`;
+  }
+  if (event.boardMembership?.role) {
+    return `Cargo: ${boardMemberRoleLabel(event.boardMembership.role)}`;
+  }
+  return "";
+}
+
+export function historyEventDetails(event: StudentHistoryEvent) {
+  const details: string[] = [];
+  if (
+    event.busSeatReleased !== null &&
+    event.busSeatReleased !== undefined
+  ) {
+    details.push(
+      `Vaga de onibus: ${event.busSeatReleased ? "liberada" : "mantida"}`,
+    );
+  }
+  if (event.bus && historyEventDescription(event) !== `Onibus: ${event.bus.name}`) {
+    details.push(`Onibus: ${event.bus.name}`);
+  }
+  if (event.busAssignment?.bus?.name) {
+    details.push(`Atribuicao: ${event.busAssignment.bus.name}`);
+  }
+  if (event.boardMembership?.role) {
+    details.push(`Cargo na diretoria: ${boardMemberRoleLabel(event.boardMembership.role)}`);
+  }
+  if (event.boardMembership?.status) {
+    details.push(`Status da diretoria: ${event.boardMembership.status}`);
+  }
+  return details;
+}
+
 export function reasonLabel(
   reason: NonNullable<StudentHistoryEvent["suspensionReason"]>,
 ) {
@@ -118,6 +227,17 @@ export function terminationLabel(
   reason: NonNullable<StudentHistoryEvent["terminationReason"]>,
 ) {
   return reason === "WITHDRAWAL" ? "Desistencia" : "Inadimplencia";
+}
+
+function boardMemberRoleLabel(role: NonNullable<StudentHistoryEvent["boardMembership"]>["role"]) {
+  const labels = {
+    PRESIDENT: "Presidente",
+    VICE_PRESIDENT: "Vice-presidente",
+    TREASURER: "Tesoureiro",
+    SECRETARY: "Secretario",
+    MEMBER: "Membro",
+  } satisfies Record<NonNullable<typeof role>, string>;
+  return role ? labels[role] : "";
 }
 
 export function revokeObjectUrl(value: string) {
