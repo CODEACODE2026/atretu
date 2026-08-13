@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { api, ApiRequestError } from "../../lib/api";
+import { adminTheme, cx } from "../admin/admin-theme";
 
 export function LoginForm() {
   const router = useRouter();
@@ -61,7 +62,7 @@ export function LoginForm() {
       <LoginCardShell>
         <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 text-center">
           <Loader2
-            className="h-6 w-6 animate-spin text-cyan-700"
+            className="h-6 w-6 animate-spin text-[#1F6F5F]"
             aria-hidden
           />
           <p className="text-sm font-medium text-slate-600">
@@ -99,7 +100,7 @@ export function LoginForm() {
     <LoginCardShell>
       <form className="grid gap-5" onSubmit={handleSubmit}>
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded bg-cyan-50 px-3 py-1 text-xs font-semibold uppercase text-cyan-800">
+          <div className="inline-flex items-center gap-2 rounded-lg border border-[#D8E9E4] bg-[#F2F8F6] px-3 py-1 text-xs font-semibold uppercase text-[#14534D]">
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
             Area segura
           </div>
@@ -112,7 +113,10 @@ export function LoginForm() {
           E-mail
           <input
             autoComplete="email"
-            className="h-11 w-full rounded border border-slate-300 bg-white px-3 text-base text-slate-950 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:text-sm"
+            className={cx(
+              adminTheme.control,
+              "h-11 w-full rounded px-3 text-base sm:text-sm",
+            )}
             disabled={loading}
             onChange={(event) => setEmail(event.target.value)}
             required
@@ -131,7 +135,10 @@ export function LoginForm() {
           <div className="relative">
             <input
               autoComplete="current-password"
-              className="h-11 w-full rounded border border-slate-300 bg-white px-3 pr-11 text-base text-slate-950 outline-none transition focus:border-cyan-700 focus:ring-2 focus:ring-cyan-100 sm:text-sm"
+              className={cx(
+                adminTheme.control,
+                "h-11 w-full rounded px-3 pr-11 text-base sm:text-sm",
+              )}
               disabled={loading}
               id="login-password"
               minLength={8}
@@ -146,7 +153,7 @@ export function LoginForm() {
                   ? "Ocultar conteudo do campo"
                   : "Exibir conteudo do campo"
               }
-              className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition duration-150 hover:bg-[#F2F8F6] hover:text-[#0F2E2E] focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none"
               disabled={loading || !password}
               onClick={() => setShowPassword((current) => !current)}
               title={showPassword ? "Ocultar senha" : "Mostrar senha"}
@@ -174,7 +181,7 @@ export function LoginForm() {
         ) : null}
 
         <button
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          className={cx(adminTheme.primaryButton, "h-11 w-full rounded px-4")}
           disabled={loading}
           type="submit"
         >
@@ -197,11 +204,16 @@ export function LoginForm() {
 
 function LoginCardShell({ children }: { children: ReactNode }) {
   return (
-    <section className="w-full max-w-[430px] rounded-lg border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/70 sm:p-8">
+    <section
+      className={cx(
+        adminTheme.card,
+        "w-full max-w-[430px] rounded-lg p-6 sm:p-8",
+      )}
+    >
       <div className="mb-8 flex items-center gap-4">
         <img
           alt="Logo ATRETU"
-          className="h-14 w-14 shrink-0 rounded bg-white object-contain ring-1 ring-slate-200"
+          className="h-14 w-14 shrink-0 rounded-lg bg-white object-contain ring-1 ring-[#D8E9E4]"
           height={56}
           src="/atretu-logo.png"
           width={56}
