@@ -2,6 +2,7 @@
 
 import {
   BriefcaseBusiness,
+  ClipboardCheck,
   ClipboardList,
   CreditCard,
   FileBarChart2,
@@ -63,6 +64,13 @@ export const ADMIN_NAV_ITEMS = [
     icon: Users,
     key: "students",
     label: "Academicos",
+  },
+  {
+    description: "Cadastros recebidos para análise",
+    group: "academic",
+    icon: ClipboardCheck,
+    key: "pre-registrations",
+    label: "Pré-cadastros",
   },
   {
     description: "Renovacoes",

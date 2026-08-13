@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Search, XCircle } from "lucide-react";
+import { Clipboard, Search, XCircle } from "lucide-react";
 import {
   api,
   type AcademicYear,
@@ -66,6 +66,7 @@ export function PreRegistrationsPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
   const [error, setError] = useState("");
   const initialFilterValues = useMemo(
     () => ({
@@ -361,6 +362,17 @@ export function PreRegistrationsPanel({
     }
   }
 
+  async function copyPublicPreRegistrationLink() {
+    setCopyMessage("");
+    setError("");
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/pre-cadastro`);
+      setCopyMessage("Link copiado");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao copiar link");
+    }
+  }
+
   return (
     <div className="grid gap-4">
       <section
@@ -368,7 +380,7 @@ export function PreRegistrationsPanel({
         className={cx(adminTheme.card, "min-w-0 p-5")}
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2
               className={cx(adminTheme.titleText, "text-base")}
               id="pre-registration-filters-title"
@@ -379,9 +391,27 @@ export function PreRegistrationsPanel({
               Refine os pre-cadastros por busca, ano letivo, instituicao e status.
             </p>
           </div>
-          {referencesLoading ? (
-            <span className="text-sm text-slate-500">Carregando filtros...</span>
-          ) : null}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {copyMessage ? (
+              <span
+                aria-live="polite"
+                className="text-sm font-medium text-emerald-700"
+              >
+                {copyMessage}
+              </span>
+            ) : null}
+            <button
+              className={adminTheme.secondaryButton}
+              onClick={copyPublicPreRegistrationLink}
+              type="button"
+            >
+              <Clipboard className="h-4 w-4" aria-hidden />
+              Copiar link de pré-cadastro
+            </button>
+            {referencesLoading ? (
+              <span className="text-sm text-slate-500">Carregando filtros...</span>
+            ) : null}
+          </div>
         </div>
         {referencesError ? (
           <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
