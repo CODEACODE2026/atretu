@@ -1599,7 +1599,7 @@ export function FinancePanel({
           role="dialog"
         >
           <form
-            className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:max-w-3xl sm:rounded-2xl"
+            className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:max-w-[960px] sm:rounded-2xl"
             onSubmit={handleCreate}
           >
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-5">
@@ -1635,7 +1635,7 @@ export function FinancePanel({
                 </p>
               ) : null}
 
-              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
                 <section className="min-w-0">
                   <h3 className="text-sm font-semibold text-slate-950">
                     Selecionar acadêmico
@@ -1656,7 +1656,7 @@ export function FinancePanel({
                       />
                     </label>
                     <button
-                      className={adminTheme.primaryButton}
+                      className={cx(adminTheme.primaryButton, "justify-center sm:w-auto")}
                       onClick={() => void searchStudents(studentSearch)}
                       type="button"
                     >
@@ -1664,9 +1664,6 @@ export function FinancePanel({
                       Buscar
                     </button>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    A busca usa o endpoint atual e mantém limite de 10 resultados.
-                  </p>
 
                   <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1">
                     {students.length === 0 ? (
@@ -1734,7 +1731,7 @@ export function FinancePanel({
                       <label className="grid gap-1 font-medium text-slate-700">
                         Matrícula/ano letivo
                         <select
-                          className={adminTheme.control}
+                          className={cx(adminTheme.control, "w-full min-w-0")}
                           onChange={(event) => {
                             setInvoiceEnrollmentId(event.target.value);
                             setPreview(null);
@@ -1751,11 +1748,11 @@ export function FinancePanel({
                         </select>
                       </label>
 
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
                         <label className="grid gap-1 font-medium text-slate-700">
                           Valor
                           <input
-                            className={adminTheme.control}
+                            className={cx(adminTheme.control, "w-full min-w-0")}
                             inputMode="decimal"
                             onChange={(event) => {
                               setAmount(event.target.value);
@@ -1769,7 +1766,7 @@ export function FinancePanel({
                         <label className="grid gap-1 font-medium text-slate-700">
                           Vencimento
                           <input
-                            className={adminTheme.control}
+                            className={cx(adminTheme.control, "w-full min-w-0")}
                             onChange={(event) => {
                               setDueDate(event.target.value);
                               setPreview(null);
@@ -1784,7 +1781,7 @@ export function FinancePanel({
                       <label className="grid gap-1 font-medium text-slate-700">
                         Descrição opcional
                         <input
-                          className={adminTheme.control}
+                          className={cx(adminTheme.control, "w-full min-w-0")}
                           maxLength={300}
                           onChange={(event) => setDescription(event.target.value)}
                           placeholder="Ex.: Mensalidade de agosto"
