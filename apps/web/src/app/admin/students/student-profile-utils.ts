@@ -94,6 +94,10 @@ export function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     STUDENT_CARD_INVALIDATED: "Carteirinha invalidada",
     INVOICE_CREATED: "Fatura criada",
     INVOICE_CANCELLED: "Fatura cancelada",
+    BANK_SLIP_ISSUED: "Boleto emitido",
+    BANK_SLIP_PAYMENT_CONFIRMED: "Pagamento confirmado",
+    BANK_SLIP_CANCELLATION_REQUESTED: "Cancelamento de boleto solicitado",
+    BANK_SLIP_CANCELLED: "Boleto cancelado",
     BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
     BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
   };
