@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  ApiRequestError,
   type AcademicYear,
   type ApiUser,
   type BaseRecord,
@@ -82,6 +83,19 @@ type InvoiceInitialFilters = {
   paidAtTo?: string;
   status?: InvoiceStatus | "";
 };
+
+const invoiceStatusIssueErrorCodes = new Set([
+  "INVOICE_ALREADY_PAID",
+  "INVOICE_CANCELLED",
+  "INVOICE_NOT_OPEN",
+]);
+
+function shouldReloadInvoicesAfterIssueError(caught: unknown) {
+  return (
+    caught instanceof ApiRequestError &&
+    Boolean(caught.code && invoiceStatusIssueErrorCodes.has(caught.code))
+  );
+}
 
 const invoiceCancellationOptions: Array<{
   label: string;
@@ -705,7 +719,11 @@ export function FinancePanel({
           : text;
       setError(messageText);
       showBankSlipResult("Emissão não confirmada", messageText, "danger");
-      await loadFullBankSlip(invoice);
+      if (shouldReloadInvoicesAfterIssueError(caught)) {
+        await loadInvoices();
+      } else {
+        await loadFullBankSlip(invoice);
+      }
     } finally {
       setBankSlipAction("");
       issueBankSlipInFlightRef.current = "";
@@ -2281,7 +2299,12 @@ export function StudentInvoicesForStudent({
           ? "O sistema não conseguiu confirmar se o boleto foi criado no Sicredi. Não tente emitir novamente. Use a consulta de situação ou procure o administrador."
           : text,
       );
-      await loadInvoices();
+      if (shouldReloadInvoicesAfterIssueError(caught)) {
+        await loadInvoices();
+        await onChanged();
+      } else {
+        await loadInvoices();
+      }
     } finally {
       setSaving(false);
       issueBankSlipInFlightRef.current = "";

@@ -1940,13 +1940,7 @@ export class BankSlipsService {
       const invoice = await this.lockInvoice(tx, invoiceId);
       assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
       if (invoice.status !== InvoiceStatus.OPEN) {
-        throw new BadRequestException({
-          code:
-            invoice.status === InvoiceStatus.PAID
-              ? "INVOICE_ALREADY_PAID"
-              : "INVOICE_NOT_OPEN",
-          message: "Somente fatura aberta pode emitir boleto",
-        });
+        throw this.invoiceStatusIssueError(invoice.status);
       }
       if (isInvoiceOverdue(invoice)) {
         throw new BadRequestException({
@@ -2041,6 +2035,25 @@ export class BankSlipsService {
       status === BankSlipStatus.ISSUE_FAILED ||
       status === BankSlipStatus.CANCELLED
     );
+  }
+
+  private invoiceStatusIssueError(status: InvoiceStatus) {
+    if (status === InvoiceStatus.PAID) {
+      return new BadRequestException({
+        code: "INVOICE_ALREADY_PAID",
+        message: "Fatura paga nao pode emitir boleto",
+      });
+    }
+    if (status === InvoiceStatus.CANCELLED) {
+      return new BadRequestException({
+        code: "INVOICE_CANCELLED",
+        message: "Fatura cancelada nao pode emitir boleto",
+      });
+    }
+    return new BadRequestException({
+      code: "INVOICE_NOT_OPEN",
+      message: "Somente fatura aberta pode emitir boleto",
+    });
   }
 
   private async prepareRetryIssueTx(

@@ -84,6 +84,53 @@ async function testIssueBankSlipSuccess() {
   assert.doesNotMatch(auditText, /secret-api-key|secret-password|access_token/);
 }
 
+async function testOpenInvoiceWithoutBankSlipCanIssue() {
+  const prisma = new FakePrisma();
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+  assert.equal(prisma.invoiceRecord.bankSlip, null);
+
+  const result = await service.issueForInvoice("invoice-1", "user-1");
+
+  assert.equal(result.status, BankSlipStatus.ISSUED);
+  assert.equal(prisma.bankSlips.length, 1);
+  assert.equal(prisma.invoiceRecord.status, InvoiceStatus.OPEN);
+  assert.equal(sicredi.issueCalls.length, 1);
+}
+
+async function testPaidAndCancelledInvoicesBlockIssueWithSpecificReasons() {
+  for (const [status, code, message] of [
+    [
+      InvoiceStatus.PAID,
+      "INVOICE_ALREADY_PAID",
+      "Fatura paga nao pode emitir boleto",
+    ],
+    [
+      InvoiceStatus.CANCELLED,
+      "INVOICE_CANCELLED",
+      "Fatura cancelada nao pode emitir boleto",
+    ],
+  ] as const) {
+    const prisma = new FakePrisma();
+    (prisma.invoiceRecord as Record<string, unknown>).status = status;
+    const sicredi = new FakeSicrediClient();
+    const service = new BankSlipsService(prisma as never, sicredi as never, config);
+
+    await assert.rejects(
+      () => service.issueForInvoice("invoice-1", "user-1"),
+      (error) =>
+        error instanceof BadRequestException &&
+        (error.getResponse() as Record<string, unknown>).code === code &&
+        (error.getResponse() as Record<string, unknown>).message === message,
+      status,
+    );
+    assert.equal(sicredi.issueCalls.length, 0, status);
+    assert.equal(prisma.bankSlips.length, 0, status);
+  }
+}
+
 async function testIssuePdfArchiveFailureDoesNotUndoIssue() {
   const prisma = new FakePrisma();
   const sicredi = new FakeSicrediClient();
@@ -1435,6 +1482,40 @@ async function testIssueBatchCreationDeduplicatesAndSkipsIneligible() {
   assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
   assert.equal(prisma.issueBatchItems[1]?.status, BankSlipIssueBatchItemStatus.SKIPPED);
   assert.equal(prisma.issueBatchItems[1]?.lastErrorCode, "INVOICE_ALREADY_PAID");
+}
+
+async function testIssueBatchEligibilityMatchesIndividualIssueRules() {
+  const prisma = new FakePrisma();
+  prisma.addInvoice("invoice-issued");
+  prisma.addInvoice("invoice-paid", { status: InvoiceStatus.PAID });
+  prisma.addInvoice("invoice-cancelled", { status: InvoiceStatus.CANCELLED });
+  prisma.seedIssuedBankSlip({
+    id: "bank-slip-issued",
+    invoiceId: "invoice-issued",
+    status: BankSlipStatus.ISSUED,
+  });
+  const service = new BankSlipsService(prisma as never, new FakeSicrediClient() as never, config);
+
+  const batch = await service.createIssueBatch(
+    {
+      invoiceIds: [
+        "invoice-1",
+        "invoice-issued",
+        "invoice-paid",
+        "invoice-cancelled",
+      ],
+    },
+    "user-1",
+  );
+
+  assert.equal(batch.totalItems, 4);
+  assert.equal(batch.queuedItems, 1);
+  assert.equal(batch.skippedItems, 3);
+  assert.equal(prisma.issueBatchItems[0]?.invoiceId, "invoice-1");
+  assert.equal(prisma.issueBatchItems[0]?.status, BankSlipIssueBatchItemStatus.QUEUED);
+  assert.equal(prisma.issueBatchItems[1]?.lastErrorCode, "BANK_SLIP_ALREADY_EXISTS");
+  assert.equal(prisma.issueBatchItems[2]?.lastErrorCode, "INVOICE_ALREADY_PAID");
+  assert.equal(prisma.issueBatchItems[3]?.lastErrorCode, "INVOICE_CANCELLED");
 }
 
 async function testIssueBatchPreviewByInstitution() {
@@ -3234,6 +3315,8 @@ function sleep(ms: number) {
 }
 
 await testIssueBankSlipSuccess();
+await testOpenInvoiceWithoutBankSlipCanIssue();
+await testPaidAndCancelledInvoicesBlockIssueWithSpecificReasons();
 await testIssuePdfArchiveFailureDoesNotUndoIssue();
 await testIssueUncertainMarksUnknown();
 await testIssueDiagnosticsTrackServiceStagesSafely();
@@ -3288,6 +3371,7 @@ await testPdfRejectsInvalidSignature();
 await testPdfErrorsAreMappedSafely();
 await testPayerManualLimits();
 await testIssueBatchCreationDeduplicatesAndSkipsIneligible();
+await testIssueBatchEligibilityMatchesIndividualIssueRules();
 await testIssueBatchPreviewByInstitution();
 await testIssueBatchCreationByInstitutionCreatesSkippedItems();
 await testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput();

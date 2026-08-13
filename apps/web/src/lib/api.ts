@@ -1473,6 +1473,7 @@ export class ApiRequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "ApiRequestError";
@@ -1515,7 +1516,7 @@ async function request<T>(
     if (!skipSessionInvalidationEvent) {
       notifySessionInvalid(path, response.status);
     }
-    throw new ApiRequestError(formatApiErrorBody(body), response.status);
+    throw new ApiRequestError(formatApiErrorBody(body), response.status, body?.code);
   }
 
   return response.json() as Promise<T>;

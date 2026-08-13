@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync("src/app/admin/finance-panel.tsx", "utf8");
+const apiSource = readFileSync("src/lib/api.ts", "utf8");
 const invoiceBulkActionSource = readFileSync(
   "src/app/admin/finance/invoice-bulk-action-bar.tsx",
   "utf8",
@@ -22,6 +23,36 @@ assert.equal(
   guardedHandlers.length,
   2,
   "Finance issue handlers must guard before fetch and release in finally",
+);
+
+assert.match(
+  apiSource,
+  /export class ApiRequestError extends Error \{[\s\S]*?readonly code\?: string[\s\S]*?throw new ApiRequestError\(formatApiErrorBody\(body\), response\.status, body\?\.code\)/,
+  "API request errors must expose backend error codes to UI handlers",
+);
+
+assert.match(
+  source,
+  /const invoiceStatusIssueErrorCodes = new Set\(\[[\s\S]*?"INVOICE_ALREADY_PAID"[\s\S]*?"INVOICE_CANCELLED"[\s\S]*?"INVOICE_NOT_OPEN"[\s\S]*?\]\);/,
+  "Finance panel must recognize invoice status issue error codes",
+);
+
+assert.match(
+  source,
+  /function shouldReloadInvoicesAfterIssueError\(caught: unknown\) \{[\s\S]*?caught instanceof ApiRequestError[\s\S]*?invoiceStatusIssueErrorCodes\.has\(caught\.code\)/,
+  "Invoice status issue errors must be detected by backend code, not message text",
+);
+
+assert.match(
+  source,
+  /showBankSlipResult\("Emissão não confirmada", messageText, "danger"\);[\s\S]*?if \(shouldReloadInvoicesAfterIssueError\(caught\)\) \{[\s\S]*?await loadInvoices\(\);[\s\S]*?\} else \{[\s\S]*?await loadFullBankSlip\(invoice\);[\s\S]*?\}/,
+  "Institutional invoice issue failures caused by invoice status must reload the list",
+);
+
+assert.match(
+  source,
+  /if \(shouldReloadInvoicesAfterIssueError\(caught\)\) \{[\s\S]*?await loadInvoices\(\);[\s\S]*?await onChanged\(\);[\s\S]*?\}/,
+  "Student invoice issue failures caused by invoice status must reload the list",
 );
 
 assert.match(
