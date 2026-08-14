@@ -103,6 +103,26 @@ export function formatBatchDuration(valueMs: number) {
   return minutes > 0 ? `${minutes}min ${seconds}s` : `${seconds}s`;
 }
 
+export function formatBatchUpdatedAgo(value: string | null | undefined, now = Date.now()) {
+  if (!value) {
+    return null;
+  }
+  const updatedAt = Date.parse(value);
+  if (Number.isNaN(updatedAt)) {
+    return null;
+  }
+  const totalSeconds = Math.max(0, Math.round((now - updatedAt) / 1000));
+  if (totalSeconds < 60) {
+    return "Atualizado há poucos segundos";
+  }
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) {
+    return `Atualizado há ${totalMinutes}min`;
+  }
+  const totalHours = Math.floor(totalMinutes / 60);
+  return `Atualizado há ${totalHours}h`;
+}
+
 export function batchHasSafeRetry(batch: BankSlipIssueBatch) {
   return batch.failedItems > 0;
 }

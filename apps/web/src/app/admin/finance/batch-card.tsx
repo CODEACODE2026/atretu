@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Download, RefreshCw, RotateCcw, XCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, Loader2, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import {
   type BankSlipIssueBatch,
   type BankSlipIssueBatchItem,
@@ -11,7 +11,9 @@ import {
   batchHasSafeRetry,
   batchProgress,
   batchSourceLabel,
+  batchStatusLabel,
   batchVisualStatus,
+  formatBatchUpdatedAgo,
   formatBatchDuration,
   isBatchRunning,
 } from "./batch-display-utils";
@@ -46,6 +48,8 @@ export function BatchCard({
   const running = isBatchRunning(batch);
   const canRetry = canRetryBatch && batchHasSafeRetry(batch);
   const progress = batchProgress(batch);
+  const processing = batch.status === "PROCESSING";
+  const updatedAgo = formatBatchUpdatedAgo(batch.updatedAt);
 
   return (
     <article className={cx(adminTheme.card, adminTheme.cardHover, "min-w-0 overflow-hidden p-4")}>
@@ -108,11 +112,15 @@ export function BatchCard({
               {progress.processedItems} de {progress.totalItems} processados • {progress.percent}%
             </p>
           </div>
-          <p className="text-xs text-slate-500">
-            {batch.status === "CANCELLED"
-              ? "Progresso preservado até o cancelamento"
-              : "Emitidos + falhas + ignorados + desconhecidos"}
-          </p>
+          <div className="flex flex-col gap-1 text-xs text-slate-500 sm:items-end">
+            <p className="inline-flex items-center gap-1.5 font-medium">
+              {processing ? (
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin text-[#1F6F5F] motion-reduce:animate-none" />
+              ) : null}
+              {processing ? "Processando..." : batchStatusLabel(batch)}
+            </p>
+            {updatedAgo ? <p>{updatedAgo}</p> : null}
+          </div>
         </div>
         <BatchProgressBar batch={batch} percent={progress.percent} />
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -151,6 +159,7 @@ function BatchProgressBar({
   percent: number;
 }) {
   const visualStatus = batchVisualStatus(batch);
+  const processing = visualStatus === "processing";
   const fillClass =
     visualStatus === "cancelled"
       ? "bg-slate-500"
@@ -165,7 +174,11 @@ function BatchProgressBar({
   return (
     <div className="h-2.5 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
       <div
-        className={cx("h-full rounded-full transition-all", fillClass)}
+        className={cx(
+          "h-full rounded-full transition-all",
+          fillClass,
+          processing && "batch-progress-fill batch-progress-fill-processing",
+        )}
         style={{ width: `${percent}%` }}
       />
     </div>

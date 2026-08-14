@@ -4,6 +4,7 @@ import type { BankSlipIssueBatch } from "../src/lib/api";
 import {
   batchProgress,
   batchStatusLabel,
+  formatBatchUpdatedAgo,
 } from "../src/app/admin/finance/batch-display-utils";
 
 function makeBatch(
@@ -59,6 +60,11 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  batchProgress(makeBatch({ issuedItems: 42, totalItems: 100, queuedItems: 58, status: "PROCESSING" })),
+  { percent: 42, processedItems: 42, totalItems: 100 },
+);
+
+assert.deepEqual(
   batchProgress(makeBatch({ failedItems: 2, issuedItems: 8, queuedItems: 0, status: "COMPLETED_WITH_ERRORS" })),
   { percent: 100, processedItems: 10, totalItems: 10 },
 );
@@ -85,6 +91,7 @@ assert.deepEqual(
 );
 
 assert.equal(batchStatusLabel(makeBatch({ status: "QUEUED" })), "Aguardando");
+assert.equal(batchStatusLabel(makeBatch({ status: "DRAFT" })), "Aguardando");
 assert.equal(batchStatusLabel(makeBatch({ status: "PROCESSING" })), "Processando");
 assert.equal(batchStatusLabel(makeBatch({ status: "COMPLETED" })), "Concluído");
 assert.equal(
@@ -92,6 +99,16 @@ assert.equal(
   "Concluído com falhas",
 );
 assert.equal(batchStatusLabel(makeBatch({ status: "CANCELLED" })), "Cancelado");
+assert.equal(batchStatusLabel(makeBatch({ status: "FAILED" })), "Falhou");
+
+assert.equal(
+  formatBatchUpdatedAgo("2026-08-13T20:00:20.000Z", Date.parse("2026-08-13T20:00:40.000Z")),
+  "Atualizado há poucos segundos",
+);
+assert.equal(
+  formatBatchUpdatedAgo("2026-08-13T19:58:00.000Z", Date.parse("2026-08-13T20:00:40.000Z")),
+  "Atualizado há 2min",
+);
 
 const batchCardSource = readFileSync(
   new URL("../src/app/admin/finance/batch-card.tsx", import.meta.url),
@@ -108,6 +125,36 @@ assert.match(
   batchCardSource,
   /processados • \{progress\.percent\}%/,
   "Batch card must show 'X de Y processados • Z%'",
+);
+
+assert.match(
+  batchCardSource,
+  /batch\.status === "PROCESSING"/,
+  "Processing feedback must be tied to the real PROCESSING status",
+);
+
+assert.match(
+  batchCardSource,
+  /Processando\.\.\./,
+  "Processing batches must show an active processing label",
+);
+
+assert.match(
+  batchCardSource,
+  /Loader2[\s\S]*animate-spin[\s\S]*motion-reduce:animate-none/,
+  "Processing spinner must respect reduced motion",
+);
+
+assert.match(
+  batchCardSource,
+  /batch-progress-fill-processing/,
+  "Processing batches must use the shimmer progress class",
+);
+
+assert.match(
+  batchCardSource,
+  /style=\{\{ width: `\$\{percent\}%` \}\}/,
+  "Progress bar width must keep using the real percent only",
 );
 
 assert.match(
@@ -138,6 +185,23 @@ assert.match(
   batchCardSource,
   /sm:grid-cols-2 lg:grid-cols-4/,
   "Batch metrics must wrap responsively for mobile and desktop",
+);
+
+const globalsSource = readFileSync(
+  new URL("../src/app/globals.css", import.meta.url),
+  "utf8",
+);
+
+assert.match(
+  globalsSource,
+  /\.batch-progress-fill-processing::after[\s\S]*batch-progress-shimmer/,
+  "Processing progress must use a subtle shimmer pseudo-element",
+);
+
+assert.match(
+  globalsSource,
+  /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation: none/,
+  "Processing shimmer must respect reduced motion",
 );
 
 console.log("Finance batch progress guard OK");
