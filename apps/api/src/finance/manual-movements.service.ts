@@ -899,10 +899,16 @@ function parseCompetenceDate(value: string) {
   return date;
 }
 
-function normalizeAmount(amountCents: number) {
+function normalizeAmount(amountCents: number | string) {
   try {
-    assertValidInvoiceAmountCents(amountCents);
-    return amountCents;
+    const normalized =
+      typeof amountCents === "string"
+        ? /^\d+$/.test(amountCents.trim())
+          ? Number(amountCents)
+          : Number.NaN
+        : amountCents;
+    assertValidInvoiceAmountCents(normalized);
+    return normalized;
   } catch (error) {
     const message =
       error instanceof Error && /technical limit/i.test(error.message)

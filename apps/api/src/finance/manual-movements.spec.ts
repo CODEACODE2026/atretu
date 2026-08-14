@@ -36,6 +36,8 @@ assert.match(service, /ManualFinancialMovementType\.INCOME[\s\S]*ManualFinancial
 assert.match(service, /ManualFinancialMovementType\.EXPENSE[\s\S]*ManualFinancialMovementStatus\.PENDING/);
 assert.match(service, /StudentHistoryEventType\.MANUAL_FINANCIAL_INCOME_RECORDED/);
 assert.match(service, /formatInvoiceAmount\(movement\.amountCents\)/);
+assert.match(service, /function normalizeAmount\(amountCents: number \| string\)/);
+assert.match(service, /typeof amountCents === "string"[\s\S]*Number\(amountCents\)/);
 assert.match(service, /DocumentStorageService/);
 assert.match(service, /image\/webp/);
 assert.match(service, /WEBP/);
