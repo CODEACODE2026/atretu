@@ -26,6 +26,7 @@ import {
 } from "../../../lib/api";
 import { mapApiErrorMessage } from "../../../lib/formatters";
 import { adminTheme, cx } from "../admin-theme";
+import { centsToInput, formatMoneyInput, parseMoneyToCents } from "./manual-movement-money";
 
 const incomeCategories: ManualFinancialMovementCategory[] = [
   "SECOND_CARD_COPY",
@@ -93,7 +94,8 @@ export function ManualMovementsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [pageError, setPageError] = useState("");
+  const [formError, setFormError] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const defaultMonth = useMemo(() => currentMonthRange(), []);
@@ -116,7 +118,7 @@ export function ManualMovementsPanel() {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setLoading(true);
-    setError("");
+    setPageError("");
     try {
       const response = await api.listManualFinancialMovements({
         page,
@@ -142,7 +144,7 @@ export function ManualMovementsPanel() {
       setMovements([]);
       setSummary(emptySummary);
       setTotalPages(1);
-      setError(caught instanceof Error ? caught.message : "Erro ao carregar movimentações");
+      setPageError(caught instanceof Error ? caught.message : "Erro ao carregar movimentações");
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);
@@ -165,7 +167,7 @@ export function ManualMovementsPanel() {
   async function handleSubmitMovement(payload: ManualFinancialMovementPayload, file?: File | null) {
     setSaving(true);
     setMessage("");
-    setError("");
+    setFormError("");
     try {
       if (dialog?.mode === "edit") {
         const { file: _file, type: _type, ...update } = payload;
@@ -178,10 +180,11 @@ export function ManualMovementsPanel() {
         await api.createManualFinancialMovement({ ...payload, file });
         setMessage(payload.type === "INCOME" ? "Entrada registrada" : "Despesa registrada");
       }
+      setFormError("");
       setDialog(null);
       await loadMovements();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao salvar movimentação");
+      setFormError(caught instanceof Error ? caught.message : "Erro ao salvar movimentação");
     } finally {
       setSaving(false);
     }
@@ -189,7 +192,7 @@ export function ManualMovementsPanel() {
 
   async function handleMarkPaid(movement: ManualFinancialMovement) {
     setSaving(true);
-    setError("");
+    setPageError("");
     setMessage("");
     try {
       await api.markManualFinancialMovementPaid(movement.id, {
@@ -198,7 +201,7 @@ export function ManualMovementsPanel() {
       setMessage("Despesa marcada como paga");
       await loadMovements();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao marcar como paga");
+      setPageError(caught instanceof Error ? caught.message : "Erro ao marcar como paga");
     } finally {
       setSaving(false);
     }
@@ -210,7 +213,7 @@ export function ManualMovementsPanel() {
       return;
     }
     setSaving(true);
-    setError("");
+    setPageError("");
     setMessage("");
     try {
       await api.cancelManualFinancialMovement(movement.id, {
@@ -219,7 +222,7 @@ export function ManualMovementsPanel() {
       setMessage("Movimentação cancelada");
       await loadMovements();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao cancelar");
+      setPageError(caught instanceof Error ? caught.message : "Erro ao cancelar");
     } finally {
       setSaving(false);
     }
@@ -229,7 +232,7 @@ export function ManualMovementsPanel() {
     if (!movement.activeAttachment) {
       return;
     }
-    setError("");
+    setPageError("");
     try {
       const result =
         mode === "download"
@@ -253,7 +256,7 @@ export function ManualMovementsPanel() {
         window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao abrir documento");
+      setPageError(caught instanceof Error ? caught.message : "Erro ao abrir documento");
     }
   }
 
@@ -275,11 +278,17 @@ export function ManualMovementsPanel() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className={adminTheme.primaryButton} onClick={() => setDialog({ mode: "create", type: "INCOME" })} type="button">
+            <button className={adminTheme.primaryButton} onClick={() => {
+              setFormError("");
+              setDialog({ mode: "create", type: "INCOME" });
+            }} type="button">
               <Plus aria-hidden="true" className="h-4 w-4" />
               Nova entrada
             </button>
-            <button className={adminTheme.secondaryButton} onClick={() => setDialog({ mode: "create", type: "EXPENSE" })} type="button">
+            <button className={adminTheme.secondaryButton} onClick={() => {
+              setFormError("");
+              setDialog({ mode: "create", type: "EXPENSE" });
+            }} type="button">
               <Plus aria-hidden="true" className="h-4 w-4" />
               Nova despesa
             </button>
@@ -287,7 +296,7 @@ export function ManualMovementsPanel() {
         </div>
 
         {message ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
-        {error ? <p className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{mapApiErrorMessage(error)}</p> : null}
+        {pageError ? <p className="mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{mapApiErrorMessage(pageError)}</p> : null}
 
         <form className="mt-4 grid gap-3" onSubmit={(event) => {
           event.preventDefault();
@@ -358,7 +367,10 @@ export function ManualMovementsPanel() {
               movement={movement}
               onCancel={handleCancel}
               onDocument={handleDocument}
-              onEdit={(item) => setDialog({ mode: "edit", movement: item })}
+              onEdit={(item) => {
+                setFormError("");
+                setDialog({ mode: "edit", movement: item });
+              }}
               onMarkPaid={handleMarkPaid}
               onView={setDetail}
             />
@@ -377,8 +389,13 @@ export function ManualMovementsPanel() {
       {dialog ? (
         <MovementDialog
           dialog={dialog}
+          error={formError}
+          onClearError={() => setFormError("")}
           onClose={() => {
-            if (!saving) setDialog(null);
+            if (!saving) {
+              setFormError("");
+              setDialog(null);
+            }
           }}
           onSubmit={handleSubmitMovement}
           saving={saving}
@@ -457,11 +474,15 @@ function MovementRow({
 
 function MovementDialog({
   dialog,
+  error,
+  onClearError,
   onClose,
   onSubmit,
   saving,
 }: {
   dialog: MovementDialog;
+  error: string;
+  onClearError: () => void;
   onClose: () => void;
   onSubmit: (payload: ManualFinancialMovementPayload, file?: File | null) => void;
   saving: boolean;
@@ -485,14 +506,18 @@ function MovementDialog({
   const [paidAt, setPaidAt] = useState(movement?.paidAt ?? (movementType === "EXPENSE" ? "" : transactionDate));
   const [notes, setNotes] = useState(movement?.notes ?? "");
   const [file, setFile] = useState<File | null>(null);
+  const [validationError, setValidationError] = useState("");
+  const visibleError = validationError || error;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    onClearError();
+    setValidationError("");
     let amountCents = 0;
     try {
       amountCents = parseMoneyToCents(amount);
     } catch (caught) {
-      window.alert(caught instanceof Error ? caught.message : "Valor invalido");
+      setValidationError(caught instanceof Error ? caught.message : "Valor invalido.");
       return;
     }
     onSubmit(
@@ -530,6 +555,11 @@ function MovementDialog({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+          {visibleError ? (
+            <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {mapApiErrorMessage(visibleError)}
+            </p>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-medium text-slate-700 md:col-span-2">
               Descrição
@@ -547,9 +577,12 @@ function MovementDialog({
                 className={adminTheme.control}
                 inputMode="decimal"
                 onBlur={() => setAmount(formatMoneyInput(amount))}
-                onChange={(event) => setAmount(event.target.value)}
+                onChange={(event) => {
+                  setAmount(event.target.value);
+                  setValidationError("");
+                  onClearError();
+                }}
                 placeholder="R$ 25,00"
-                required
                 value={amount}
               />
             </label>
@@ -751,45 +784,6 @@ function formatCompetence(value: string) {
   const date = new Date(`${value.slice(0, 7)}-01T00:00:00.000Z`);
   const label = new Intl.DateTimeFormat("pt-BR", { month: "long", timeZone: "UTC", year: "numeric" }).format(date);
   return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-function formatMoneyInput(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  try {
-    return (parseMoneyToCents(trimmed) / 100).toLocaleString("pt-BR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  } catch {
-    return value;
-  }
-}
-
-function parseMoneyToCents(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new Error("Informe um valor maior que zero.");
-  }
-  const withoutCurrency = trimmed.replace(/^R\$\s*/i, "").replace(/\s/g, "");
-  const normalized = withoutCurrency.includes(",")
-    ? withoutCurrency.replace(/\./g, "").replace(",", ".")
-    : withoutCurrency;
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
-    throw new Error("Informe um valor valido, como 25,00.");
-  }
-  const [reais = "0", cents = ""] = normalized.split(".");
-  const amountCents =
-    Number.parseInt(reais, 10) * 100 +
-    Number.parseInt(cents.padEnd(2, "0") || "0", 10);
-  if (!Number.isInteger(amountCents) || amountCents <= 0) {
-    throw new Error("Informe um valor maior que zero.");
-  }
-  return amountCents;
-}
-
-function centsToInput(value: number) {
-  return formatMoneyInput(String(value));
 }
 
 function emptyToUndefined(value?: string) {

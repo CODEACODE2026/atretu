@@ -5,6 +5,10 @@ const panel = readFileSync(
   "src/app/admin/finance/manual-movements-panel.tsx",
   "utf8",
 );
+const money = readFileSync(
+  "src/app/admin/finance/manual-movement-money.ts",
+  "utf8",
+);
 const financePanel = readFileSync("src/app/admin/finance-panel.tsx", "utf8");
 const financeNavigation = readFileSync(
   "src/app/admin/finance/finance-navigation.tsx",
@@ -41,6 +45,9 @@ includesAll(api, [
 includesAll(panel, [
   "Nova entrada",
   "Nova despesa",
+  "pageError",
+  "formError",
+  "validationError",
   "SECOND_CARD_COPY",
   "XEROX",
   "ADMINISTRATIVE_FEE",
@@ -58,14 +65,27 @@ includesAll(panel, [
   "`${competenceDate}-01`",
   "parseMoneyToCents",
   "onBlur={() => setAmount(formatMoneyInput(amount))}",
-  "onChange={(event) => setAmount(event.target.value)}",
-  "Informe um valor maior que zero.",
-  "Informe um valor valido, como 25,00.",
-  "window.alert",
+  "setValidationError(\"\")",
+  "mapApiErrorMessage(visibleError)",
   "PDF, PNG, JPEG ou WebP",
   "Marcar paga",
   "Cancelar",
 ]);
+
+includesAll(money, [
+  "formatMoneyInput",
+  "parseMoneyToCents",
+  "centsToInput",
+  "style: \"currency\"",
+  "currency: \"BRL\"",
+  "Informe um valor maior que zero.",
+  "Informe um valor valido, como 25,00.",
+  "Number.parseInt(reais, 10) * 100",
+]);
+
+for (const forbidden of ["window.alert", "setError(caught instanceof Error ? caught.message : \"Erro ao salvar movimentação\")"]) {
+  assert.equal(panel.includes(forbidden), false, `Manual movement modal must not use ${forbidden}`);
+}
 
 includesAll(profileUtils, [
   "MANUAL_FINANCIAL_INCOME_RECORDED",
