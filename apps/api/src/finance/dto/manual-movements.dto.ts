@@ -93,8 +93,8 @@ export class CreateManualFinancialMovementDto {
   description!: string;
 
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
+  @IsInt({ message: "Valor deve ser um inteiro em centavos" })
+  @Min(1, { message: "Valor deve ser maior que zero" })
   @Max(MAX_INVOICE_AMOUNT_CENTS)
   amountCents!: number;
 
@@ -157,8 +157,8 @@ export class UpdateManualFinancialMovementDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
-  @Min(1)
+  @IsInt({ message: "Valor deve ser um inteiro em centavos" })
+  @Min(1, { message: "Valor deve ser maior que zero" })
   @Max(MAX_INVOICE_AMOUNT_CENTS)
   amountCents?: number;
 

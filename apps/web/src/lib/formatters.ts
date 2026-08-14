@@ -112,6 +112,14 @@ export function mapApiErrorMessage(
     [/endereco|address/i, "Endereco incompleto ou invalido."],
     [/duplicad|unique|ja cadastrado/i, "Registro duplicado ou ja cadastrado."],
     [/permiss|forbidden|unauthorized|401|403/i, "Voce nao tem permissao para realizar esta acao."],
+    [
+      /amountCents|positive integer|maior que zero|Valor invalido/i,
+      "Informe um valor financeiro maior que zero.",
+    ],
+    [
+      /Too many fields|Quantidade de campos excedida|Multipart possui partes demais|LIMIT_FIELD_COUNT|LIMIT_PART_COUNT/i,
+      "O formulario de movimentacao tem campos demais para este envio. Atualize a tela e tente novamente.",
+    ],
     [/incert|UNKNOWN|confirmar/i, "Situacao incerta. Consulte o registro antes de tentar novamente."],
     [/Prisma|Foreign key|constraint|SQL|stack/i, "Nao foi possivel concluir por uma restricao de dados. Revise os vinculos do registro."],
   ];

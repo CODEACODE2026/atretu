@@ -49,6 +49,15 @@ export class HttpErrorFilter implements ExceptionFilter {
       response &&
       typeof response === "object" &&
       "message" in response &&
+      Array.isArray(response.message)
+    ) {
+      return response.message.join(" ");
+    }
+
+    if (
+      response &&
+      typeof response === "object" &&
+      "message" in response &&
       typeof response.message === "string"
     ) {
       return response.message;

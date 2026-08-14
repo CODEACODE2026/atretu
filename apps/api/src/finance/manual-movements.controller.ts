@@ -20,7 +20,10 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
-import { singleDocumentUploadOptions } from "../documents/multipart-upload.js";
+import {
+  manualFinancialMovementUploadOptions,
+  singleDocumentUploadOptions,
+} from "../documents/multipart-upload.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   CancelManualFinancialMovementDto,
@@ -33,7 +36,14 @@ import {
 } from "./dto/manual-movements.dto.js";
 import { ManualFinancialMovementsService } from "./manual-movements.service.js";
 
-const uploadInterceptor = FileInterceptor("file", singleDocumentUploadOptions);
+const uploadInterceptor = FileInterceptor(
+  "file",
+  manualFinancialMovementUploadOptions,
+);
+const attachmentUploadInterceptor = FileInterceptor(
+  "file",
+  singleDocumentUploadOptions,
+);
 
 @UseGuards(AuthGuard, RolesGuard)
 @Controller("finance/manual-movements")
@@ -98,7 +108,7 @@ export class ManualFinancialMovementsController {
 
   @Post(":movementId/attachments")
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
-  @UseInterceptors(uploadInterceptor)
+  @UseInterceptors(attachmentUploadInterceptor)
   attach(
     @Param() params: ManualFinancialMovementParamsDto,
     @UploadedFile() file: Express.Multer.File | undefined,

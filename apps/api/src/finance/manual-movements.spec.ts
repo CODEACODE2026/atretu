@@ -20,7 +20,8 @@ assert.match(schema, /MANUAL_FINANCIAL_INCOME_RECORDED/);
 
 assert.match(controller, /@Controller\("finance\/manual-movements"\)/);
 assert.match(controller, /@Roles\(RoleCode\.SUPER_ADMIN, RoleCode\.SECRETARIA\)/);
-assert.match(controller, /FileInterceptor\("file", singleDocumentUploadOptions\)/);
+assert.match(controller, /manualFinancialMovementUploadOptions/);
+assert.match(controller, /attachmentUploadInterceptor[\s\S]*singleDocumentUploadOptions/);
 assert.match(controller, /mark-paid/);
 assert.match(controller, /attachments\/:attachmentId\/download/);
 assert.match(controller, /attachments\/:attachmentId\/view/);

@@ -543,7 +543,15 @@ function MovementDialog({
             </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Valor
-              <input className={adminTheme.control} inputMode="decimal" onChange={(event) => setAmount(formatMoneyInput(event.target.value))} placeholder="R$ 25,00" required value={amount} />
+              <input
+                className={adminTheme.control}
+                inputMode="decimal"
+                onBlur={() => setAmount(formatMoneyInput(amount))}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="R$ 25,00"
+                required
+                value={amount}
+              />
             </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Data
@@ -746,18 +754,38 @@ function formatCompetence(value: string) {
 }
 
 function formatMoneyInput(value: string) {
-  const digits = value.replace(/\D/g, "");
-  if (!digits) return "";
-  const number = Number(digits) / 100;
-  return number.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    return (parseMoneyToCents(trimmed) / 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    return value;
+  }
 }
 
 function parseMoneyToCents(value: string) {
-  const normalized = value.trim().replace(/\./g, "").replace(",", ".");
-  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
-    throw new Error("Valor invalido");
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Informe um valor maior que zero.");
   }
-  return Math.round(Number(normalized) * 100);
+  const withoutCurrency = trimmed.replace(/^R\$\s*/i, "").replace(/\s/g, "");
+  const normalized = withoutCurrency.includes(",")
+    ? withoutCurrency.replace(/\./g, "").replace(",", ".")
+    : withoutCurrency;
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    throw new Error("Informe um valor valido, como 25,00.");
+  }
+  const [reais = "0", cents = ""] = normalized.split(".");
+  const amountCents =
+    Number.parseInt(reais, 10) * 100 +
+    Number.parseInt(cents.padEnd(2, "0") || "0", 10);
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw new Error("Informe um valor maior que zero.");
+  }
+  return amountCents;
 }
 
 function centsToInput(value: number) {

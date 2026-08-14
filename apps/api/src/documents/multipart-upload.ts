@@ -16,6 +16,17 @@ export const singleDocumentUploadOptions = {
   },
 } satisfies MulterOptions;
 
+export const manualFinancialMovementUploadOptions = {
+  storage: memoryStorage(),
+  limits: {
+    fileSize: DOCUMENT_UPLOAD_MAX_SIZE_BYTES,
+    files: 1,
+    fields: 12,
+    parts: 14,
+    fieldSize: DEFAULT_FIELD_SIZE_BYTES,
+  },
+} satisfies MulterOptions;
+
 export const publicPreRegistrationUploadOptions = {
   storage: memoryStorage(),
   limits: {

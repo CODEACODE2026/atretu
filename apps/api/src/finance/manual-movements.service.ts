@@ -904,9 +904,11 @@ function normalizeAmount(amountCents: number) {
     assertValidInvoiceAmountCents(amountCents);
     return amountCents;
   } catch (error) {
-    throw new BadRequestException(
-      error instanceof Error ? error.message : "Valor invalido",
-    );
+    const message =
+      error instanceof Error && /technical limit/i.test(error.message)
+        ? "Valor excede o limite permitido"
+        : "Valor deve ser maior que zero";
+    throw new BadRequestException(message);
   }
 }
 
