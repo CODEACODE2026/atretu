@@ -3,6 +3,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { AdministrativeAuditModule } from "../administrative-audit/administrative-audit.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
+import { DocumentsModule } from "../documents/documents.module.js";
 import { JobsModule } from "../jobs/jobs.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { BankSlipIssueBatchJob } from "./bank-slip-issue-batch.job.js";
@@ -18,6 +19,8 @@ import { CollectionsController } from "./collections.controller.js";
 import { CollectionsService } from "./collections.service.js";
 import { InvoicesController } from "./invoices.controller.js";
 import { InvoicesService } from "./invoices.service.js";
+import { ManualFinancialMovementsController } from "./manual-movements.controller.js";
+import { ManualFinancialMovementsService } from "./manual-movements.service.js";
 import { SicrediClient } from "./sicredi-client.js";
 import { loadSicrediConfig } from "./sicredi-config.js";
 
@@ -27,14 +30,21 @@ import { loadSicrediConfig } from "./sicredi-config.js";
     AdministrativeAuditModule,
     AuthModule,
     DatabaseModule,
+    DocumentsModule,
     JobsModule,
     UsersModule,
   ],
-  controllers: [InvoicesController, BankSlipsController, CollectionsController],
+  controllers: [
+    InvoicesController,
+    BankSlipsController,
+    CollectionsController,
+    ManualFinancialMovementsController,
+  ],
   providers: [
     InvoicesService,
     CollectionsService,
     BankSlipsService,
+    ManualFinancialMovementsService,
     BankSlipPdfStorage,
     BankSlipIssueBatchJob,
     BankSlipSyncJob,
@@ -49,6 +59,11 @@ import { loadSicrediConfig } from "./sicredi-config.js";
       inject: [SICREDI_CONFIG],
     },
   ],
-  exports: [InvoicesService, CollectionsService, BankSlipsService],
+  exports: [
+    InvoicesService,
+    CollectionsService,
+    BankSlipsService,
+    ManualFinancialMovementsService,
+  ],
 })
 export class FinanceModule {}

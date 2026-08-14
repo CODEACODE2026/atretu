@@ -8,7 +8,12 @@ import {
   type InvoiceStatus,
 } from "../../../lib/api";
 
-export type FinanceArea = "overview" | "invoices" | "batches" | "collections";
+export type FinanceArea =
+  | "overview"
+  | "invoices"
+  | "batches"
+  | "movements"
+  | "collections";
 export type BankSlipListRecord = BankSlipRecord | BankSlipSummary;
 export type BadgeTone = "danger" | "info" | "neutral" | "success" | "warning";
 

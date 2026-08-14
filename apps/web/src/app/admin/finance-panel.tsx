@@ -74,6 +74,7 @@ import { InvoiceList } from "./finance/invoice-list";
 import { InvoiceOperationalSummaryCards } from "./finance/invoice-operational-summary";
 import { FinanceNavigation } from "./finance/finance-navigation";
 import { FinanceSummaryCards } from "./finance/finance-summary";
+import { ManualMovementsPanel } from "./finance/manual-movements-panel";
 
 type FinanceInitialArea = Extract<FinanceArea, "invoices" | "collections">;
 type InvoiceInitialFilters = {
@@ -1521,6 +1522,15 @@ export function FinancePanel({
           initialFilters={initialCollectionFilters}
           user={user}
         />
+      </div>
+    );
+  }
+
+  if (financeArea === "movements") {
+    return (
+      <div className="grid min-w-0 gap-5">
+        {financeHeader}
+        <ManualMovementsPanel />
       </div>
     );
   }

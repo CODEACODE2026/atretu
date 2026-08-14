@@ -94,6 +94,14 @@ enum AdministrativeAuditEventType {
   BANK_SLIP_CANCELLED
   BANK_SLIP_SYNCED
   COLLECTION_ACTION_CREATED
+  MANUAL_FINANCIAL_MOVEMENT_CREATED
+  MANUAL_FINANCIAL_MOVEMENT_UPDATED
+  MANUAL_FINANCIAL_MOVEMENT_PAID
+  MANUAL_FINANCIAL_MOVEMENT_CANCELLED
+  MANUAL_FINANCIAL_MOVEMENT_ATTACHMENT_UPLOADED
+  MANUAL_FINANCIAL_MOVEMENT_ATTACHMENT_REPLACED
+  MANUAL_FINANCIAL_MOVEMENT_ATTACHMENT_VIEWED
+  MANUAL_FINANCIAL_MOVEMENT_ATTACHMENT_DOWNLOADED
   BOARD_MEMBERSHIP_STARTED
   BOARD_MEMBERSHIP_ENDED
   ASSOCIATION_SETTINGS_UPDATED
@@ -144,6 +152,7 @@ enum StudentHistoryEventType {
   BANK_SLIP_PAYMENT_CONFIRMED
   BANK_SLIP_CANCELLATION_REQUESTED
   BANK_SLIP_CANCELLED
+  MANUAL_FINANCIAL_INCOME_RECORDED
   BOARD_MEMBERSHIP_STARTED
   BOARD_MEMBERSHIP_ENDED
 }
@@ -337,38 +346,76 @@ enum PreRegistrationDocumentStatus {
   REMOVED
 }
 
+enum ManualFinancialMovementType {
+  INCOME
+  EXPENSE
+}
+
+enum ManualFinancialMovementStatus {
+  PENDING
+  RECEIVED
+  PAID
+  CANCELLED
+}
+
+enum ManualFinancialMovementCategory {
+  SECOND_CARD_COPY
+  XEROX
+  ADMINISTRATIVE_FEE
+  EXTRA_CONTRIBUTION
+  DONATION
+  FUEL
+  MAINTENANCE
+  ACCOUNTING
+  OFFICE_SUPPLIES
+  SERVICES
+  TAXES
+  PURCHASES
+  OTHER
+}
+
+enum ManualFinancialMovementAttachmentStatus {
+  ACTIVE
+  REPLACED
+  REMOVED
+}
+
 model User {
-  id                         String                   @id @default(uuid()) @db.Uuid
-  name                       String                   @db.VarChar(120)
-  email                      String                   @unique @db.VarChar(180)
-  passwordHash               String                   @map("password_hash") @db.VarChar(255)
-  status                     UserStatus               @default(ACTIVE)
-  mustChangePassword         Boolean                  @default(false) @map("must_change_password")
-  createdAt                  DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                  DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  lastLoginAt                DateTime?                @map("last_login_at") @db.Timestamptz(6)
-  passwordChangedAt          DateTime?                @map("password_changed_at") @db.Timestamptz(6)
-  blockedAt                  DateTime?                @map("blocked_at") @db.Timestamptz(6)
+  id                         String                              @id @default(uuid()) @db.Uuid
+  name                       String                              @db.VarChar(120)
+  email                      String                              @unique @db.VarChar(180)
+  passwordHash               String                              @map("password_hash") @db.VarChar(255)
+  status                     UserStatus                          @default(ACTIVE)
+  mustChangePassword         Boolean                             @default(false) @map("must_change_password")
+  createdAt                  DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt                DateTime?                           @map("last_login_at") @db.Timestamptz(6)
+  passwordChangedAt          DateTime?                           @map("password_changed_at") @db.Timestamptz(6)
+  blockedAt                  DateTime?                           @map("blocked_at") @db.Timestamptz(6)
   roles                      UserRole[]
   auditLogs                  SecurityAuditLog[]
   administrativeAuditLogs    AdministrativeAuditLog[]
-  uploadedStudentDocuments   StudentDocument[]        @relation("StudentDocumentUploadedBy")
-  removedStudentDocuments    StudentDocument[]        @relation("StudentDocumentRemovedBy")
-  issuedOfficialDocuments    OfficialDocumentIssue[]  @relation("OfficialDocumentIssuedBy")
-  reviewedPreRegistrations   PublicPreRegistration[]  @relation("PreRegistrationReviewedBy")
-  studentHistoryEvents       StudentHistoryEvent[]    @relation("StudentHistoryPerformedBy")
-  boardMembershipsStarted    BoardMembership[]        @relation("BoardMembershipStartedBy")
-  boardMembershipsEnded      BoardMembership[]        @relation("BoardMembershipEndedBy")
-  studentCardsIssued         StudentCard[]            @relation("StudentCardIssuedBy")
-  studentCardsInvalidated    StudentCard[]            @relation("StudentCardInvalidatedBy")
-  invoicesCreated            Invoice[]                @relation("InvoiceCreatedBy")
-  invoicesCancelled          Invoice[]                @relation("InvoiceCancelledBy")
-  bankSlipCancellations      BankSlip[]               @relation("BankSlipCancellationRequestedBy")
-  bankSlipSyncRunsStarted    BankSlipSyncRun[]        @relation("BankSlipSyncRunStartedBy")
-  bankSlipIssueBatches       BankSlipIssueBatch[]     @relation("BankSlipIssueBatchRequestedBy")
-  bankSlipIssueBatchCancels  BankSlipIssueBatch[]     @relation("BankSlipIssueBatchCancelledBy")
-  collectionActionsCreated   CollectionAction[]       @relation("CollectionActionCreatedBy")
-  associationSettingsUpdates AssociationSettings[]    @relation("AssociationSettingsUpdatedBy")
+  uploadedStudentDocuments   StudentDocument[]                   @relation("StudentDocumentUploadedBy")
+  removedStudentDocuments    StudentDocument[]                   @relation("StudentDocumentRemovedBy")
+  issuedOfficialDocuments    OfficialDocumentIssue[]             @relation("OfficialDocumentIssuedBy")
+  reviewedPreRegistrations   PublicPreRegistration[]             @relation("PreRegistrationReviewedBy")
+  studentHistoryEvents       StudentHistoryEvent[]               @relation("StudentHistoryPerformedBy")
+  boardMembershipsStarted    BoardMembership[]                   @relation("BoardMembershipStartedBy")
+  boardMembershipsEnded      BoardMembership[]                   @relation("BoardMembershipEndedBy")
+  studentCardsIssued         StudentCard[]                       @relation("StudentCardIssuedBy")
+  studentCardsInvalidated    StudentCard[]                       @relation("StudentCardInvalidatedBy")
+  invoicesCreated            Invoice[]                           @relation("InvoiceCreatedBy")
+  invoicesCancelled          Invoice[]                           @relation("InvoiceCancelledBy")
+  bankSlipCancellations      BankSlip[]                          @relation("BankSlipCancellationRequestedBy")
+  bankSlipSyncRunsStarted    BankSlipSyncRun[]                   @relation("BankSlipSyncRunStartedBy")
+  bankSlipIssueBatches       BankSlipIssueBatch[]                @relation("BankSlipIssueBatchRequestedBy")
+  bankSlipIssueBatchCancels  BankSlipIssueBatch[]                @relation("BankSlipIssueBatchCancelledBy")
+  collectionActionsCreated   CollectionAction[]                  @relation("CollectionActionCreatedBy")
+  manualMovementsCreated     ManualFinancialMovement[]           @relation("ManualFinancialMovementCreatedBy")
+  manualMovementsUpdated     ManualFinancialMovement[]           @relation("ManualFinancialMovementUpdatedBy")
+  manualMovementsCancelled   ManualFinancialMovement[]           @relation("ManualFinancialMovementCancelledBy")
+  manualMovementAttachments  ManualFinancialMovementAttachment[] @relation("ManualFinancialMovementAttachmentUploadedBy")
+  associationSettingsUpdates AssociationSettings[]               @relation("AssociationSettingsUpdatedBy")
   institutions               UserInstitution[]
 
   @@map("users")
@@ -547,13 +594,13 @@ model Person {
 }
 
 model Student {
-  id                       String                   @id @default(uuid()) @db.Uuid
-  personId                 String                   @unique @map("person_id") @db.Uuid
-  status                   StudentStatus            @default(ACTIVE)
-  joinedAt                 DateTime                 @default(now()) @map("joined_at") @db.Date
-  createdAt                DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  person                   Person                   @relation(fields: [personId], references: [id], onDelete: Restrict)
+  id                       String                    @id @default(uuid()) @db.Uuid
+  personId                 String                    @unique @map("person_id") @db.Uuid
+  status                   StudentStatus             @default(ACTIVE)
+  joinedAt                 DateTime                  @default(now()) @map("joined_at") @db.Date
+  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  person                   Person                    @relation(fields: [personId], references: [id], onDelete: Restrict)
   guardian                 StudentGuardian?
   enrollments              Enrollment[]
   documents                StudentDocument[]
@@ -564,6 +611,7 @@ model Student {
   studentCards             StudentCard[]
   invoices                 Invoice[]
   bankSlipIssueBatchItems  BankSlipIssueBatchItem[]
+  manualFinancialMovements ManualFinancialMovement[]
 
   @@index([status, createdAt])
   @@index([joinedAt])
@@ -571,30 +619,32 @@ model Student {
 }
 
 model StudentHistoryEvent {
-  id                String                    @id @default(uuid()) @db.Uuid
-  studentId         String                    @map("student_id") @db.Uuid
-  eventType         StudentHistoryEventType   @map("event_type")
-  suspensionReason  StudentSuspensionReason?  @map("suspension_reason")
-  terminationReason StudentTerminationReason? @map("termination_reason")
-  justification     String?                   @db.VarChar(500)
-  busSeatReleased   Boolean?                  @map("bus_seat_released")
-  busId             String?                   @map("bus_id") @db.Uuid
-  busAssignmentId   String?                   @map("bus_assignment_id") @db.Uuid
-  boardMembershipId String?                   @map("board_membership_id") @db.Uuid
-  studentCardId     String?                   @map("student_card_id") @db.Uuid
-  invoiceId         String?                   @map("invoice_id") @db.Uuid
-  bankSlipId        String?                   @map("bank_slip_id") @db.Uuid
-  performedByUserId String?                   @map("performed_by_user_id") @db.Uuid
-  occurredAt        DateTime                  @default(now()) @map("occurred_at") @db.Timestamptz(6)
-  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  student           Student                   @relation(fields: [studentId], references: [id], onDelete: Restrict)
-  bus               Bus?                      @relation(fields: [busId], references: [id], onDelete: SetNull)
-  busAssignment     BusAssignment?            @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
-  boardMembership   BoardMembership?          @relation(fields: [boardMembershipId], references: [id], onDelete: SetNull)
-  studentCard       StudentCard?              @relation(fields: [studentCardId], references: [id], onDelete: SetNull)
-  invoice           Invoice?                  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  bankSlip          BankSlip?                 @relation(fields: [bankSlipId], references: [id], onDelete: SetNull)
-  performedBy       User?                     @relation("StudentHistoryPerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
+  id                        String                    @id @default(uuid()) @db.Uuid
+  studentId                 String                    @map("student_id") @db.Uuid
+  eventType                 StudentHistoryEventType   @map("event_type")
+  suspensionReason          StudentSuspensionReason?  @map("suspension_reason")
+  terminationReason         StudentTerminationReason? @map("termination_reason")
+  justification             String?                   @db.VarChar(500)
+  busSeatReleased           Boolean?                  @map("bus_seat_released")
+  busId                     String?                   @map("bus_id") @db.Uuid
+  busAssignmentId           String?                   @map("bus_assignment_id") @db.Uuid
+  boardMembershipId         String?                   @map("board_membership_id") @db.Uuid
+  studentCardId             String?                   @map("student_card_id") @db.Uuid
+  invoiceId                 String?                   @map("invoice_id") @db.Uuid
+  bankSlipId                String?                   @map("bank_slip_id") @db.Uuid
+  manualFinancialMovementId String?                   @map("manual_financial_movement_id") @db.Uuid
+  performedByUserId         String?                   @map("performed_by_user_id") @db.Uuid
+  occurredAt                DateTime                  @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt                 DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  student                   Student                   @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  bus                       Bus?                      @relation(fields: [busId], references: [id], onDelete: SetNull)
+  busAssignment             BusAssignment?            @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
+  boardMembership           BoardMembership?          @relation(fields: [boardMembershipId], references: [id], onDelete: SetNull)
+  studentCard               StudentCard?              @relation(fields: [studentCardId], references: [id], onDelete: SetNull)
+  invoice                   Invoice?                  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  bankSlip                  BankSlip?                 @relation(fields: [bankSlipId], references: [id], onDelete: SetNull)
+  manualFinancialMovement   ManualFinancialMovement?  @relation(fields: [manualFinancialMovementId], references: [id], onDelete: SetNull)
+  performedBy               User?                     @relation("StudentHistoryPerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
 
   @@index([studentId, occurredAt])
   @@index([eventType, occurredAt])
@@ -603,6 +653,7 @@ model StudentHistoryEvent {
   @@index([studentCardId, occurredAt])
   @@index([invoiceId, occurredAt])
   @@index([bankSlipId, occurredAt])
+  @@index([manualFinancialMovementId, occurredAt])
   @@map("student_history_events")
 }
 
@@ -796,6 +847,74 @@ model CollectionAction {
   @@index([actionType, createdAt])
   @@index([nextFollowUpAt])
   @@map("collection_actions")
+}
+
+model ManualFinancialMovement {
+  id                   String                              @id @default(uuid()) @db.Uuid
+  type                 ManualFinancialMovementType
+  status               ManualFinancialMovementStatus
+  category             ManualFinancialMovementCategory
+  description          String                              @db.VarChar(300)
+  amountCents          Int                                 @map("amount_cents")
+  transactionDate      DateTime                            @map("transaction_date") @db.Date
+  competenceDate       DateTime?                           @map("competence_date") @db.Date
+  dueDate              DateTime?                           @map("due_date") @db.Date
+  paidAt               DateTime?                           @map("paid_at") @db.Date
+  supplierName         String?                             @map("supplier_name") @db.VarChar(180)
+  supplierDocument     String?                             @map("supplier_document") @db.VarChar(14)
+  documentNumber       String?                             @map("document_number") @db.VarChar(80)
+  notes                String?                             @db.VarChar(1000)
+  studentId            String?                             @map("student_id") @db.Uuid
+  createdByUserId      String                              @map("created_by_user_id") @db.Uuid
+  updatedByUserId      String?                             @map("updated_by_user_id") @db.Uuid
+  cancelledByUserId    String?                             @map("cancelled_by_user_id") @db.Uuid
+  cancelReason         String?                             @map("cancel_reason") @db.VarChar(500)
+  cancelledAt          DateTime?                           @map("cancelled_at") @db.Timestamptz(6)
+  createdAt            DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student              Student?                            @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  createdBy            User                                @relation("ManualFinancialMovementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedBy            User?                               @relation("ManualFinancialMovementUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  cancelledBy          User?                               @relation("ManualFinancialMovementCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  attachments          ManualFinancialMovementAttachment[]
+  studentHistoryEvents StudentHistoryEvent[]
+
+  @@index([type, status, transactionDate])
+  @@index([status, transactionDate])
+  @@index([category, transactionDate])
+  @@index([competenceDate])
+  @@index([studentId, transactionDate])
+  @@index([createdByUserId, createdAt])
+  @@map("manual_financial_movements")
+}
+
+model ManualFinancialMovementAttachment {
+  id               String                                  @id @default(uuid()) @db.Uuid
+  movementId       String                                  @map("movement_id") @db.Uuid
+  status           ManualFinancialMovementAttachmentStatus @default(ACTIVE)
+  storageKey       String                                  @unique @map("storage_key") @db.VarChar(500)
+  originalFileName String                                  @map("original_file_name") @db.VarChar(255)
+  storedFileName   String                                  @map("stored_file_name") @db.VarChar(120)
+  mimeType         String                                  @map("mime_type") @db.VarChar(80)
+  extension        String                                  @db.VarChar(10)
+  sizeBytes        Int                                     @map("size_bytes")
+  checksumSha256   String                                  @map("checksum_sha256") @db.VarChar(64)
+  metadata         Json?
+  uploadedByUserId String?                                 @map("uploaded_by_user_id") @db.Uuid
+  replacedById     String?                                 @map("replaced_by_id") @db.Uuid
+  replacedAt       DateTime?                               @map("replaced_at") @db.Timestamptz(6)
+  removedAt        DateTime?                               @map("removed_at") @db.Timestamptz(6)
+  createdAt        DateTime                                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  movement         ManualFinancialMovement                 @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  uploadedBy       User?                                   @relation("ManualFinancialMovementAttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  replacedBy       ManualFinancialMovementAttachment?      @relation("ManualFinancialMovementAttachmentReplacement", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces         ManualFinancialMovementAttachment[]     @relation("ManualFinancialMovementAttachmentReplacement")
+
+  @@index([movementId, status, createdAt])
+  @@index([uploadedByUserId, createdAt])
+  @@index([checksumSha256])
+  @@map("manual_financial_movement_attachments")
 }
 
 model BankSlip {

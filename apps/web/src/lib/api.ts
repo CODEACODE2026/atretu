@@ -910,6 +910,7 @@ export type StudentHistoryEvent = {
     | "BANK_SLIP_PAYMENT_CONFIRMED"
     | "BANK_SLIP_CANCELLATION_REQUESTED"
     | "BANK_SLIP_CANCELLED"
+    | "MANUAL_FINANCIAL_INCOME_RECORDED"
     | "BOARD_MEMBERSHIP_STARTED"
     | "BOARD_MEMBERSHIP_ENDED";
   suspensionReason?: "NON_PAYMENT" | "INFRACTION" | "OTHER" | null;
@@ -1039,6 +1040,26 @@ export type PrintStudentCardsBatchPayload = {
 
 export type InvoiceStatus = "OPEN" | "PAID" | "CANCELLED";
 export type InvoiceCancellationReason = "MANUAL_CORRECTION" | "DUPLICATE" | "OTHER";
+export type ManualFinancialMovementType = "INCOME" | "EXPENSE";
+export type ManualFinancialMovementStatus =
+  | "PENDING"
+  | "RECEIVED"
+  | "PAID"
+  | "CANCELLED";
+export type ManualFinancialMovementCategory =
+  | "SECOND_CARD_COPY"
+  | "XEROX"
+  | "ADMINISTRATIVE_FEE"
+  | "EXTRA_CONTRIBUTION"
+  | "DONATION"
+  | "FUEL"
+  | "MAINTENANCE"
+  | "ACCOUNTING"
+  | "OFFICE_SUPPLIES"
+  | "SERVICES"
+  | "TAXES"
+  | "PURCHASES"
+  | "OTHER";
 export type BankSlipStatus =
   | "PENDING_ISSUE"
   | "ISSUED"
@@ -1091,6 +1112,95 @@ export type BankSlipSummary = {
   cancelledAt?: string | null;
   lastCheckedAt?: string | null;
   pdfStoredAt?: string | null;
+};
+
+export type ManualFinancialMovementAttachment = {
+  id: string;
+  status: "ACTIVE" | "REPLACED" | "REMOVED";
+  originalFileName: string;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  checksumSha256: string;
+  replacedById?: string | null;
+  replacedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ManualFinancialMovement = {
+  id: string;
+  type: ManualFinancialMovementType;
+  status: ManualFinancialMovementStatus;
+  category: ManualFinancialMovementCategory;
+  description: string;
+  amountCents: number;
+  amountFormatted: string;
+  signedAmountCents: number;
+  transactionDate: string;
+  competenceDate?: string | null;
+  dueDate?: string | null;
+  paidAt?: string | null;
+  supplierName?: string | null;
+  supplierDocument?: string | null;
+  documentNumber?: string | null;
+  notes?: string | null;
+  student?: {
+    id: string;
+    name: string;
+    cpfMasked: string;
+    cardNumber?: string | null;
+  } | null;
+  activeAttachment?: ManualFinancialMovementAttachment | null;
+  attachments: ManualFinancialMovementAttachment[];
+  cancelReason?: string | null;
+  cancelledAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ManualFinancialMovementSummary = {
+  incomeReceivedCents: number;
+  expensePaidCents: number;
+  pendingExpenseCents: number;
+  cancelledCents: number;
+  totalCount: number;
+  netCents: number;
+  incomeReceivedFormatted: string;
+  expensePaidFormatted: string;
+  pendingExpenseFormatted: string;
+  netFormatted: string;
+};
+
+export type ListManualFinancialMovementsParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  type?: ManualFinancialMovementType;
+  category?: ManualFinancialMovementCategory;
+  status?: ManualFinancialMovementStatus;
+  transactionDateFrom?: string;
+  transactionDateTo?: string;
+  competenceFrom?: string;
+  competenceTo?: string;
+  studentId?: string;
+};
+
+export type ManualFinancialMovementPayload = {
+  type: ManualFinancialMovementType;
+  category: ManualFinancialMovementCategory;
+  description: string;
+  amountCents: number;
+  transactionDate: string;
+  competenceDate?: string;
+  dueDate?: string;
+  paidAt?: string;
+  studentId?: string;
+  supplierName?: string;
+  supplierDocument?: string;
+  documentNumber?: string;
+  notes?: string;
+  file?: File | null;
 };
 
 export type SyncPaidBankSlipsDaySummary = {
@@ -1566,6 +1676,23 @@ function withParams(path: string, params: Record<string, unknown> = {}) {
   return query ? `${path}?${query}` : path;
 }
 
+function manualFinancialMovementFormData(payload: ManualFinancialMovementPayload) {
+  const form = new FormData();
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+    if (key === "file") {
+      if (value instanceof File) {
+        form.set("file", value);
+      }
+      return;
+    }
+    form.set(key, String(value));
+  });
+  return form;
+}
+
 export const api = {
   login(email: string, password: string) {
     return request<AuthResponse>("/auth/login", {
@@ -1903,6 +2030,87 @@ export const api = {
 
   listInvoicesForStudent(studentId: string) {
     return request<{ data: InvoiceRecord[] }>(`/students/${studentId}/invoices`);
+  },
+
+  listManualFinancialMovements(params?: ListManualFinancialMovementsParams) {
+    return request<
+      ListResponse<ManualFinancialMovement> & {
+        summary?: ManualFinancialMovementSummary;
+      }
+    >(withParams("/finance/manual-movements", params));
+  },
+
+  getManualFinancialMovement(movementId: string) {
+    return request<ManualFinancialMovement>(
+      `/finance/manual-movements/${movementId}`,
+    );
+  },
+
+  createManualFinancialMovement(payload: ManualFinancialMovementPayload) {
+    return request<ManualFinancialMovement>("/finance/manual-movements", {
+      method: "POST",
+      body: manualFinancialMovementFormData(payload),
+    });
+  },
+
+  updateManualFinancialMovement(
+    movementId: string,
+    payload: Partial<Omit<ManualFinancialMovementPayload, "file" | "type">>,
+  ) {
+    return request<ManualFinancialMovement>(
+      `/finance/manual-movements/${movementId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  markManualFinancialMovementPaid(movementId: string, body: { paidAt?: string }) {
+    return request<ManualFinancialMovement>(
+      `/finance/manual-movements/${movementId}/mark-paid`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  cancelManualFinancialMovement(movementId: string, body: { reason?: string }) {
+    return request<ManualFinancialMovement>(
+      `/finance/manual-movements/${movementId}/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  attachManualFinancialMovementDocument(movementId: string, file: File) {
+    const form = new FormData();
+    form.set("file", file);
+    return request<ManualFinancialMovement>(
+      `/finance/manual-movements/${movementId}/attachments`,
+      {
+        method: "POST",
+        body: form,
+      },
+    );
+  },
+
+  viewManualFinancialMovementAttachment(movementId: string, attachmentId: string) {
+    return requestBlob(
+      `/finance/manual-movements/${movementId}/attachments/${attachmentId}/view`,
+    );
+  },
+
+  downloadManualFinancialMovementAttachment(
+    movementId: string,
+    attachmentId: string,
+  ) {
+    return requestBlob(
+      `/finance/manual-movements/${movementId}/attachments/${attachmentId}/download`,
+    );
   },
 
   previewInvoice(studentId: string, params: { enrollmentId: string }) {

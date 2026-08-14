@@ -2877,6 +2877,7 @@ function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     BANK_SLIP_PAYMENT_CONFIRMED: "Pagamento confirmado",
     BANK_SLIP_CANCELLATION_REQUESTED: "Cancelamento de boleto solicitado",
     BANK_SLIP_CANCELLED: "Boleto cancelado",
+    MANUAL_FINANCIAL_INCOME_RECORDED: "Entrada financeira",
     BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
     BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
   };
