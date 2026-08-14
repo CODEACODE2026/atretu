@@ -9,7 +9,9 @@ import {
   batchDisplayId,
   batchElapsedMs,
   batchHasSafeRetry,
+  batchProgress,
   batchSourceLabel,
+  batchVisualStatus,
   formatBatchDuration,
   isBatchRunning,
 } from "./batch-display-utils";
@@ -43,6 +45,7 @@ export function BatchCard({
 }) {
   const running = isBatchRunning(batch);
   const canRetry = canRetryBatch && batchHasSafeRetry(batch);
+  const progress = batchProgress(batch);
 
   return (
     <article className={cx(adminTheme.card, adminTheme.cardHover, "min-w-0 overflow-hidden p-4")}>
@@ -95,15 +98,36 @@ export function BatchCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        <Metric label="Itens" value={String(batch.totalItems)} />
-        <Metric label="Emitidos" value={String(batch.issuedItems)} />
-        <Metric label="Falhas" value={String(batch.failedItems)} />
-        <Metric label="Ignorados" value={String(batch.skippedItems)} />
-        <Metric label="Desconhecidos" value={String(batch.unknownItems)} />
-        <Metric label="Duração" value={formatBatchDuration(batchElapsedMs(batch))} />
-        <Metric label="Criado em" value={formatDateTime(batch.createdAt)} />
-        <Metric label="Atualizado" value={formatDateTime(batch.updatedAt)} />
+      <div className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase text-slate-500">
+              Progresso do lote
+            </p>
+            <p className="mt-0.5 text-sm font-semibold text-slate-950">
+              {progress.processedItems} de {progress.totalItems} processados • {progress.percent}%
+            </p>
+          </div>
+          <p className="text-xs text-slate-500">
+            {batch.status === "CANCELLED"
+              ? "Progresso preservado até o cancelamento"
+              : "Emitidos + falhas + ignorados + desconhecidos"}
+          </p>
+        </div>
+        <BatchProgressBar batch={batch} percent={progress.percent} />
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <Metric label="Emitidos" tone="success" value={String(batch.issuedItems)} />
+          <Metric label="Falhas" tone={batch.failedItems > 0 ? "danger" : "neutral"} value={String(batch.failedItems)} />
+          <Metric label="Ignorados" tone={batch.skippedItems > 0 ? "warning" : "neutral"} value={String(batch.skippedItems)} />
+          <Metric label="Desconhecidos" tone={batch.unknownItems > 0 ? "warning" : "neutral"} value={String(batch.unknownItems)} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+        <span>Total: {batch.totalItems} itens</span>
+        <span>Duração: {formatBatchDuration(batchElapsedMs(batch))}</span>
+        <span>Criado em: {formatDateTime(batch.createdAt)}</span>
+        <span>Atualizado: {formatDateTime(batch.updatedAt)}</span>
       </div>
 
       {expanded ? (
@@ -119,11 +143,55 @@ export function BatchCard({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function BatchProgressBar({
+  batch,
+  percent,
+}: {
+  batch: BankSlipIssueBatch;
+  percent: number;
+}) {
+  const visualStatus = batchVisualStatus(batch);
+  const fillClass =
+    visualStatus === "cancelled"
+      ? "bg-slate-500"
+      : visualStatus === "failed"
+        ? "bg-red-500"
+        : visualStatus === "partial" || batch.failedItems > 0 || batch.unknownItems > 0
+          ? "bg-amber-500"
+          : visualStatus === "success"
+            ? "bg-emerald-600"
+            : "bg-[#1F6F5F]";
+
   return (
-    <p className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+    <div className="h-2.5 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+      <div
+        className={cx("h-full rounded-full transition-all", fillClass)}
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  tone = "neutral",
+  value,
+}: {
+  label: string;
+  tone?: "danger" | "neutral" | "success" | "warning";
+  value: string;
+}) {
+  const toneClass = {
+    danger: "text-red-700",
+    neutral: "text-slate-950",
+    success: "text-emerald-700",
+    warning: "text-amber-700",
+  }[tone];
+
+  return (
+    <p className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
       <span className="block text-xs font-semibold uppercase text-slate-500">{label}</span>
-      <span className="block truncate font-semibold text-slate-950">{value}</span>
+      <span className={cx("block truncate font-semibold", toneClass)}>{value}</span>
     </p>
   );
 }

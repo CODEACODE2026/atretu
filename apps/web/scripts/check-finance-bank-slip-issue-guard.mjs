@@ -105,13 +105,13 @@ assert.match(
 
 assert.match(
   source,
-  /batch\.progressPercent/,
-  "Batch progress panel must use backend-calculated progressPercent",
+  /batchProgress\(batch\)/,
+  "Batch progress panel must use the frontend processed-items progress helper",
 );
 
 assert.match(
   source,
-  /batch\.processedItems[\s\S]*?batch\.totalItems[\s\S]*?boletos processados/,
+  /progress\.processedItems[\s\S]*?progress\.totalItems[\s\S]*?progress\.percent/,
   "Batch progress panel must show processed and total item counts",
 );
 

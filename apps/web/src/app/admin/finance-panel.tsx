@@ -48,6 +48,7 @@ import {
 } from "./finance/batch-dialogs";
 import {
   calculateBatchSummary,
+  batchProgress,
   filterBatches,
 } from "./finance/batch-display-utils";
 import { BatchList } from "./finance/batch-list";
@@ -3528,6 +3529,7 @@ function IssueBatchProgressPanel({
   const elapsedMs = issueBatchElapsedMs(batch);
   const estimatedRemainingMs = running ? issueBatchEstimatedRemainingMs(batch, elapsedMs) : 0;
   const errors = batch.failedItems + batch.unknownItems;
+  const progress = batchProgress(batch);
   return (
     <div className="mt-3 grid gap-3 rounded border border-blue-100 bg-blue-50 p-4 text-sm text-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3536,7 +3538,7 @@ function IssueBatchProgressPanel({
             {running ? "Emitindo boletos..." : "Emissao concluida."}
           </p>
           <p className="text-xs text-slate-600">
-            {batch.processedItems} de {batch.totalItems} boletos processados
+            {progress.processedItems} de {progress.totalItems} processados • {progress.percent}%
           </p>
         </div>
         {!running ? (
@@ -3553,11 +3555,11 @@ function IssueBatchProgressPanel({
         <div className="h-2 overflow-hidden rounded bg-white">
           <div
             className="h-full rounded bg-blue-600 transition-all"
-            style={{ width: `${batch.progressPercent}%` }}
+            style={{ width: `${progress.percent}%` }}
           />
         </div>
         <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-600">
-          <span>{batch.progressPercent}%</span>
+          <span>{progress.processedItems} de {progress.totalItems}</span>
           <span>Tempo decorrido: {formatDuration(elapsedMs)}</span>
           {running && estimatedRemainingMs > 0 ? (
             <span>Estimativa restante: {formatDuration(estimatedRemainingMs)}</span>
@@ -3616,11 +3618,12 @@ function issueBatchElapsedMs(batch: BankSlipIssueBatch) {
 }
 
 function issueBatchEstimatedRemainingMs(batch: BankSlipIssueBatch, elapsedMs: number) {
-  if (batch.processedItems <= 0 || batch.processedItems >= batch.totalItems) {
+  const progress = batchProgress(batch);
+  if (progress.processedItems <= 0 || progress.processedItems >= progress.totalItems) {
     return 0;
   }
-  const msPerItem = elapsedMs / batch.processedItems;
-  return Math.round(msPerItem * (batch.totalItems - batch.processedItems));
+  const msPerItem = elapsedMs / progress.processedItems;
+  return Math.round(msPerItem * (progress.totalItems - progress.processedItems));
 }
 
 function formatDuration(valueMs: number) {

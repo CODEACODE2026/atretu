@@ -25,6 +25,12 @@ export type BatchSummary = {
   unknownItems: number;
 };
 
+export type BatchProgress = {
+  percent: number;
+  processedItems: number;
+  totalItems: number;
+};
+
 export function batchVisualStatus(batch: BankSlipIssueBatch): BatchVisualStatus {
   if (batch.status === "CANCELLED") {
     return "cancelled";
@@ -48,7 +54,7 @@ export function batchStatusLabel(batch: BankSlipIssueBatch) {
   const labels: Record<ReturnType<typeof batchVisualStatus>, string> = {
     cancelled: "Cancelado",
     failed: "Falhou",
-    partial: "Parcial",
+    partial: "Concluído com falhas",
     processing: "Processando",
     queued: "Aguardando",
     success: "Concluído",
@@ -103,6 +109,23 @@ export function batchHasSafeRetry(batch: BankSlipIssueBatch) {
 
 export function batchFailureCount(batch: BankSlipIssueBatch) {
   return batch.failedItems + batch.unknownItems;
+}
+
+export function batchProgress(batch: BankSlipIssueBatch): BatchProgress {
+  const totalItems = Math.max(0, batch.totalItems);
+  const processedItems = Math.max(
+    0,
+    batch.issuedItems + batch.failedItems + batch.skippedItems + batch.unknownItems,
+  );
+  const percent =
+    totalItems > 0
+      ? Math.min(100, Math.round((processedItems / totalItems) * 100))
+      : 0;
+  return {
+    percent,
+    processedItems,
+    totalItems,
+  };
 }
 
 export function calculateBatchSummary(batches: BankSlipIssueBatch[]): BatchSummary {
