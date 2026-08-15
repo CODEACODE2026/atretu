@@ -20,9 +20,10 @@ export type GeneratedReport = {
   title: string;
 };
 
-export function downloadReportPdf(report: GeneratedReport, user: ApiUser) {
+export async function downloadReportPdf(report: GeneratedReport, user: ApiUser) {
+  const logo = await loadPdfLogo("/atretu-logo.png").catch(() => null);
   downloadBlob(
-    buildReportPdf(report, user),
+    buildReportPdf(report, user, logo),
     `${slugify(report.title)}.pdf`,
     "application/pdf",
   );
@@ -124,7 +125,7 @@ function buildPrintHtml(report: GeneratedReport, user: ApiUser) {
 </html>`;
 }
 
-export function buildReportPdf(report: GeneratedReport, user: ApiUser) {
+export function buildReportPdf(report: GeneratedReport, user: ApiUser, logo?: PdfRasterImage | null) {
   const landscape = report.columns.length >= 6;
   const pageWidth = landscape ? 842 : 595;
   const pageHeight = landscape ? 595 : 842;
@@ -134,13 +135,13 @@ export function buildReportPdf(report: GeneratedReport, user: ApiUser) {
   const bottomLimit = 54;
   const columns = buildPdfColumns(report.columns, usableWidth);
   const pages: string[][] = [];
-  let lines = createPdfPage(report, user, pageWidth, pageHeight, margin, columns);
+  let lines = createPdfPage(report, user, pageWidth, pageHeight, margin, columns, logo);
   const firstDataY = pageHeight - (report.summary.length > 0 ? 210 : 184);
   let y = firstDataY;
 
   const appendPage = () => {
     pages.push(lines);
-    lines = createPdfPage(report, user, pageWidth, pageHeight, margin, columns);
+    lines = createPdfPage(report, user, pageWidth, pageHeight, margin, columns, logo);
     y = firstDataY;
   };
 
@@ -180,7 +181,7 @@ export function buildReportPdf(report: GeneratedReport, user: ApiUser) {
     return pageLines.join("\n");
   });
 
-  return createPdf(pageContents, pageWidth, pageHeight);
+  return createPdf(pageContents, pageWidth, pageHeight, logo ? [logo] : []);
 }
 
 function createPdfPage(
@@ -190,14 +191,23 @@ function createPdfPage(
   pageHeight: number,
   margin: number,
   columns: PdfColumn[],
+  logo?: PdfRasterImage | null,
 ) {
   const lines: string[] = [];
   const usableWidth = pageWidth - margin * 2;
-  drawPdfRect(lines, margin, pageHeight - 66, 42, 30, "15 46 46");
-  drawPdfText(lines, "AT", margin + 11, pageHeight - 55, 13, { bold: true, color: "255 255 255", maxWidth: 22 });
+  const period = report.filters.find((item) => item.label.toLowerCase() === "período")?.value;
+  if (logo) {
+    drawPdfImage(lines, logo.name, margin, pageHeight - 66, 42, 30, logo);
+  } else {
+    drawPdfRect(lines, margin, pageHeight - 66, 42, 30, "15 46 46");
+    drawPdfText(lines, "AT", margin + 11, pageHeight - 55, 13, { bold: true, color: "255 255 255", maxWidth: 22 });
+  }
   drawPdfText(lines, "ATRETU", margin + 54, pageHeight - 45, 10, { bold: true, color: "15 46 46", maxWidth: 120 });
   drawPdfText(lines, report.title, margin + 54, pageHeight - 62, 15, { bold: true, color: "15 23 42", maxWidth: usableWidth * 0.58 });
-  drawPdfText(lines, report.category, margin + 54, pageHeight - 77, 9, { color: "71 85 105", maxWidth: usableWidth * 0.58 });
+  drawPdfText(lines, period ? `${report.category} - Período: ${period}` : report.category, margin + 54, pageHeight - 77, 9, {
+    color: "71 85 105",
+    maxWidth: usableWidth * 0.58,
+  });
   drawPdfText(lines, `Emitido em ${formatDateTime(report.generatedAt)}`, margin, pageHeight - 48, 8, { align: "right", color: "71 85 105", maxWidth: usableWidth });
   drawPdfText(lines, `Usuário: ${user.name}`, margin, pageHeight - 61, 8, { align: "right", color: "71 85 105", maxWidth: usableWidth });
   drawPdfLine(lines, margin, pageHeight - 92, pageWidth - margin, pageHeight - 92, "15 46 46", 1.2);
@@ -257,18 +267,34 @@ function drawPdfFooter(
   });
 }
 
-function createPdf(pageContents: string[], pageWidth: number, pageHeight: number) {
+function createPdf(pageContents: string[], pageWidth: number, pageHeight: number, images: PdfRasterImage[] = []) {
   const objects: Array<string | Uint8Array> = [];
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
-  const pageRefs = pageContents.map((_, index) => `${5 + index * 2} 0 R`).join(" ");
+  const firstPageObject = 5 + images.length;
+  const pageRefs = pageContents.map((_, index) => `${firstPageObject + index * 2} 0 R`).join(" ");
   objects.push(`<< /Type /Pages /Kids [${pageRefs}] /Count ${pageContents.length} >>`);
   objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
   objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+  images.forEach((image) => {
+    const imageHeader = [
+      `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height}`,
+      "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode",
+      `/Length ${image.bytes.length} >>\nstream\n`,
+    ].join(" ");
+    objects.push(concatBytes([
+      pdfBytes(imageHeader),
+      image.bytes,
+      pdfBytes("\nendstream"),
+    ]));
+  });
   pageContents.forEach((content, index) => {
-    const pageObject = 5 + index * 2;
+    const pageObject = firstPageObject + index * 2;
     const contentObject = pageObject + 1;
     const contentBytes = pdfBytes(content);
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObject} 0 R >>`);
+    const xObjects = images.length
+      ? ` /XObject << ${images.map((image, imageIndex) => `/${image.name} ${5 + imageIndex} 0 R`).join(" ")} >>`
+      : "";
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xObjects} >> /Contents ${contentObject} 0 R >>`);
     objects.push(concatBytes([
       pdfBytes(`<< /Length ${contentBytes.length} >>\nstream\n`),
       contentBytes,
@@ -301,6 +327,12 @@ function createPdf(pageContents: string[], pageWidth: number, pageHeight: number
 }
 
 type PdfColumn = ReportColumn & { width: number };
+type PdfRasterImage = {
+  bytes: Uint8Array;
+  height: number;
+  name: string;
+  width: number;
+};
 type PdfTextOptions = {
   align?: "center" | "left" | "right";
   bold?: boolean;
@@ -341,6 +373,23 @@ function drawPdfRect(lines: string[], x: number, y: number, width: number, heigh
 
 function drawPdfLine(lines: string[], x1: number, y1: number, x2: number, y2: number, color: string, width: number) {
   lines.push(`q ${width} w ${pdfColor(color)} RG ${number(x1)} ${number(y1)} m ${number(x2)} ${number(y2)} l S Q`);
+}
+
+function drawPdfImage(
+  lines: string[],
+  name: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  maxHeight: number,
+  image: PdfRasterImage,
+) {
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+  const width = image.width * scale;
+  const height = image.height * scale;
+  const centeredX = x + (maxWidth - width) / 2;
+  const centeredY = y + (maxHeight - height) / 2;
+  lines.push(`q ${number(width)} 0 0 ${number(height)} ${number(centeredX)} ${number(centeredY)} cm /${name} Do Q`);
 }
 
 function wrapPdfText(value: string, width: number, size: number) {
@@ -404,6 +453,42 @@ function pdfColor(value: string) {
     return "0 0 0";
   }
   return parts.map((part) => number(part > 1 ? part / 255 : part)).join(" ");
+}
+
+async function loadPdfLogo(src: string): Promise<PdfRasterImage> {
+  const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error(`Logo não encontrada: ${src}`);
+  }
+  const blob = await response.blob();
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Não foi possível preparar a logo para o PDF.");
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+
+  return {
+    bytes: base64ToBytes(canvas.toDataURL("image/jpeg", 0.92).split(",")[1] ?? ""),
+    height: canvas.height,
+    name: "Im1",
+    width: canvas.width,
+  };
+}
+
+function base64ToBytes(value: string) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 export function buildReportXlsx(report: GeneratedReport, user: ApiUser) {

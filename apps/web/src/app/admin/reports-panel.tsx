@@ -409,7 +409,11 @@ export function ReportsPanel({ user }: { user: ApiUser }) {
                   <button
                     className={adminTheme.secondaryButton}
                     disabled={!generatedReport || !isReportAvailable(selectedReport)}
-                    onClick={() => generatedReport ? downloadReportPdf(generatedReport, user) : undefined}
+                    onClick={() => {
+                      if (generatedReport) {
+                        void downloadReportPdf(generatedReport, user);
+                      }
+                    }}
                     type="button"
                   >
                     <Download className="h-4 w-4" />

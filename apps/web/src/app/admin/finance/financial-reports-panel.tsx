@@ -95,7 +95,7 @@ export function FinancialReportsPanel({ user }: { user: ApiUser }) {
     try {
       const response = await api.getFinancialMonthlyReport({ month, year });
       setReport(response);
-      downloadReportPdf(toGeneratedReport(response), user);
+      await downloadReportPdf(toGeneratedReport(response), user);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "";
       setPdfError(mapApiErrorMessage(message) || "Não foi possível gerar o PDF gerencial.");
@@ -272,7 +272,7 @@ function toGeneratedReport(report: FinancialMonthlyReport): GeneratedReport {
 function summaryRows(report: FinancialMonthlyReport): ReportRow[] {
   return [
     {
-      detail: `Período ${report.period.startDate} até ${report.period.endDateExclusive}`,
+      detail: "Mensalidades efetivamente recebidas no período",
       expense: "",
       item: "Receita de mensalidades",
       result: "",
@@ -280,7 +280,7 @@ function summaryRows(report: FinancialMonthlyReport): ReportRow[] {
       section: "Resumo do período",
     },
     {
-      detail: report.rules.manualIncomeDate,
+      detail: "Entradas manuais recebidas no período",
       expense: "",
       item: "Outras entradas",
       result: "",
@@ -288,7 +288,7 @@ function summaryRows(report: FinancialMonthlyReport): ReportRow[] {
       section: "Resumo do período",
     },
     {
-      detail: "Receita de mensalidades + outras entradas",
+      detail: "Mensalidades + outras entradas",
       expense: "",
       item: "Receita total",
       result: "",
@@ -296,7 +296,7 @@ function summaryRows(report: FinancialMonthlyReport): ReportRow[] {
       section: "Resumo do período",
     },
     {
-      detail: report.rules.manualExpenseDate,
+      detail: "Despesas pagas no período",
       expense: report.summary.expenseFormatted,
       item: "Despesas",
       result: "",
