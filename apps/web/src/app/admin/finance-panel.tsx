@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Banknote,
   CalendarDays,
@@ -1288,47 +1288,50 @@ export function FinancePanel({
     }
   }
 
+  const invoiceActions = (
+    <div className="flex flex-wrap gap-2 sm:justify-end">
+      <button
+        className={adminTheme.primaryButton}
+        onClick={openCreateInvoiceDialog}
+        ref={createInvoiceButtonRef}
+        type="button"
+      >
+        <Plus aria-hidden="true" className="h-4 w-4" />
+        Nova fatura
+      </button>
+      {canSyncPaidDay(user) ? (
+        <button
+          className={adminTheme.secondaryButton}
+          disabled={saving}
+          onClick={() => setSyncPaidDialogOpen(true)}
+          type="button"
+        >
+          <RefreshCw aria-hidden="true" className="h-4 w-4" />
+          Sincronizar liquidados
+        </button>
+      ) : null}
+    </div>
+  );
+
   const financeHeader = (
     <>
-      <section className={cx(adminTheme.card, "min-w-0 overflow-hidden p-5")}>
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex gap-4">
-            <div className={cx(adminTheme.atretuMark, "grid h-12 w-12 shrink-0 place-items-center rounded-xl")}>
-              <Banknote aria-hidden="true" className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-[#1F6F5F]">
-                Administração financeira
-              </p>
-              <h1 className="mt-1 text-2xl font-bold tracking-normal text-slate-950">
+      <section className={cx(adminTheme.card, "min-w-0 overflow-hidden p-3 sm:p-4")}>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={cx(adminTheme.atretuMark, "grid h-10 w-10 shrink-0 place-items-center rounded-lg")}>
+            <Banknote aria-hidden="true" className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase text-[#1F6F5F]">
+              Administração financeira
+            </p>
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-xl font-bold tracking-normal text-slate-950">
                 Financeiro
               </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Gerencie faturas, boletos, conciliações, lotes de emissão e cobranças.
+              <p className="min-w-0 text-sm text-slate-600">
+                Faturas, boletos, lotes, movimentações, relatórios e cobrança.
               </p>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              className={adminTheme.primaryButton}
-              onClick={openCreateInvoiceDialog}
-              ref={createInvoiceButtonRef}
-              type="button"
-            >
-              <Plus aria-hidden="true" className="h-4 w-4" />
-              Nova fatura
-            </button>
-            {canSyncPaidDay(user) ? (
-              <button
-                className={adminTheme.secondaryButton}
-                disabled={saving}
-                onClick={() => setSyncPaidDialogOpen(true)}
-                type="button"
-              >
-                <RefreshCw aria-hidden="true" className="h-4 w-4" />
-                Sincronizar liquidados
-              </button>
-            ) : null}
           </div>
         </div>
       </section>
@@ -1362,9 +1365,9 @@ export function FinancePanel({
   }
 
   const batchManagementSection = (
-    <section className="grid gap-4" id="finance-batches">
+    <section className="grid min-w-0 gap-4" id="finance-batches">
       <BatchSummaryCards summary={batchSummary} />
-      <div className={cx(adminTheme.card, "min-w-0 p-5")}>
+      <div className={cx(adminTheme.card, "min-w-0 p-4")}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className={cx(adminTheme.titleText, "text-base")}>
@@ -1485,7 +1488,7 @@ export function FinancePanel({
         </div>
       </div>
 
-      <div className={cx(adminTheme.card, "min-w-0 p-5")}>
+      <div className={cx(adminTheme.card, "min-w-0 p-4")}>
         <label className="grid gap-1 text-sm font-semibold text-slate-700">
           Buscar lote
           <input
@@ -1887,185 +1890,194 @@ export function FinancePanel({
           </form>
         </div>
       ) : null}
-      {financeArea === "batches" ? (
-        batchManagementSection
-      ) : (
-        <>
       {financeArea === "overview" ? (
-        <FinanceSummaryCards loading={loading} summary={financeSummary} />
-      ) : null}
-      <InvoiceOperationalSummaryCards
-        activeFilter={invoiceQuickFilter}
-        onSelect={applyInvoiceQuickFilter}
-        summary={invoiceOperationalSummary}
-      />
-      <FinanceFilters
-        academicYearId={academicYearId}
-        dueDateFrom={dueDateFrom}
-        dueDateTo={dueDateTo}
-        hasActiveFilters={hasActiveFilters}
-        institutionId={institutionId}
-        institutions={institutions}
-        loading={loading}
-        onClear={clearFilters}
-        onSubmit={(event) => {
-          event.preventDefault();
-          setPage(1);
-          void loadInvoices(search);
-        }}
-        overdue={overdue}
-        paidAtFrom={paidAtFrom}
-        paidAtTo={paidAtTo}
-        search={search}
-        setAcademicYearId={(value) => {
-          setAcademicYearId(value);
-          setPage(1);
-        }}
-        setDueDateFrom={(value) => {
-          setDueDateFrom(value);
-          setPage(1);
-        }}
-        setDueDateTo={(value) => {
-          setDueDateTo(value);
-          setPage(1);
-        }}
-        setInstitutionId={(value) => {
-          setInstitutionId(value);
-          setPage(1);
-        }}
-        setOverdue={(value) => {
-          setOverdue(value);
-          setPage(1);
-        }}
-        setPaidAtFrom={(value) => {
-          setPaidAtFrom(value);
-          setPage(1);
-        }}
-        setPaidAtTo={(value) => {
-          setPaidAtTo(value);
-          setPage(1);
-        }}
-        setSearch={setSearch}
-        setStatus={(value) => {
-          setStatus(value);
-          setPage(1);
-        }}
-        status={status}
-        years={years}
-      />
-      <InvoiceActiveFilterChips
-        academicYearId={academicYearId}
-        dueDateFrom={dueDateFrom}
-        dueDateTo={dueDateTo}
-        institutionId={institutionId}
-        institutions={institutions}
-        onClear={clearFilters}
-        overdue={overdue}
-        paidAtFrom={paidAtFrom}
-        paidAtTo={paidAtTo}
-        quickFilter={invoiceQuickFilter}
-        search={search}
-        status={status}
-        years={years}
-      />
-      <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
-        <div className="border-b border-slate-200/80 px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-slate-950">Fila de faturas</h2>
-              <p className="text-sm text-slate-600">
-                Itens desta página ordenados por atenção operacional.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {canSyncPaidDay(user) ? (
-          <div className="mx-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <span className="text-xs font-medium uppercase text-slate-500">
-              Conciliação
-            </span>
-            <input
-              className={adminTheme.control}
-              onChange={(event) => setSyncPaidDate(event.target.value)}
-              type="date"
-              value={syncPaidDate}
-            />
-            <button
-              className={adminTheme.secondaryButton}
-              disabled={saving}
-              onClick={() => setSyncPaidDialogOpen(true)}
-              type="button"
-            >
-              Sincronizar liquidados
-            </button>
-            {syncPaidSummary ? (
-              <span className="text-xs text-slate-600">{syncPaidSummary}</span>
-            ) : null}
-          </div>
-        ) : null}
-
-        {message ? (
-          <p className="mx-4 mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {message}
-          </p>
-        ) : null}
-        {error ? (
-          <p className="mx-4 mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
-        {invoiceLoadError ? (
-          <div className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-            <p className="text-sm font-semibold text-red-800">
-              Erro ao carregar faturas
-            </p>
-            <p className="mt-1 text-sm text-red-700">{invoiceLoadError}</p>
-          </div>
-        ) : null}
-
-        <div className="mt-4 px-4">
-          <InvoiceBulkActionBar
-            disabled={saving || loading}
-            onClear={() => setSelectedInvoiceIds([])}
-            onCreateBatch={() => void handleCreateIssueBatch()}
-            onSelectEligible={selectAllEligibleInvoices}
-            selectedCount={selectedInvoiceIds.length}
+        <>
+          <FinanceAreaHeader
+            description="Resumo operacional de faturas, boletos e recebimentos do período."
+            title="Visão geral financeira"
           />
-        </div>
-
-        <div className="mt-3 px-4">
-          <InvoiceList
-            bankSlipAction={bankSlipAction}
-            bankSlips={bankSlips}
-            canCancelInvoice={canCancelInvoiceDirectly}
-            canCancelSlip={canRequestBankSlipCancellation}
-            canDownloadPdf={canDownloadBankSlipPdf}
-            canIssue={canIssueBankSlip}
-            expandedInvoiceId={expandedInvoiceId}
-            hasActiveFilters={hasActiveFilters}
-            invoices={visibleInvoices}
-            loading={loading}
-            onCancelInvoice={(invoice) =>
-              setInvoiceActionDialog({ invoice, mode: "cancel-invoice" })
-            }
-            onCancelSlip={openCancelBankSlipDialog}
-            onCopy={(invoiceId) => void handleCopyLinhaDigitavel(invoiceId)}
-            onIssue={openIssueBankSlipDialog}
-            onPdf={(invoice) => void handleDownloadPdf(invoice)}
-            onSelect={toggleInvoiceSelection}
-            onSync={openSyncBankSlipDialog}
-            onToggleDetails={(invoice) => void toggleBankSlipDetails(invoice)}
-            onViewError={(invoice) => void openBankSlipErrorDialog(invoice)}
-            saving={saving}
-            selectedInvoiceIds={selectedInvoiceIds}
-          />
-        </div>
-        <Pagination page={page} setPage={setPage} totalPages={totalPages} />
-      </section>
-
+          <FinanceSummaryCards loading={loading} summary={financeSummary} />
         </>
-      )}
+      ) : null}
+      {financeArea === "invoices" ? (
+        <>
+          <FinanceAreaHeader
+            actions={invoiceActions}
+            description="Cadastre faturas, acompanhe boletos e faça a conciliação de liquidados."
+            title="Faturas e boletos"
+          />
+          <InvoiceOperationalSummaryCards
+            activeFilter={invoiceQuickFilter}
+            onSelect={applyInvoiceQuickFilter}
+            summary={invoiceOperationalSummary}
+          />
+          <FinanceFilters
+            academicYearId={academicYearId}
+            dueDateFrom={dueDateFrom}
+            dueDateTo={dueDateTo}
+            hasActiveFilters={hasActiveFilters}
+            institutionId={institutionId}
+            institutions={institutions}
+            loading={loading}
+            onClear={clearFilters}
+            onSubmit={(event) => {
+              event.preventDefault();
+              setPage(1);
+              void loadInvoices(search);
+            }}
+            overdue={overdue}
+            paidAtFrom={paidAtFrom}
+            paidAtTo={paidAtTo}
+            search={search}
+            setAcademicYearId={(value) => {
+              setAcademicYearId(value);
+              setPage(1);
+            }}
+            setDueDateFrom={(value) => {
+              setDueDateFrom(value);
+              setPage(1);
+            }}
+            setDueDateTo={(value) => {
+              setDueDateTo(value);
+              setPage(1);
+            }}
+            setInstitutionId={(value) => {
+              setInstitutionId(value);
+              setPage(1);
+            }}
+            setOverdue={(value) => {
+              setOverdue(value);
+              setPage(1);
+            }}
+            setPaidAtFrom={(value) => {
+              setPaidAtFrom(value);
+              setPage(1);
+            }}
+            setPaidAtTo={(value) => {
+              setPaidAtTo(value);
+              setPage(1);
+            }}
+            setSearch={setSearch}
+            setStatus={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+            status={status}
+            years={years}
+          />
+          <InvoiceActiveFilterChips
+            academicYearId={academicYearId}
+            dueDateFrom={dueDateFrom}
+            dueDateTo={dueDateTo}
+            institutionId={institutionId}
+            institutions={institutions}
+            onClear={clearFilters}
+            overdue={overdue}
+            paidAtFrom={paidAtFrom}
+            paidAtTo={paidAtTo}
+            quickFilter={invoiceQuickFilter}
+            search={search}
+            status={status}
+            years={years}
+          />
+          <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
+            <div className="border-b border-slate-200/80 px-4 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-950">Fila de faturas</h2>
+                  <p className="text-sm text-slate-600">
+                    Itens desta página ordenados por atenção operacional.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {canSyncPaidDay(user) ? (
+              <div className="mx-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <span className="text-xs font-medium uppercase text-slate-500">
+                  Conciliação
+                </span>
+                <input
+                  className={adminTheme.control}
+                  onChange={(event) => setSyncPaidDate(event.target.value)}
+                  type="date"
+                  value={syncPaidDate}
+                />
+                <button
+                  className={adminTheme.secondaryButton}
+                  disabled={saving}
+                  onClick={() => setSyncPaidDialogOpen(true)}
+                  type="button"
+                >
+                  Sincronizar liquidados
+                </button>
+                {syncPaidSummary ? (
+                  <span className="text-xs text-slate-600">{syncPaidSummary}</span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {message ? (
+              <p className="mx-4 mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {message}
+              </p>
+            ) : null}
+            {error ? (
+              <p className="mx-4 mt-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </p>
+            ) : null}
+            {invoiceLoadError ? (
+              <div className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                <p className="text-sm font-semibold text-red-800">
+                  Erro ao carregar faturas
+                </p>
+                <p className="mt-1 text-sm text-red-700">{invoiceLoadError}</p>
+              </div>
+            ) : null}
+
+            <div className="mt-4 px-4">
+              <InvoiceBulkActionBar
+                disabled={saving || loading}
+                onClear={() => setSelectedInvoiceIds([])}
+                onCreateBatch={() => void handleCreateIssueBatch()}
+                onSelectEligible={selectAllEligibleInvoices}
+                selectedCount={selectedInvoiceIds.length}
+              />
+            </div>
+
+            <div className="mt-3 px-4">
+              <InvoiceList
+                bankSlipAction={bankSlipAction}
+                bankSlips={bankSlips}
+                canCancelInvoice={canCancelInvoiceDirectly}
+                canCancelSlip={canRequestBankSlipCancellation}
+                canDownloadPdf={canDownloadBankSlipPdf}
+                canIssue={canIssueBankSlip}
+                expandedInvoiceId={expandedInvoiceId}
+                hasActiveFilters={hasActiveFilters}
+                invoices={visibleInvoices}
+                loading={loading}
+                onCancelInvoice={(invoice) =>
+                  setInvoiceActionDialog({ invoice, mode: "cancel-invoice" })
+                }
+                onCancelSlip={openCancelBankSlipDialog}
+                onCopy={(invoiceId) => void handleCopyLinhaDigitavel(invoiceId)}
+                onIssue={openIssueBankSlipDialog}
+                onPdf={(invoice) => void handleDownloadPdf(invoice)}
+                onSelect={toggleInvoiceSelection}
+                onSync={openSyncBankSlipDialog}
+                onToggleDetails={(invoice) => void toggleBankSlipDetails(invoice)}
+                onViewError={(invoice) => void openBankSlipErrorDialog(invoice)}
+                saving={saving}
+                selectedInvoiceIds={selectedInvoiceIds}
+              />
+            </div>
+            <Pagination page={page} setPage={setPage} totalPages={totalPages} />
+          </section>
+        </>
+      ) : null}
+      {financeArea === "batches" ? batchManagementSection : null}
 
       {issueBatchDownloadPanelOpen ? (
         <div className="fixed inset-0 z-50 bg-slate-950/40">
@@ -3712,6 +3724,28 @@ export function canRequestBankSlipCancellation(
   bankSlip: BankSlipListRecord | null | undefined,
 ) {
   return invoice.status === "OPEN" && bankSlip?.status === "ISSUED";
+}
+
+function FinanceAreaHeader({
+  actions,
+  description,
+  title,
+}: {
+  actions?: ReactNode;
+  description: string;
+  title: string;
+}) {
+  return (
+    <section className={cx(adminTheme.card, "min-w-0 p-4")}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <h2 className={cx(adminTheme.titleText, "text-base")}>{title}</h2>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">{description}</p>
+        </div>
+        {actions ? <div className="min-w-0 shrink-0">{actions}</div> : null}
+      </div>
+    </section>
+  );
 }
 
 export function canCancelInvoiceDirectly(

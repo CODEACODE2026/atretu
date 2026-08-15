@@ -1,48 +1,44 @@
 import { BarChart3, Layers3, LineChart, ReceiptText, Wallet, WalletCards } from "lucide-react";
-import { adminTheme, cx } from "../admin-theme";
+import { cx } from "../admin-theme";
 import { type FinanceArea } from "./finance-display-utils";
 
 const items: Array<{
+  ariaLabel?: string;
   area: FinanceArea;
-  description: string;
   icon: typeof BarChart3;
   label: string;
 }> = [
   {
     area: "overview",
-    description: "Resumo e filtros",
     icon: BarChart3,
     label: "Visão geral",
   },
   {
     area: "invoices",
-    description: "Faturas e boletos",
     icon: ReceiptText,
     label: "Faturas",
   },
   {
     area: "batches",
-    description: "Emissão em massa",
     icon: Layers3,
     label: "Lotes",
   },
   {
+    ariaLabel: "Entradas e despesas manuais",
     area: "movements",
-    description: "Entradas e despesas manuais",
     icon: Wallet,
     label: "Movimentações",
   },
   {
     area: "reports",
-    description: "Resultado gerencial",
     icon: LineChart,
     label: "Relatórios",
   },
   {
+    ariaLabel: "Cobrança e inadimplência",
     area: "collections",
-    description: "Acompanhamento de vencidas",
     icon: WalletCards,
-    label: "Cobrança e inadimplência",
+    label: "Cobrança",
   },
 ];
 
@@ -55,36 +51,36 @@ export function FinanceNavigation({
   canViewCollections: boolean;
   onChange: (area: FinanceArea) => void;
 }) {
+  const visibleItems = items.filter((item) => canViewCollections || item.area !== "collections");
+
   return (
-    <nav aria-label="Áreas do Financeiro" className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-6">
-      {items
-        .filter((item) => canViewCollections || item.area !== "collections")
-        .map((item) => {
+    <nav aria-label="Áreas do Financeiro" className="min-w-0 overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+      <div className="flex min-w-max gap-1">
+        {visibleItems.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.area;
           return (
             <button
               aria-current={active ? "page" : undefined}
+              aria-label={item.ariaLabel}
               className={cx(
-                "flex min-h-[72px] items-center gap-3 rounded-xl border px-4 py-3 text-left transition duration-150 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 motion-reduce:transition-none",
+                "flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold transition duration-150 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 motion-reduce:transition-none",
                 active
-                  ? "border-[#1F6F5F] bg-[#EEF7F4] text-[#0F2E2E] shadow-sm"
-                  : "border-slate-200/80 bg-white/90 text-slate-700 hover:border-[#8DB7AD] hover:bg-[#F8FAFA]",
+                  ? "bg-[#1F6F5F] text-white shadow-sm"
+                  : "text-slate-600 hover:bg-[#EEF7F4] hover:text-[#0F2E2E]",
               )}
               key={item.area}
               onClick={() => onChange(item.area)}
               type="button"
             >
-              <span className={cx("grid h-10 w-10 place-items-center rounded-lg", active ? adminTheme.atretuMark : "bg-slate-100 text-slate-600")}>
-                <Icon aria-hidden="true" className="h-5 w-5" />
+              <span className={cx("grid h-6 w-6 place-items-center rounded", active ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500")}>
+                <Icon aria-hidden="true" className="h-4 w-4" />
               </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">{item.label}</span>
-                <span className="mt-0.5 block text-xs text-slate-500">{item.description}</span>
-              </span>
+              <span>{item.label}</span>
             </button>
           );
         })}
+      </div>
     </nav>
   );
 }
