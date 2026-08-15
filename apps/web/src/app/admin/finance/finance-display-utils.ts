@@ -12,6 +12,7 @@ export type FinanceArea =
   | "overview"
   | "invoices"
   | "batches"
+  | "reports"
   | "movements"
   | "collections";
 export type BankSlipListRecord = BankSlipRecord | BankSlipSummary;

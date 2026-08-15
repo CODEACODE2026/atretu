@@ -1,4 +1,4 @@
-import { BarChart3, Layers3, ReceiptText, Wallet, WalletCards } from "lucide-react";
+import { BarChart3, Layers3, LineChart, ReceiptText, Wallet, WalletCards } from "lucide-react";
 import { adminTheme, cx } from "../admin-theme";
 import { type FinanceArea } from "./finance-display-utils";
 
@@ -33,6 +33,12 @@ const items: Array<{
     label: "Movimentações",
   },
   {
+    area: "reports",
+    description: "Resultado gerencial",
+    icon: LineChart,
+    label: "Relatórios",
+  },
+  {
     area: "collections",
     description: "Acompanhamento de vencidas",
     icon: WalletCards,
@@ -50,7 +56,7 @@ export function FinanceNavigation({
   onChange: (area: FinanceArea) => void;
 }) {
   return (
-    <nav aria-label="Áreas do Financeiro" className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+    <nav aria-label="Áreas do Financeiro" className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-6">
       {items
         .filter((item) => canViewCollections || item.area !== "collections")
         .map((item) => {

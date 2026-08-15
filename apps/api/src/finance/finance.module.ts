@@ -17,6 +17,8 @@ import {
 } from "./bank-slips.service.js";
 import { CollectionsController } from "./collections.controller.js";
 import { CollectionsService } from "./collections.service.js";
+import { FinancialReportsController } from "./financial-reports.controller.js";
+import { FinancialReportsService } from "./financial-reports.service.js";
 import { InvoicesController } from "./invoices.controller.js";
 import { InvoicesService } from "./invoices.service.js";
 import { ManualFinancialMovementsController } from "./manual-movements.controller.js";
@@ -38,11 +40,13 @@ import { loadSicrediConfig } from "./sicredi-config.js";
     InvoicesController,
     BankSlipsController,
     CollectionsController,
+    FinancialReportsController,
     ManualFinancialMovementsController,
   ],
   providers: [
     InvoicesService,
     CollectionsService,
+    FinancialReportsService,
     BankSlipsService,
     ManualFinancialMovementsService,
     BankSlipPdfStorage,
@@ -62,6 +66,7 @@ import { loadSicrediConfig } from "./sicredi-config.js";
   exports: [
     InvoicesService,
     CollectionsService,
+    FinancialReportsService,
     BankSlipsService,
     ManualFinancialMovementsService,
   ],

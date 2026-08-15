@@ -1172,6 +1172,65 @@ export type ManualFinancialMovementSummary = {
   netFormatted: string;
 };
 
+export type FinancialReportResultStatus = "POSITIVE" | "NEGATIVE";
+
+export type FinancialReportCategory = {
+  category: ManualFinancialMovementCategory;
+  count: number;
+  totalCents: number;
+  totalFormatted: string;
+  percentage: number;
+};
+
+export type FinancialReportComparisonMonth = {
+  month: string;
+  label: string;
+  revenueCents: number;
+  expenseCents: number;
+  resultCents: number;
+  revenueFormatted: string;
+  expenseFormatted: string;
+  resultFormatted: string;
+  resultStatus: FinancialReportResultStatus;
+};
+
+export type FinancialMonthlyReport = {
+  period: {
+    month: number;
+    year: number;
+    label: string;
+    timezone: "America/Sao_Paulo";
+    startDate: string;
+    endDateExclusive: string;
+  };
+  rules: {
+    invoiceRevenueDate: string;
+    manualIncomeDate: string;
+    manualExpenseDate: string;
+  };
+  summary: {
+    invoiceRevenueCents: number;
+    manualIncomeCents: number;
+    totalRevenueCents: number;
+    expenseCents: number;
+    resultCents: number;
+    invoiceRevenueFormatted: string;
+    manualIncomeFormatted: string;
+    totalRevenueFormatted: string;
+    expenseFormatted: string;
+    resultFormatted: string;
+    resultStatus: FinancialReportResultStatus;
+  };
+  comparison: FinancialReportComparisonMonth[];
+  expenseCategories: FinancialReportCategory[];
+  incomeCategories: FinancialReportCategory[];
+};
+
+export type FinancialMonthlyReportParams = {
+  month?: number;
+  year?: number;
+};
+
 export type ListManualFinancialMovementsParams = {
   page?: number;
   limit?: number;
@@ -2038,6 +2097,12 @@ export const api = {
         summary?: ManualFinancialMovementSummary;
       }
     >(withParams("/finance/manual-movements", params));
+  },
+
+  getFinancialMonthlyReport(params?: FinancialMonthlyReportParams) {
+    return request<FinancialMonthlyReport>(
+      withParams("/finance/reports/monthly", params),
+    );
   },
 
   getManualFinancialMovement(movementId: string) {
