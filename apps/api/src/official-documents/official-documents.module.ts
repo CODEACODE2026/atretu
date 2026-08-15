@@ -7,6 +7,7 @@ import { DocumentsModule } from "../documents/documents.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { OfficialDocumentPdfBuilder } from "./official-document-pdf.builder.js";
 import {
+  OfficialDocumentModelsController,
   InstitutionalOfficialDocumentsController,
   OfficialDocumentsController,
 } from "./official-documents.controller.js";
@@ -22,6 +23,7 @@ import { OfficialDocumentsService } from "./official-documents.service.js";
     UsersModule,
   ],
   controllers: [
+    OfficialDocumentModelsController,
     InstitutionalOfficialDocumentsController,
     OfficialDocumentsController,
   ],

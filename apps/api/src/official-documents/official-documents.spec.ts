@@ -13,6 +13,10 @@ import {
 import { OfficialDocumentsService } from "./official-documents.service.js";
 import { getOfficialDocumentDefinition } from "./official-document.registry.js";
 import {
+  extractOfficialDocumentTemplateTokens,
+  invalidOfficialDocumentTemplateTokens,
+} from "./official-document-template-variables.js";
+import {
   ANNUAL_CLEARANCE_DECLARATION_DOCUMENT_TITLE,
   annualClearanceDeclarationBody,
 } from "./annual-clearance-declaration.content.js";
@@ -85,6 +89,12 @@ for (const fragment of [
   "TRANSPORT_REFUND_REQUEST",
   "TERMINATION_TERM",
   "INTERNAL_REGULATION",
+  "DYNAMIC_TEMPLATE",
+  "enum OfficialDocumentModelStatus",
+  "model OfficialDocumentModel",
+  "model OfficialDocumentModelVersion",
+  "documentModelId",
+  "documentModelVersionId",
   "model OfficialDocumentIssue",
   "studentId       String?",
   "templateKey",
@@ -101,7 +111,12 @@ for (const fragment of [
 
 for (const fragment of [
   '@Controller("students/:studentId/official-documents")',
+  '@Controller("official-documents/models")',
   '@Controller("official-documents/institutional")',
+  "CreateOfficialDocumentModelDto",
+  "IssueDynamicOfficialDocumentDto",
+  '@Post("models/:modelId/issue")',
+  '@Post("models/:modelId/preview")',
   "IssueInstitutionalOfficialDocumentDto",
   '@Get()',
   '@Post(":type/issue")',
@@ -110,6 +125,33 @@ for (const fragment of [
   "@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)",
 ]) {
   assert.ok(controller.includes(fragment), `controller must include ${fragment}`);
+}
+
+assert.deepEqual(
+  extractOfficialDocumentTemplateTokens(
+    "Declaro que {{student.name}}, CPF {{ student.cpf }}, está matriculado em {{institution.name}}.",
+  ),
+  ["institution.name", "student.cpf", "student.name"],
+);
+assert.deepEqual(invalidOfficialDocumentTemplateTokens("{{student.foo}}"), [
+  "student.foo",
+]);
+
+for (const fragment of [
+  "createModel",
+  "updateModel",
+  "current.currentVersion + 1",
+  "documentModelId: model.id",
+  "documentModelVersionId: version.id",
+  "contentSnapshot: snapshot",
+  "dynamicTemplate",
+  "resolveDynamicTemplate",
+  "OFFICIAL_DOCUMENT_MODEL_CREATED",
+  "OFFICIAL_DOCUMENT_MODEL_VERSION_CREATED",
+  "OFFICIAL_DOCUMENT_MODEL_ACTIVATED",
+  "OFFICIAL_DOCUMENT_MODEL_INACTIVATED",
+]) {
+  assert.ok(service.includes(fragment), `service must include dynamic model support ${fragment}`);
 }
 
 for (const fragment of [

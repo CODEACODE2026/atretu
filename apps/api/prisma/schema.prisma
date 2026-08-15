@@ -106,6 +106,10 @@ enum AdministrativeAuditEventType {
   BOARD_MEMBERSHIP_ENDED
   ASSOCIATION_SETTINGS_UPDATED
   ASSOCIATION_LOGO_UPDATED
+  OFFICIAL_DOCUMENT_MODEL_CREATED
+  OFFICIAL_DOCUMENT_MODEL_VERSION_CREATED
+  OFFICIAL_DOCUMENT_MODEL_ACTIVATED
+  OFFICIAL_DOCUMENT_MODEL_INACTIVATED
 }
 
 enum StudentStatus {
@@ -328,10 +332,16 @@ enum OfficialDocumentType {
   TERMINATION_LETTER
   TERMINATION_TERM
   INTERNAL_REGULATION
+  DYNAMIC_TEMPLATE
 }
 
 enum OfficialDocumentIssueStatus {
   ISSUED
+}
+
+enum OfficialDocumentModelStatus {
+  ACTIVE
+  INACTIVE
 }
 
 enum PreRegistrationStatus {
@@ -398,6 +408,8 @@ model User {
   uploadedStudentDocuments   StudentDocument[]                   @relation("StudentDocumentUploadedBy")
   removedStudentDocuments    StudentDocument[]                   @relation("StudentDocumentRemovedBy")
   issuedOfficialDocuments    OfficialDocumentIssue[]             @relation("OfficialDocumentIssuedBy")
+  officialDocumentModels      OfficialDocumentModel[]             @relation("OfficialDocumentModelCreatedBy")
+  officialDocumentModelVersions OfficialDocumentModelVersion[]    @relation("OfficialDocumentModelVersionCreatedBy")
   reviewedPreRegistrations   PublicPreRegistration[]             @relation("PreRegistrationReviewedBy")
   studentHistoryEvents       StudentHistoryEvent[]               @relation("StudentHistoryPerformedBy")
   boardMembershipsStarted    BoardMembership[]                   @relation("BoardMembershipStartedBy")
@@ -1176,6 +1188,8 @@ model StudentDocument {
 model OfficialDocumentIssue {
   id              String                      @id @default(uuid()) @db.Uuid
   studentId       String?                     @map("student_id") @db.Uuid
+  documentModelId String?                     @map("document_model_id") @db.Uuid
+  documentModelVersionId String?              @map("document_model_version_id") @db.Uuid
   documentType    OfficialDocumentType        @map("document_type")
   templateKey     String                      @map("template_key") @db.VarChar(80)
   templateVersion Int                         @default(1) @map("template_version")
@@ -1195,6 +1209,8 @@ model OfficialDocumentIssue {
   createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
   student         Student?                    @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  documentModel   OfficialDocumentModel?      @relation(fields: [documentModelId], references: [id], onDelete: SetNull)
+  documentModelVersion OfficialDocumentModelVersion? @relation(fields: [documentModelVersionId], references: [id], onDelete: SetNull)
   issuedBy        User?                       @relation("OfficialDocumentIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
   sourceIssue     OfficialDocumentIssue?      @relation("OfficialDocumentReissue", fields: [sourceIssueId], references: [id], onDelete: SetNull)
   reissues        OfficialDocumentIssue[]     @relation("OfficialDocumentReissue")
@@ -1202,9 +1218,47 @@ model OfficialDocumentIssue {
   @@index([studentId, documentType, issuedAt])
   @@index([documentType, issuedAt])
   @@index([documentType, templateVersion])
+  @@index([documentModelId, issuedAt])
+  @@index([documentModelVersionId])
   @@index([issuedByUserId, issuedAt])
   @@index([sourceIssueId])
   @@map("official_document_issues")
+}
+
+model OfficialDocumentModel {
+  id                String                      @id @default(uuid()) @db.Uuid
+  name              String                      @db.VarChar(160)
+  description       String?                     @db.VarChar(500)
+  category          String                      @db.VarChar(80)
+  status            OfficialDocumentModelStatus @default(ACTIVE)
+  currentVersion    Int                         @default(1) @map("current_version")
+  createdByUserId   String?                     @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy         User?                       @relation("OfficialDocumentModelCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  versions          OfficialDocumentModelVersion[]
+  issues            OfficialDocumentIssue[]
+
+  @@index([status, updatedAt])
+  @@index([category, status])
+  @@map("official_document_models")
+}
+
+model OfficialDocumentModelVersion {
+  id              String                  @id @default(uuid()) @db.Uuid
+  modelId         String                  @map("model_id") @db.Uuid
+  version         Int
+  content         String                  @db.Text
+  variableTokens  Json                    @default("[]") @map("variable_tokens")
+  createdByUserId String?                 @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  model           OfficialDocumentModel   @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  createdBy       User?                   @relation("OfficialDocumentModelVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  issues          OfficialDocumentIssue[]
+
+  @@unique([modelId, version])
+  @@index([createdByUserId, createdAt])
+  @@map("official_document_model_versions")
 }
 
 model PublicPreRegistration {

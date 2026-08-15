@@ -3,13 +3,14 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
 } from "class-validator";
-import { OfficialDocumentType } from "@prisma/client";
+import { OfficialDocumentModelStatus, OfficialDocumentType } from "@prisma/client";
 import { FileDisposition } from "../../documents/dto/documents.dto.js";
 
 export class OfficialDocumentTypeParamDto {
@@ -136,4 +137,64 @@ export class IssueInstitutionalOfficialDocumentDto {
   @MaxLength(500)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   notes?: string;
+}
+
+export class CreateOfficialDocumentModelDto {
+  @IsString()
+  @MaxLength(160)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  description?: string;
+
+  @IsString()
+  @MaxLength(80)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  category!: string;
+
+  @IsString()
+  @MaxLength(20000)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  content!: string;
+}
+
+export class UpdateOfficialDocumentModelDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20000)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  content?: string;
+}
+
+export class UpdateOfficialDocumentModelStatusDto {
+  @IsEnum(OfficialDocumentModelStatus)
+  status!: OfficialDocumentModelStatus;
+}
+
+export class IssueDynamicOfficialDocumentDto {
+  @IsOptional()
+  @IsObject()
+  inputs?: Record<string, string>;
 }

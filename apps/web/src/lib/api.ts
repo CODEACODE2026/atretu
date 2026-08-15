@@ -578,6 +578,7 @@ export type StudentDocumentsResponse = {
 export type OfficialDocumentType =
   | "ADHESION_TERM"
   | "ANNUAL_CLEARANCE_DECLARATION"
+  | "DYNAMIC_TEMPLATE"
   | "INTERNAL_REGULATION"
   | "TRANSPORT_REFUND_REQUEST"
   | "TRANSPORT_REGULATION"
@@ -589,6 +590,14 @@ export type OfficialDocumentIssue = {
   id: string;
   studentId: string | null;
   type: OfficialDocumentType;
+  documentModelId: string | null;
+  documentModelVersionId: string | null;
+  model: {
+    id: string;
+    name: string;
+    category: string;
+    status: OfficialDocumentModelStatus;
+  } | null;
   status: "ISSUED";
   templateKey: string;
   templateVersion: number;
@@ -601,6 +610,9 @@ export type OfficialDocumentIssue = {
   issuedBy: { id: string; name: string; email: string } | null;
   sourceIssueId: string | null;
   notes: string | null;
+  resolvedContent: string | null;
+  resolvedValues: Record<string, string> | null;
+  studentName: string | null;
   adhesionDetails: {
     firstInstallmentDate: string | null;
     installmentAmountCents: number | null;
@@ -662,6 +674,76 @@ export type OfficialDocumentIssue = {
     regularizationDeadlineDays: number | null;
     regularizationLimit: string | null;
   } | null;
+};
+
+export type OfficialDocumentModelStatus = "ACTIVE" | "INACTIVE";
+
+export type OfficialDocumentVariableCategory =
+  | "association"
+  | "document"
+  | "enrollment"
+  | "input"
+  | "institution"
+  | "student";
+
+export type OfficialDocumentVariable = {
+  category: OfficialDocumentVariableCategory;
+  label: string;
+  manual?: boolean;
+  token: string;
+};
+
+export type OfficialDocumentModel = {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  status: OfficialDocumentModelStatus;
+  currentVersion: number;
+  content: string;
+  variableTokens: string[];
+  manualInputTokens: string[];
+  createdBy: { id: string; name: string; email: string } | null;
+  createdAt: string;
+  updatedAt: string;
+  versions: Array<{
+    id: string;
+    version: number;
+    content: string;
+    variableTokens: string[];
+    createdAt: string;
+  }>;
+};
+
+export type OfficialDocumentModelsResponse = {
+  data: OfficialDocumentModel[];
+};
+
+export type OfficialDocumentModelIssuesResponse = {
+  data: OfficialDocumentIssue[];
+};
+
+export type OfficialDocumentVariablesResponse = {
+  data: OfficialDocumentVariable[];
+};
+
+export type UpsertOfficialDocumentModelBody = {
+  name?: string;
+  description?: string;
+  category?: string;
+  content?: string;
+};
+
+export type IssueDynamicOfficialDocumentBody = {
+  inputs?: Record<string, string>;
+};
+
+export type DynamicOfficialDocumentPreview = {
+  model: OfficialDocumentModel;
+  manualInputs: string[];
+  resolvedContent: string;
+  resolvedValues: Record<string, string>;
+  unknownTokens: string[];
 };
 
 export type OfficialDocumentCatalogItem = {
@@ -2633,6 +2715,102 @@ export const api = {
   listStudentOfficialDocuments(studentId: string) {
     return request<OfficialDocumentsResponse>(
       `/students/${studentId}/official-documents`,
+    );
+  },
+
+  listStudentOfficialDocumentModelIssues(studentId: string) {
+    return request<OfficialDocumentModelIssuesResponse>(
+      `/students/${studentId}/official-documents/model-issues`,
+    );
+  },
+
+  previewDynamicOfficialDocument(
+    studentId: string,
+    modelId: string,
+    body?: IssueDynamicOfficialDocumentBody,
+  ) {
+    return request<DynamicOfficialDocumentPreview>(
+      `/students/${studentId}/official-documents/models/${modelId}/preview`,
+      {
+        body: body ? JSON.stringify(body) : undefined,
+        method: "POST",
+      },
+    );
+  },
+
+  issueDynamicOfficialDocument(
+    studentId: string,
+    modelId: string,
+    body?: IssueDynamicOfficialDocumentBody,
+  ) {
+    return request<OfficialDocumentIssue>(
+      `/students/${studentId}/official-documents/models/${modelId}/issue`,
+      {
+        body: body ? JSON.stringify(body) : undefined,
+        method: "POST",
+      },
+    );
+  },
+
+  listOfficialDocumentVariables() {
+    return request<OfficialDocumentVariablesResponse>(
+      "/official-documents/models/variables",
+    );
+  },
+
+  listOfficialDocumentModels(status?: OfficialDocumentModelStatus) {
+    return request<OfficialDocumentModelsResponse>(
+      withParams("/official-documents/models", { status }),
+    );
+  },
+
+  getOfficialDocumentModel(modelId: string) {
+    return request<OfficialDocumentModel>(`/official-documents/models/${modelId}`);
+  },
+
+  createOfficialDocumentModel(
+    body: UpsertOfficialDocumentModelBody & {
+      category: string;
+      content: string;
+      name: string;
+    },
+  ) {
+    return request<OfficialDocumentModel>("/official-documents/models", {
+      body: JSON.stringify(body),
+      method: "POST",
+    });
+  },
+
+  updateOfficialDocumentModel(modelId: string, body: UpsertOfficialDocumentModelBody) {
+    return request<OfficialDocumentModel>(`/official-documents/models/${modelId}`, {
+      body: JSON.stringify(body),
+      method: "POST",
+    });
+  },
+
+  updateOfficialDocumentModelStatus(
+    modelId: string,
+    status: OfficialDocumentModelStatus,
+  ) {
+    return request<OfficialDocumentModel>(
+      `/official-documents/models/${modelId}/status`,
+      {
+        body: JSON.stringify({ status }),
+        method: "POST",
+      },
+    );
+  },
+
+  duplicateOfficialDocumentModel(modelId: string) {
+    return request<OfficialDocumentModel>(
+      `/official-documents/models/${modelId}/duplicate`,
+      { method: "POST" },
+    );
+  },
+
+  listOfficialDocumentModelIssues() {
+    return request<OfficialDocumentModelIssuesResponse>(
+      "/official-documents/models/issues",
     );
   },
 

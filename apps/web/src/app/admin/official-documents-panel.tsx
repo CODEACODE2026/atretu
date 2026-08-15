@@ -3,17 +3,24 @@
 import { useEffect, useState } from "react";
 import {
   CalendarDays,
+  Copy,
   Download,
+  Edit3,
   Eye,
   FileText,
   History,
+  Plus,
+  Power,
   RefreshCw,
+  Save,
   ScrollText,
   Send,
 } from "lucide-react";
 import {
   api,
   type IssueInstitutionalOfficialDocumentBody,
+  type OfficialDocumentModel,
+  type OfficialDocumentVariable,
   type OfficialDocumentCatalogItem,
   type OfficialDocumentIssue,
 } from "../../lib/api";
@@ -29,6 +36,10 @@ import { formatDateTime } from "./students/student-profile-utils";
 
 export function OfficialDocumentsPanel() {
   const [documents, setDocuments] = useState<OfficialDocumentCatalogItem[]>([]);
+  const [models, setModels] = useState<OfficialDocumentModel[]>([]);
+  const [modelIssues, setModelIssues] = useState<OfficialDocumentIssue[]>([]);
+  const [variables, setVariables] = useState<OfficialDocumentVariable[]>([]);
+  const [modelDialog, setModelDialog] = useState<OfficialDocumentModel | "new" | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [issueDialog, setIssueDialog] =
@@ -46,12 +57,78 @@ export function OfficialDocumentsPanel() {
     setLoading(true);
     setError("");
     try {
-      const response = await api.listInstitutionalOfficialDocuments();
+      const [response, modelsResponse, issuesResponse, variablesResponse] =
+        await Promise.all([
+          api.listInstitutionalOfficialDocuments(),
+          api.listOfficialDocumentModels(),
+          api.listOfficialDocumentModelIssues(),
+          api.listOfficialDocumentVariables(),
+        ]);
       setDocuments(response.data);
+      setModels(modelsResponse.data);
+      setModelIssues(issuesResponse.data);
+      setVariables(variablesResponse.data);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar documentos oficiais.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveModel(body: {
+    category: string;
+    content: string;
+    description?: string;
+    name: string;
+  }) {
+    setBusy("model-save");
+    setError("");
+    setMessage("");
+    try {
+      if (modelDialog && modelDialog !== "new") {
+        await api.updateOfficialDocumentModel(modelDialog.id, body);
+        setMessage("Modelo atualizado com nova versão quando houve mudança de conteúdo.");
+      } else {
+        await api.createOfficialDocumentModel(body);
+        setMessage("Modelo criado com sucesso.");
+      }
+      setModelDialog(null);
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao salvar modelo.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function toggleModel(model: OfficialDocumentModel) {
+    setBusy(`model-status-${model.id}`);
+    setError("");
+    setMessage("");
+    try {
+      const nextStatus = model.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+      await api.updateOfficialDocumentModelStatus(model.id, nextStatus);
+      setMessage(nextStatus === "ACTIVE" ? "Modelo ativado." : "Modelo inativado.");
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao alterar status do modelo.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function duplicateModel(model: OfficialDocumentModel) {
+    setBusy(`model-duplicate-${model.id}`);
+    setError("");
+    setMessage("");
+    try {
+      await api.duplicateOfficialDocumentModel(model.id);
+      setMessage("Modelo duplicado com sucesso.");
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao duplicar modelo.");
+    } finally {
+      setBusy("");
     }
   }
 
@@ -118,11 +195,82 @@ export function OfficialDocumentsPanel() {
   return (
     <div className="space-y-5">
       <AdminModuleHeader
-        description="Emissao e historico de documentos oficiais institucionais da ATRETU."
+        description="Modelos, emissao e historico de documentos oficiais da ATRETU."
         eyebrow="Documentos Oficiais"
         icon={ScrollText}
         title="Documentos Oficiais"
       />
+
+      <section className={adminTheme.card}>
+        <AdminSectionHeader
+          action={
+            <button
+              className={adminTheme.primaryButton}
+              disabled={Boolean(busy)}
+              onClick={() => setModelDialog("new")}
+              type="button"
+            >
+              <Plus size={16} />
+              Novo modelo
+            </button>
+          }
+          description="Modelos em texto simples com variaveis controladas, versao atual e historico imutavel nas emissoes."
+          title="Modelos"
+        />
+        {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
+        {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
+        <div className="grid gap-3 p-4 xl:grid-cols-2">
+          {loading ? (
+            <AdminEmptyState loading title="Carregando modelos..." />
+          ) : models.length === 0 ? (
+            <AdminEmptyState title="Nenhum modelo dinamico cadastrado" />
+          ) : (
+            models.map((model) => (
+              <ModelCard
+                busy={busy}
+                key={model.id}
+                model={model}
+                onDuplicate={() => void duplicateModel(model)}
+                onEdit={() => setModelDialog(model)}
+                onToggle={() => void toggleModel(model)}
+              />
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className={adminTheme.card}>
+        <AdminSectionHeader
+          description="Emissoes geradas a partir de modelos dinamicos, salvas no historico oficial com snapshot."
+          title="Documentos emitidos"
+        />
+        <div className="grid gap-3 p-4">
+          {loading ? (
+            <AdminEmptyState loading title="Carregando emissoes..." />
+          ) : modelIssues.length === 0 ? (
+            <AdminEmptyState title="Nenhum documento dinamico emitido" />
+          ) : (
+            modelIssues.map((issue) => (
+              <div
+                className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 lg:grid-cols-[1fr_auto]"
+                key={issue.id}
+              >
+                <div>
+                  <p className="font-semibold text-slate-950">
+                    {issue.model?.name ?? "Modelo removido"} · v{issue.templateVersion}
+                  </p>
+                  <p className="mt-1">
+                    {issue.studentName ?? "Academico nao identificado"} · {issue.protocol} · {formatDateTime(issue.issuedAt)}
+                  </p>
+                </div>
+                <span className="text-xs font-semibold uppercase text-slate-500">
+                  Snapshot preservado
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
 
       <section className={adminTheme.card}>
         <AdminSectionHeader
@@ -173,6 +321,15 @@ export function OfficialDocumentsPanel() {
           onDownload={(issue) => openIssue(issue, "attachment")}
           onReissue={(issue) => reissueDocument(historyDialog, issue)}
           onView={(issue) => openIssue(issue, "inline")}
+        />
+      ) : null}
+      {modelDialog ? (
+        <ModelDialog
+          busy={busy === "model-save"}
+          model={modelDialog === "new" ? null : modelDialog}
+          onCancel={() => setModelDialog(null)}
+          onSubmit={saveModel}
+          variables={variables}
         />
       ) : null}
     </div>
@@ -296,6 +453,182 @@ function InstitutionalDocumentCard({
         </button>
       </div>
     </article>
+  );
+}
+
+function ModelCard({
+  busy,
+  model,
+  onDuplicate,
+  onEdit,
+  onToggle,
+}: {
+  busy: string;
+  model: OfficialDocumentModel;
+  onDuplicate: () => void;
+  onEdit: () => void;
+  onToggle: () => void;
+}) {
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold text-slate-950">{model.name}</h2>
+            <AdminStatusBadge tone={model.status === "ACTIVE" ? "green" : "slate"}>
+              {model.status === "ACTIVE" ? "Ativo" : "Inativo"}
+            </AdminStatusBadge>
+            <AdminStatusBadge tone="blue">v{model.currentVersion}</AdminStatusBadge>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            {model.description || "Sem descricao."}
+          </p>
+          <p className="mt-2 text-xs font-semibold uppercase text-slate-500">
+            {model.category} · {model.variableTokens.length} variavel(is)
+          </p>
+        </div>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700">
+          <FileText aria-hidden="true" className="h-5 w-5" />
+        </span>
+      </div>
+      <pre className="mt-4 max-h-28 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+        {model.content}
+      </pre>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={onEdit} type="button">
+          <Edit3 size={16} />
+          Editar
+        </button>
+        <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={onDuplicate} type="button">
+          <Copy size={16} />
+          Duplicar
+        </button>
+        <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={onToggle} type="button">
+          <Power size={16} />
+          {model.status === "ACTIVE" ? "Inativar" : "Ativar"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function ModelDialog({
+  busy,
+  model,
+  onCancel,
+  onSubmit,
+  variables,
+}: {
+  busy: boolean;
+  model: OfficialDocumentModel | null;
+  onCancel: () => void;
+  onSubmit: (body: {
+    category: string;
+    content: string;
+    description?: string;
+    name: string;
+  }) => void;
+  variables: OfficialDocumentVariable[];
+}) {
+  const [name, setName] = useState(model?.name ?? "");
+  const [description, setDescription] = useState(model?.description ?? "");
+  const [category, setCategory] = useState(model?.category ?? "Geral");
+  const [content, setContent] = useState(model?.content ?? "");
+  const insertVariable = (token: string) => {
+    setContent((current) => `${current}${current.endsWith(" ") || current.endsWith("\n") || current === "" ? "" : " "}{{${token}}}`);
+  };
+  const grouped = variables.reduce<Record<string, OfficialDocumentVariable[]>>((acc, item) => {
+    acc[item.category] = [...(acc[item.category] ?? []), item];
+    return acc;
+  }, {});
+  return (
+    <div className="fixed inset-0 z-30 flex items-end bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-4">
+      <form
+        className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:rounded-2xl"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit({
+            category,
+            content,
+            description: description.trim() || undefined,
+            name,
+          });
+        }}
+        role="dialog"
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+              Modelo de documento
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">
+              {model ? "Editar modelo" : "Novo modelo"}
+            </h2>
+          </div>
+          <AdminStatusBadge tone="blue">Texto simples</AdminStatusBadge>
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_260px]">
+          <div className="grid gap-3">
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Título
+              <input className={adminTheme.control} onChange={(event) => setName(event.target.value)} required value={name} />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Descrição
+              <input className={adminTheme.control} onChange={(event) => setDescription(event.target.value)} value={description} />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Categoria
+              <input className={adminTheme.control} onChange={(event) => setCategory(event.target.value)} required value={category} />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Conteúdo
+              <textarea
+                className="min-h-72 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm leading-6 text-slate-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                onChange={(event) => setContent(event.target.value)}
+                required
+                value={content}
+              />
+            </label>
+            <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <h3 className="text-sm font-semibold text-slate-950">Prévia</h3>
+              <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{content || "Sem conteudo."}</pre>
+            </section>
+          </div>
+          <aside className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <h3 className="text-sm font-semibold text-slate-950">Inserir variável</h3>
+            <div className="mt-3 grid gap-3">
+              {Object.entries(grouped).map(([categoryName, items]) => (
+                <section key={categoryName}>
+                  <p className="text-xs font-semibold uppercase text-slate-500">{categoryName}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {items.map((item) => (
+                      <button
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-emerald-300 hover:text-emerald-700"
+                        key={item.token}
+                        onClick={() => insertVariable(item.token)}
+                        type="button"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </aside>
+        </div>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button className={cx(adminTheme.secondaryButton, "justify-center")} disabled={busy} onClick={onCancel} type="button">
+            Cancelar
+          </button>
+          <button className={cx(adminTheme.primaryButton, "justify-center")} disabled={busy} type="submit">
+            <Save size={16} />
+            Salvar
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

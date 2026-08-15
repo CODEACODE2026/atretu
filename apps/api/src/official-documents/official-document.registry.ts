@@ -36,7 +36,9 @@ export type OfficialDocumentDefinition = {
   canIssue: (student: { status: StudentStatus }) => boolean;
 };
 
-export const OFFICIAL_DOCUMENT_DEFINITIONS = {
+export const OFFICIAL_DOCUMENT_DEFINITIONS: Partial<
+  Record<OfficialDocumentType, OfficialDocumentDefinition>
+> = {
   [OfficialDocumentType.ADHESION_TERM]: {
     blockedReason: "",
     canIssue: () => true,
@@ -201,12 +203,16 @@ export const OFFICIAL_DOCUMENT_DEFINITIONS = {
       },
     ],
   },
-} as const satisfies Record<OfficialDocumentType, OfficialDocumentDefinition>;
+} as const;
 
 export function listOfficialDocumentDefinitions() {
   return Object.values(OFFICIAL_DOCUMENT_DEFINITIONS);
 }
 
 export function getOfficialDocumentDefinition(type: OfficialDocumentType) {
-  return OFFICIAL_DOCUMENT_DEFINITIONS[type];
+  const definition = OFFICIAL_DOCUMENT_DEFINITIONS[type];
+  if (!definition) {
+    throw new Error(`Documento oficial sem definicao estatica: ${type}`);
+  }
+  return definition;
 }

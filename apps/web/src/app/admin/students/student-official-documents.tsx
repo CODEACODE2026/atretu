@@ -16,6 +16,7 @@ import type {
   IssueOfficialDocumentBody,
   OfficialDocumentCatalogItem,
   OfficialDocumentIssue,
+  OfficialDocumentModel,
 } from "../../../lib/api";
 import { api } from "../../../lib/api";
 import { onlyDigits } from "../../../lib/formatters";
@@ -36,6 +37,9 @@ export function StudentOfficialDocuments({
   studentName: string;
 }) {
   const [documents, setDocuments] = useState<OfficialDocumentCatalogItem[]>([]);
+  const [models, setModels] = useState<OfficialDocumentModel[]>([]);
+  const [modelIssues, setModelIssues] = useState<OfficialDocumentIssue[]>([]);
+  const [modelDialog, setModelDialog] = useState(false);
   const [busy, setBusy] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -68,8 +72,14 @@ export function StudentOfficialDocuments({
     setLoading(true);
     setError("");
     try {
-      const response = await api.listStudentOfficialDocuments(studentId);
+      const [response, modelsResponse, modelIssuesResponse] = await Promise.all([
+        api.listStudentOfficialDocuments(studentId),
+        api.listOfficialDocumentModels("ACTIVE"),
+        api.listStudentOfficialDocumentModelIssues(studentId),
+      ]);
       setDocuments(response.data);
+      setModels(modelsResponse.data);
+      setModelIssues(modelIssuesResponse.data);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -78,6 +88,22 @@ export function StudentOfficialDocuments({
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function issueModelDocument(model: OfficialDocumentModel, inputs: Record<string, string>) {
+    setBusy(`model:${model.id}:issue`);
+    setMessage("");
+    setError("");
+    try {
+      await api.issueDynamicOfficialDocument(studentId, model.id, { inputs });
+      setMessage(`${model.name} emitido.`);
+      setModelDialog(false);
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao emitir modelo.");
+    } finally {
+      setBusy("");
     }
   }
 
@@ -233,15 +259,26 @@ export function StudentOfficialDocuments({
     <section className={cx(adminTheme.card, "overflow-hidden")}>
       <AdminSectionHeader
         action={
-          <button
-            className={adminTheme.secondaryButton}
-            disabled={loading || busy !== ""}
-            onClick={() => void loadDocuments()}
-            type="button"
-          >
-            <RefreshCcw aria-hidden="true" size={16} />
-            Atualizar
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={adminTheme.primaryButton}
+              disabled={loading || busy !== "" || models.length === 0}
+              onClick={() => setModelDialog(true)}
+              type="button"
+            >
+              <Send aria-hidden="true" size={16} />
+              Emitir documento
+            </button>
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={loading || busy !== ""}
+              onClick={() => void loadDocuments()}
+              type="button"
+            >
+              <RefreshCcw aria-hidden="true" size={16} />
+              Atualizar
+            </button>
+          </div>
         }
         description="Documentos emitidos pelo Atretu com protocolo, historico e PDF institucional."
         title="Documentos Oficiais"
@@ -278,7 +315,49 @@ export function StudentOfficialDocuments({
             />
           ))
         )}
+        {!loading && modelIssues.length > 0 ? (
+          <section className="mt-2 grid gap-3 border-t border-slate-200/70 pt-4">
+            <h3 className="text-sm font-semibold text-slate-950">
+              Documentos emitidos por modelo
+            </h3>
+            {modelIssues.map((issue) => (
+              <div
+                className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 lg:grid-cols-[1fr_auto]"
+                key={issue.id}
+              >
+                <div>
+                  <p className="font-semibold text-slate-950">
+                    {issue.model?.name ?? "Modelo removido"} · v{issue.templateVersion}
+                  </p>
+                  <p className="mt-1">
+                    {issue.protocol} · {formatDateTime(issue.issuedAt)} · {issue.issuedBy?.name ?? "Usuario nao identificado"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                  <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={() => void openIssue(issue, "inline")} type="button">
+                    <Eye size={15} />
+                    Visualizar
+                  </button>
+                  <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={() => void openIssue(issue, "attachment")} type="button">
+                    <Download size={15} />
+                    Baixar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+        ) : null}
       </div>
+      {modelDialog ? (
+        <DynamicModelIssueDialog
+          busy={busy !== ""}
+          models={models}
+          onCancel={() => setModelDialog(false)}
+          onSubmit={(model, inputs) => void issueModelDocument(model, inputs)}
+          studentId={studentId}
+          studentName={studentName}
+        />
+      ) : null}
       {termDialog ? (
         <TerminationTermDialog
           busy={busy !== ""}
@@ -337,6 +416,123 @@ export function StudentOfficialDocuments({
         />
       ) : null}
     </section>
+  );
+}
+
+function DynamicModelIssueDialog({
+  busy,
+  models,
+  onCancel,
+  onSubmit,
+  studentId,
+  studentName,
+}: {
+  busy: boolean;
+  models: OfficialDocumentModel[];
+  onCancel: () => void;
+  onSubmit: (model: OfficialDocumentModel, inputs: Record<string, string>) => void;
+  studentId: string;
+  studentName: string;
+}) {
+  const [modelId, setModelId] = useState(models[0]?.id ?? "");
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [preview, setPreview] = useState("");
+  const [error, setError] = useState("");
+  const selected = models.find((model) => model.id === modelId) ?? null;
+
+  useEffect(() => {
+    setInputs({});
+    setPreview("");
+    setError("");
+  }, [modelId]);
+
+  async function loadPreview() {
+    if (!selected) return;
+    setError("");
+    try {
+      const response = await api.previewDynamicOfficialDocument(studentId, selected.id, {
+        inputs,
+      });
+      setPreview(response.resolvedContent);
+    } catch (caught) {
+      setPreview("");
+      setError(caught instanceof Error ? caught.message : "Erro ao gerar prévia.");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-end bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-4">
+      <form
+        className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-3xl sm:rounded-2xl"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (selected) onSubmit(selected, inputs);
+        }}
+        role="dialog"
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+              Emitir documento
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">
+              {studentName}
+            </h2>
+          </div>
+          <AdminStatusBadge tone="blue">Modelo dinâmico</AdminStatusBadge>
+        </div>
+        {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
+        <label className="mt-4 grid gap-1 text-sm font-medium text-slate-700">
+          Modelo
+          <select className={adminTheme.control} onChange={(event) => setModelId(event.target.value)} value={modelId}>
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name} · v{model.currentVersion}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selected?.manualInputTokens.length ? (
+          <div className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <h3 className="text-sm font-semibold text-slate-950">Campos manuais</h3>
+            {selected.manualInputTokens.map((token) => (
+              <label className="grid gap-1 text-sm font-medium text-slate-700" key={token}>
+                {token}
+                <input
+                  className={adminTheme.control}
+                  onChange={(event) =>
+                    setInputs((current) => ({ ...current, [token]: event.target.value }))
+                  }
+                  required
+                  value={inputs[token] ?? ""}
+                />
+              </label>
+            ))}
+          </div>
+        ) : null}
+        <section className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-950">Prévia</h3>
+            <button className={adminTheme.secondaryButton} disabled={busy || !selected} onClick={() => void loadPreview()} type="button">
+              <Eye size={15} />
+              Atualizar prévia
+            </button>
+          </div>
+          <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">
+            {preview || selected?.content || "Selecione um modelo."}
+          </pre>
+        </section>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button className={cx(adminTheme.secondaryButton, "justify-center")} disabled={busy} onClick={onCancel} type="button">
+            Cancelar
+          </button>
+          <button className={cx(adminTheme.primaryButton, "justify-center")} disabled={busy || !selected} type="submit">
+            <Send size={16} />
+            Gerar PDF
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

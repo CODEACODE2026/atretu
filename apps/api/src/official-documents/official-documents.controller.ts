@@ -10,7 +10,7 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
-import { OfficialDocumentType, RoleCode } from "@prisma/client";
+import { OfficialDocumentModelStatus, OfficialDocumentType, RoleCode } from "@prisma/client";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
@@ -19,8 +19,12 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   DownloadOfficialDocumentDto,
+  CreateOfficialDocumentModelDto,
+  IssueDynamicOfficialDocumentDto,
   IssueInstitutionalOfficialDocumentDto,
   IssueOfficialDocumentDto,
+  UpdateOfficialDocumentModelDto,
+  UpdateOfficialDocumentModelStatusDto,
 } from "./dto/official-documents.dto.js";
 import { OfficialDocumentsService } from "./official-documents.service.js";
 
@@ -39,6 +43,44 @@ export class OfficialDocumentsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.officialDocuments.listStudentOfficialDocuments(studentId, user);
+  }
+
+  @Get("model-issues")
+  listStudentModelIssues(
+    @Param("studentId") studentId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.listStudentModelIssues(studentId, user);
+  }
+
+  @Post("models/:modelId/preview")
+  previewDynamicDocument(
+    @Param("studentId") studentId: string,
+    @Param("modelId") modelId: string,
+    @Body() body: IssueDynamicOfficialDocumentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.previewDynamicDocument(
+      studentId,
+      modelId,
+      user,
+      body,
+    );
+  }
+
+  @Post("models/:modelId/issue")
+  issueDynamicDocument(
+    @Param("studentId") studentId: string,
+    @Param("modelId") modelId: string,
+    @Body() body: IssueDynamicOfficialDocumentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.issueDynamicDocument(
+      studentId,
+      modelId,
+      user,
+      body,
+    );
   }
 
   @Post(":type/issue")
@@ -96,6 +138,70 @@ export class OfficialDocumentsController {
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("Content-Security-Policy", "default-src 'none'");
     return response.send(file.buffer);
+  }
+}
+
+@UseGuards(AuthGuard, RolesGuard)
+@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Controller("official-documents/models")
+export class OfficialDocumentModelsController {
+  constructor(
+    @Inject(OfficialDocumentsService)
+    private readonly officialDocuments: OfficialDocumentsService,
+  ) {}
+
+  @Get("variables")
+  listVariables() {
+    return this.officialDocuments.listTemplateVariables();
+  }
+
+  @Get()
+  listModels(@Query("status") status?: OfficialDocumentModelStatus) {
+    return this.officialDocuments.listModels(status);
+  }
+
+  @Get("issues")
+  listModelIssues() {
+    return this.officialDocuments.listModelIssues();
+  }
+
+  @Get(":modelId")
+  getModel(@Param("modelId") modelId: string) {
+    return this.officialDocuments.getModel(modelId);
+  }
+
+  @Post()
+  createModel(
+    @Body() body: CreateOfficialDocumentModelDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.createModel(body, user);
+  }
+
+  @Post(":modelId/duplicate")
+  duplicateModel(
+    @Param("modelId") modelId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.duplicateModel(modelId, user);
+  }
+
+  @Post(":modelId/status")
+  updateModelStatus(
+    @Param("modelId") modelId: string,
+    @Body() body: UpdateOfficialDocumentModelStatusDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.updateModelStatus(modelId, body.status, user);
+  }
+
+  @Post(":modelId")
+  updateModel(
+    @Param("modelId") modelId: string,
+    @Body() body: UpdateOfficialDocumentModelDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.updateModel(modelId, body, user);
   }
 }
 

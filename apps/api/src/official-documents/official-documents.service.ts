@@ -9,6 +9,9 @@ import {
   BoardMemberRole,
   BoardMembershipStatus,
   OfficialDocumentIssue,
+  OfficialDocumentModel,
+  OfficialDocumentModelStatus,
+  OfficialDocumentModelVersion,
   OfficialDocumentType,
   Prisma,
   StudentHistoryEventType,
@@ -26,7 +29,9 @@ import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import type {
   IssueInstitutionalOfficialDocumentDto,
+  IssueDynamicOfficialDocumentDto,
   IssueOfficialDocumentDto,
+  UpdateOfficialDocumentModelDto,
 } from "./dto/official-documents.dto.js";
 import {
   ANNUAL_CLEARANCE_DECLARATION_DOCUMENT_TITLE,
@@ -62,6 +67,12 @@ import {
   type OfficialDocumentSignerDefinition,
   type OfficialDocumentSignerSource,
 } from "./official-document.registry.js";
+import {
+  OFFICIAL_DOCUMENT_VARIABLES,
+  extractOfficialDocumentTemplateTokens,
+  invalidOfficialDocumentTemplateTokens,
+  manualOfficialDocumentTemplateTokens,
+} from "./official-document-template-variables.js";
 
 type StudentForOfficialDocument = Prisma.StudentGetPayload<{
   include: ReturnType<OfficialDocumentsService["studentInclude"]>;
@@ -179,6 +190,14 @@ type OfficialDocumentSnapshot = {
     regularizationLimit: string;
   };
   notes?: string | null;
+  dynamicTemplate?: {
+    content: string;
+    modelId: string;
+    modelName: string;
+    modelVersionId: string;
+    resolvedContent: string;
+    resolvedValues: Record<string, string>;
+  };
   termination?: {
     occurredAt: string;
     reason: string | null;
@@ -246,6 +265,215 @@ export class OfficialDocumentsService {
     @Inject(AssociationSettingsService)
     private readonly associationSettings: AssociationSettingsService,
   ) {}
+
+  listTemplateVariables() {
+    return { data: OFFICIAL_DOCUMENT_VARIABLES };
+  }
+
+  async listModels(status?: OfficialDocumentModelStatus) {
+    const models = await this.prisma.officialDocumentModel.findMany({
+      where: status ? { status } : undefined,
+      include: {
+        createdBy: { select: { id: true, name: true, email: true } },
+        versions: { orderBy: { version: "desc" }, take: 1 },
+      },
+      orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
+    });
+    return { data: models.map((model) => this.toModelResponse(model)) };
+  }
+
+  async listModelIssues() {
+    const issues = await this.prisma.officialDocumentIssue.findMany({
+      where: { documentModelId: { not: null } },
+      include: {
+        documentModel: true,
+        documentModelVersion: true,
+        issuedBy: { select: { id: true, name: true, email: true } },
+        student: { include: { person: true } },
+      },
+      orderBy: { issuedAt: "desc" },
+      take: 100,
+    });
+    return { data: issues.map((issue) => this.toIssueResponse(issue)) };
+  }
+
+  async listStudentModelIssues(studentId: string, currentUser: AuthUser) {
+    await this.getStudent(studentId, currentUser);
+    const issues = await this.prisma.officialDocumentIssue.findMany({
+      where: { studentId, documentModelId: { not: null } },
+      include: {
+        documentModel: true,
+        documentModelVersion: true,
+        issuedBy: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { issuedAt: "desc" },
+    });
+    return { data: issues.map((issue) => this.toIssueResponse(issue)) };
+  }
+
+  async getModel(modelId: string) {
+    const model = await this.prisma.officialDocumentModel.findUnique({
+      where: { id: modelId },
+      include: {
+        createdBy: { select: { id: true, name: true, email: true } },
+        versions: { orderBy: { version: "desc" } },
+      },
+    });
+    if (!model) {
+      throw new NotFoundException("Modelo de documento nao encontrado");
+    }
+    return this.toModelResponse(model);
+  }
+
+  async createModel(
+    payload: {
+      category: string;
+      content: string;
+      description?: string;
+      name: string;
+    },
+    currentUser: AuthUser,
+  ) {
+    this.assertValidTemplateContent(payload.content);
+    const tokens = extractOfficialDocumentTemplateTokens(payload.content);
+    const created = await this.prisma.$transaction(async (tx) => {
+      const model = await tx.officialDocumentModel.create({
+        data: {
+          category: payload.category || "Geral",
+          createdByUserId: currentUser.id,
+          description: payload.description || null,
+          name: payload.name,
+        },
+      });
+      await tx.officialDocumentModelVersion.create({
+        data: {
+          modelId: model.id,
+          version: 1,
+          content: payload.content,
+          variableTokens: tokens,
+          createdByUserId: currentUser.id,
+        },
+      });
+      await tx.administrativeAuditLog.create({
+        data: {
+          eventType: AdministrativeAuditEventType.OFFICIAL_DOCUMENT_MODEL_CREATED,
+          userId: currentUser.id,
+          domain: "official_documents",
+          recordId: model.id,
+          metadata: {
+            action: "create_model",
+            modelId: model.id,
+            name: model.name,
+            version: 1,
+            variables: tokens,
+          },
+        },
+      });
+      return model;
+    });
+    return this.getModel(created.id);
+  }
+
+  async updateModel(
+    modelId: string,
+    payload: UpdateOfficialDocumentModelDto,
+    currentUser: AuthUser,
+  ) {
+    const current = await this.prisma.officialDocumentModel.findUnique({
+      where: { id: modelId },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    if (!current) {
+      throw new NotFoundException("Modelo de documento nao encontrado");
+    }
+    const currentVersion = current.versions[0];
+    const nextContent = payload.content ?? currentVersion?.content ?? "";
+    this.assertValidTemplateContent(nextContent);
+    const contentChanged =
+      payload.content !== undefined && payload.content !== currentVersion?.content;
+    const tokens = extractOfficialDocumentTemplateTokens(nextContent);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.officialDocumentModel.update({
+        where: { id: modelId },
+        data: {
+          category: payload.category ?? undefined,
+          description: payload.description ?? undefined,
+          name: payload.name ?? undefined,
+          currentVersion: contentChanged ? current.currentVersion + 1 : undefined,
+        },
+      });
+      if (contentChanged) {
+        const version = current.currentVersion + 1;
+        const createdVersion = await tx.officialDocumentModelVersion.create({
+          data: {
+            modelId,
+            version,
+            content: nextContent,
+            variableTokens: tokens,
+            createdByUserId: currentUser.id,
+          },
+        });
+        await tx.administrativeAuditLog.create({
+          data: {
+            eventType:
+              AdministrativeAuditEventType.OFFICIAL_DOCUMENT_MODEL_VERSION_CREATED,
+            userId: currentUser.id,
+            domain: "official_documents",
+            recordId: modelId,
+            metadata: {
+              action: "create_model_version",
+              modelId,
+              modelVersionId: createdVersion.id,
+              version,
+              variables: tokens,
+            },
+          },
+        });
+      }
+    });
+    return this.getModel(modelId);
+  }
+
+  async updateModelStatus(
+    modelId: string,
+    status: OfficialDocumentModelStatus,
+    currentUser: AuthUser,
+  ) {
+    const model = await this.prisma.officialDocumentModel.update({
+      where: { id: modelId },
+      data: { status },
+    });
+    await this.audit.record({
+      eventType:
+        status === OfficialDocumentModelStatus.ACTIVE
+          ? AdministrativeAuditEventType.OFFICIAL_DOCUMENT_MODEL_ACTIVATED
+          : AdministrativeAuditEventType.OFFICIAL_DOCUMENT_MODEL_INACTIVATED,
+      userId: currentUser.id,
+      domain: "official_documents",
+      recordId: modelId,
+      metadata: { action: "update_model_status", modelId, status },
+    });
+    return this.getModel(model.id);
+  }
+
+  async duplicateModel(modelId: string, currentUser: AuthUser) {
+    const model = await this.prisma.officialDocumentModel.findUnique({
+      where: { id: modelId },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    if (!model?.versions[0]) {
+      throw new NotFoundException("Modelo de documento nao encontrado");
+    }
+    return this.createModel(
+      {
+        category: model.category,
+        content: model.versions[0].content,
+        description: model.description ?? undefined,
+        name: `${model.name} (cópia)`,
+      },
+      currentUser,
+    );
+  }
 
   async listStudentOfficialDocuments(studentId: string, currentUser: AuthUser) {
     const student = await this.getStudent(studentId, currentUser);
@@ -461,6 +689,192 @@ export class OfficialDocumentsService {
     }
   }
 
+  async previewDynamicDocument(
+    studentId: string,
+    modelId: string,
+    currentUser: AuthUser,
+    payload?: IssueDynamicOfficialDocumentDto,
+  ) {
+    const student = await this.getStudent(studentId, currentUser);
+    const { model, version } = await this.getActiveModelVersion(modelId);
+    const issuedAt = new Date();
+    const resolved = await this.resolveDynamicTemplate(
+      student,
+      model,
+      version,
+      issuedAt,
+      payload,
+    );
+    return {
+      model: this.toModelResponse({ ...model, versions: [version] }),
+      manualInputs: manualOfficialDocumentTemplateTokens(version.content),
+      resolvedContent: resolved.resolvedContent,
+      resolvedValues: resolved.resolvedValues,
+      unknownTokens: invalidOfficialDocumentTemplateTokens(version.content),
+    };
+  }
+
+  async issueDynamicDocument(
+    studentId: string,
+    modelId: string,
+    currentUser: AuthUser,
+    payload?: IssueDynamicOfficialDocumentDto,
+    sourceIssueId?: string,
+  ) {
+    const student = await this.getStudent(studentId, currentUser);
+    let model: OfficialDocumentModel;
+    let version: OfficialDocumentModelVersion;
+    const issuedAt = new Date();
+    const protocol = this.buildProtocol(issuedAt);
+    let sourceIssue: OfficialDocumentIssue | null = null;
+    if (sourceIssueId) {
+      sourceIssue = await this.prisma.officialDocumentIssue.findFirst({
+        where: { id: sourceIssueId, studentId, documentModelId: modelId },
+      });
+      if (!sourceIssue) {
+        throw new NotFoundException("Documento emitido nao encontrado");
+      }
+      const sourceVersionId = sourceIssue.documentModelVersionId;
+      const foundVersion = sourceVersionId
+        ? await this.prisma.officialDocumentModelVersion.findUnique({
+            where: { id: sourceVersionId },
+            include: { model: true },
+          })
+        : null;
+      if (!foundVersion) {
+        throw new NotFoundException("Versao do modelo nao encontrada");
+      }
+      model = foundVersion.model;
+      version = foundVersion;
+    } else {
+      const active = await this.getActiveModelVersion(modelId);
+      model = active.model;
+      version = active.version;
+    }
+    const resolved = await this.resolveDynamicTemplate(
+      student,
+      model,
+      version,
+      issuedAt,
+      payload,
+    );
+    const signers = await this.resolveSigners(
+      [
+        {
+          label: "Associado",
+          required: true,
+          role: "ACADEMICO",
+          source: "STUDENT",
+        },
+      ],
+      student,
+      issuedAt,
+    );
+    const association = await this.associationSettings.getSnapshotForDocuments();
+    const snapshot: OfficialDocumentSnapshot = {
+      association,
+      body: this.dynamicTemplateBody(resolved.resolvedContent),
+      documentTitle: model.name,
+      documentType: OfficialDocumentType.DYNAMIC_TEMPLATE,
+      dynamicTemplate: {
+        content: version.content,
+        modelId: model.id,
+        modelName: model.name,
+        modelVersionId: version.id,
+        resolvedContent: resolved.resolvedContent,
+        resolvedValues: resolved.resolvedValues,
+      },
+      emittedAt: issuedAt.toISOString(),
+      footerNote: association.footerText,
+      protocol,
+      qrPayload: `ATRETU:${protocol}`,
+      signatureLabel: `${student.person.addressCity || association.issuePlace}, ${this.formatDate(issuedAt)}`,
+      signatureName: student.person.fullName,
+      signatureTitle: "Associado",
+      signers,
+      subject: {
+        id: student.id,
+        name: student.person.fullName,
+        scope: "STUDENT",
+      },
+      student: {
+        id: student.id,
+        address: this.formatAddress(student.person),
+        city: student.person.addressCity || association.issuePlace,
+        name: student.person.fullName,
+        cpf: this.formatCpf(student.person.cpf),
+        rg: this.formatRg(student.person.rg),
+        status: student.status,
+      },
+      template: { key: model.id, version: version.version },
+      version: version.version,
+    };
+    const pdfInput = await this.toPdfInput(snapshot, currentUser.name);
+    const pdf = await this.pdfBuilder.render(pdfInput);
+    const issueId = randomUUID();
+    const storageKey = `official-documents/${studentId}/models/${model.id}/${issueId}.pdf`;
+    const fileName = this.dynamicFileName(model.name, student, protocol);
+    const checksumSha256 = createHash("sha256").update(pdf).digest("hex");
+
+    await this.storage.write(storageKey, pdf);
+    try {
+      const issue = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.officialDocumentIssue.create({
+          data: {
+            id: issueId,
+            studentId,
+            documentModelId: model.id,
+            documentModelVersionId: version.id,
+            documentType: OfficialDocumentType.DYNAMIC_TEMPLATE,
+            templateKey: model.id,
+            templateVersion: version.version,
+            version: version.version,
+            protocol,
+            storageKey,
+            fileName,
+            sizeBytes: pdf.byteLength,
+            checksumSha256,
+            issuedByUserId: currentUser.id,
+            sourceIssueId,
+            contentSnapshot: snapshot as Prisma.InputJsonObject,
+            notes: `modelo=${model.name}; versao=${version.version}`,
+          },
+          include: {
+            documentModel: true,
+            documentModelVersion: true,
+            issuedBy: { select: { id: true, name: true, email: true } },
+          },
+        });
+        await tx.administrativeAuditLog.create({
+          data: {
+            eventType: sourceIssueId
+              ? AdministrativeAuditEventType.OFFICIAL_DOCUMENT_REISSUED
+              : AdministrativeAuditEventType.OFFICIAL_DOCUMENT_ISSUED,
+            userId: currentUser.id,
+            domain: "official_documents",
+            recordId: created.id,
+            metadata: {
+              action: sourceIssueId ? "reissue_dynamic_model" : "issue_dynamic_model",
+              modelId: model.id,
+              modelVersionId: version.id,
+              protocol,
+              sourceIssueId,
+              studentId,
+              templateKey: model.id,
+              templateVersion: version.version,
+              variables: Object.keys(resolved.resolvedValues),
+            },
+          },
+        });
+        return created;
+      });
+      return this.toIssueResponse(issue);
+    } catch (error) {
+      await this.storage.removeIfExists(storageKey);
+      throw error;
+    }
+  }
+
   private async signerPreview(
     definitions: readonly OfficialDocumentSignerDefinition[],
   ) {
@@ -587,6 +1001,15 @@ export class OfficialDocumentsService {
 
   async reissueDocument(studentId: string, issueId: string, currentUser: AuthUser) {
     const source = await this.findIssue(studentId, issueId);
+    if (source.documentModelId) {
+      return this.issueDynamicDocument(
+        studentId,
+        source.documentModelId,
+        currentUser,
+        undefined,
+        issueId,
+      );
+    }
     return this.issueDocument(
       studentId,
       source.documentType,
@@ -694,6 +1117,10 @@ export class OfficialDocumentsService {
           shift: true,
         },
         orderBy: [{ academicYear: { year: "desc" } }, { createdAt: "desc" }],
+        take: 1,
+      },
+      studentCards: {
+        orderBy: { issuedAt: "desc" },
         take: 1,
       },
     } satisfies Prisma.StudentInclude;
@@ -1387,15 +1814,191 @@ export class OfficialDocumentsService {
     };
   }
 
-  private toIssueResponse(
-    issue: OfficialDocumentIssue & {
-      issuedBy?: { id: string; name: string; email: string } | null;
+  private async getActiveModelVersion(modelId: string) {
+    const model = await this.prisma.officialDocumentModel.findFirst({
+      where: { id: modelId, status: OfficialDocumentModelStatus.ACTIVE },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    if (!model?.versions[0]) {
+      throw new NotFoundException("Modelo ativo nao encontrado");
+    }
+    return { model, version: model.versions[0] };
+  }
+
+  private assertValidTemplateContent(content: string) {
+    if (!content.trim()) {
+      throw new BadRequestException("Informe o conteudo do modelo.");
+    }
+    if (/<\/?[a-z][\s\S]*>/i.test(content) || /<script/i.test(content)) {
+      throw new BadRequestException("Modelo deve usar texto simples, sem HTML ou JavaScript.");
+    }
+    const invalidTokens = invalidOfficialDocumentTemplateTokens(content);
+    if (invalidTokens.length > 0) {
+      throw new BadRequestException(
+        `Variavel desconhecida: ${invalidTokens.join(", ")}`,
+      );
+    }
+  }
+
+  private async resolveDynamicTemplate(
+    student: StudentForOfficialDocument,
+    model: OfficialDocumentModel,
+    version: OfficialDocumentModelVersion,
+    issuedAt: Date,
+    payload?: IssueDynamicOfficialDocumentDto,
+  ) {
+    this.assertValidTemplateContent(version.content);
+    const manualTokens = manualOfficialDocumentTemplateTokens(version.content);
+    const inputs = payload?.inputs ?? {};
+    const missingInputs = manualTokens.filter((token) => !String(inputs[token] ?? "").trim());
+    if (missingInputs.length > 0) {
+      throw new BadRequestException(
+        `Informe os campos manuais: ${missingInputs.join(", ")}`,
+      );
+    }
+    const resolvedValues = await this.dynamicTemplateValues(student, issuedAt, inputs);
+    const resolvedContent = version.content.replace(
+      /\{\{\s*([a-zA-Z][a-zA-Z0-9]*(?:\.[a-zA-Z][a-zA-Z0-9]*)+)\s*\}\}/g,
+      (_match, token: string) => resolvedValues[token] ?? "",
+    );
+    return {
+      modelId: model.id,
+      resolvedContent,
+      resolvedValues: Object.fromEntries(
+        extractOfficialDocumentTemplateTokens(version.content).map((token) => [
+          token,
+          resolvedValues[token] ?? "",
+        ]),
+      ),
+    };
+  }
+
+  private async dynamicTemplateValues(
+    student: StudentForOfficialDocument,
+    issuedAt: Date,
+    inputs: Record<string, string>,
+  ) {
+    const enrollment = student.enrollments[0] ?? null;
+    const association = await this.associationSettings.getSnapshotForDocuments();
+    const values: Record<string, string> = {
+      "association.cnpj": association.cnpj,
+      "association.name": association.displayName ?? association.legalName,
+      "document.issueDate": this.formatDate(issuedAt),
+      "document.issueDateLong": this.formatLongDateInSaoPaulo(issuedAt),
+      "enrollment.academicYear": enrollment?.academicYear.year
+        ? String(enrollment.academicYear.year)
+        : "nao informado",
+      "enrollment.course": enrollment?.course || "nao informado",
+      "enrollment.series": enrollment?.grade || "nao informado",
+      "enrollment.shift": enrollment?.shift.name || "nao informado",
+      "institution.name": enrollment?.institution.name || "nao informado",
+      "student.birthDate": this.formatDate(student.person.birthDate),
+      "student.cardNumber": student.studentCards[0]?.cardNumber ?? "nao informado",
+      "student.cpf": this.formatCpf(student.person.cpf),
+      "student.name": student.person.fullName,
+    };
+    for (const [key, value] of Object.entries(inputs)) {
+      if (key.startsWith("input.")) {
+        values[key] = String(value).trim();
+      }
+    }
+    return values;
+  }
+
+  private dynamicTemplateBody(content: string): OfficialDocumentPdfBlock[] {
+    return content
+      .split(/\n{2,}/)
+      .map((text) => text.replace(/\s*\n\s*/g, " ").trim())
+      .filter(Boolean)
+      .map((text) => ({ text, type: "paragraph" }));
+  }
+
+  private dynamicFileName(
+    modelName: string,
+    student: StudentForOfficialDocument,
+    protocol: string,
+  ) {
+    const modelToken = this.slugToken(modelName) || "modelo";
+    const studentToken = this.slugToken(student.person.fullName) || "academico";
+    return `${modelToken}_${studentToken}_${protocol.toLowerCase()}.pdf`;
+  }
+
+  private slugToken(value: string) {
+    return value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+  }
+
+  private toModelResponse(
+    model: OfficialDocumentModel & {
+      createdBy?: { id: string; name: string; email: string } | null;
+      versions?: OfficialDocumentModelVersion[];
     },
   ) {
+    const current = model.versions?.[0] ?? null;
+    return {
+      id: model.id,
+      name: model.name,
+      description: model.description,
+      category: model.category,
+      status: model.status,
+      currentVersion: model.currentVersion,
+      content: current?.content ?? "",
+      variableTokens: Array.isArray(current?.variableTokens)
+        ? current.variableTokens
+        : [],
+      manualInputTokens: current
+        ? manualOfficialDocumentTemplateTokens(current.content)
+        : [],
+      createdBy: model.createdBy
+        ? {
+            id: model.createdBy.id,
+            name: model.createdBy.name,
+            email: model.createdBy.email,
+          }
+        : null,
+      createdAt: model.createdAt.toISOString(),
+      updatedAt: model.updatedAt.toISOString(),
+      versions:
+        model.versions?.map((version) => ({
+          id: version.id,
+          version: version.version,
+          content: version.content,
+          variableTokens: Array.isArray(version.variableTokens)
+            ? version.variableTokens
+            : [],
+          createdAt: version.createdAt.toISOString(),
+        })) ?? [],
+    };
+  }
+
+  private toIssueResponse(
+    issue: OfficialDocumentIssue & {
+      documentModel?: OfficialDocumentModel | null;
+      documentModelVersion?: OfficialDocumentModelVersion | null;
+      issuedBy?: { id: string; name: string; email: string } | null;
+      student?: { person?: { fullName: string } } | null;
+    },
+  ) {
+    const snapshot = issue.contentSnapshot as Prisma.JsonObject;
+    const dynamicTemplate = snapshot.dynamicTemplate as Prisma.JsonObject | undefined;
     return {
       id: issue.id,
       studentId: issue.studentId,
       type: issue.documentType,
+      documentModelId: issue.documentModelId,
+      documentModelVersionId: issue.documentModelVersionId,
+      model: issue.documentModel
+        ? {
+            id: issue.documentModel.id,
+            name: issue.documentModel.name,
+            category: issue.documentModel.category,
+            status: issue.documentModel.status,
+          }
+        : null,
       status: issue.status,
       templateKey: issue.templateKey,
       templateVersion: issue.templateVersion,
@@ -1414,6 +2017,17 @@ export class OfficialDocumentsService {
         : null,
       sourceIssueId: issue.sourceIssueId,
       notes: issue.notes,
+      resolvedContent:
+        typeof dynamicTemplate?.resolvedContent === "string"
+          ? dynamicTemplate.resolvedContent
+          : null,
+      resolvedValues:
+        dynamicTemplate?.resolvedValues &&
+        typeof dynamicTemplate.resolvedValues === "object" &&
+        !Array.isArray(dynamicTemplate.resolvedValues)
+          ? dynamicTemplate.resolvedValues
+          : null,
+      studentName: issue.student?.person?.fullName ?? null,
       adhesionDetails: this.adhesionDetails(issue),
       annualClearanceDetails: this.annualClearanceDetails(issue),
       approvalDate: this.approvalDate(issue),
