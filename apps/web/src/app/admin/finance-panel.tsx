@@ -1543,7 +1543,7 @@ export function FinancePanel({
     return (
       <div className="grid min-w-0 gap-5">
         {financeHeader}
-        <FinancialReportsPanel />
+        <FinancialReportsPanel user={user} />
       </div>
     );
   }

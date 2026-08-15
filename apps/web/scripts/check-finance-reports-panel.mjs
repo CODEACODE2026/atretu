@@ -18,4 +18,7 @@ assert.match(panel, /Resultado/);
 assert.match(panel, /Comparativo dos últimos 12 meses/);
 assert.match(panel, /Despesas por categoria/);
 assert.match(panel, /Entradas manuais por categoria/);
-assert.doesNotMatch(panel, /PDF|Excel|download/i);
+assert.match(panel, /downloadReportPdf/);
+assert.match(panel, /Gerar relatório/);
+assert.match(panel, /Não foi possível gerar o PDF gerencial/);
+assert.doesNotMatch(panel, /Excel|downloadReportXlsx/i);

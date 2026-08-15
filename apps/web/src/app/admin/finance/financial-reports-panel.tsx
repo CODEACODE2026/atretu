@@ -5,6 +5,7 @@ import {
   ArrowDownCircle,
   ArrowUpCircle,
   BarChart3,
+  FileText,
   MinusCircle,
   RefreshCw,
   TrendingDown,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  type ApiUser,
   type FinancialMonthlyReport,
   type FinancialReportCategory,
   type FinancialReportComparisonMonth,
@@ -20,6 +22,11 @@ import {
 } from "../../../lib/api";
 import { mapApiErrorMessage } from "../../../lib/formatters";
 import { adminTheme, cx } from "../admin-theme";
+import {
+  downloadReportPdf,
+  type GeneratedReport,
+  type ReportRow,
+} from "../reports/report-export";
 
 const categoryLabels: Record<ManualFinancialMovementCategory, string> = {
   SECOND_CARD_COPY: "Segunda via de carteirinha",
@@ -37,12 +44,16 @@ const categoryLabels: Record<ManualFinancialMovementCategory, string> = {
   OTHER: "Outros",
 };
 
-export function FinancialReportsPanel() {
+const ASSOCIATION_NAME = "ATRETU";
+
+export function FinancialReportsPanel({ user }: { user: ApiUser }) {
   const defaultPeriod = useMemo(() => currentSaoPauloMonth(), []);
   const [month, setMonth] = useState(defaultPeriod.month);
   const [year, setYear] = useState(defaultPeriod.year);
   const [report, setReport] = useState<FinancialMonthlyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -52,16 +63,19 @@ export function FinancialReportsPanel() {
   async function loadReport(nextMonth = month, nextYear = year) {
     setLoading(true);
     setError("");
+    setPdfError("");
     try {
       const response = await api.getFinancialMonthlyReport({
         month: nextMonth,
         year: nextYear,
       });
       setReport(response);
+      return response;
     } catch (caught) {
       setReport(null);
       const message = caught instanceof Error ? caught.message : "";
       setError(mapApiErrorMessage(message) || "Erro ao carregar relatório financeiro");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -72,13 +86,32 @@ export function FinancialReportsPanel() {
     void loadReport();
   }
 
+  async function generatePdf() {
+    if (loading || pdfLoading) {
+      return;
+    }
+    setPdfLoading(true);
+    setPdfError("");
+    try {
+      const response = await api.getFinancialMonthlyReport({ month, year });
+      setReport(response);
+      downloadReportPdf(toGeneratedReport(response), user);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "";
+      setPdfError(mapApiErrorMessage(message) || "Não foi possível gerar o PDF gerencial.");
+    } finally {
+      setPdfLoading(false);
+    }
+  }
+
   const summary = report?.summary;
+  const actionsDisabled = loading || pdfLoading;
 
   return (
     <section className="grid min-w-0 gap-4">
       <div className={cx(adminTheme.card, "min-w-0 p-5")}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase text-[#1F6F5F]">
               Regime de caixa
             </p>
@@ -89,7 +122,10 @@ export function FinancialReportsPanel() {
               Mensalidades pagas, entradas manuais recebidas e despesas pagas no período.
             </p>
           </div>
-          <form className="grid gap-2 sm:grid-cols-[120px_120px_auto]" onSubmit={submit}>
+          <form
+            className="grid min-w-0 gap-2 sm:grid-cols-[120px_120px_auto_auto] sm:items-end"
+            onSubmit={submit}
+          >
             <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
               Mês
               <select
@@ -115,9 +151,22 @@ export function FinancialReportsPanel() {
                 value={year}
               />
             </label>
-            <button className={adminTheme.primaryButton} disabled={loading} type="submit">
+            <button
+              className={cx(adminTheme.secondaryButton, "w-full sm:w-auto")}
+              disabled={actionsDisabled}
+              type="submit"
+            >
               <RefreshCw aria-hidden="true" className={cx("h-4 w-4", loading ? "animate-spin" : undefined)} />
               Atualizar
+            </button>
+            <button
+              className={cx(adminTheme.primaryButton, "w-full sm:w-auto")}
+              disabled={actionsDisabled}
+              onClick={() => void generatePdf()}
+              type="button"
+            >
+              <FileText aria-hidden="true" className={cx("h-4 w-4", pdfLoading ? "animate-pulse" : undefined)} />
+              {pdfLoading ? "Gerando..." : "Gerar relatório"}
             </button>
           </form>
         </div>
@@ -126,6 +175,11 @@ export function FinancialReportsPanel() {
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      ) : null}
+      {pdfError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {pdfError}
         </div>
       ) : null}
 
@@ -177,6 +231,125 @@ export function FinancialReportsPanel() {
       ) : null}
     </section>
   );
+}
+
+function toGeneratedReport(report: FinancialMonthlyReport): GeneratedReport {
+  return {
+    category: "Financeiro",
+    columns: [
+      { key: "section", label: "Seção" },
+      { key: "item", label: "Item" },
+      { key: "revenue", label: "Receita" },
+      { key: "expense", label: "Despesa" },
+      { key: "result", label: "Resultado" },
+      { key: "detail", label: "Detalhe" },
+    ],
+    filters: [
+      { label: "Associação", value: ASSOCIATION_NAME },
+      { label: "Período", value: report.period.label },
+      { label: "Fuso", value: report.period.timezone },
+    ],
+    generatedAt: new Date().toISOString(),
+    rows: [
+      ...summaryRows(report),
+      ...comparisonRows(report.comparison),
+      ...categoryRows("Despesas por categoria", report.expenseCategories, "expense"),
+      ...categoryRows("Entradas por categoria", report.incomeCategories, "revenue"),
+    ],
+    summary: [
+      { label: "Associação", value: ASSOCIATION_NAME },
+      { label: "Período", value: report.period.label },
+      { label: "Receita total", value: report.summary.totalRevenueFormatted },
+      {
+        label: "Resultado",
+        value: `${report.summary.resultStatus === "NEGATIVE" ? "-" : "+"} ${report.summary.resultFormatted}`,
+      },
+    ],
+    title: "Relatório financeiro gerencial",
+  };
+}
+
+function summaryRows(report: FinancialMonthlyReport): ReportRow[] {
+  return [
+    {
+      detail: `Período ${report.period.startDate} até ${report.period.endDateExclusive}`,
+      expense: "",
+      item: "Receita de mensalidades",
+      result: "",
+      revenue: report.summary.invoiceRevenueFormatted,
+      section: "Resumo do período",
+    },
+    {
+      detail: report.rules.manualIncomeDate,
+      expense: "",
+      item: "Outras entradas",
+      result: "",
+      revenue: report.summary.manualIncomeFormatted,
+      section: "Resumo do período",
+    },
+    {
+      detail: "Receita de mensalidades + outras entradas",
+      expense: "",
+      item: "Receita total",
+      result: "",
+      revenue: report.summary.totalRevenueFormatted,
+      section: "Resumo do período",
+    },
+    {
+      detail: report.rules.manualExpenseDate,
+      expense: report.summary.expenseFormatted,
+      item: "Despesas",
+      result: "",
+      revenue: "",
+      section: "Resumo do período",
+    },
+    {
+      detail: "Receita total - despesas",
+      expense: "",
+      item: "Resultado",
+      result: `${report.summary.resultStatus === "NEGATIVE" ? "-" : "+"} ${report.summary.resultFormatted}`,
+      revenue: "",
+      section: "Resumo do período",
+    },
+  ];
+}
+
+function comparisonRows(rows: FinancialReportComparisonMonth[]): ReportRow[] {
+  return rows.map((row) => ({
+    detail: `Competência ${row.month}`,
+    expense: row.expenseFormatted,
+    item: row.label,
+    result: `${row.resultStatus === "NEGATIVE" ? "-" : "+"} ${row.resultFormatted}`,
+    revenue: row.revenueFormatted,
+    section: "Comparativo dos últimos 12 meses",
+  }));
+}
+
+function categoryRows(
+  section: string,
+  rows: FinancialReportCategory[],
+  target: "expense" | "revenue",
+): ReportRow[] {
+  if (rows.length === 0) {
+    return [
+      {
+        detail: "Nenhum registro encontrado.",
+        expense: "",
+        item: section,
+        result: "",
+        revenue: "",
+        section,
+      },
+    ];
+  }
+  return rows.map((row) => ({
+    detail: `${row.count} lançamento(s) · ${row.percentage.toFixed(2)}%`,
+    expense: target === "expense" ? row.totalFormatted : "",
+    item: categoryLabels[row.category],
+    result: "",
+    revenue: target === "revenue" ? row.totalFormatted : "",
+    section,
+  }));
 }
 
 function ReportCard({
