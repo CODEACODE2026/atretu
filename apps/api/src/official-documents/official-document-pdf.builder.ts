@@ -26,7 +26,7 @@ export type OfficialDocumentPdfInput = {
   signaturePlacement?: "body" | "end";
   signatureLabel: string;
   signatureName: string;
-  signatures?: Array<{ label?: string; name: string }>;
+  signatures?: Array<{ label?: string; name: string }> | null;
   signatureTitle?: string;
   subjectLabel?: string;
   subjectName?: string;
@@ -135,10 +135,17 @@ export class OfficialDocumentPdfBuilder {
       });
     });
 
-    const signatures = input.signatures?.length
-      ? input.signatures
-      : [{ label: input.signatureTitle, name: input.signatureName }];
+    const signatures =
+      input.signatures === null
+        ? []
+        : input.signatures?.length
+          ? input.signatures
+          : [{ label: input.signatureTitle, name: input.signatureName }];
     if (input.signaturePlacement === "body") {
+      this.drawLastPageFooter(doc, input);
+      return;
+    }
+    if (signatures.length === 0) {
       this.drawLastPageFooter(doc, input);
       return;
     }

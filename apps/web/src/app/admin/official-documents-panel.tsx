@@ -19,6 +19,7 @@ import {
 import {
   api,
   type StudentSummary,
+  type OfficialDocumentDynamicSignatureMode,
   type IssueInstitutionalOfficialDocumentBody,
   type OfficialDocumentModel,
   type OfficialDocumentVariable,
@@ -83,6 +84,7 @@ export function OfficialDocumentsPanel() {
     content: string;
     description?: string;
     name: string;
+    signatureMode: OfficialDocumentDynamicSignatureMode;
   }) {
     setBusy("model-save");
     setError("");
@@ -571,6 +573,9 @@ function ModelIssueDialog({
   const [selectedStudent, setSelectedStudent] = useState<StudentSummary | null>(null);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState("");
+  const [signaturePreview, setSignaturePreview] = useState<
+    Array<{ label?: string; name: string }>
+  >([]);
   const [error, setError] = useState("");
   const [searching, setSearching] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -631,8 +636,10 @@ function ModelIssueDialog({
         { inputs },
       );
       setPreview(response.resolvedContent);
+      setSignaturePreview(response.signaturePreview);
     } catch (caught) {
       setPreview("");
+      setSignaturePreview([]);
       setError(caught instanceof Error ? caught.message : "Erro ao gerar prévia.");
     } finally {
       setPreviewing(false);
@@ -708,6 +715,7 @@ function ModelIssueDialog({
                       onClick={() => {
                         setSelectedStudent(student);
                         setPreview("");
+                        setSignaturePreview([]);
                         setError("");
                       }}
                       type="button"
@@ -765,6 +773,17 @@ function ModelIssueDialog({
               <pre className="mt-3 max-h-72 min-h-32 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
                 {preview || model.content}
               </pre>
+              {signaturePreview.length > 0 ? (
+                <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2">
+                  {signaturePreview.map((signature) => (
+                    <SignaturePreviewBlock
+                      key={`${signature.name}-${signature.label ?? ""}`}
+                      label={signature.label ?? ""}
+                      name={signature.name}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </section>
           </div>
 
@@ -785,6 +804,14 @@ function ModelIssueDialog({
               }
             />
             <DetailLine label="Prévia" value={preview ? "gerada" : "pendente"} />
+            <DetailLine
+              label="Assinaturas"
+              value={
+                signaturePreview.length > 0
+                  ? `${signaturePreview.length} bloco(s)`
+                  : "nenhuma"
+              }
+            />
           </aside>
         </div>
 
@@ -820,6 +847,34 @@ function DetailLine({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SignaturePreviewBlock({
+  label,
+  name,
+}: {
+  label: string;
+  name: string;
+}) {
+  return (
+    <div className="min-w-0 text-center text-xs text-slate-600">
+      <div className="mx-auto h-px w-full max-w-56 bg-slate-300" />
+      <p className="mt-2 break-words font-semibold text-slate-900">{name}</p>
+      <p className="mt-1 break-words">{label}</p>
+    </div>
+  );
+}
+
+function variableCategoryLabel(category: string) {
+  const labels: Record<string, string> = {
+    association: "Associação",
+    document: "Documento",
+    enrollment: "Matrícula",
+    input: "Campos manuais",
+    institution: "Instituição",
+    student: "Acadêmico",
+  };
+  return labels[category] ?? category;
+}
+
 function ModelDialog({
   busy,
   model,
@@ -835,6 +890,7 @@ function ModelDialog({
     content: string;
     description?: string;
     name: string;
+    signatureMode: OfficialDocumentDynamicSignatureMode;
   }) => void;
   variables: OfficialDocumentVariable[];
 }) {
@@ -842,6 +898,9 @@ function ModelDialog({
   const [description, setDescription] = useState(model?.description ?? "");
   const [category, setCategory] = useState(model?.category ?? "Geral");
   const [content, setContent] = useState(model?.content ?? "");
+  const [signatureMode, setSignatureMode] = useState<OfficialDocumentDynamicSignatureMode>(
+    model?.signatureMode ?? "NONE",
+  );
   const insertVariable = (token: string) => {
     setContent((current) => `${current}${current.endsWith(" ") || current.endsWith("\n") || current === "" ? "" : " "}{{${token}}}`);
   };
@@ -860,6 +919,7 @@ function ModelDialog({
             content,
             description: description.trim() || undefined,
             name,
+            signatureMode,
           });
         }}
         role="dialog"
@@ -898,9 +958,39 @@ function ModelDialog({
                 value={content}
               />
             </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Assinaturas no documento
+              <select
+                className={adminTheme.control}
+                onChange={(event) =>
+                  setSignatureMode(
+                    event.target.value as OfficialDocumentDynamicSignatureMode,
+                  )
+                }
+                value={signatureMode}
+              >
+                <option value="NONE">Nenhuma</option>
+                <option value="STUDENT">Acadêmico</option>
+                <option value="BOARD">Diretoria</option>
+                <option value="STUDENT_BOARD">Acadêmico + Diretoria</option>
+              </select>
+            </label>
             <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <h3 className="text-sm font-semibold text-slate-950">Prévia</h3>
               <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{content || "Sem conteudo."}</pre>
+              {signatureMode !== "NONE" ? (
+                <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2">
+                  {signatureMode === "STUDENT" || signatureMode === "STUDENT_BOARD" ? (
+                    <SignaturePreviewBlock label="Acadêmico" name="{{student.name}}" />
+                  ) : null}
+                  {signatureMode === "BOARD" || signatureMode === "STUDENT_BOARD" ? (
+                    <SignaturePreviewBlock
+                      label="Cargo · Associação"
+                      name="Signatário da diretoria"
+                    />
+                  ) : null}
+                </div>
+              ) : null}
             </section>
           </div>
           <aside className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -908,7 +998,9 @@ function ModelDialog({
             <div className="mt-3 grid gap-3">
               {Object.entries(grouped).map(([categoryName, items]) => (
                 <section key={categoryName}>
-                  <p className="text-xs font-semibold uppercase text-slate-500">{categoryName}</p>
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    {variableCategoryLabel(categoryName)}
+                  </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {items.map((item) => (
                       <button

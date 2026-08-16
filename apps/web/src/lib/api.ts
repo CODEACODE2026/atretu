@@ -686,6 +686,12 @@ export type OfficialDocumentVariableCategory =
   | "institution"
   | "student";
 
+export type OfficialDocumentDynamicSignatureMode =
+  | "NONE"
+  | "STUDENT"
+  | "BOARD"
+  | "STUDENT_BOARD";
+
 export type OfficialDocumentVariable = {
   category: OfficialDocumentVariableCategory;
   label: string;
@@ -701,6 +707,7 @@ export type OfficialDocumentModel = {
   status: OfficialDocumentModelStatus;
   currentVersion: number;
   content: string;
+  signatureMode: OfficialDocumentDynamicSignatureMode;
   variableTokens: string[];
   manualInputTokens: string[];
   createdBy: { id: string; name: string; email: string } | null;
@@ -710,6 +717,7 @@ export type OfficialDocumentModel = {
     id: string;
     version: number;
     content: string;
+    signatureMode: OfficialDocumentDynamicSignatureMode;
     variableTokens: string[];
     createdAt: string;
   }>;
@@ -732,6 +740,7 @@ export type UpsertOfficialDocumentModelBody = {
   description?: string;
   category?: string;
   content?: string;
+  signatureMode?: OfficialDocumentDynamicSignatureMode;
 };
 
 export type IssueDynamicOfficialDocumentBody = {
@@ -743,6 +752,8 @@ export type DynamicOfficialDocumentPreview = {
   manualInputs: string[];
   resolvedContent: string;
   resolvedValues: Record<string, string>;
+  signatureMode: OfficialDocumentDynamicSignatureMode;
+  signaturePreview: Array<{ label?: string; name: string }>;
   unknownTokens: string[];
 };
 

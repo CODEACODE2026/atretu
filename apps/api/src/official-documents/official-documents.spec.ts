@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { BadRequestException } from "@nestjs/common";
-import { BoardMemberRole, OfficialDocumentType } from "@prisma/client";
+import {
+  BoardMemberRole,
+  OfficialDocumentDynamicSignatureMode,
+  OfficialDocumentType,
+} from "@prisma/client";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -40,6 +44,10 @@ import {
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
 const controller = readFileSync(
   new URL("./official-documents.controller.ts", import.meta.url),
+  "utf8",
+);
+const dto = readFileSync(
+  new URL("./dto/official-documents.dto.ts", import.meta.url),
   "utf8",
 );
 const service = readFileSync(
@@ -91,8 +99,10 @@ for (const fragment of [
   "INTERNAL_REGULATION",
   "DYNAMIC_TEMPLATE",
   "enum OfficialDocumentModelStatus",
+  "enum OfficialDocumentDynamicSignatureMode",
   "model OfficialDocumentModel",
   "model OfficialDocumentModelVersion",
+  "signatureMode",
   "documentModelId",
   "documentModelVersionId",
   "model OfficialDocumentIssue",
@@ -127,6 +137,14 @@ for (const fragment of [
   assert.ok(controller.includes(fragment), `controller must include ${fragment}`);
 }
 
+for (const fragment of [
+  "OfficialDocumentDynamicSignatureMode",
+  "@IsEnum(OfficialDocumentDynamicSignatureMode)",
+  "signatureMode?: OfficialDocumentDynamicSignatureMode",
+]) {
+  assert.ok(dto.includes(fragment), `dto must include ${fragment}`);
+}
+
 assert.deepEqual(
   extractOfficialDocumentTemplateTokens(
     "Declaro que {{student.name}}, CPF {{ student.cpf }}, está matriculado em {{institution.name}}.",
@@ -145,6 +163,9 @@ for (const fragment of [
   "documentModelVersionId: version.id",
   "contentSnapshot: snapshot",
   "dynamicTemplate",
+  "dynamicSignatureMode",
+  "resolveDynamicSigners",
+  "signaturePreview",
   "resolveDynamicTemplate",
   "OFFICIAL_DOCUMENT_MODEL_CREATED",
   "OFFICIAL_DOCUMENT_MODEL_VERSION_CREATED",
@@ -686,6 +707,15 @@ async function pdfPages(input: OfficialDocumentPdfInput) {
   }
 }
 
+async function pdfText(input: OfficialDocumentPdfInput) {
+  const rendered = await renderPdf(input);
+  try {
+    return runCommand("pdftotext", [rendered.filePath, "-"]);
+  } finally {
+    rendered.cleanup();
+  }
+}
+
 function countText(source: string, value: string) {
   return source.split(value).length - 1;
 }
@@ -810,6 +840,60 @@ assert.ok(longPages > 1, "really long official document must create extra pages"
 assert.ok(longPages < 8, "really long official document must not create header/footer-only pages");
 await assertNoHeaderOnlyPages(basePdfInput(longLetterBody));
 await assertGlobalPdfStandard(basePdfInput(longLetterBody));
+
+const dynamicSignatureModes = [
+  {
+    mode: OfficialDocumentDynamicSignatureMode.NONE,
+    signatures: null,
+    expected: [],
+  },
+  {
+    mode: OfficialDocumentDynamicSignatureMode.STUDENT,
+    signatures: [{ label: "Acadêmico", name: "Assinatura Academico QA" }],
+    expected: ["Assinatura Academico QA", "Acadêmico"],
+  },
+  {
+    mode: OfficialDocumentDynamicSignatureMode.BOARD,
+    signatures: [{ label: "Presidente · ATRETU", name: "Assinatura Diretoria QA" }],
+    expected: ["Assinatura Diretoria QA", "Presidente", "ATRETU"],
+  },
+  {
+    mode: OfficialDocumentDynamicSignatureMode.STUDENT_BOARD,
+    signatures: [
+      { label: "Acadêmico", name: "Assinatura Academico QA" },
+      { label: "Presidente · ATRETU", name: "Assinatura Diretoria QA" },
+    ],
+    expected: ["Assinatura Academico QA", "Assinatura Diretoria QA"],
+  },
+];
+
+for (const { expected, mode, signatures } of dynamicSignatureModes) {
+  const input: OfficialDocumentPdfInput = {
+    ...basePdfInput(["Conteudo de modelo dinamico para validar assinatura fisica."]),
+    documentTitle: `Modelo Dinamico ${mode}`,
+    protocol: `ATRETU-2026-${mode}`,
+    qrPayload: `ATRETU:ATRETU-2026-${mode}:DYNAMIC_TEMPLATE`,
+    signatureName: "Assinatura Oculta QA",
+    signatures,
+    signatureTitle: "Assinatura Oculta",
+    subjectName: "Documento dinamico QA",
+    studentName: "Documento dinamico QA",
+  };
+  assert.equal(
+    await pageCount(input),
+    1,
+    `${mode} dynamic model signature preview must fit in one A4 page`,
+  );
+  const text = await pdfText(input);
+  if (mode === OfficialDocumentDynamicSignatureMode.NONE) {
+    assert.ok(!text.includes("Assinatura Oculta QA"));
+    assert.ok(!text.includes("Assinatura Academico QA"));
+    assert.ok(!text.includes("Assinatura Diretoria QA"));
+  }
+  for (const value of expected) {
+    assert.ok(text.includes(value), `${mode} PDF must include ${value}`);
+  }
+}
 
 const internalRegulationInput: OfficialDocumentPdfInput = {
   body: internalRegulationBody(),

@@ -8,6 +8,7 @@ import {
   AdministrativeAuditEventType,
   BoardMemberRole,
   BoardMembershipStatus,
+  OfficialDocumentDynamicSignatureMode,
   OfficialDocumentIssue,
   OfficialDocumentModel,
   OfficialDocumentModelStatus,
@@ -197,7 +198,9 @@ type OfficialDocumentSnapshot = {
     modelVersionId: string;
     resolvedContent: string;
     resolvedValues: Record<string, string>;
+    signatureMode: OfficialDocumentDynamicSignatureMode;
   };
+  dynamicSignatureMode?: OfficialDocumentDynamicSignatureMode;
   termination?: {
     occurredAt: string;
     reason: string | null;
@@ -331,6 +334,7 @@ export class OfficialDocumentsService {
       content: string;
       description?: string;
       name: string;
+      signatureMode?: OfficialDocumentDynamicSignatureMode;
     },
     currentUser: AuthUser,
   ) {
@@ -350,6 +354,8 @@ export class OfficialDocumentsService {
           modelId: model.id,
           version: 1,
           content: payload.content,
+          signatureMode:
+            payload.signatureMode ?? OfficialDocumentDynamicSignatureMode.NONE,
           variableTokens: tokens,
           createdByUserId: currentUser.id,
         },
@@ -364,6 +370,8 @@ export class OfficialDocumentsService {
             action: "create_model",
             modelId: model.id,
             name: model.name,
+            signatureMode:
+              payload.signatureMode ?? OfficialDocumentDynamicSignatureMode.NONE,
             version: 1,
             variables: tokens,
           },
@@ -388,9 +396,17 @@ export class OfficialDocumentsService {
     }
     const currentVersion = current.versions[0];
     const nextContent = payload.content ?? currentVersion?.content ?? "";
+    const nextSignatureMode =
+      payload.signatureMode ??
+      currentVersion?.signatureMode ??
+      OfficialDocumentDynamicSignatureMode.STUDENT;
     this.assertValidTemplateContent(nextContent);
     const contentChanged =
       payload.content !== undefined && payload.content !== currentVersion?.content;
+    const signatureModeChanged =
+      payload.signatureMode !== undefined &&
+      payload.signatureMode !== currentVersion?.signatureMode;
+    const versionChanged = contentChanged || signatureModeChanged;
     const tokens = extractOfficialDocumentTemplateTokens(nextContent);
     await this.prisma.$transaction(async (tx) => {
       await tx.officialDocumentModel.update({
@@ -399,16 +415,17 @@ export class OfficialDocumentsService {
           category: payload.category ?? undefined,
           description: payload.description ?? undefined,
           name: payload.name ?? undefined,
-          currentVersion: contentChanged ? current.currentVersion + 1 : undefined,
+          currentVersion: versionChanged ? current.currentVersion + 1 : undefined,
         },
       });
-      if (contentChanged) {
+      if (versionChanged) {
         const version = current.currentVersion + 1;
         const createdVersion = await tx.officialDocumentModelVersion.create({
           data: {
             modelId,
             version,
             content: nextContent,
+            signatureMode: nextSignatureMode,
             variableTokens: tokens,
             createdByUserId: currentUser.id,
           },
@@ -424,6 +441,7 @@ export class OfficialDocumentsService {
               action: "create_model_version",
               modelId,
               modelVersionId: createdVersion.id,
+              signatureMode: nextSignatureMode,
               version,
               variables: tokens,
             },
@@ -470,6 +488,7 @@ export class OfficialDocumentsService {
         content: model.versions[0].content,
         description: model.description ?? undefined,
         name: `${model.name} (cópia)`,
+        signatureMode: model.versions[0].signatureMode,
       },
       currentUser,
     );
@@ -705,11 +724,19 @@ export class OfficialDocumentsService {
       issuedAt,
       payload,
     );
+    const association = await this.associationSettings.getSnapshotForDocuments();
+    const signers = await this.resolveDynamicSigners(
+      version.signatureMode,
+      student,
+      issuedAt,
+    );
     return {
       model: this.toModelResponse({ ...model, versions: [version] }),
       manualInputs: manualOfficialDocumentTemplateTokens(version.content),
       resolvedContent: resolved.resolvedContent,
       resolvedValues: resolved.resolvedValues,
+      signatureMode: version.signatureMode,
+      signaturePreview: this.dynamicSignaturePreview(signers, association),
       unknownTokens: invalidOfficialDocumentTemplateTokens(version.content),
     };
   }
@@ -758,24 +785,18 @@ export class OfficialDocumentsService {
       issuedAt,
       payload,
     );
-    const signers = await this.resolveSigners(
-      [
-        {
-          label: "Associado",
-          required: true,
-          role: "ACADEMICO",
-          source: "STUDENT",
-        },
-      ],
+    const association = await this.associationSettings.getSnapshotForDocuments();
+    const signers = await this.resolveDynamicSigners(
+      version.signatureMode,
       student,
       issuedAt,
     );
-    const association = await this.associationSettings.getSnapshotForDocuments();
     const snapshot: OfficialDocumentSnapshot = {
       association,
       body: this.dynamicTemplateBody(resolved.resolvedContent),
       documentTitle: model.name,
       documentType: OfficialDocumentType.DYNAMIC_TEMPLATE,
+      dynamicSignatureMode: version.signatureMode,
       dynamicTemplate: {
         content: version.content,
         modelId: model.id,
@@ -783,6 +804,7 @@ export class OfficialDocumentsService {
         modelVersionId: version.id,
         resolvedContent: resolved.resolvedContent,
         resolvedValues: resolved.resolvedValues,
+        signatureMode: version.signatureMode,
       },
       emittedAt: issuedAt.toISOString(),
       footerNote: association.footerText,
@@ -790,7 +812,7 @@ export class OfficialDocumentsService {
       qrPayload: `ATRETU:${protocol}`,
       signatureLabel: `${student.person.addressCity || association.issuePlace}, ${this.formatDate(issuedAt)}`,
       signatureName: student.person.fullName,
-      signatureTitle: "Associado",
+      signatureTitle: "Acadêmico",
       signers,
       subject: {
         id: student.id,
@@ -862,6 +884,7 @@ export class OfficialDocumentsService {
               studentId,
               templateKey: model.id,
               templateVersion: version.version,
+              signatureMode: version.signatureMode,
               variables: Object.keys(resolved.resolvedValues),
             },
           },
@@ -1947,6 +1970,8 @@ export class OfficialDocumentsService {
       status: model.status,
       currentVersion: model.currentVersion,
       content: current?.content ?? "",
+      signatureMode:
+        current?.signatureMode ?? OfficialDocumentDynamicSignatureMode.STUDENT,
       variableTokens: Array.isArray(current?.variableTokens)
         ? current.variableTokens
         : [],
@@ -1967,6 +1992,7 @@ export class OfficialDocumentsService {
           id: version.id,
           version: version.version,
           content: version.content,
+          signatureMode: version.signatureMode,
           variableTokens: Array.isArray(version.variableTokens)
             ? version.variableTokens
             : [],
@@ -2747,6 +2773,44 @@ export class OfficialDocumentsService {
     return signers;
   }
 
+  private async resolveDynamicSigners(
+    signatureMode: OfficialDocumentDynamicSignatureMode,
+    student: StudentForOfficialDocument,
+    issuedAt: Date,
+  ) {
+    const definitions: OfficialDocumentSignerDefinition[] = [];
+    if (
+      signatureMode === OfficialDocumentDynamicSignatureMode.STUDENT ||
+      signatureMode === OfficialDocumentDynamicSignatureMode.STUDENT_BOARD
+    ) {
+      definitions.push({
+        label: "Acadêmico",
+        required: true,
+        role: "ACADEMICO",
+        source: "STUDENT",
+      });
+    }
+    if (
+      signatureMode === OfficialDocumentDynamicSignatureMode.BOARD ||
+      signatureMode === OfficialDocumentDynamicSignatureMode.STUDENT_BOARD
+    ) {
+      definitions.push({
+        label: "Diretoria",
+        required: true,
+        role: BoardMemberRole.PRESIDENT,
+        source: "BOARD_ROLE",
+      });
+    }
+    return this.resolveSigners(definitions, student, issuedAt);
+  }
+
+  private dynamicSignaturePreview(
+    signers: OfficialDocumentSignerSnapshot[],
+    association: AssociationSnapshot,
+  ) {
+    return signers.map((signer) => this.dynamicSignatureLine(signer, association));
+  }
+
   private async resolveBoardRoleSigner(
     definition: OfficialDocumentSignerDefinition,
     issuedAt: Date,
@@ -2830,9 +2894,15 @@ export class OfficialDocumentsService {
 
   private pdfSignatures(snapshot: OfficialDocumentSnapshot) {
     if (!snapshot.signers.length) {
-      return undefined;
+      return snapshot.documentType === OfficialDocumentType.DYNAMIC_TEMPLATE
+        ? null
+        : undefined;
     }
+    const association = snapshot.association ?? this.associationSettings.legacySnapshot();
     return snapshot.signers.map((signer) => {
+      if (snapshot.documentType === OfficialDocumentType.DYNAMIC_TEMPLATE) {
+        return this.dynamicSignatureLine(signer, association);
+      }
       if (
         snapshot.documentType ===
           OfficialDocumentType.ANNUAL_CLEARANCE_DECLARATION &&
@@ -2884,6 +2954,24 @@ export class OfficialDocumentsService {
         name: signer.name,
       };
     });
+  }
+
+  private dynamicSignatureLine(
+    signer: OfficialDocumentSignerSnapshot,
+    association: AssociationSnapshot,
+  ) {
+    if (signer.source === "BOARD_ROLE") {
+      return {
+        label: `${signer.roleLabel} · ${
+          association.displayName ?? association.legalName
+        }`,
+        name: signer.name,
+      };
+    }
+    return {
+      label: "Acadêmico",
+      name: signer.name,
+    };
   }
 
   private paragraphs(texts: string[]): OfficialDocumentPdfBlock[] {

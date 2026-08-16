@@ -344,6 +344,13 @@ enum OfficialDocumentModelStatus {
   INACTIVE
 }
 
+enum OfficialDocumentDynamicSignatureMode {
+  NONE
+  STUDENT
+  BOARD
+  STUDENT_BOARD
+}
+
 enum PreRegistrationStatus {
   PENDING
   APPROVED
@@ -1250,6 +1257,7 @@ model OfficialDocumentModelVersion {
   version         Int
   content         String                  @db.Text
   variableTokens  Json                    @default("[]") @map("variable_tokens")
+  signatureMode   OfficialDocumentDynamicSignatureMode @default(STUDENT) @map("signature_mode")
   createdByUserId String?                 @map("created_by_user_id") @db.Uuid
   createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
   model           OfficialDocumentModel   @relation(fields: [modelId], references: [id], onDelete: Cascade)

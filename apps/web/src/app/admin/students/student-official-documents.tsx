@@ -437,12 +437,16 @@ function DynamicModelIssueDialog({
   const [modelId, setModelId] = useState(models[0]?.id ?? "");
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState("");
+  const [signaturePreview, setSignaturePreview] = useState<
+    Array<{ label?: string; name: string }>
+  >([]);
   const [error, setError] = useState("");
   const selected = models.find((model) => model.id === modelId) ?? null;
 
   useEffect(() => {
     setInputs({});
     setPreview("");
+    setSignaturePreview([]);
     setError("");
   }, [modelId]);
 
@@ -454,8 +458,10 @@ function DynamicModelIssueDialog({
         inputs,
       });
       setPreview(response.resolvedContent);
+      setSignaturePreview(response.signaturePreview);
     } catch (caught) {
       setPreview("");
+      setSignaturePreview([]);
       setError(caught instanceof Error ? caught.message : "Erro ao gerar prévia.");
     }
   }
@@ -521,6 +527,17 @@ function DynamicModelIssueDialog({
           <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">
             {preview || selected?.content || "Selecione um modelo."}
           </pre>
+          {signaturePreview.length > 0 ? (
+            <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2">
+              {signaturePreview.map((signature) => (
+                <SignaturePreviewBlock
+                  key={`${signature.name}-${signature.label ?? ""}`}
+                  label={signature.label ?? ""}
+                  name={signature.name}
+                />
+              ))}
+            </div>
+          ) : null}
         </section>
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className={cx(adminTheme.secondaryButton, "justify-center")} disabled={busy} onClick={onCancel} type="button">
@@ -532,6 +549,22 @@ function DynamicModelIssueDialog({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function SignaturePreviewBlock({
+  label,
+  name,
+}: {
+  label: string;
+  name: string;
+}) {
+  return (
+    <div className="min-w-0 text-center text-xs text-slate-600">
+      <div className="mx-auto h-px w-full max-w-56 bg-slate-300" />
+      <p className="mt-2 break-words font-semibold text-slate-900">{name}</p>
+      <p className="mt-1 break-words">{label}</p>
     </div>
   );
 }

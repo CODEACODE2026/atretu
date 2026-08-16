@@ -10,7 +10,11 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
-import { OfficialDocumentModelStatus, OfficialDocumentType } from "@prisma/client";
+import {
+  OfficialDocumentDynamicSignatureMode,
+  OfficialDocumentModelStatus,
+  OfficialDocumentType,
+} from "@prisma/client";
 import { FileDisposition } from "../../documents/dto/documents.dto.js";
 
 export class OfficialDocumentTypeParamDto {
@@ -160,6 +164,10 @@ export class CreateOfficialDocumentModelDto {
   @MaxLength(20000)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   content!: string;
+
+  @IsOptional()
+  @IsEnum(OfficialDocumentDynamicSignatureMode)
+  signatureMode?: OfficialDocumentDynamicSignatureMode;
 }
 
 export class UpdateOfficialDocumentModelDto {
@@ -186,6 +194,10 @@ export class UpdateOfficialDocumentModelDto {
   @MaxLength(20000)
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   content?: string;
+
+  @IsOptional()
+  @IsEnum(OfficialDocumentDynamicSignatureMode)
+  signatureMode?: OfficialDocumentDynamicSignatureMode;
 }
 
 export class UpdateOfficialDocumentModelStatusDto {
