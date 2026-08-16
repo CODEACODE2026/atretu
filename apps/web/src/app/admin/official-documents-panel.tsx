@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  type StudentSummary,
   type IssueInstitutionalOfficialDocumentBody,
   type OfficialDocumentModel,
   type OfficialDocumentVariable,
@@ -40,6 +41,8 @@ export function OfficialDocumentsPanel() {
   const [modelIssues, setModelIssues] = useState<OfficialDocumentIssue[]>([]);
   const [variables, setVariables] = useState<OfficialDocumentVariable[]>([]);
   const [modelDialog, setModelDialog] = useState<OfficialDocumentModel | "new" | null>(null);
+  const [modelIssueDialog, setModelIssueDialog] =
+    useState<OfficialDocumentModel | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [issueDialog, setIssueDialog] =
@@ -127,6 +130,26 @@ export function OfficialDocumentsPanel() {
       await loadDocuments();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao duplicar modelo.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function issueModelDocument(
+    model: OfficialDocumentModel,
+    student: StudentSummary,
+    inputs: Record<string, string>,
+  ) {
+    setBusy(`model-issue-${model.id}`);
+    setError("");
+    setMessage("");
+    try {
+      await api.issueDynamicOfficialDocument(student.id, model.id, { inputs });
+      setMessage(`${model.name} emitido para ${student.person.fullName}.`);
+      setModelIssueDialog(null);
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao emitir modelo.");
     } finally {
       setBusy("");
     }
@@ -232,6 +255,7 @@ export function OfficialDocumentsPanel() {
                 model={model}
                 onDuplicate={() => void duplicateModel(model)}
                 onEdit={() => setModelDialog(model)}
+                onIssue={() => setModelIssueDialog(model)}
                 onToggle={() => void toggleModel(model)}
               />
             ))
@@ -330,6 +354,16 @@ export function OfficialDocumentsPanel() {
           onCancel={() => setModelDialog(null)}
           onSubmit={saveModel}
           variables={variables}
+        />
+      ) : null}
+      {modelIssueDialog ? (
+        <ModelIssueDialog
+          busy={busy === `model-issue-${modelIssueDialog.id}`}
+          model={modelIssueDialog}
+          onCancel={() => setModelIssueDialog(null)}
+          onSubmit={(student, inputs) =>
+            void issueModelDocument(modelIssueDialog, student, inputs)
+          }
         />
       ) : null}
     </div>
@@ -461,14 +495,17 @@ function ModelCard({
   model,
   onDuplicate,
   onEdit,
+  onIssue,
   onToggle,
 }: {
   busy: string;
   model: OfficialDocumentModel;
   onDuplicate: () => void;
   onEdit: () => void;
+  onIssue: () => void;
   onToggle: () => void;
 }) {
+  const isActive = model.status === "ACTIVE";
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -495,6 +532,12 @@ function ModelCard({
         {model.content}
       </pre>
       <div className="mt-4 flex flex-wrap gap-2">
+        {isActive ? (
+          <button className={adminTheme.primaryButton} disabled={Boolean(busy)} onClick={onIssue} type="button">
+            <Send size={16} />
+            Emitir
+          </button>
+        ) : null}
         <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={onEdit} type="button">
           <Edit3 size={16} />
           Editar
@@ -509,6 +552,271 @@ function ModelCard({
         </button>
       </div>
     </article>
+  );
+}
+
+function ModelIssueDialog({
+  busy,
+  model,
+  onCancel,
+  onSubmit,
+}: {
+  busy: boolean;
+  model: OfficialDocumentModel;
+  onCancel: () => void;
+  onSubmit: (student: StudentSummary, inputs: Record<string, string>) => void;
+}) {
+  const [studentSearch, setStudentSearch] = useState("");
+  const [students, setStudents] = useState<StudentSummary[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<StudentSummary | null>(null);
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [preview, setPreview] = useState("");
+  const [error, setError] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const manualFieldsComplete = model.manualInputTokens.every((token) =>
+    Boolean(inputs[token]?.trim()),
+  );
+
+  function updateInput(token: string, value: string) {
+    setInputs((current) => ({ ...current, [token]: value }));
+    setPreview("");
+  }
+
+  async function searchStudents() {
+    const search = studentSearch.trim();
+    if (!search) {
+      setError("Informe nome, CPF ou carteirinha para buscar.");
+      return;
+    }
+    setSearching(true);
+    setError("");
+    setPreview("");
+    try {
+      const response = await api.listStudents({
+        limit: 8,
+        search,
+        sort: "name",
+        status: "all",
+      });
+      setStudents(response.data);
+      if (response.data.length === 0) {
+        setSelectedStudent(null);
+        setError("Nenhum acadêmico encontrado.");
+      }
+    } catch (caught) {
+      setStudents([]);
+      setSelectedStudent(null);
+      setError(caught instanceof Error ? caught.message : "Erro ao buscar acadêmico.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function loadPreview() {
+    if (!selectedStudent) {
+      setError("Selecione um acadêmico para gerar a prévia.");
+      return;
+    }
+    if (!manualFieldsComplete) {
+      setError("Preencha os campos manuais obrigatórios.");
+      return;
+    }
+    setPreviewing(true);
+    setError("");
+    try {
+      const response = await api.previewDynamicOfficialDocument(
+        selectedStudent.id,
+        model.id,
+        { inputs },
+      );
+      setPreview(response.resolvedContent);
+    } catch (caught) {
+      setPreview("");
+      setError(caught instanceof Error ? caught.message : "Erro ao gerar prévia.");
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-end bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-4">
+      <form
+        aria-labelledby="model-issue-title"
+        className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-5xl sm:rounded-2xl"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!selectedStudent) {
+            setError("Selecione um acadêmico para confirmar a emissão.");
+            return;
+          }
+          if (!preview) {
+            setError("Gere a prévia antes de confirmar a emissão.");
+            return;
+          }
+          onSubmit(selectedStudent, inputs);
+        }}
+        role="dialog"
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+              Emitir pelo modelo
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950" id="model-issue-title">
+              {model.name} · v{model.currentVersion}
+            </h2>
+          </div>
+          <AdminStatusBadge tone="green">Ativo</AdminStatusBadge>
+        </div>
+
+        {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
+
+        <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+          <div className="grid min-w-0 gap-4">
+            <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <h3 className="text-sm font-semibold text-slate-950">Buscar acadêmico</h3>
+              <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row">
+                <input
+                  className={cx(adminTheme.control, "min-w-0 flex-1")}
+                  onChange={(event) => setStudentSearch(event.target.value)}
+                  placeholder="Nome, CPF ou carteirinha"
+                  type="search"
+                  value={studentSearch}
+                />
+                <button
+                  className={cx(adminTheme.primaryButton, "justify-center")}
+                  disabled={busy || searching}
+                  onClick={() => void searchStudents()}
+                  type="button"
+                >
+                  {searching ? "Buscando..." : "Buscar"}
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {students.map((student) => {
+                  const selected = selectedStudent?.id === student.id;
+                  return (
+                    <button
+                      className={cx(
+                        "min-w-0 rounded-lg border p-3 text-left text-sm transition",
+                        selected
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-slate-50",
+                      )}
+                      key={student.id}
+                      onClick={() => {
+                        setSelectedStudent(student);
+                        setPreview("");
+                        setError("");
+                      }}
+                      type="button"
+                    >
+                      <span className="block break-words font-semibold text-slate-950">
+                        {student.person.fullName}
+                      </span>
+                      <span className="mt-1 block break-words text-xs text-slate-600">
+                        {student.person.cpfMasked} ·{" "}
+                        {student.currentStudentCard?.cardNumber ?? "sem carteirinha ativa"} ·{" "}
+                        {student.currentEnrollment?.academicYear.year ?? "sem matrícula ativa"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            {model.manualInputTokens.length > 0 ? (
+              <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <h3 className="text-sm font-semibold text-slate-950">Campos manuais</h3>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {model.manualInputTokens.map((token) => (
+                    <label className="grid gap-1 text-sm font-medium text-slate-700" key={token}>
+                      {token}
+                      <input
+                        className={adminTheme.control}
+                        onChange={(event) => updateInput(token, event.target.value)}
+                        required
+                        value={inputs[token] ?? ""}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                Este modelo não possui campos manuais.
+              </section>
+            )}
+
+            <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-950">Prévia</h3>
+                <button
+                  className={adminTheme.secondaryButton}
+                  disabled={busy || previewing || !selectedStudent || !manualFieldsComplete}
+                  onClick={() => void loadPreview()}
+                  type="button"
+                >
+                  <Eye size={15} />
+                  {previewing ? "Gerando..." : "Gerar prévia"}
+                </button>
+              </div>
+              <pre className="mt-3 max-h-72 min-h-32 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                {preview || model.content}
+              </pre>
+            </section>
+          </div>
+
+          <aside className="grid h-fit gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+            <h3 className="text-sm font-semibold text-slate-950">Confirmação</h3>
+            <DetailLine label="Modelo" value={model.name} />
+            <DetailLine label="Versão" value={`v${model.currentVersion}`} />
+            <DetailLine
+              label="Acadêmico"
+              value={selectedStudent?.person.fullName ?? "não selecionado"}
+            />
+            <DetailLine
+              label="Campos manuais"
+              value={
+                model.manualInputTokens.length > 0
+                  ? `${model.manualInputTokens.length} campo(s)`
+                  : "não possui"
+              }
+            />
+            <DetailLine label="Prévia" value={preview ? "gerada" : "pendente"} />
+          </aside>
+        </div>
+
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            className={cx(adminTheme.secondaryButton, "justify-center")}
+            disabled={busy || previewing || searching}
+            onClick={onCancel}
+            type="button"
+          >
+            Cancelar
+          </button>
+          <button
+            className={cx(adminTheme.primaryButton, "justify-center")}
+            disabled={busy || !selectedStudent || !manualFieldsComplete || !preview}
+            type="submit"
+          >
+            <Send size={16} />
+            {busy ? "Emitindo..." : "Confirmar emissão"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="min-w-0">
+      <span className="font-semibold text-slate-950">{label}:</span>{" "}
+      <span className="break-words">{value}</span>
+    </p>
   );
 }
 
