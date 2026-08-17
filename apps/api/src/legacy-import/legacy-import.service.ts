@@ -30,7 +30,24 @@ import {
 } from "./dto/legacy-import.dto.js";
 
 type PreviewStatus = "PRONTO" | "PENDENCIA" | "BLOQUEADO" | "JA_IMPORTADO";
+type RelationState = "FOUND" | "WILL_CREATE" | "DIVERGENCE" | "BLOCKED";
+type CreatedBaseRecords = {
+  institutions: string[];
+  shifts: string[];
+  buses: string[];
+};
 type PreparedRecord = ReturnType<LegacyImportService["prepareRecord"]>;
+type LegacyRelationPreview = {
+  legacyName: string | null;
+  status: RelationState;
+  message: string;
+  resolved: { id: string; name: string } | null;
+  willCreate: boolean;
+};
+type LegacyBusRelationPreview = LegacyRelationPreview & {
+  legacyCapacity: number | null;
+  resolvedCapacity: number | null;
+};
 type LegacyPreviewItem = {
   index: number;
   legacyId: number | null;
@@ -55,7 +72,15 @@ type LegacyPreviewItem = {
   };
   observation: string | null;
   academicYear: { id: string; year: number } | null;
+  relations: {
+    institution: LegacyRelationPreview;
+    shift: LegacyRelationPreview;
+    bus: LegacyBusRelationPreview;
+    academicYear: LegacyRelationPreview;
+  };
+  requiresBaseRecordCreation: boolean;
   status: PreviewStatus;
+  canImport: boolean;
   reasons: string[];
   normalized: PreparedRecord;
 };
@@ -118,10 +143,18 @@ export class LegacyImportService {
     }
 
     const blocked = selectedItems.filter(
-      (item) => item.status === "BLOQUEADO" || item.status === "JA_IMPORTADO",
+      (item) => !item.canImport,
     );
     if (blocked.length > 0) {
-      throw new BadRequestException("Registros bloqueados nao podem ser importados");
+      const details = blocked
+        .map(
+          (item) =>
+            `legacy_id ${item.legacyId ?? "-"}: ${item.reasons.join("; ")}`,
+        )
+        .join(" | ");
+      throw new BadRequestException(
+        `Registros bloqueados nao podem ser importados. ${details}`,
+      );
     }
     const reviewRequired = selectedItems.filter(
       (item) => item.status === "PENDENCIA",
@@ -129,6 +162,17 @@ export class LegacyImportService {
     if (reviewRequired.length > 0 && !body.confirmReviewRequired) {
       throw new BadRequestException(
         "Registros com pendencia exigem confirmacao explicita",
+      );
+    }
+    const baseCreationRequired = selectedItems.filter(
+      (item) => item.requiresBaseRecordCreation,
+    );
+    if (baseCreationRequired.length > 0 && !body.createMissingBaseRecords) {
+      const details = baseCreationRequired
+        .map((item) => `legacy_id ${item.legacyId ?? "-"}`)
+        .join(", ");
+      throw new BadRequestException(
+        `Criacao de cadastros-base ausentes exige confirmacao SUPER_ADMIN. ${details}`,
       );
     }
 
@@ -159,10 +203,22 @@ export class LegacyImportService {
     const results = [];
     let importedCount = 0;
     let failedCount = 0;
+    const createdBaseRecords: CreatedBaseRecords = {
+      institutions: [],
+      shifts: [],
+      buses: [],
+    };
 
     for (const item of selectedItems) {
       try {
-        const imported = await this.importOne(body.records, item.legacyId!, batch.id, user.id);
+        const imported = await this.importOne(
+          body.records,
+          item.legacyId!,
+          batch.id,
+          user.id,
+          Boolean(body.createMissingBaseRecords),
+        );
+        this.mergeCreatedBaseRecords(createdBaseRecords, imported.createdBaseRecords);
         importedCount += 1;
         results.push({
           legacyId: item.legacyId,
@@ -182,7 +238,7 @@ export class LegacyImportService {
 
     const updatedBatch = await this.prisma.legacyImportBatch.update({
       where: { id: batch.id },
-      data: { importedCount, failedCount },
+      data: { importedCount, failedCount, createdBaseRecords },
     });
 
     return {
@@ -214,6 +270,7 @@ export class LegacyImportService {
 
     const removed = await this.prisma.$transaction(async (tx) => {
       let count = 0;
+      const importedStudentIds = batch.students.map((record) => record.studentId);
       const touchedCardSequences: Array<{
         academicYearId: string;
         previous: number;
@@ -259,17 +316,21 @@ export class LegacyImportService {
       )) {
         await this.reconcileCardSequenceAfterRollback(tx, item);
       }
-      await tx.legacyImportBatch.update({
-        where: { id: batch.id },
-        data: { rolledBackAt: new Date() },
-      });
-      await tx.administrativeAuditLog.create({
-        data: {
-          eventType: AdministrativeAuditEventType.LEGACY_IMPORT_BATCH_ROLLED_BACK,
-          domain: "legacy_import_batches",
-          recordId: batch.id,
-          userId: user.id,
-          metadata: { removedStudents: count },
+      await this.deleteCreatedBaseRecordsIfUnused(
+        tx,
+        this.parseCreatedBaseRecords(batch.createdBaseRecords),
+      );
+      await tx.legacyImportBatch.delete({ where: { id: batch.id } });
+      await tx.administrativeAuditLog.deleteMany({
+        where: {
+          OR: [
+            { domain: "legacy_import_batches", recordId: batch.id },
+            {
+              domain: "students",
+              recordId: { in: importedStudentIds },
+              eventType: AdministrativeAuditEventType.LEGACY_STUDENT_IMPORTED,
+            },
+          ],
         },
       });
       return count;
@@ -283,6 +344,7 @@ export class LegacyImportService {
     legacyId: number,
     batchId: string,
     userId: string,
+    createMissingBaseRecords: boolean,
   ) {
     const source = sourceRecords.find((record) => record.legacy_id === legacyId);
     if (!source) {
@@ -295,15 +357,26 @@ export class LegacyImportService {
       sizeBytes: 1,
     });
     const item = preview.items[0];
-    if (!item || item.status === "BLOQUEADO" || item.status === "JA_IMPORTADO") {
+    if (!item || !item.canImport) {
       throw new BadRequestException(item?.reasons.join("; ") ?? "Registro invalido");
     }
+    if (item.requiresBaseRecordCreation && !createMissingBaseRecords) {
+      throw new BadRequestException(
+        "Criacao de cadastros-base ausentes exige confirmacao SUPER_ADMIN",
+      );
+    }
+    this.assertImportableRequirements(item);
 
     return this.prisma.$transaction(async (tx) => {
       await this.ensureLegacyNotImported(tx, legacyId);
-      const cardSequence = await this.nextCardSequence(tx, item.academicYear!.id);
+      const baseRecords = await this.resolveBaseRecordsForImport(
+        tx,
+        item,
+        createMissingBaseRecords,
+      );
+      const cardSequence = await this.nextCardSequence(tx, item.academicYear.id);
       const sequenceNumber = cardSequence.next;
-      const cardNumber = buildStudentCardNumber(sequenceNumber, item.academicYear!.year);
+      const cardNumber = buildStudentCardNumber(sequenceNumber, item.academicYear.year);
       const person = await tx.person.create({
         data: {
           fullName: item.normalized.fullName,
@@ -329,20 +402,20 @@ export class LegacyImportService {
       const enrollment = await tx.enrollment.create({
         data: {
           studentId: student.id,
-          academicYearId: item.academicYear!.id,
-          institutionId: item.institution!.id,
-          shiftId: item.shift!.id,
+          academicYearId: item.academicYear.id,
+          institutionId: baseRecords.institution.id,
+          shiftId: baseRecords.shift.id,
           course: item.normalized.course,
           grade: item.normalized.grade,
           status: EnrollmentStatus.ACTIVE,
         },
       });
       let busAssignmentId: string | null = null;
-      if (item.bus) {
+      if (baseRecords.bus) {
         const assignment = await tx.busAssignment.create({
           data: {
             enrollmentId: enrollment.id,
-            busId: item.bus.id,
+            busId: baseRecords.bus!.id,
             status: BusAssignmentStatus.ACTIVE,
             note: "Vinculo criado pela importacao piloto legado",
           },
@@ -352,7 +425,7 @@ export class LegacyImportService {
           data: {
             enrollmentId: enrollment.id,
             busAssignmentId: assignment.id,
-            toBusId: item.bus.id,
+            toBusId: baseRecords.bus!.id,
             eventType: BusAssignmentEventType.LINKED,
             note: "Importacao piloto legado",
           },
@@ -362,7 +435,7 @@ export class LegacyImportService {
         data: {
           studentId: student.id,
           enrollmentId: enrollment.id,
-          academicYearId: item.academicYear!.id,
+          academicYearId: item.academicYear.id,
           cardType: StudentCardType.STUDENT,
           sequenceNumber,
           cardNumber,
@@ -412,7 +485,11 @@ export class LegacyImportService {
           },
         },
       });
-      return { studentId: student.id, generatedCardNumber: cardNumber };
+      return {
+        studentId: student.id,
+        generatedCardNumber: cardNumber,
+        createdBaseRecords: baseRecords.created,
+      };
     });
   }
 
@@ -473,9 +550,9 @@ export class LegacyImportService {
   private async loadResolutionContext(records: PreparedRecord[]) {
     const [institutions, shifts, buses, academicYears, existingCpfs, imported, cards] =
       await Promise.all([
-        this.prisma.institution.findMany({ where: { status: RecordStatus.ACTIVE } }),
-        this.prisma.shift.findMany({ where: { status: RecordStatus.ACTIVE } }),
-        this.prisma.bus.findMany({ where: { status: RecordStatus.ACTIVE } }),
+        this.prisma.institution.findMany(),
+        this.prisma.shift.findMany(),
+        this.prisma.bus.findMany(),
         this.prisma.academicYear.findMany({
           where: { status: AcademicYearStatus.ACTIVE },
         }),
@@ -554,22 +631,105 @@ export class LegacyImportService {
     else if (duplicateCpfs.has(record.cpf)) block("CPF duplicado dentro do JSON");
     if (!record.birthDate) block("Nascimento DD/MM/YYYY invalido");
     if (!record.fullName) block("Nome obrigatorio");
-    if (!record.addressStreet) pending("Endereco legado ausente");
+    if (!record.addressStreet) block("Endereco legado ausente");
     const institution = context.institutions.get(record.institutionKey) ?? null;
-    if (!institution) pending("Instituicao sem match seguro");
+    const institutionRelation: LegacyRelationPreview = institution
+      ? {
+          legacyName: record.institutionRaw,
+          status: "FOUND",
+          message: "Encontrado no ATRETU",
+          resolved: institution,
+          willCreate: false,
+        }
+      : {
+          legacyName: record.institutionRaw || null,
+          status: record.institutionRaw ? "WILL_CREATE" : "BLOCKED",
+          message: record.institutionRaw
+            ? "NAO EXISTE NO ATRETU; sera criada ao importar"
+            : "Instituicao obrigatoria ausente no legado",
+          resolved: null,
+          willCreate: Boolean(record.institutionRaw),
+        };
+    if (!record.institutionRaw) block("Instituicao obrigatoria ausente no legado");
+    else if (!institution) pending("Instituicao nao existe no ATRETU; sera criada ao importar");
+
     const shift = context.shifts.get(record.shiftKey) ?? null;
-    if (!shift) pending("Turno sem match seguro");
+    const shiftRelation: LegacyRelationPreview = shift
+      ? {
+          legacyName: record.shiftRaw,
+          status: "FOUND",
+          message: "Encontrado no ATRETU",
+          resolved: shift,
+          willCreate: false,
+        }
+      : {
+          legacyName: record.shiftRaw || null,
+          status: record.shiftRaw ? "WILL_CREATE" : "BLOCKED",
+          message: record.shiftRaw
+            ? "NAO EXISTE NO ATRETU; sera criado ao importar"
+            : "Turno obrigatorio ausente no legado",
+          resolved: null,
+          willCreate: Boolean(record.shiftRaw),
+        };
+    if (!record.shiftRaw) block("Turno obrigatorio ausente no legado");
+    else if (!shift) pending("Turno nao existe no ATRETU; sera criado ao importar");
+
     const bus = record.busKey ? context.buses.get(record.busKey) ?? null : null;
-    if (record.busKey && !bus) pending("Onibus sem match seguro");
-    if (bus && Number.isFinite(record.busCapacity) && bus.capacity !== record.busCapacity) {
+    const hasValidBusCapacity =
+      Number.isInteger(record.busCapacity) && record.busCapacity > 0;
+    let busRelation: LegacyBusRelationPreview = {
+      legacyName: record.busRaw || null,
+      status: "FOUND",
+      message: record.busRaw ? "Encontrado no ATRETU" : "Sem onibus no legado",
+      resolved: bus,
+      willCreate: false,
+      legacyCapacity: hasValidBusCapacity ? record.busCapacity : null,
+      resolvedCapacity: bus?.capacity ?? null,
+    };
+    if (record.busKey && !bus) {
+      busRelation = {
+        legacyName: record.busRaw,
+        status: hasValidBusCapacity ? "WILL_CREATE" : "BLOCKED",
+        message: hasValidBusCapacity
+          ? `NAO EXISTE NO ATRETU; sera criado ao importar com capacidade ${record.busCapacity}`
+          : "Onibus nao existe no ATRETU e capacidade legada e invalida",
+        resolved: null,
+        willCreate: hasValidBusCapacity,
+        legacyCapacity: hasValidBusCapacity ? record.busCapacity : null,
+        resolvedCapacity: null,
+      };
+      if (hasValidBusCapacity) pending("Onibus nao existe no ATRETU; sera criado ao importar");
+      else block("Onibus nao existe no ATRETU e capacidade legada e invalida");
+    }
+    if (bus && hasValidBusCapacity && bus.capacity !== record.busCapacity) {
+      busRelation = {
+        ...busRelation,
+        status: "DIVERGENCE",
+        message: "Capacidade divergente; cadastro existente sera reutilizado",
+      };
       pending("Capacidade do onibus legado diverge do ATRETU");
     }
     const academicYear =
       record.academicYear !== null
         ? context.academicYears.get(record.academicYear) ?? null
         : null;
-    if (!academicYear) pending("Ano letivo criado sem match ativo no ATRETU");
-    if (!record.course || !record.grade) pending("Curso/serie obrigatorios");
+    const academicYearRelation: LegacyRelationPreview = academicYear
+      ? {
+          legacyName: record.academicYear !== null ? String(record.academicYear) : null,
+          status: "FOUND",
+          message: "Encontrado no ATRETU",
+          resolved: { id: academicYear.id, name: String(academicYear.year) },
+          willCreate: false,
+        }
+      : {
+          legacyName: record.academicYear !== null ? String(record.academicYear) : null,
+          status: "BLOCKED",
+          message: "Ano letivo nao possui correspondencia ativa",
+          resolved: null,
+          willCreate: false,
+        };
+    if (!academicYear) block("Ano letivo nao possui correspondencia ativa");
+    if (!record.course || !record.grade) block("Curso/serie obrigatorios");
     if (record.legacyCardNumber && context.cards.has(record.legacyCardNumber)) {
       pending("Numero de carteirinha legado conflita no ATRETU");
     }
@@ -578,6 +738,12 @@ export class LegacyImportService {
     }
     if (reasons.length === 0) reasons.push("Apto para importacao piloto");
 
+    const finalStatus: PreviewStatus = status;
+    const canImport = (["PRONTO", "PENDENCIA"] as PreviewStatus[]).includes(
+      finalStatus,
+    );
+    const requiresBaseRecordCreation =
+      institutionRelation.willCreate || shiftRelation.willCreate || busRelation.willCreate;
     return {
       index: record.index,
       legacyId: record.legacyId,
@@ -602,7 +768,15 @@ export class LegacyImportService {
       },
       observation: record.observation,
       academicYear,
-      status,
+      relations: {
+        institution: institutionRelation,
+        shift: shiftRelation,
+        bus: busRelation,
+        academicYear: academicYearRelation,
+      },
+      requiresBaseRecordCreation,
+      status: finalStatus,
+      canImport,
       reasons,
       normalized: record,
     };
@@ -630,6 +804,221 @@ export class LegacyImportService {
     });
     if (existing) {
       throw new ConflictException("Registro legado ja importado");
+    }
+  }
+
+  private assertImportableRequirements(
+    item: LegacyPreviewItem,
+  ): asserts item is LegacyPreviewItem & {
+    academicYear: { id: string; year: number };
+  } {
+    if (!item.academicYear) {
+      throw new BadRequestException(
+        "Ano letivo nao possui correspondencia ativa",
+      );
+    }
+    if (!item.institution && !item.relations.institution.willCreate) {
+      throw new BadRequestException("Instituicao nao encontrada no ATRETU");
+    }
+    if (!item.shift && !item.relations.shift.willCreate) {
+      throw new BadRequestException("Turno nao encontrado no ATRETU");
+    }
+  }
+
+  private async resolveBaseRecordsForImport(
+    tx: Prisma.TransactionClient,
+    item: LegacyPreviewItem & { academicYear: { id: string; year: number } },
+    createMissing: boolean,
+  ) {
+    const created: CreatedBaseRecords = { institutions: [], shifts: [], buses: [] };
+    const institution = await this.findOrCreateInstitution(tx, item, createMissing);
+    if (institution.created) created.institutions.push(institution.record.id);
+    const shift = await this.findOrCreateShift(tx, item, createMissing);
+    if (shift.created) created.shifts.push(shift.record.id);
+    const bus = await this.findOrCreateBus(tx, item, createMissing);
+    if (bus.created && bus.record) created.buses.push(bus.record.id);
+    return {
+      institution: institution.record,
+      shift: shift.record,
+      bus: bus.record,
+      created,
+    };
+  }
+
+  private async findOrCreateInstitution(
+    tx: Prisma.TransactionClient,
+    item: LegacyPreviewItem,
+    createMissing: boolean,
+  ) {
+    const existing = item.institution
+      ? await tx.institution.findUnique({ where: { id: item.institution.id } })
+      : await tx.institution.findUnique({
+          where: { normalizedName: item.normalized.institutionKey },
+        });
+    if (existing) return { record: existing, created: false };
+    if (!createMissing || !item.normalized.institutionRaw) {
+      throw new BadRequestException("Instituicao nao encontrada no ATRETU");
+    }
+    const created = await tx.institution.create({
+      data: {
+        name: item.normalized.institutionRaw,
+        normalizedName: item.normalized.institutionKey,
+      },
+    });
+    return { record: created, created: true };
+  }
+
+  private async findOrCreateShift(
+    tx: Prisma.TransactionClient,
+    item: LegacyPreviewItem,
+    createMissing: boolean,
+  ) {
+    const existing = item.shift
+      ? await tx.shift.findUnique({ where: { id: item.shift.id } })
+      : await tx.shift.findUnique({ where: { normalizedName: item.normalized.shiftKey } });
+    if (existing) return { record: existing, created: false };
+    if (!createMissing || !item.normalized.shiftRaw) {
+      throw new BadRequestException("Turno nao encontrado no ATRETU");
+    }
+    const created = await tx.shift.create({
+      data: {
+        name: item.normalized.shiftRaw,
+        normalizedName: item.normalized.shiftKey,
+      },
+    });
+    return { record: created, created: true };
+  }
+
+  private async findOrCreateBus(
+    tx: Prisma.TransactionClient,
+    item: LegacyPreviewItem,
+    createMissing: boolean,
+  ) {
+    if (!item.normalized.busRaw) {
+      return { record: null, created: false };
+    }
+    const existing = item.bus
+      ? await tx.bus.findUnique({ where: { id: item.bus.id } })
+      : await tx.bus.findUnique({ where: { normalizedName: item.normalized.busKey } });
+    if (existing) return { record: existing, created: false };
+    if (
+      !createMissing ||
+      !Number.isInteger(item.normalized.busCapacity) ||
+      item.normalized.busCapacity <= 0
+    ) {
+      throw new BadRequestException("Onibus nao encontrado no ATRETU");
+    }
+    const created = await tx.bus.create({
+      data: {
+        name: item.normalized.busRaw,
+        normalizedName: item.normalized.busKey,
+        capacity: item.normalized.busCapacity,
+      },
+    });
+    return { record: created, created: true };
+  }
+
+  private mergeCreatedBaseRecords(
+    target: CreatedBaseRecords,
+    source: CreatedBaseRecords,
+  ) {
+    for (const key of ["institutions", "shifts", "buses"] as const) {
+      for (const id of source[key]) {
+        if (!target[key].includes(id)) target[key].push(id);
+      }
+    }
+  }
+
+  private parseCreatedBaseRecords(value: Prisma.JsonValue): CreatedBaseRecords {
+    const record = value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+    return {
+      institutions: Array.isArray(record.institutions)
+        ? record.institutions.filter((id): id is string => typeof id === "string")
+        : [],
+      shifts: Array.isArray(record.shifts)
+        ? record.shifts.filter((id): id is string => typeof id === "string")
+        : [],
+      buses: Array.isArray(record.buses)
+        ? record.buses.filter((id): id is string => typeof id === "string")
+        : [],
+    };
+  }
+
+  private async deleteCreatedBaseRecordsIfUnused(
+    tx: Prisma.TransactionClient,
+    created: CreatedBaseRecords,
+  ) {
+    for (const busId of created.buses) {
+      const usage = await tx.bus.findUnique({
+        where: { id: busId },
+        select: {
+          _count: {
+            select: {
+              assignments: true,
+              eventsFrom: true,
+              eventsTo: true,
+              studentHistoryEvents: true,
+            },
+          },
+        },
+      });
+      if (
+        usage &&
+        usage._count.assignments === 0 &&
+        usage._count.eventsFrom === 0 &&
+        usage._count.eventsTo === 0 &&
+        usage._count.studentHistoryEvents === 0
+      ) {
+        await tx.bus.delete({ where: { id: busId } });
+      }
+    }
+    for (const shiftId of created.shifts) {
+      const usage = await tx.shift.findUnique({
+        where: { id: shiftId },
+        select: {
+          _count: {
+            select: {
+              enrollments: true,
+              preRegistrations: true,
+              bankSlipIssueBatches: true,
+            },
+          },
+        },
+      });
+      if (
+        usage &&
+        usage._count.enrollments === 0 &&
+        usage._count.preRegistrations === 0 &&
+        usage._count.bankSlipIssueBatches === 0
+      ) {
+        await tx.shift.delete({ where: { id: shiftId } });
+      }
+    }
+    for (const institutionId of created.institutions) {
+      const usage = await tx.institution.findUnique({
+        where: { id: institutionId },
+        select: {
+          _count: {
+            select: {
+              enrollments: true,
+              preRegistrations: true,
+              bankSlipIssueBatches: true,
+              users: true,
+            },
+          },
+        },
+      });
+      if (
+        usage &&
+        usage._count.enrollments === 0 &&
+        usage._count.preRegistrations === 0 &&
+        usage._count.bankSlipIssueBatches === 0 &&
+        usage._count.users === 0
+      ) {
+        await tx.institution.delete({ where: { id: institutionId } });
+      }
     }
   }
 

@@ -449,8 +449,29 @@ export type LegacyAcademicPreviewItem = {
   };
   observation: string | null;
   academicYear: AcademicYear | null;
+  relations: {
+    institution: LegacyRelationPreview;
+    shift: LegacyRelationPreview;
+    bus: LegacyBusRelationPreview;
+    academicYear: LegacyRelationPreview;
+  };
+  requiresBaseRecordCreation: boolean;
   status: LegacyImportStatus;
+  canImport: boolean;
   reasons: string[];
+};
+
+export type LegacyRelationPreview = {
+  legacyName: string | null;
+  status: "FOUND" | "WILL_CREATE" | "DIVERGENCE" | "BLOCKED";
+  message: string;
+  resolved: { id: string; name: string } | null;
+  willCreate: boolean;
+};
+
+export type LegacyBusRelationPreview = LegacyRelationPreview & {
+  legacyCapacity: number | null;
+  resolvedCapacity: number | null;
 };
 
 export type LegacyAcademicPreviewResponse = {
@@ -2186,6 +2207,7 @@ export const api = {
     body: LegacyAcademicImportPayload & {
       selectedLegacyIds: number[];
       confirmReviewRequired?: boolean;
+      createMissingBaseRecords?: boolean;
     },
   ) {
     return request<LegacyAcademicImportResponse>(

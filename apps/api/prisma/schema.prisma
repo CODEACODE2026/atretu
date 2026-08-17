@@ -459,6 +459,7 @@ model LegacyImportBatch {
   pendingCount     Int                   @default(0) @map("pending_count")
   blockedCount     Int                   @default(0) @map("blocked_count")
   failedCount      Int                   @default(0) @map("failed_count")
+  createdBaseRecords Json                 @default("{\"institutions\":[],\"shifts\":[],\"buses\":[]}") @map("created_base_records")
   rolledBackAt     DateTime?             @map("rolled_back_at") @db.Timestamptz(6)
   importedByUserId String?               @map("imported_by_user_id") @db.Uuid
   importedAt       DateTime              @default(now()) @map("imported_at") @db.Timestamptz(6)

@@ -96,28 +96,66 @@ const preview = await service.analyzeAcademicImport({
     record({ legacy_id: 865, cpf: "987.654.321-00" }),
     record({ legacy_id: 866, cpf: "111.111.111-11" }),
     record({ legacy_id: 867, data_nacimento: "31/02/2006" }),
-    record({ legacy_id: 868, nome_instituicao: "IFPR NOTURNO" }),
-    record({ legacy_id: 869, nome_turno: "VESPERTINO" }),
-    record({ legacy_id: 870, nome_onibus: "Linha Rural" }),
-    record({ legacy_id: 871, nome_onibus: "", numero_carterinha: "112024" }),
-    record({ legacy_id: 871, observacao: "Aluno pediu desligamento" }),
+    record({
+      legacy_id: 868,
+      cpf: "111.222.333-96",
+      nome_instituicao: "IFPR NOTURNO",
+    }),
+    record({ legacy_id: 869, cpf: "222.333.444-05", nome_turno: "VESPERTINO" }),
+    record({ legacy_id: 870, cpf: "123.456.789-09", nome_onibus: "Linha Rural" }),
+    record({
+      legacy_id: 871,
+      cpf: "987.654.320-29",
+      nome_onibus: "",
+      numero_carterinha: "112024",
+    }),
+    record({ legacy_id: 863, observacao: "Aluno pediu desligamento" }),
   ],
 });
 
 assert.equal(preview.items.length, 10);
 assert.equal(preview.items[0]?.name, "ADRIELY AIKO HOGAHA MORAIS");
 assert.equal(preview.items[0]?.status, "BLOQUEADO");
+assert.equal(preview.items[0]?.canImport, false);
 assert(preview.items[0]?.reasons.includes("CPF duplicado dentro do JSON"));
 assert(preview.items[2]?.reasons.includes("CPF ja existente no ATRETU"));
 assert(preview.items[3]?.reasons.includes("CPF invalido"));
 assert(preview.items[4]?.reasons.includes("Nascimento DD/MM/YYYY invalido"));
-assert(preview.items[5]?.reasons.includes("Instituicao sem match seguro"));
-assert(preview.items[6]?.reasons.includes("Turno sem match seguro"));
-assert(preview.items[7]?.reasons.includes("Onibus sem match seguro"));
+assert.equal(preview.items[5]?.status, "PENDENCIA");
+assert.equal(preview.items[5]?.canImport, true);
+assert.equal(preview.items[5]?.requiresBaseRecordCreation, true);
+assert(preview.items[5]?.reasons.includes("Instituicao nao existe no ATRETU; sera criada ao importar"));
+assert.equal(preview.items[6]?.status, "PENDENCIA");
+assert.equal(preview.items[6]?.canImport, true);
+assert.equal(preview.items[6]?.requiresBaseRecordCreation, true);
+assert(preview.items[6]?.reasons.includes("Turno nao existe no ATRETU; sera criado ao importar"));
+assert(preview.items[7]?.reasons.includes("Onibus nao existe no ATRETU; sera criado ao importar"));
+assert.equal(preview.items[7]?.status, "PENDENCIA");
+assert.equal(preview.items[7]?.canImport, true);
+assert.equal(preview.items[7]?.requiresBaseRecordCreation, true);
 assert.equal(preview.items[8]?.busLegacy, null);
 assert(preview.items[8]?.reasons.includes("Numero de carteirinha legado conflita no ATRETU"));
+assert.equal(preview.items[8]?.status, "PENDENCIA");
+assert.equal(preview.items[8]?.canImport, true);
 assert(preview.items[9]?.reasons.includes("legacy_id duplicado dentro do JSON"));
 assert(preview.items[9]?.reasons.includes("Observacao sugere desligamento, mudanca ou inativacao"));
+
+const readyPreview = await service.analyzeAcademicImport({
+  fileName: "pronto.json",
+  records: [record({ legacy_id: 880, cpf: "390.533.447-05" })],
+});
+assert.equal(readyPreview.items[0]?.status, "PRONTO");
+assert.equal(readyPreview.items[0]?.canImport, true);
+
+const alreadyImportedPreview = await service.analyzeAcademicImport({
+  fileName: "importado.json",
+  records: [record({ legacy_id: 900, cpf: "390.533.447-05" })],
+});
+assert.equal(alreadyImportedPreview.items[0]?.status, "JA_IMPORTADO");
+assert.equal(alreadyImportedPreview.items[0]?.canImport, false);
+assert(
+  alreadyImportedPreview.items[0]?.reasons.includes("Registro legado ja importado"),
+);
 
 await assert.rejects(
   () =>
@@ -126,6 +164,19 @@ await assert.rejects(
       records: [record()],
     }),
   /extensao .json/,
+);
+
+await assert.rejects(
+  () =>
+    service.importAcademicSelection(
+      {
+        records: [record({ legacy_id: 881, nome_instituicao: "IFPR NOTURNO" })],
+        selectedLegacyIds: [881],
+        confirmReviewRequired: true,
+      },
+      { id: "user-admin" } as never,
+    ),
+  /Criacao de cadastros-base ausentes exige confirmacao SUPER_ADMIN/,
 );
 
 let sequenceUpdate: unknown = null;

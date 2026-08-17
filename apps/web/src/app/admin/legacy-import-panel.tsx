@@ -37,15 +37,15 @@ export function LegacyImportPanel() {
   const [preview, setPreview] = useState<LegacyAcademicPreviewResponse | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmReview, setConfirmReview] = useState(false);
+  const [createMissingBaseRecords, setCreateMissingBaseRecords] = useState(false);
   const [result, setResult] = useState<LegacyAcademicImportResponse | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "green" | "orange" | "red"; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const selectable = useMemo(
     () =>
-      preview?.items.filter(
-        (item) => item.legacyId !== null && item.status !== "BLOQUEADO" && item.status !== "JA_IMPORTADO",
-      ) ?? [],
+      preview?.items.filter((item) => item.legacyId !== null && item.canImport) ??
+      [],
     [preview],
   );
 
@@ -55,6 +55,7 @@ export function LegacyImportPanel() {
     setResult(null);
     setSelected(new Set());
     setConfirmReview(false);
+    setCreateMissingBaseRecords(false);
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".json")) {
       setFeedback({ tone: "red", text: "Selecione um arquivo .json." });
@@ -111,6 +112,7 @@ export function LegacyImportPanel() {
         ...payload,
         selectedLegacyIds: [...selected],
         confirmReviewRequired: confirmReview,
+        createMissingBaseRecords,
       });
       setResult(response);
       setFeedback({ tone: "green", text: "Importacao piloto finalizada." });
@@ -232,6 +234,17 @@ export function LegacyImportPanel() {
                   />
                   Confirmar pendencias revisadas
                 </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={createMissingBaseRecords}
+                    className="h-4 w-4 rounded border-slate-300"
+                    type="checkbox"
+                    onChange={(event) =>
+                      setCreateMissingBaseRecords(event.target.checked)
+                    }
+                  />
+                  Criar cadastro-base ao importar
+                </label>
                 <button
                   className={adminTheme.primaryButton}
                   disabled={loading || selected.size === 0}
@@ -276,14 +289,14 @@ export function LegacyImportPanel() {
                       </AdminStatusBadge>
                     </div>
                     <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-4">
-                      <Info label="Instituicao" value={`${item.institutionLegacy || "-"} -> ${item.institution?.name ?? "pendente"}`} />
+                      <Info label="Instituicao" value={formatRelation(item.relations.institution)} />
                       <Info label="Curso / serie" value={`${item.course || "-"} / ${item.grade || "-"}`} />
-                      <Info label="Turno" value={`${item.shiftLegacy || "-"} -> ${item.shift?.name ?? "pendente"}`} />
-                      <Info label="Onibus" value={`${item.busLegacy ?? "sem onibus"} -> ${item.bus?.name ?? "pendente"}`} />
+                      <Info label="Turno" value={formatRelation(item.relations.shift)} />
+                      <Info label="Onibus" value={formatBusRelation(item.relations.bus)} />
                       <Info label="Carteirinha legado" value={item.legacyCardNumber ?? "-"} />
                       <Info label="Carteirinha ATRETU" value={item.card.needsAtretuNumber ? "gerar numero ATRETU" : "preservar"} />
                       <Info label="Observacao" value={item.observation ?? "-"} />
-                      <Info label="Ano letivo" value={item.academicYear?.year ? String(item.academicYear.year) : "pendente"} />
+                      <Info label="Ano letivo" value={formatRelation(item.relations.academicYear)} />
                     </div>
                     <p className="mt-3 text-xs leading-5 text-slate-600">
                       {item.reasons.join("; ")}
@@ -334,3 +347,27 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+function formatRelation(
+  relation: LegacyAcademicPreviewItem["relations"]["institution"],
+) {
+  const legacy = relation.legacyName ?? "-";
+  if (relation.resolved) return `${legacy} -> ${relation.resolved.name}`;
+  return `${legacy} -> ${relation.message}`;
+}
+
+function formatBusRelation(
+  relation: LegacyAcademicPreviewItem["relations"]["bus"],
+) {
+  const base = formatRelation(relation);
+  if (relation.status === "WILL_CREATE" && relation.legacyCapacity !== null) {
+    return `${base} (${relation.legacyCapacity} lugares)`;
+  }
+  if (
+    relation.status === "DIVERGENCE" &&
+    relation.legacyCapacity !== null &&
+    relation.resolvedCapacity !== null
+  ) {
+    return `${base} (${relation.legacyCapacity} legado / ${relation.resolvedCapacity} ATRETU)`;
+  }
+  return base;
+}

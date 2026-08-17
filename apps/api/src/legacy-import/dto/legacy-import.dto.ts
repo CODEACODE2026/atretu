@@ -113,5 +113,8 @@ export class ImportLegacyAcademicSelectionDto extends AnalyzeLegacyAcademicImpor
   @IsOptional()
   @IsBoolean()
   confirmReviewRequired?: boolean;
-}
 
+  @IsOptional()
+  @IsBoolean()
+  createMissingBaseRecords?: boolean;
+}
