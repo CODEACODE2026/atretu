@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -44,6 +44,7 @@ export function LegacyImportPanel() {
   const [result, setResult] = useState<LegacyAcademicImportResponse | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "green" | "orange" | "red"; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   const selectable = useMemo(
     () =>
@@ -51,6 +52,25 @@ export function LegacyImportPanel() {
       [],
     [preview],
   );
+  const selectableIds = useMemo(
+    () => new Set(selectable.map((item) => item.legacyId!)),
+    [selectable],
+  );
+  const selectedImportableCount = useMemo(
+    () => [...selected].filter((legacyId) => selectableIds.has(legacyId)).length,
+    [selectableIds, selected],
+  );
+  const hasImportable = selectable.length > 0;
+  const allImportableSelected =
+    hasImportable && selectedImportableCount === selectable.length;
+  const partiallySelected =
+    selectedImportableCount > 0 && selectedImportableCount < selectable.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = partiallySelected;
+    }
+  }, [partiallySelected]);
 
   async function handleFile(file: File | null) {
     setFeedback(null);
@@ -103,6 +123,14 @@ export function LegacyImportPanel() {
         destinationAcademicYear,
       });
       setPreview(response);
+      setSelected((current) => {
+        const nextImportable = new Set(
+          response.items
+            .filter((item) => item.legacyId !== null && item.canImport)
+            .map((item) => item.legacyId!),
+        );
+        return new Set([...current].filter((legacyId) => nextImportable.has(legacyId)));
+      });
       setFeedback({ tone: "green", text: "Pre-validacao concluida sem salvar registros." });
     } catch (caught) {
       setFeedback({
@@ -115,14 +143,17 @@ export function LegacyImportPanel() {
   }
 
   async function importSelected() {
-    if (!payload || selected.size === 0) return;
+    const selectedImportableIds = [...selected].filter((legacyId) =>
+      selectableIds.has(legacyId),
+    );
+    if (!payload || selectedImportableIds.length === 0) return;
     setLoading(true);
     setFeedback(null);
     try {
       const response = await api.importLegacyAcademics({
         ...payload,
         destinationAcademicYear,
-        selectedLegacyIds: [...selected],
+        selectedLegacyIds: selectedImportableIds,
         confirmReviewRequired: confirmReview,
         createMissingBaseRecords,
       });
@@ -162,12 +193,19 @@ export function LegacyImportPanel() {
   }
 
   function toggleItem(item: LegacyAcademicPreviewItem) {
-    if (item.legacyId === null) return;
+    if (item.legacyId === null || !item.canImport) return;
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(item.legacyId!)) next.delete(item.legacyId!);
       else next.add(item.legacyId!);
       return next;
+    });
+  }
+
+  function toggleAllImportable() {
+    setSelected((current) => {
+      if (allImportableSelected) return new Set();
+      return new Set([...current, ...selectable.map((item) => item.legacyId!)]);
     });
   }
 
@@ -251,6 +289,24 @@ export function LegacyImportPanel() {
                 <p className="mt-1 text-sm text-slate-600">
                   Selecione explicitamente ate 10 academicos para confirmar.
                 </p>
+                <label
+                  className={cx(
+                    "mt-3 flex items-center gap-2 text-sm font-medium",
+                    hasImportable
+                      ? "cursor-pointer text-slate-800"
+                      : "cursor-not-allowed text-slate-400",
+                  )}
+                >
+                  <input
+                    ref={selectAllRef}
+                    checked={allImportableSelected}
+                    className="h-4 w-4 rounded border-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={!hasImportable}
+                    type="checkbox"
+                    onChange={toggleAllImportable}
+                  />
+                  Selecionar todos os importaveis ({selectable.length})
+                </label>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -275,11 +331,11 @@ export function LegacyImportPanel() {
                 </label>
                 <button
                   className={adminTheme.primaryButton}
-                  disabled={loading || selected.size === 0}
+                  disabled={loading || selectedImportableCount === 0}
                   type="button"
                   onClick={() => void importSelected()}
                 >
-                  Importar selecionados ({selected.size})
+                  Importar selecionados ({selectedImportableCount})
                 </button>
               </div>
             </div>
@@ -289,17 +345,29 @@ export function LegacyImportPanel() {
               </div>
             ) : (
               <div className="grid gap-3 p-4">
-                {preview.items.map((item) => (
-                  <article
-                    key={`${item.index}-${item.legacyId ?? "sem-id"}`}
-                    className="rounded-xl border border-slate-200 bg-white p-4"
-                  >
+                {preview.items.map((item) => {
+                  const canSelect = item.legacyId !== null && item.canImport;
+                  return (
+                    <article
+                      key={`${item.index}-${item.legacyId ?? "sem-id"}`}
+                      className={cx(
+                        "rounded-xl border p-4",
+                        canSelect
+                          ? "border-slate-200 bg-white"
+                          : "border-slate-200 bg-slate-50/80 opacity-75",
+                      )}
+                    >
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <label className="flex min-w-0 items-start gap-3">
+                      <label
+                        className={cx(
+                          "flex min-w-0 items-start gap-3",
+                          canSelect ? "cursor-pointer" : "cursor-not-allowed",
+                        )}
+                      >
                         <input
                           checked={item.legacyId !== null && selected.has(item.legacyId)}
-                          className="mt-1 h-4 w-4 rounded border-slate-300"
-                          disabled={!selectable.includes(item)}
+                          className="mt-1 h-4 w-4 rounded border-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={!canSelect}
                           type="checkbox"
                           onChange={() => toggleItem(item)}
                         />
@@ -330,8 +398,9 @@ export function LegacyImportPanel() {
                     <p className="mt-3 text-xs leading-5 text-slate-600">
                       {item.reasons.join("; ")}
                     </p>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
