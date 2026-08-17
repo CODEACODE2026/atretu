@@ -176,6 +176,7 @@ for (const fragment of [
   "resolveDynamicSigners",
   "signaturePreview",
   "listIssues",
+  "normalizeIssueStatusFilter",
   "invalidateStudentIssue",
   "OfficialDocumentIssueStatus.INVALIDATED",
   "resolveDynamicTemplate",
@@ -425,9 +426,82 @@ function makeService(validMembers: unknown[]) {
     } as never,
   ) as never as {
     addMonthsClamped: (value: Date, monthsToAdd: number) => Date;
+    listIssues: (query: Record<string, unknown>) => Promise<unknown>;
     reissueSnapshot: (...args: unknown[]) => unknown;
     resolveSigners: (...args: unknown[]) => Promise<Array<Record<string, unknown>>>;
   };
+}
+
+function makeListIssuesService() {
+  const calls: Array<{ method: string; where: unknown }> = [];
+  const prisma = {
+    officialDocumentIssue: {
+      count: async (args: { where: unknown }) => {
+        calls.push({ method: "count", where: args.where });
+        return 0;
+      },
+      findMany: async (args: { where: unknown }) => {
+        calls.push({ method: "findMany", where: args.where });
+        return [];
+      },
+    },
+    $transaction: async (operations: Array<Promise<unknown>>) =>
+      Promise.all(operations),
+  };
+  return {
+    calls,
+    service: new OfficialDocumentsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as never as {
+      listIssues: (query: Record<string, unknown>) => Promise<unknown>;
+    },
+  };
+}
+
+{
+  const { calls, service: listIssuesService } = makeListIssuesService();
+  await listIssuesService.listIssues({ limit: 20, page: 1, status: "all" });
+  assert.deepEqual(calls.map((call) => call.where), [{}, {}]);
+}
+
+{
+  const { calls, service: listIssuesService } = makeListIssuesService();
+  await listIssuesService.listIssues({ limit: 20, page: 1, status: "ISSUED" });
+  assert.deepEqual(calls.map((call) => call.where), [
+    { status: "ISSUED" },
+    { status: "ISSUED" },
+  ]);
+}
+
+{
+  const { calls, service: listIssuesService } = makeListIssuesService();
+  await listIssuesService.listIssues({
+    limit: 20,
+    page: 1,
+    status: "INVALIDATED",
+  });
+  assert.deepEqual(calls.map((call) => call.where), [
+    { status: "INVALIDATED" },
+    { status: "INVALIDATED" },
+  ]);
+}
+
+{
+  const { calls, service: listIssuesService } = makeListIssuesService();
+  await listIssuesService.listIssues({ limit: 20, page: 1 });
+  assert.deepEqual(calls.map((call) => call.where), [{}, {}]);
+}
+
+{
+  const { service: listIssuesService } = makeListIssuesService();
+  await assert.rejects(
+    () => listIssuesService.listIssues({ limit: 20, page: 1, status: "foo" }),
+    BadRequestException,
+  );
 }
 
 const signerStudent = {

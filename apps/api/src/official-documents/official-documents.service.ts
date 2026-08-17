@@ -310,8 +310,9 @@ export class OfficialDocumentsService {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
     const search = query.search?.trim();
+    const status = this.normalizeIssueStatusFilter(query.status);
     const where: Prisma.OfficialDocumentIssueWhereInput = {
-      ...(query.status ? { status: query.status } : {}),
+      ...(status ? { status } : {}),
       ...(search
         ? {
             OR: [
@@ -358,6 +359,21 @@ export class OfficialDocumentsService {
         totalPages: Math.max(1, Math.ceil(total / limit)),
       },
     };
+  }
+
+  private normalizeIssueStatusFilter(
+    status: ListOfficialDocumentIssuesDto["status"] | string | null | undefined,
+  ) {
+    if (!status || status === "all") {
+      return undefined;
+    }
+    if (
+      status === OfficialDocumentIssueStatus.ISSUED ||
+      status === OfficialDocumentIssueStatus.INVALIDATED
+    ) {
+      return status;
+    }
+    throw new BadRequestException("Status de documento oficial invalido.");
   }
 
   async listStudentModelIssues(studentId: string, currentUser: AuthUser) {

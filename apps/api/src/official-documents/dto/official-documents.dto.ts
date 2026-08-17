@@ -18,6 +18,10 @@ import {
 } from "@prisma/client";
 import { FileDisposition } from "../../documents/dto/documents.dto.js";
 
+export type OfficialDocumentIssueStatusQuery =
+  | OfficialDocumentIssueStatus
+  | "all";
+
 export class OfficialDocumentTypeParamDto {
   @IsEnum(OfficialDocumentType)
   type!: OfficialDocumentType;
@@ -40,7 +44,7 @@ export class ListOfficialDocumentIssuesDto {
   @IsOptional()
   @IsEnum(OfficialDocumentIssueStatus)
   @Transform(({ value }) => (value === "" || value === "all" ? undefined : value))
-  status?: OfficialDocumentIssueStatus;
+  status?: OfficialDocumentIssueStatusQuery;
 
   @IsOptional()
   @IsInt()
