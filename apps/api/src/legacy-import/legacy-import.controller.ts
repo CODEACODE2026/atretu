@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, UseGuards } from "@nestjs/common";
 import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
@@ -33,9 +33,21 @@ export class LegacyImportController {
     return this.legacyImport.importAcademicSelection(body, user);
   }
 
+  @Post("academics/import-jobs")
+  startImportJob(
+    @Body() body: ImportLegacyAcademicSelectionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.legacyImport.startAcademicImportJob(body, user);
+  }
+
+  @Get("academics/import-jobs/:jobId")
+  getImportJob(@Param("jobId") jobId: string) {
+    return this.legacyImport.getAcademicImportJob(jobId);
+  }
+
   @Post("batches/:batchId/rollback")
   rollbackBatch(@Param("batchId") batchId: string, @CurrentUser() user: AuthUser) {
     return this.legacyImport.rollbackBatch(batchId, user);
   }
 }
-

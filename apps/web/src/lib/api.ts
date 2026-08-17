@@ -483,9 +483,38 @@ export type LegacyAcademicPreviewResponse = {
     mimeType: string | null;
     sizeBytes: number | null;
   };
-  limits: { maxRecordsPerBatch: number };
+  limits: { maxRecordsPerBatch: number; chunkSize: number };
   summary: Record<LegacyImportStatus, number>;
   items: LegacyAcademicPreviewItem[];
+};
+
+export type LegacyImportJobStatus =
+  | "QUEUED"
+  | "PROCESSING"
+  | "COMPLETED"
+  | "FAILED";
+
+export type LegacyAcademicImportJob = {
+  id: string;
+  status: LegacyImportJobStatus;
+  batchId: string | null;
+  total: number;
+  processed: number;
+  imported: number;
+  failed: number;
+  ignored: number;
+  percent: number;
+  chunkSize: number;
+  startedAt: string;
+  finishedAt: string | null;
+  message: string;
+  results: Array<{
+    legacyId: number | null;
+    status: "IMPORTADO" | "FALHA" | "BLOQUEADO" | "JA_IMPORTADO";
+    studentId?: string;
+    cardNumber?: string;
+    reason?: string;
+  }>;
 };
 
 export type LegacyAcademicImportResponse = {
@@ -2219,6 +2248,28 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       },
+    );
+  },
+
+  startLegacyAcademicImportJob(
+    body: LegacyAcademicImportPayload & {
+      selectedLegacyIds: number[];
+      confirmReviewRequired?: boolean;
+      createMissingBaseRecords?: boolean;
+    },
+  ) {
+    return request<LegacyAcademicImportJob>(
+      "/admin/legacy-import/academics/import-jobs",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  getLegacyAcademicImportJob(jobId: string) {
+    return request<LegacyAcademicImportJob>(
+      `/admin/legacy-import/academics/import-jobs/${jobId}`,
     );
   },
 

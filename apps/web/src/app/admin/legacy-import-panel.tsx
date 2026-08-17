@@ -11,7 +11,7 @@ import {
 import {
   api,
   type LegacyAcademicImportPayload,
-  type LegacyAcademicImportResponse,
+  type LegacyAcademicImportJob,
   type LegacyAcademicPreviewItem,
   type LegacyAcademicPreviewResponse,
   type LegacyImportStatus,
@@ -31,17 +31,19 @@ const statusTone: Record<LegacyImportStatus, "green" | "orange" | "red" | "blue"
   BLOQUEADO: "red",
   JA_IMPORTADO: "blue",
 };
+const PREVIEW_PAGE_SIZE = 25;
 
 export function LegacyImportPanel() {
   const [payload, setPayload] = useState<LegacyAcademicImportPayload | null>(null);
   const [preview, setPreview] = useState<LegacyAcademicPreviewResponse | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [previewPage, setPreviewPage] = useState(1);
   const [destinationAcademicYear, setDestinationAcademicYear] = useState(
     new Date().getFullYear(),
   );
   const [confirmReview, setConfirmReview] = useState(false);
   const [createMissingBaseRecords, setCreateMissingBaseRecords] = useState(false);
-  const [result, setResult] = useState<LegacyAcademicImportResponse | null>(null);
+  const [job, setJob] = useState<LegacyAcademicImportJob | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "green" | "orange" | "red"; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
@@ -65,6 +67,15 @@ export function LegacyImportPanel() {
     hasImportable && selectedImportableCount === selectable.length;
   const partiallySelected =
     selectedImportableCount > 0 && selectedImportableCount < selectable.length;
+  const totalPages = Math.max(
+    1,
+    Math.ceil((preview?.items.length ?? 0) / PREVIEW_PAGE_SIZE),
+  );
+  const visibleItems = useMemo(() => {
+    const start = (previewPage - 1) * PREVIEW_PAGE_SIZE;
+    return preview?.items.slice(start, start + PREVIEW_PAGE_SIZE) ?? [];
+  }, [preview, previewPage]);
+  const isImportRunning = job?.status === "QUEUED" || job?.status === "PROCESSING";
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -75,8 +86,9 @@ export function LegacyImportPanel() {
   async function handleFile(file: File | null) {
     setFeedback(null);
     setPreview(null);
-    setResult(null);
+    setJob(null);
     setSelected(new Set());
+    setPreviewPage(1);
     setConfirmReview(false);
     setCreateMissingBaseRecords(false);
     if (!file) return;
@@ -123,6 +135,7 @@ export function LegacyImportPanel() {
         destinationAcademicYear,
       });
       setPreview(response);
+      setPreviewPage(1);
       setSelected((current) => {
         const nextImportable = new Set(
           response.items
@@ -149,16 +162,25 @@ export function LegacyImportPanel() {
     if (!payload || selectedImportableIds.length === 0) return;
     setLoading(true);
     setFeedback(null);
+    setJob(null);
     try {
-      const response = await api.importLegacyAcademics({
+      const started = await api.startLegacyAcademicImportJob({
         ...payload,
         destinationAcademicYear,
         selectedLegacyIds: selectedImportableIds,
         confirmReviewRequired: confirmReview,
         createMissingBaseRecords,
       });
-      setResult(response);
-      setFeedback({ tone: "green", text: "Importacao piloto finalizada." });
+      setJob(started);
+      const completed = await pollImportJob(started.id);
+      setJob(completed);
+      setFeedback({
+        tone: completed.status === "FAILED" ? "red" : "green",
+        text:
+          completed.status === "FAILED"
+            ? completed.message
+            : "Importacao concluida com progresso real.",
+      });
       await analyze(payload);
     } catch (caught) {
       setFeedback({
@@ -171,16 +193,16 @@ export function LegacyImportPanel() {
   }
 
   async function rollback() {
-    if (!result?.batch.id) return;
+    if (!job?.batchId) return;
     setLoading(true);
     setFeedback(null);
     try {
-      const response = await api.rollbackLegacyImportBatch(result.batch.id);
+      const response = await api.rollbackLegacyImportBatch(job.batchId);
       setFeedback({
         tone: "orange",
         text: `Rollback concluido: ${response.removed} academico(s), residuos QA ${response.residuals}.`,
       });
-      setResult(null);
+      setJob(null);
       if (payload) await analyze(payload);
     } catch (caught) {
       setFeedback({
@@ -190,6 +212,17 @@ export function LegacyImportPanel() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function pollImportJob(jobId: string) {
+    let current = await api.getLegacyAcademicImportJob(jobId);
+    setJob(current);
+    while (current.status === "QUEUED" || current.status === "PROCESSING") {
+      await wait(1000);
+      current = await api.getLegacyAcademicImportJob(jobId);
+      setJob(current);
+    }
+    return current;
   }
 
   function toggleItem(item: LegacyAcademicPreviewItem) {
@@ -212,7 +245,7 @@ export function LegacyImportPanel() {
   return (
     <>
       <AdminModuleHeader
-        description="Fluxo SUPER_ADMIN para arquivo JSON de academicos legado, com preview idempotente e importacao piloto limitada."
+        description="Fluxo SUPER_ADMIN para arquivo JSON de academicos legado, com preview idempotente, paginacao e importacao em job."
         eyebrow="SUPER ADMIN"
         icon={FileJson}
         title="Importacao legado"
@@ -227,7 +260,7 @@ export function LegacyImportPanel() {
               Selecionar JSON
             </span>
             <span className="mt-1 text-xs text-slate-500">
-              Ate 10 registros e 512 KB
+              Ate 500 registros e 512 KB
             </span>
             <input
               accept="application/json,.json"
@@ -257,7 +290,7 @@ export function LegacyImportPanel() {
             </label>
             <button
               className={adminTheme.secondaryButton}
-              disabled={!payload || loading}
+              disabled={!payload || loading || isImportRunning}
               type="button"
               onClick={() => void analyze()}
             >
@@ -287,7 +320,7 @@ export function LegacyImportPanel() {
               <div>
                 <h2 className="text-base font-semibold text-slate-950">Previa do lote</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Selecione explicitamente ate 10 academicos para confirmar.
+                  Selecione explicitamente os importaveis. Preview em paginas de 25 registros.
                 </p>
                 <label
                   className={cx(
@@ -345,7 +378,32 @@ export function LegacyImportPanel() {
               </div>
             ) : (
               <div className="grid gap-3 p-4">
-                {preview.items.map((item) => {
+                <div className="flex flex-col gap-3 rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-700 md:flex-row md:items-center md:justify-between">
+                  <span>
+                    Pagina {previewPage} de {totalPages} · exibindo {visibleItems.length} de {preview.items.length} registros · selecionados {selectedImportableCount}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className={adminTheme.secondaryButton}
+                      disabled={previewPage <= 1}
+                      type="button"
+                      onClick={() => setPreviewPage((page) => Math.max(1, page - 1))}
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      className={adminTheme.secondaryButton}
+                      disabled={previewPage >= totalPages}
+                      type="button"
+                      onClick={() =>
+                        setPreviewPage((page) => Math.min(totalPages, page + 1))
+                      }
+                    >
+                      Proxima
+                    </button>
+                  </div>
+                </div>
+                {visibleItems.map((item) => {
                   const canSelect = item.legacyId !== null && item.canImport;
                   return (
                     <article
@@ -407,23 +465,40 @@ export function LegacyImportPanel() {
         </>
       ) : null}
 
-      {result ? (
+      {job ? (
         <section className={cx(adminTheme.card, "p-4")}>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-base font-semibold text-slate-950">Resultado do lote</h2>
               <p className="mt-1 text-sm text-slate-600">
-                Batch {result.batch.id} · importados {result.summary.imported} · falhas {result.summary.failed}
+                Batch {job.batchId ?? "-"} · importados {job.imported} · falhas {job.failed} · ignorados {job.ignored}
               </p>
             </div>
-            <button className={adminTheme.secondaryButton} disabled={loading} type="button" onClick={() => void rollback()}>
+            <button className={adminTheme.secondaryButton} disabled={loading || isImportRunning || !job.batchId} type="button" onClick={() => void rollback()}>
               <RotateCcw aria-hidden="true" className="h-4 w-4" />
               Rollback do batch
             </button>
           </div>
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-col gap-1 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Processando {job.processed} de {job.total}
+              </span>
+              <span className="font-semibold text-slate-950">{job.percent}%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-[#0F2E2E] transition-[width]"
+                style={{ width: `${Math.min(100, Math.max(0, job.percent))}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-slate-600">
+              Importados {job.imported} · falhas {job.failed} · ignorados/ja importados {job.ignored} · chunk {job.chunkSize}
+            </p>
+          </div>
           <div className="mt-4 grid gap-2">
-            {result.results.map((item) => (
-              <div key={item.legacyId} className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            {job.results.map((item, index) => (
+              <div key={`${item.legacyId ?? "sem-id"}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 legacy_id {item.legacyId}: {item.status}
                 {item.studentId ? ` · studentId ${item.studentId}` : ""}
                 {item.reason ? ` · ${item.reason}` : ""}
@@ -434,6 +509,10 @@ export function LegacyImportPanel() {
       ) : null}
     </>
   );
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function Info({ label, value }: { label: string; value: string }) {

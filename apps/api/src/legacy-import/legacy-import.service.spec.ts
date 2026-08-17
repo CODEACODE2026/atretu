@@ -151,6 +151,34 @@ const readyPreview = await service.analyzeAcademicImport({
 });
 assert.equal(readyPreview.items[0]?.status, "PRONTO");
 assert.equal(readyPreview.items[0]?.canImport, true);
+assert.equal(readyPreview.limits.maxRecordsPerBatch, 500);
+assert.equal(readyPreview.limits.chunkSize, 25);
+
+const fiftyRecords = Array.from({ length: 50 }, (_, index) =>
+  record({
+    legacy_id: 1000 + index,
+    cpf: String(10000000000 + index),
+  }),
+);
+const fiftyPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "cinquenta.json",
+  records: fiftyRecords,
+});
+assert.equal(fiftyPreview.items.length, 50);
+
+const oneHundredRecords = Array.from({ length: 100 }, (_, index) =>
+  record({
+    legacy_id: 2000 + index,
+    cpf: String(20000000000 + index),
+  }),
+);
+const oneHundredPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "cem.json",
+  records: oneHundredRecords,
+});
+assert.equal(oneHundredPreview.items.length, 100);
 
 const alreadyImportedPreview = await service.analyzeAcademicImport({
   destinationAcademicYear: 2026,

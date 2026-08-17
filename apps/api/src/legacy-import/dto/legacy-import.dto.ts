@@ -102,7 +102,7 @@ export class AnalyzeLegacyAcademicImportDto {
 
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(500)
   @ValidateNested({ each: true })
   @Type(() => LegacyAcademicRawRecordDto)
   records!: LegacyAcademicRawRecordDto[];
@@ -111,7 +111,7 @@ export class AnalyzeLegacyAcademicImportDto {
 export class ImportLegacyAcademicSelectionDto extends AnalyzeLegacyAcademicImportDto {
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(500)
   @Type(() => Number)
   @IsInt({ each: true })
   selectedLegacyIds!: number[];

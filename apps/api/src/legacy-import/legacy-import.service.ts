@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
@@ -89,11 +90,53 @@ type LegacyPreviewItem = {
 
 const SOURCE = "LEGACY";
 const LEGACY_TABLE = "tab_academico";
-const MAX_RECORDS = 10;
+const MAX_RECORDS = 500;
+const IMPORT_CHUNK_SIZE = 25;
 const SUSPICIOUS_OBSERVATION = /\b(deslig\w*|mudan\w*|transfer\w*|cancel\w*|inativ\w*|suspend\w*|tranc\w*|fora|saiu)\b/i;
+type LegacyImportJobStatus = "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+type LegacyImportJobResult = {
+  legacyId: number | null;
+  status: "IMPORTADO" | "FALHA" | "BLOQUEADO" | "JA_IMPORTADO";
+  studentId?: string;
+  cardNumber?: string;
+  reason?: string;
+};
+type LegacyImportJob = {
+  id: string;
+  status: LegacyImportJobStatus;
+  batchId: string | null;
+  total: number;
+  processed: number;
+  imported: number;
+  failed: number;
+  ignored: number;
+  percent: number;
+  chunkSize: number;
+  startedAt: string;
+  finishedAt: string | null;
+  message: string;
+  results: LegacyImportJobResult[];
+};
+type PersistedImportProgress = {
+  jobId?: string;
+  status?: LegacyImportJobStatus;
+  processed?: number;
+  total?: number;
+  imported?: number;
+  failed?: number;
+  ignored?: number;
+  percent?: number;
+  chunkSize?: number;
+  startedAt?: string;
+  finishedAt?: string | null;
+  message?: string;
+  results?: LegacyImportJobResult[];
+};
 
 @Injectable()
 export class LegacyImportService {
+  private readonly importJobs = new Map<string, LegacyImportJob>();
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AdministrativeAuditService)
@@ -123,70 +166,27 @@ export class LegacyImportService {
         mimeType: body.mimeType ?? null,
         sizeBytes: body.sizeBytes ?? null,
       },
-      limits: { maxRecordsPerBatch: MAX_RECORDS },
+      limits: { maxRecordsPerBatch: MAX_RECORDS, chunkSize: IMPORT_CHUNK_SIZE },
       summary: this.summarize(items),
       items,
     };
   }
 
-  async importAcademicSelection(
+  async startAcademicImportJob(
     body: ImportLegacyAcademicSelectionDto,
     user: AuthUser,
   ) {
     const preview = await this.analyzeAcademicImport(body);
-    const selected = new Set(body.selectedLegacyIds);
-    const selectedItems = preview.items.filter(
-      (item) => item.legacyId !== null && selected.has(item.legacyId),
-    );
-    if (selectedItems.length !== selected.size) {
-      throw new BadRequestException("Selecao contem legacy_id ausente no JSON");
-    }
-    if (selectedItems.length > MAX_RECORDS) {
-      throw new BadRequestException("Piloto limitado a 10 academicos por lote");
-    }
+    const selection = this.resolveSelection(preview.items, body.selectedLegacyIds);
+    this.assertImportConfirmation(selection.importable, body);
 
-    const blocked = selectedItems.filter(
-      (item) => !item.canImport,
-    );
-    if (blocked.length > 0) {
-      const details = blocked
-        .map(
-          (item) =>
-            `legacy_id ${item.legacyId ?? "-"}: ${item.reasons.join("; ")}`,
-        )
-        .join(" | ");
-      throw new BadRequestException(
-        `Registros bloqueados nao podem ser importados. ${details}`,
-      );
-    }
-    const reviewRequired = selectedItems.filter(
-      (item) => item.status === "PENDENCIA",
-    );
-    if (reviewRequired.length > 0 && !body.confirmReviewRequired) {
-      throw new BadRequestException(
-        "Registros com pendencia exigem confirmacao explicita",
-      );
-    }
-    const baseCreationRequired = selectedItems.filter(
-      (item) => item.requiresBaseRecordCreation,
-    );
-    if (baseCreationRequired.length > 0 && !body.createMissingBaseRecords) {
-      const details = baseCreationRequired
-        .map((item) => `legacy_id ${item.legacyId ?? "-"}`)
-        .join(", ");
-      throw new BadRequestException(
-        `Criacao de cadastros-base ausentes exige confirmacao SUPER_ADMIN. ${details}`,
-      );
-    }
-
-    const batch = await this.prisma.legacyImportBatch.create({
-      data: {
-        fileName: this.optional(body.fileName),
-        totalRecords: body.records.length,
-        pendingCount: preview.summary.PENDENCIA,
-        blockedCount: preview.summary.BLOQUEADO,
-        importedByUserId: user.id,
-      },
+    const batch = await this.createImportBatch(body, preview, selection.importable.length, user.id);
+    const job = this.createJob(batch.id, selection.items.length);
+    this.importJobs.set(job.id, job);
+    await this.persistJobProgress(batch.id, job, {
+      institutions: [],
+      shifts: [],
+      buses: [],
     });
 
     await this.audit.record({
@@ -199,7 +199,46 @@ export class LegacyImportService {
         legacyTable: LEGACY_TABLE,
         fileName: body.fileName ?? "",
         totalRecords: body.records.length,
-        selectedRecords: selectedItems.length,
+        selectedRecords: selection.items.length,
+        chunkSize: IMPORT_CHUNK_SIZE,
+      },
+    });
+
+    void this.processImportJob(job.id, body, user.id, selection.items);
+    return this.serializeJob(job);
+  }
+
+  async getAcademicImportJob(jobId: string) {
+    const job = this.importJobs.get(jobId);
+    if (job) return this.serializeJob(job);
+
+    const batch = await this.prisma.legacyImportBatch.findUnique({
+      where: { id: jobId },
+    });
+    if (!batch) throw new NotFoundException("Job de importacao nao encontrado");
+    return this.serializeJob(this.hydrateJobFromBatch(batch));
+  }
+
+  async importAcademicSelection(
+    body: ImportLegacyAcademicSelectionDto,
+    user: AuthUser,
+  ) {
+    const preview = await this.analyzeAcademicImport(body);
+    const selection = this.resolveSelection(preview.items, body.selectedLegacyIds);
+    this.assertImportConfirmation(selection.importable, body);
+    const batch = await this.createImportBatch(body, preview, selection.importable.length, user.id);
+
+    await this.audit.record({
+      eventType: AdministrativeAuditEventType.LEGACY_IMPORT_BATCH_CREATED,
+      domain: "legacy_import_batches",
+      recordId: batch.id,
+      userId: user.id,
+      metadata: {
+        source: SOURCE,
+        legacyTable: LEGACY_TABLE,
+        fileName: body.fileName ?? "",
+        totalRecords: body.records.length,
+        selectedRecords: selection.importable.length,
       },
     });
 
@@ -212,7 +251,7 @@ export class LegacyImportService {
       buses: [],
     };
 
-    for (const item of selectedItems) {
+    for (const item of selection.importable) {
       try {
         const imported = await this.importOne(
           body.records,
@@ -235,26 +274,318 @@ export class LegacyImportService {
         results.push({
           legacyId: item.legacyId,
           status: "FALHA",
-          reason: error instanceof Error ? error.message : "Falha inesperada",
+          reason: this.toFriendlyError(error),
         });
       }
     }
 
     const updatedBatch = await this.prisma.legacyImportBatch.update({
       where: { id: batch.id },
-      data: { importedCount, failedCount, createdBaseRecords },
+      data: {
+        importedCount,
+        failedCount,
+        createdBaseRecords: {
+          ...createdBaseRecords,
+          selectedRecords: selection.importable.length,
+          chunkSize: IMPORT_CHUNK_SIZE,
+          processed: selection.importable.length,
+          total: selection.importable.length,
+          imported: importedCount,
+          failed: failedCount,
+          ignored: 0,
+          percent: selection.importable.length === 0 ? 100 : 100,
+          status: "COMPLETED",
+        },
+      },
     });
 
     return {
       batch: updatedBatch,
       summary: {
         imported: importedCount,
-        pending: reviewRequired.length,
-        blocked: blocked.length,
+        pending: selection.importable.filter((item) => item.status === "PENDENCIA").length,
+        blocked: selection.blocked.length,
         failed: failedCount,
       },
       results,
     };
+  }
+
+  private resolveSelection(
+    items: LegacyPreviewItem[],
+    selectedLegacyIds: number[],
+  ) {
+    const selected = new Set(selectedLegacyIds);
+    const selectedItems = items.filter(
+      (item) => item.legacyId !== null && selected.has(item.legacyId),
+    );
+    if (selectedItems.length !== selected.size) {
+      throw new BadRequestException("Selecao contem legacy_id ausente no JSON");
+    }
+    return {
+      items: selectedItems,
+      importable: selectedItems.filter((item) => item.canImport),
+      blocked: selectedItems.filter((item) => !item.canImport),
+    };
+  }
+
+  private assertImportConfirmation(
+    selectedItems: LegacyPreviewItem[],
+    body: ImportLegacyAcademicSelectionDto,
+  ) {
+    const reviewRequired = selectedItems.filter(
+      (item) => item.status === "PENDENCIA",
+    );
+    if (reviewRequired.length > 0 && !body.confirmReviewRequired) {
+      throw new BadRequestException(
+        "Registros com pendencia exigem confirmacao explicita",
+      );
+    }
+    const baseCreationRequired = selectedItems.filter(
+      (item) => item.requiresBaseRecordCreation,
+    );
+    if (baseCreationRequired.length > 0 && !body.createMissingBaseRecords) {
+      const details = baseCreationRequired
+        .map((item) => `legacy_id ${item.legacyId ?? "-"}`)
+        .join(", ");
+      throw new BadRequestException(
+        `Criacao de cadastros-base ausentes exige confirmacao SUPER_ADMIN. ${details}`,
+      );
+    }
+  }
+
+  private createImportBatch(
+    body: ImportLegacyAcademicSelectionDto,
+    preview: Awaited<ReturnType<LegacyImportService["analyzeAcademicImport"]>>,
+    selectedRecords: number,
+    userId: string,
+  ) {
+    return this.prisma.legacyImportBatch.create({
+      data: {
+        fileName: this.optional(body.fileName),
+        totalRecords: body.records.length,
+        pendingCount: preview.summary.PENDENCIA,
+        blockedCount: preview.summary.BLOQUEADO,
+        importedByUserId: userId,
+        createdBaseRecords: {
+          institutions: [],
+          shifts: [],
+          buses: [],
+          selectedRecords,
+          chunkSize: IMPORT_CHUNK_SIZE,
+        },
+      },
+    });
+  }
+
+  private createJob(batchId: string, total: number): LegacyImportJob {
+    return {
+      id: batchId,
+      status: "QUEUED",
+      batchId,
+      total,
+      processed: 0,
+      imported: 0,
+      failed: 0,
+      ignored: 0,
+      percent: total === 0 ? 100 : 0,
+      chunkSize: IMPORT_CHUNK_SIZE,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      message: "Job de importacao criado",
+      results: [],
+    };
+  }
+
+  private async processImportJob(
+    jobId: string,
+    body: ImportLegacyAcademicSelectionDto,
+    userId: string,
+    selectedItems: LegacyPreviewItem[],
+  ) {
+    const job = this.importJobs.get(jobId);
+    if (!job || !job.batchId) return;
+    job.status = "PROCESSING";
+    job.message = "Importacao em processamento";
+    const createdBaseRecords: CreatedBaseRecords = {
+      institutions: [],
+      shifts: [],
+      buses: [],
+    };
+
+    try {
+      for (const chunk of this.chunk(selectedItems, IMPORT_CHUNK_SIZE)) {
+        for (const item of chunk) {
+          if (item.status === "JA_IMPORTADO") {
+            job.ignored += 1;
+            job.results.push({
+              legacyId: item.legacyId,
+              status: "JA_IMPORTADO",
+              reason: "Registro legado ja importado",
+            });
+          } else if (!item.canImport) {
+            job.ignored += 1;
+            job.results.push({
+              legacyId: item.legacyId,
+              status: "BLOQUEADO",
+              reason: item.reasons.join("; "),
+            });
+          } else {
+            try {
+              const imported = await this.importOne(
+                body.records,
+                item.legacyId!,
+                job.batchId,
+                userId,
+                body.destinationAcademicYear,
+                Boolean(body.createMissingBaseRecords),
+              );
+              this.mergeCreatedBaseRecords(
+                createdBaseRecords,
+                imported.createdBaseRecords,
+              );
+              job.imported += 1;
+              job.results.push({
+                legacyId: item.legacyId,
+                status: "IMPORTADO",
+                studentId: imported.studentId,
+                cardNumber: imported.generatedCardNumber,
+              });
+            } catch (error) {
+              job.failed += 1;
+              job.results.push({
+                legacyId: item.legacyId,
+                status: "FALHA",
+                reason: this.toFriendlyError(error),
+              });
+            }
+          }
+          job.processed += 1;
+          job.percent =
+            job.total === 0 ? 100 : Math.floor((job.processed / job.total) * 100);
+          await this.updateBatchProgress(job.batchId, job, createdBaseRecords);
+        }
+      }
+      job.status = "COMPLETED";
+      job.percent = 100;
+      job.finishedAt = new Date().toISOString();
+      job.message = "Importacao concluida";
+      await this.updateBatchProgress(job.batchId, job, createdBaseRecords);
+    } catch (error) {
+      job.status = "FAILED";
+      job.finishedAt = new Date().toISOString();
+      job.message = this.toFriendlyError(error);
+      await this.updateBatchProgress(job.batchId, job, createdBaseRecords);
+    }
+  }
+
+  private async updateBatchProgress(
+    batchId: string,
+    job: LegacyImportJob,
+    createdBaseRecords: CreatedBaseRecords,
+  ) {
+    await this.persistJobProgress(batchId, job, createdBaseRecords);
+  }
+
+  private async persistJobProgress(
+    batchId: string,
+    job: LegacyImportJob,
+    createdBaseRecords: CreatedBaseRecords,
+  ) {
+    await this.prisma.legacyImportBatch.update({
+      where: { id: batchId },
+      data: {
+        importedCount: job.imported,
+        failedCount: job.failed,
+        createdBaseRecords: {
+          ...createdBaseRecords,
+          jobId: job.id,
+          status: job.status,
+          ignored: job.ignored,
+          processed: job.processed,
+          total: job.total,
+          imported: job.imported,
+          failed: job.failed,
+          percent: job.percent,
+          chunkSize: IMPORT_CHUNK_SIZE,
+          startedAt: job.startedAt,
+          finishedAt: job.finishedAt,
+          message: job.message,
+          results: job.results.slice(-500),
+        },
+      },
+    });
+  }
+
+  private serializeJob(job: LegacyImportJob) {
+    return {
+      ...job,
+      results: job.results.slice(-500),
+    };
+  }
+
+  private hydrateJobFromBatch(batch: {
+    id: string;
+    importedCount: number;
+    failedCount: number;
+    createdBaseRecords: Prisma.JsonValue;
+  }): LegacyImportJob {
+    const progress = this.parsePersistedImportProgress(batch.createdBaseRecords);
+    const total = progress.total ?? progress.processed ?? batch.importedCount + batch.failedCount;
+    const processed = progress.processed ?? batch.importedCount + batch.failedCount;
+    const percent =
+      progress.percent ?? (total === 0 ? 100 : Math.floor((processed / total) * 100));
+    return {
+      id: progress.jobId ?? batch.id,
+      status: progress.status ?? "COMPLETED",
+      batchId: batch.id,
+      total,
+      processed,
+      imported: progress.imported ?? batch.importedCount,
+      failed: progress.failed ?? batch.failedCount,
+      ignored: progress.ignored ?? 0,
+      percent,
+      chunkSize: progress.chunkSize ?? IMPORT_CHUNK_SIZE,
+      startedAt: progress.startedAt ?? new Date().toISOString(),
+      finishedAt: progress.finishedAt ?? null,
+      message: progress.message ?? "Progresso recuperado do batch",
+      results: progress.results ?? [],
+    };
+  }
+
+  private chunk<T>(items: T[], size: number) {
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+  }
+
+  private toFriendlyError(error: unknown) {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === "string") return response;
+      if (
+        response &&
+        typeof response === "object" &&
+        "message" in response
+      ) {
+        const message = (response as { message?: unknown }).message;
+        if (Array.isArray(message)) return message.join("; ");
+        if (typeof message === "string") return message;
+      }
+      return error.message;
+    }
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return "Registro ja existe no ATRETU";
+    }
+    if (error instanceof ConflictException || error instanceof BadRequestException) {
+      return error.message;
+    }
+    return "Falha ao importar registro legado";
   }
 
   async rollbackBatch(batchId: string, user: AuthUser) {
@@ -505,7 +836,7 @@ export class LegacyImportService {
 
   private validateFileMetadata(body: AnalyzeLegacyAcademicImportDto) {
     if (body.records.length > MAX_RECORDS) {
-      throw new BadRequestException("Piloto limitado a 10 registros por JSON");
+      throw new BadRequestException("Importacao limitada a 500 registros por JSON");
     }
     if (body.fileName && !body.fileName.toLowerCase().endsWith(".json")) {
       throw new BadRequestException("Arquivo deve ter extensao .json");
@@ -969,6 +1300,43 @@ export class LegacyImportService {
     };
   }
 
+  private parsePersistedImportProgress(
+    value: Prisma.JsonValue,
+  ): PersistedImportProgress {
+    const record = value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+    const status = typeof record.status === "string" &&
+      ["QUEUED", "PROCESSING", "COMPLETED", "FAILED"].includes(record.status)
+      ? record.status as LegacyImportJobStatus
+      : undefined;
+    const results = Array.isArray(record.results)
+      ? record.results.filter((item): item is LegacyImportJobResult => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+          const candidate = item as Record<string, unknown>;
+          return typeof candidate.status === "string";
+        })
+      : undefined;
+    return {
+      jobId: typeof record.jobId === "string" ? record.jobId : undefined,
+      status,
+      processed: this.asOptionalNumber(record.processed),
+      total: this.asOptionalNumber(record.total),
+      imported: this.asOptionalNumber(record.imported),
+      failed: this.asOptionalNumber(record.failed),
+      ignored: this.asOptionalNumber(record.ignored),
+      percent: this.asOptionalNumber(record.percent),
+      chunkSize: this.asOptionalNumber(record.chunkSize),
+      startedAt: typeof record.startedAt === "string" ? record.startedAt : undefined,
+      finishedAt:
+        typeof record.finishedAt === "string" || record.finishedAt === null
+          ? record.finishedAt
+          : undefined,
+      message: typeof record.message === "string" ? record.message : undefined,
+      results,
+    };
+  }
+
   private async deleteCreatedBaseRecordsIfUnused(
     tx: Prisma.TransactionClient,
     created: CreatedBaseRecords,
@@ -1163,6 +1531,10 @@ export class LegacyImportService {
   private asString(value: unknown) {
     if (value === null || value === undefined) return "";
     return String(value);
+  }
+
+  private asOptionalNumber(value: unknown) {
+    return Number.isFinite(value) ? Number(value) : undefined;
   }
 
   private optional(value?: string | null) {
