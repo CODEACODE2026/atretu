@@ -408,6 +408,86 @@ export type AcademicYear = {
   updatedAt: string;
 };
 
+export type LegacyImportStatus =
+  | "PRONTO"
+  | "PENDENCIA"
+  | "BLOQUEADO"
+  | "JA_IMPORTADO";
+
+export type LegacyAcademicRawRecord = Record<string, unknown> & {
+  legacy_id?: number;
+};
+
+export type LegacyAcademicImportPayload = {
+  fileName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  records: LegacyAcademicRawRecord[];
+};
+
+export type LegacyAcademicPreviewItem = {
+  index: number;
+  legacyId: number | null;
+  name: string;
+  cpf: string;
+  cpfMasked: string;
+  institutionLegacy: string;
+  institution: BaseRecord | null;
+  course: string;
+  grade: string;
+  shiftLegacy: string;
+  shift: BaseRecord | null;
+  busLegacy: string | null;
+  bus: BusRecord | null;
+  legacyCardNumber: string | null;
+  card: {
+    legacyNumber: string | null;
+    hasConflict: boolean;
+    canPreserve: boolean;
+    needsAtretuNumber: boolean;
+    reason: string;
+  };
+  observation: string | null;
+  academicYear: AcademicYear | null;
+  status: LegacyImportStatus;
+  reasons: string[];
+};
+
+export type LegacyAcademicPreviewResponse = {
+  file: {
+    fileName: string | null;
+    mimeType: string | null;
+    sizeBytes: number | null;
+  };
+  limits: { maxRecordsPerBatch: number };
+  summary: Record<LegacyImportStatus, number>;
+  items: LegacyAcademicPreviewItem[];
+};
+
+export type LegacyAcademicImportResponse = {
+  batch: {
+    id: string;
+    importedAt: string;
+    importedCount: number;
+    pendingCount: number;
+    blockedCount: number;
+    failedCount: number;
+  };
+  summary: {
+    imported: number;
+    pending: number;
+    blocked: number;
+    failed: number;
+  };
+  results: Array<{
+    legacyId: number;
+    status: "IMPORTADO" | "FALHA";
+    studentId?: string;
+    cardNumber?: string;
+    reason?: string;
+  }>;
+};
+
 export type StudentStatus = "ACTIVE" | "SUSPENDED" | "TERMINATED";
 export type BoardMembershipStatus = "ACTIVE" | "ENDED";
 export type BoardMemberRole =
@@ -2090,6 +2170,38 @@ export const api = {
     return request<{ deleted: boolean; id: string }>(`/academic-years/${id}`, {
       method: "DELETE",
     });
+  },
+
+  analyzeLegacyAcademicImport(body: LegacyAcademicImportPayload) {
+    return request<LegacyAcademicPreviewResponse>(
+      "/admin/legacy-import/academics/analyze",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  importLegacyAcademics(
+    body: LegacyAcademicImportPayload & {
+      selectedLegacyIds: number[];
+      confirmReviewRequired?: boolean;
+    },
+  ) {
+    return request<LegacyAcademicImportResponse>(
+      "/admin/legacy-import/academics/import",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  rollbackLegacyImportBatch(batchId: string) {
+    return request<{ batchId: string; removed: number; residuals: number }>(
+      `/admin/legacy-import/batches/${batchId}/rollback`,
+      { method: "POST" },
+    );
   },
 
   getAssociationSettings() {

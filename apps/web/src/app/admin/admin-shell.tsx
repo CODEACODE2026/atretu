@@ -50,6 +50,7 @@ import { MobileNavigation } from "./components/mobile-navigation";
 import { DashboardPanel } from "./dashboard-panel";
 import { FinancePanel } from "./finance-panel";
 import { JobsMonitorPanel } from "./jobs-monitor-panel";
+import { LegacyImportPanel } from "./legacy-import-panel";
 import { OfficialDocumentsPanel } from "./official-documents-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { ReportsPanel } from "./reports-panel";
@@ -465,6 +466,7 @@ function AdminWorkspace({
           {area === "reports" ? <ReportsPanel user={user} /> : null}
           {area === "settings" ? <AssociationSettingsPanel /> : null}
           {area === "jobs" ? <JobsMonitorPanel /> : null}
+          {area === "legacy-import" ? <LegacyImportPanel /> : null}
           {area === "users" ? <UsersPanel /> : null}
           {area === "account" ? (
             <AccountPanel

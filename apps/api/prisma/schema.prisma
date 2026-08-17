@@ -111,6 +111,9 @@ enum AdministrativeAuditEventType {
   OFFICIAL_DOCUMENT_MODEL_VERSION_CREATED
   OFFICIAL_DOCUMENT_MODEL_ACTIVATED
   OFFICIAL_DOCUMENT_MODEL_INACTIVATED
+  LEGACY_IMPORT_BATCH_CREATED
+  LEGACY_STUDENT_IMPORTED
+  LEGACY_IMPORT_BATCH_ROLLED_BACK
 }
 
 enum StudentStatus {
@@ -402,47 +405,100 @@ enum ManualFinancialMovementAttachmentStatus {
 }
 
 model User {
-  id                         String                              @id @default(uuid()) @db.Uuid
-  name                       String                              @db.VarChar(120)
-  email                      String                              @unique @db.VarChar(180)
-  passwordHash               String                              @map("password_hash") @db.VarChar(255)
-  status                     UserStatus                          @default(ACTIVE)
-  mustChangePassword         Boolean                             @default(false) @map("must_change_password")
-  createdAt                  DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                  DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  lastLoginAt                DateTime?                           @map("last_login_at") @db.Timestamptz(6)
-  passwordChangedAt          DateTime?                           @map("password_changed_at") @db.Timestamptz(6)
-  blockedAt                  DateTime?                           @map("blocked_at") @db.Timestamptz(6)
-  roles                      UserRole[]
-  auditLogs                  SecurityAuditLog[]
-  administrativeAuditLogs    AdministrativeAuditLog[]
-  uploadedStudentDocuments   StudentDocument[]                   @relation("StudentDocumentUploadedBy")
-  removedStudentDocuments    StudentDocument[]                   @relation("StudentDocumentRemovedBy")
-  issuedOfficialDocuments    OfficialDocumentIssue[]             @relation("OfficialDocumentIssuedBy")
-  invalidatedOfficialDocuments OfficialDocumentIssue[]            @relation("OfficialDocumentInvalidatedBy")
-  officialDocumentModels      OfficialDocumentModel[]             @relation("OfficialDocumentModelCreatedBy")
-  officialDocumentModelVersions OfficialDocumentModelVersion[]    @relation("OfficialDocumentModelVersionCreatedBy")
-  reviewedPreRegistrations   PublicPreRegistration[]             @relation("PreRegistrationReviewedBy")
-  studentHistoryEvents       StudentHistoryEvent[]               @relation("StudentHistoryPerformedBy")
-  boardMembershipsStarted    BoardMembership[]                   @relation("BoardMembershipStartedBy")
-  boardMembershipsEnded      BoardMembership[]                   @relation("BoardMembershipEndedBy")
-  studentCardsIssued         StudentCard[]                       @relation("StudentCardIssuedBy")
-  studentCardsInvalidated    StudentCard[]                       @relation("StudentCardInvalidatedBy")
-  invoicesCreated            Invoice[]                           @relation("InvoiceCreatedBy")
-  invoicesCancelled          Invoice[]                           @relation("InvoiceCancelledBy")
-  bankSlipCancellations      BankSlip[]                          @relation("BankSlipCancellationRequestedBy")
-  bankSlipSyncRunsStarted    BankSlipSyncRun[]                   @relation("BankSlipSyncRunStartedBy")
-  bankSlipIssueBatches       BankSlipIssueBatch[]                @relation("BankSlipIssueBatchRequestedBy")
-  bankSlipIssueBatchCancels  BankSlipIssueBatch[]                @relation("BankSlipIssueBatchCancelledBy")
-  collectionActionsCreated   CollectionAction[]                  @relation("CollectionActionCreatedBy")
-  manualMovementsCreated     ManualFinancialMovement[]           @relation("ManualFinancialMovementCreatedBy")
-  manualMovementsUpdated     ManualFinancialMovement[]           @relation("ManualFinancialMovementUpdatedBy")
-  manualMovementsCancelled   ManualFinancialMovement[]           @relation("ManualFinancialMovementCancelledBy")
-  manualMovementAttachments  ManualFinancialMovementAttachment[] @relation("ManualFinancialMovementAttachmentUploadedBy")
-  associationSettingsUpdates AssociationSettings[]               @relation("AssociationSettingsUpdatedBy")
-  institutions               UserInstitution[]
+  id                            String                              @id @default(uuid()) @db.Uuid
+  name                          String                              @db.VarChar(120)
+  email                         String                              @unique @db.VarChar(180)
+  passwordHash                  String                              @map("password_hash") @db.VarChar(255)
+  status                        UserStatus                          @default(ACTIVE)
+  mustChangePassword            Boolean                             @default(false) @map("must_change_password")
+  createdAt                     DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt                   DateTime?                           @map("last_login_at") @db.Timestamptz(6)
+  passwordChangedAt             DateTime?                           @map("password_changed_at") @db.Timestamptz(6)
+  blockedAt                     DateTime?                           @map("blocked_at") @db.Timestamptz(6)
+  roles                         UserRole[]
+  auditLogs                     SecurityAuditLog[]
+  administrativeAuditLogs       AdministrativeAuditLog[]
+  uploadedStudentDocuments      StudentDocument[]                   @relation("StudentDocumentUploadedBy")
+  removedStudentDocuments       StudentDocument[]                   @relation("StudentDocumentRemovedBy")
+  issuedOfficialDocuments       OfficialDocumentIssue[]             @relation("OfficialDocumentIssuedBy")
+  invalidatedOfficialDocuments  OfficialDocumentIssue[]             @relation("OfficialDocumentInvalidatedBy")
+  officialDocumentModels        OfficialDocumentModel[]             @relation("OfficialDocumentModelCreatedBy")
+  officialDocumentModelVersions OfficialDocumentModelVersion[]      @relation("OfficialDocumentModelVersionCreatedBy")
+  reviewedPreRegistrations      PublicPreRegistration[]             @relation("PreRegistrationReviewedBy")
+  studentHistoryEvents          StudentHistoryEvent[]               @relation("StudentHistoryPerformedBy")
+  boardMembershipsStarted       BoardMembership[]                   @relation("BoardMembershipStartedBy")
+  boardMembershipsEnded         BoardMembership[]                   @relation("BoardMembershipEndedBy")
+  studentCardsIssued            StudentCard[]                       @relation("StudentCardIssuedBy")
+  studentCardsInvalidated       StudentCard[]                       @relation("StudentCardInvalidatedBy")
+  invoicesCreated               Invoice[]                           @relation("InvoiceCreatedBy")
+  invoicesCancelled             Invoice[]                           @relation("InvoiceCancelledBy")
+  bankSlipCancellations         BankSlip[]                          @relation("BankSlipCancellationRequestedBy")
+  bankSlipSyncRunsStarted       BankSlipSyncRun[]                   @relation("BankSlipSyncRunStartedBy")
+  bankSlipIssueBatches          BankSlipIssueBatch[]                @relation("BankSlipIssueBatchRequestedBy")
+  bankSlipIssueBatchCancels     BankSlipIssueBatch[]                @relation("BankSlipIssueBatchCancelledBy")
+  collectionActionsCreated      CollectionAction[]                  @relation("CollectionActionCreatedBy")
+  manualMovementsCreated        ManualFinancialMovement[]           @relation("ManualFinancialMovementCreatedBy")
+  manualMovementsUpdated        ManualFinancialMovement[]           @relation("ManualFinancialMovementUpdatedBy")
+  manualMovementsCancelled      ManualFinancialMovement[]           @relation("ManualFinancialMovementCancelledBy")
+  manualMovementAttachments     ManualFinancialMovementAttachment[] @relation("ManualFinancialMovementAttachmentUploadedBy")
+  associationSettingsUpdates    AssociationSettings[]               @relation("AssociationSettingsUpdatedBy")
+  institutions                  UserInstitution[]
+  legacyImportBatches           LegacyImportBatch[]                 @relation("LegacyImportBatchImportedBy")
 
   @@map("users")
+}
+
+model LegacyImportBatch {
+  id               String                @id @default(uuid()) @db.Uuid
+  source           String                @default("LEGACY") @db.VarChar(40)
+  legacyTable      String                @default("tab_academico") @map("legacy_table") @db.VarChar(80)
+  fileName         String?               @map("file_name") @db.VarChar(180)
+  totalRecords     Int                   @map("total_records")
+  importedCount    Int                   @default(0) @map("imported_count")
+  pendingCount     Int                   @default(0) @map("pending_count")
+  blockedCount     Int                   @default(0) @map("blocked_count")
+  failedCount      Int                   @default(0) @map("failed_count")
+  rolledBackAt     DateTime?             @map("rolled_back_at") @db.Timestamptz(6)
+  importedByUserId String?               @map("imported_by_user_id") @db.Uuid
+  importedAt       DateTime              @default(now()) @map("imported_at") @db.Timestamptz(6)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  importedBy       User?                 @relation("LegacyImportBatchImportedBy", fields: [importedByUserId], references: [id], onDelete: SetNull)
+  students         LegacyStudentImport[]
+
+  @@index([source, legacyTable, importedAt])
+  @@index([importedByUserId, importedAt])
+  @@map("legacy_import_batches")
+}
+
+model LegacyStudentImport {
+  id                  String            @id @default(uuid()) @db.Uuid
+  batchId             String            @map("batch_id") @db.Uuid
+  source              String            @default("LEGACY") @db.VarChar(40)
+  legacyTable         String            @default("tab_academico") @map("legacy_table") @db.VarChar(80)
+  legacyId            Int               @map("legacy_id")
+  studentId           String            @unique @map("student_id") @db.Uuid
+  personId            String            @map("person_id") @db.Uuid
+  enrollmentId        String            @map("enrollment_id") @db.Uuid
+  studentCardId       String            @map("student_card_id") @db.Uuid
+  busAssignmentId     String?           @map("bus_assignment_id") @db.Uuid
+  legacyCardNumber    String?           @map("legacy_card_number") @db.VarChar(32)
+  previousCardSequenceNumber Int        @map("previous_card_sequence_number")
+  generatedCardNumber String            @map("generated_card_number") @db.VarChar(32)
+  importedByUserId    String?           @map("imported_by_user_id") @db.Uuid
+  importedAt          DateTime          @default(now()) @map("imported_at") @db.Timestamptz(6)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  batch               LegacyImportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  student             Student           @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  person              Person            @relation(fields: [personId], references: [id], onDelete: Restrict)
+  enrollment          Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  studentCard         StudentCard       @relation(fields: [studentCardId], references: [id], onDelete: Restrict)
+  busAssignment       BusAssignment?    @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
+
+  @@unique([source, legacyTable, legacyId])
+  @@index([batchId])
+  @@index([legacyId])
+  @@map("legacy_student_imports")
 }
 
 model Role {
@@ -592,24 +648,25 @@ model AssociationSettings {
 }
 
 model Person {
-  id                  String   @id @default(uuid()) @db.Uuid
-  fullName            String   @map("full_name") @db.VarChar(160)
-  normalizedName      String   @map("normalized_name") @db.VarChar(160)
-  cpf                 String   @db.VarChar(11)
-  rg                  String?  @db.VarChar(30)
-  birthDate           DateTime @map("birth_date") @db.Date
-  phone               String?  @db.VarChar(30)
-  email               String?  @db.VarChar(180)
-  addressStreet       String   @map("address_street") @db.VarChar(180)
-  addressNumber       String   @map("address_number") @db.VarChar(30)
-  addressNeighborhood String   @map("address_neighborhood") @db.VarChar(120)
-  addressCity         String   @map("address_city") @db.VarChar(120)
-  addressZipCode      String?  @map("address_zip_code") @db.VarChar(20)
-  addressState        String?  @map("address_state") @db.VarChar(2)
-  addressComplement   String?  @map("address_complement") @db.VarChar(120)
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-  student             Student?
+  id                   String                @id @default(uuid()) @db.Uuid
+  fullName             String                @map("full_name") @db.VarChar(160)
+  normalizedName       String                @map("normalized_name") @db.VarChar(160)
+  cpf                  String                @db.VarChar(11)
+  rg                   String?               @db.VarChar(30)
+  birthDate            DateTime              @map("birth_date") @db.Date
+  phone                String?               @db.VarChar(30)
+  email                String?               @db.VarChar(180)
+  addressStreet        String                @map("address_street") @db.VarChar(180)
+  addressNumber        String                @map("address_number") @db.VarChar(30)
+  addressNeighborhood  String                @map("address_neighborhood") @db.VarChar(120)
+  addressCity          String                @map("address_city") @db.VarChar(120)
+  addressZipCode       String?               @map("address_zip_code") @db.VarChar(20)
+  addressState         String?               @map("address_state") @db.VarChar(2)
+  addressComplement    String?               @map("address_complement") @db.VarChar(120)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student              Student?
+  legacyStudentImports LegacyStudentImport[]
 
   @@unique([cpf])
   @@index([normalizedName])
@@ -636,6 +693,7 @@ model Student {
   invoices                 Invoice[]
   bankSlipIssueBatchItems  BankSlipIssueBatchItem[]
   manualFinancialMovements ManualFinancialMovement[]
+  legacyStudentImport      LegacyStudentImport?
 
   @@index([status, createdAt])
   @@index([joinedAt])
@@ -762,6 +820,7 @@ model Enrollment {
   studentCards            StudentCard[]
   invoices                Invoice[]
   bankSlipIssueBatchItems BankSlipIssueBatchItem[]
+  legacyStudentImports    LegacyStudentImport[]
 
   @@unique([studentId, academicYearId])
   @@index([academicYearId, status])
@@ -808,6 +867,7 @@ model StudentCard {
   issuedBy             User?                          @relation("StudentCardIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
   invalidatedBy        User?                          @relation("StudentCardInvalidatedBy", fields: [invalidatedByUserId], references: [id], onDelete: SetNull)
   studentHistoryEvents StudentHistoryEvent[]
+  legacyStudentImports LegacyStudentImport[]
 
   @@unique([academicYearId, sequenceNumber])
   @@unique([academicYearId, cardNumber])
@@ -1138,6 +1198,7 @@ model BusAssignment {
   bus                  Bus                     @relation(fields: [busId], references: [id], onDelete: Restrict)
   events               BusAssignmentEvent[]
   studentHistoryEvents StudentHistoryEvent[]
+  legacyStudentImports LegacyStudentImport[]
 
   @@index([busId, status])
   @@index([enrollmentId, status])
@@ -1201,39 +1262,39 @@ model StudentDocument {
 }
 
 model OfficialDocumentIssue {
-  id              String                      @id @default(uuid()) @db.Uuid
-  studentId       String?                     @map("student_id") @db.Uuid
-  documentModelId String?                     @map("document_model_id") @db.Uuid
-  documentModelVersionId String?              @map("document_model_version_id") @db.Uuid
-  documentType    OfficialDocumentType        @map("document_type")
-  templateKey     String                      @map("template_key") @db.VarChar(80)
-  templateVersion Int                         @default(1) @map("template_version")
-  status          OfficialDocumentIssueStatus @default(ISSUED)
-  version         Int                         @default(1)
-  protocol        String                      @unique @db.VarChar(40)
-  storageKey      String                      @unique @map("storage_key") @db.VarChar(500)
-  fileName        String                      @map("file_name") @db.VarChar(180)
-  mimeType        String                      @default("application/pdf") @map("mime_type") @db.VarChar(80)
-  sizeBytes       Int                         @map("size_bytes")
-  checksumSha256  String                      @map("checksum_sha256") @db.VarChar(64)
-  issuedByUserId  String?                     @map("issued_by_user_id") @db.Uuid
-  invalidatedByUserId String?                  @map("invalidated_by_user_id") @db.Uuid
-  sourceIssueId   String?                     @map("source_issue_id") @db.Uuid
-  contentSnapshot Json                        @map("content_snapshot")
-  notes           String?                     @db.VarChar(500)
-  invalidationReason String?                  @map("invalidation_reason") @db.VarChar(500)
-  invalidatedAt   DateTime?                   @map("invalidated_at") @db.Timestamptz(6)
-  issuedAt        DateTime                    @default(now()) @map("issued_at") @db.Timestamptz(6)
-  createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  student         Student?                    @relation(fields: [studentId], references: [id], onDelete: Restrict)
-  documentModel   OfficialDocumentModel?      @relation(fields: [documentModelId], references: [id], onDelete: SetNull)
-  documentModelVersion OfficialDocumentModelVersion? @relation(fields: [documentModelVersionId], references: [id], onDelete: SetNull)
-  issuedBy        User?                       @relation("OfficialDocumentIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
-  invalidatedBy   User?                       @relation("OfficialDocumentInvalidatedBy", fields: [invalidatedByUserId], references: [id], onDelete: SetNull)
-  sourceIssue     OfficialDocumentIssue?      @relation("OfficialDocumentReissue", fields: [sourceIssueId], references: [id], onDelete: SetNull)
-  reissues        OfficialDocumentIssue[]     @relation("OfficialDocumentReissue")
-  historyEvents   StudentHistoryEvent[]
+  id                     String                        @id @default(uuid()) @db.Uuid
+  studentId       String?                       @map("student_id") @db.Uuid
+  documentModelId        String?                       @map("document_model_id") @db.Uuid
+  documentModelVersionId String?                       @map("document_model_version_id") @db.Uuid
+  documentType           OfficialDocumentType          @map("document_type")
+  templateKey            String                        @map("template_key") @db.VarChar(80)
+  templateVersion        Int                           @default(1) @map("template_version")
+  status                 OfficialDocumentIssueStatus   @default(ISSUED)
+  version                Int                           @default(1)
+  protocol               String                        @unique @db.VarChar(40)
+  storageKey             String                        @unique @map("storage_key") @db.VarChar(500)
+  fileName               String                        @map("file_name") @db.VarChar(180)
+  mimeType               String                        @default("application/pdf") @map("mime_type") @db.VarChar(80)
+  sizeBytes              Int                           @map("size_bytes")
+  checksumSha256         String                        @map("checksum_sha256") @db.VarChar(64)
+  issuedByUserId         String?                       @map("issued_by_user_id") @db.Uuid
+  invalidatedByUserId    String?                       @map("invalidated_by_user_id") @db.Uuid
+  sourceIssueId          String?                       @map("source_issue_id") @db.Uuid
+  contentSnapshot        Json                          @map("content_snapshot")
+  notes                  String?                       @db.VarChar(500)
+  invalidationReason     String?                       @map("invalidation_reason") @db.VarChar(500)
+  invalidatedAt          DateTime?                     @map("invalidated_at") @db.Timestamptz(6)
+  issuedAt               DateTime                      @default(now()) @map("issued_at") @db.Timestamptz(6)
+  createdAt              DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  student                Student?                      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  documentModel          OfficialDocumentModel?        @relation(fields: [documentModelId], references: [id], onDelete: SetNull)
+  documentModelVersion   OfficialDocumentModelVersion? @relation(fields: [documentModelVersionId], references: [id], onDelete: SetNull)
+  issuedBy               User?                         @relation("OfficialDocumentIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
+  invalidatedBy          User?                         @relation("OfficialDocumentInvalidatedBy", fields: [invalidatedByUserId], references: [id], onDelete: SetNull)
+  sourceIssue            OfficialDocumentIssue?        @relation("OfficialDocumentReissue", fields: [sourceIssueId], references: [id], onDelete: SetNull)
+  reissues               OfficialDocumentIssue[]       @relation("OfficialDocumentReissue")
+  historyEvents          StudentHistoryEvent[]
 
   @@index([studentId, documentType, issuedAt])
   @@index([documentType, issuedAt])
@@ -1247,18 +1308,18 @@ model OfficialDocumentIssue {
 }
 
 model OfficialDocumentModel {
-  id                String                      @id @default(uuid()) @db.Uuid
-  name              String                      @db.VarChar(160)
-  description       String?                     @db.VarChar(500)
-  category          String                      @db.VarChar(80)
-  status            OfficialDocumentModelStatus @default(ACTIVE)
-  currentVersion    Int                         @default(1) @map("current_version")
-  createdByUserId   String?                     @map("created_by_user_id") @db.Uuid
-  createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  createdBy         User?                       @relation("OfficialDocumentModelCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  versions          OfficialDocumentModelVersion[]
-  issues            OfficialDocumentIssue[]
+  id              String                         @id @default(uuid()) @db.Uuid
+  name            String                         @db.VarChar(160)
+  description     String?                        @db.VarChar(500)
+  category        String                         @db.VarChar(80)
+  status          OfficialDocumentModelStatus    @default(ACTIVE)
+  currentVersion  Int                            @default(1) @map("current_version")
+  createdByUserId String?                        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy       User?                          @relation("OfficialDocumentModelCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  versions        OfficialDocumentModelVersion[]
+  issues          OfficialDocumentIssue[]
 
   @@index([status, updatedAt])
   @@index([category, status])
@@ -1266,16 +1327,16 @@ model OfficialDocumentModel {
 }
 
 model OfficialDocumentModelVersion {
-  id              String                  @id @default(uuid()) @db.Uuid
-  modelId         String                  @map("model_id") @db.Uuid
+  id              String                               @id @default(uuid()) @db.Uuid
+  modelId         String                               @map("model_id") @db.Uuid
   version         Int
-  content         String                  @db.Text
-  variableTokens  Json                    @default("[]") @map("variable_tokens")
+  content         String                               @db.Text
+  variableTokens  Json                                 @default("[]") @map("variable_tokens")
   signatureMode   OfficialDocumentDynamicSignatureMode @default(STUDENT) @map("signature_mode")
-  createdByUserId String?                 @map("created_by_user_id") @db.Uuid
-  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  model           OfficialDocumentModel   @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  createdBy       User?                   @relation("OfficialDocumentModelVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId String?                              @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                             @default(now()) @map("created_at") @db.Timestamptz(6)
+  model           OfficialDocumentModel                @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  createdBy       User?                                @relation("OfficialDocumentModelVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   issues          OfficialDocumentIssue[]
 
   @@unique([modelId, version])

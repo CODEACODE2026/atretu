@@ -4,6 +4,7 @@ import {
   BriefcaseBusiness,
   ClipboardCheck,
   ClipboardList,
+  FileJson,
   CreditCard,
   FileBarChart2,
   FileText,
@@ -27,6 +28,7 @@ export type AdminArea =
   | "reports"
   | "settings"
   | "jobs"
+  | "legacy-import"
   | "users"
   | "pre-registrations"
   | "years"
@@ -113,6 +115,14 @@ export const ADMIN_NAV_ITEMS = [
     icon: ClipboardList,
     key: "base",
     label: "Cadastros Base",
+  },
+  {
+    description: "Importação piloto JSON",
+    group: "administration",
+    icon: FileJson,
+    key: "legacy-import",
+    label: "Importação legado",
+    restricted: true,
   },
   {
     description: "Dados oficiais da associacao",
