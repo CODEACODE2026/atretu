@@ -36,6 +36,9 @@ export function LegacyImportPanel() {
   const [payload, setPayload] = useState<LegacyAcademicImportPayload | null>(null);
   const [preview, setPreview] = useState<LegacyAcademicPreviewResponse | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [destinationAcademicYear, setDestinationAcademicYear] = useState(
+    new Date().getFullYear(),
+  );
   const [confirmReview, setConfirmReview] = useState(false);
   const [createMissingBaseRecords, setCreateMissingBaseRecords] = useState(false);
   const [result, setResult] = useState<LegacyAcademicImportResponse | null>(null);
@@ -73,6 +76,7 @@ export function LegacyImportPanel() {
       const parsed = JSON.parse(await file.text()) as unknown;
       const records = Array.isArray(parsed) ? parsed : [parsed];
       const nextPayload = {
+        destinationAcademicYear,
         fileName: file.name,
         mimeType: file.type,
         sizeBytes: file.size,
@@ -87,10 +91,17 @@ export function LegacyImportPanel() {
 
   async function analyze(nextPayload = payload) {
     if (!nextPayload) return;
+    if (!Number.isInteger(destinationAcademicYear)) {
+      setFeedback({ tone: "red", text: "Informe o ano letivo destino." });
+      return;
+    }
     setLoading(true);
     setFeedback(null);
     try {
-      const response = await api.analyzeLegacyAcademicImport(nextPayload);
+      const response = await api.analyzeLegacyAcademicImport({
+        ...nextPayload,
+        destinationAcademicYear,
+      });
       setPreview(response);
       setFeedback({ tone: "green", text: "Pre-validacao concluida sem salvar registros." });
     } catch (caught) {
@@ -110,6 +121,7 @@ export function LegacyImportPanel() {
     try {
       const response = await api.importLegacyAcademics({
         ...payload,
+        destinationAcademicYear,
         selectedLegacyIds: [...selected],
         confirmReviewRequired: confirmReview,
         createMissingBaseRecords,
@@ -189,6 +201,22 @@ export function LegacyImportPanel() {
           <div className="grid gap-2 text-sm text-slate-600">
             <p>Arquivo: {preview?.file.fileName ?? "nenhum selecionado"}</p>
             <p>Nenhum registro e salvo durante a pre-validacao.</p>
+            <label className="grid gap-1">
+              <span className="text-xs font-semibold uppercase text-slate-500">
+                Ano letivo destino
+              </span>
+              <input
+                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-[#0F2E2E] focus:ring-2 focus:ring-[#8DB7AD]/30"
+                max={2100}
+                min={2000}
+                type="number"
+                value={destinationAcademicYear}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setDestinationAcademicYear(Number.isInteger(value) ? value : 0);
+                }}
+              />
+            </label>
             <button
               className={adminTheme.secondaryButton}
               disabled={!payload || loading}
@@ -296,7 +324,8 @@ export function LegacyImportPanel() {
                       <Info label="Carteirinha legado" value={item.legacyCardNumber ?? "-"} />
                       <Info label="Carteirinha ATRETU" value={item.card.needsAtretuNumber ? "gerar numero ATRETU" : "preservar"} />
                       <Info label="Observacao" value={item.observation ?? "-"} />
-                      <Info label="Ano letivo" value={formatRelation(item.relations.academicYear)} />
+                      <Info label="Ano cadastro legado" value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"} />
+                      <Info label="Ano letivo destino" value={formatRelation(item.relations.academicYear)} />
                     </div>
                     <p className="mt-3 text-xs leading-5 text-slate-600">
                       {item.reasons.join("; ")}

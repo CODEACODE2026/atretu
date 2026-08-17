@@ -77,6 +77,12 @@ export class LegacyAcademicRawRecordDto {
 }
 
 export class AnalyzeLegacyAcademicImportDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  destinationAcademicYear!: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(180)

@@ -484,6 +484,7 @@ model LegacyStudentImport {
   studentCardId       String            @map("student_card_id") @db.Uuid
   busAssignmentId     String?           @map("bus_assignment_id") @db.Uuid
   legacyCardNumber    String?           @map("legacy_card_number") @db.VarChar(32)
+  legacyCreatedYear   Int?              @map("legacy_created_year")
   previousCardSequenceNumber Int        @map("previous_card_sequence_number")
   generatedCardNumber String            @map("generated_card_number") @db.VarChar(32)
   importedByUserId    String?           @map("imported_by_user_id") @db.Uuid

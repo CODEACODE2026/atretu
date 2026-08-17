@@ -419,6 +419,7 @@ export type LegacyAcademicRawRecord = Record<string, unknown> & {
 };
 
 export type LegacyAcademicImportPayload = {
+  destinationAcademicYear: number;
   fileName?: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -431,6 +432,8 @@ export type LegacyAcademicPreviewItem = {
   name: string;
   cpf: string;
   cpfMasked: string;
+  legacyCreatedYear: number | null;
+  destinationAcademicYear: number;
   institutionLegacy: string;
   institution: BaseRecord | null;
   course: string;

@@ -54,6 +54,8 @@ type LegacyPreviewItem = {
   name: string;
   cpf: string;
   cpfMasked: string;
+  legacyCreatedYear: number | null;
+  destinationAcademicYear: number;
   institutionLegacy: string;
   institution: { id: string; name: string } | null;
   course: string;
@@ -100,8 +102,9 @@ export class LegacyImportService {
 
   async analyzeAcademicImport(body: AnalyzeLegacyAcademicImportDto) {
     this.validateFileMetadata(body);
+    const destinationAcademicYear = this.resolveDestinationAcademicYear(body);
     const prepared = body.records.map((record, index) =>
-      this.prepareRecord(record, index),
+      this.prepareRecord(record, index, destinationAcademicYear),
     );
     const duplicateCpfs = this.findDuplicates(prepared.map((record) => record.cpf));
     const duplicateLegacyIds = this.findDuplicates(
@@ -216,6 +219,7 @@ export class LegacyImportService {
           item.legacyId!,
           batch.id,
           user.id,
+          body.destinationAcademicYear,
           Boolean(body.createMissingBaseRecords),
         );
         this.mergeCreatedBaseRecords(createdBaseRecords, imported.createdBaseRecords);
@@ -344,6 +348,7 @@ export class LegacyImportService {
     legacyId: number,
     batchId: string,
     userId: string,
+    destinationAcademicYear: number,
     createMissingBaseRecords: boolean,
   ) {
     const source = sourceRecords.find((record) => record.legacy_id === legacyId);
@@ -355,6 +360,7 @@ export class LegacyImportService {
       fileName: "single-record.json",
       mimeType: "application/json",
       sizeBytes: 1,
+      destinationAcademicYear,
     });
     const item = preview.items[0];
     if (!item || !item.canImport) {
@@ -462,6 +468,7 @@ export class LegacyImportService {
           studentCardId: card.id,
           busAssignmentId,
           legacyCardNumber: item.legacyCardNumber,
+          legacyCreatedYear: item.normalized.legacyCreatedYear,
           previousCardSequenceNumber: cardSequence.previous,
           generatedCardNumber: cardNumber,
           importedByUserId: userId,
@@ -482,6 +489,9 @@ export class LegacyImportService {
             enrollmentId: enrollment.id,
             studentCardId: card.id,
             cardNumber,
+            legacyCardNumber: item.legacyCardNumber,
+            legacyCreatedYear: item.normalized.legacyCreatedYear,
+            destinationAcademicYear: item.academicYear.year,
           },
         },
       });
@@ -508,14 +518,26 @@ export class LegacyImportService {
     }
   }
 
-  private prepareRecord(record: LegacyAcademicRawRecordDto, index: number) {
+  private resolveDestinationAcademicYear(body: AnalyzeLegacyAcademicImportDto) {
+    const destinationAcademicYear = Number(body.destinationAcademicYear);
+    if (!Number.isInteger(destinationAcademicYear)) {
+      throw new BadRequestException("Ano letivo destino obrigatorio");
+    }
+    return destinationAcademicYear;
+  }
+
+  private prepareRecord(
+    record: LegacyAcademicRawRecordDto,
+    index: number,
+    destinationAcademicYear: number,
+  ) {
     const legacyId = Number.isInteger(record.legacy_id) ? record.legacy_id! : null;
     const cpf = normalizeCpf(this.asString(record.cpf));
     const birthDate = this.parseBrazilianDate(this.asString(record.data_nacimento));
     const joinedAt = this.parseIsoDate(this.asString(record.data_cadastro));
     const fullName = this.cleanSpaces(this.asString(record.nome_aluno));
     const observation = this.cleanSpaces(this.asString(record.observacao));
-    const academicYear = Number(this.asString(record.criado));
+    const legacyCreatedYear = Number(this.asString(record.criado));
     return {
       index,
       legacyId,
@@ -543,7 +565,8 @@ export class LegacyImportService {
       busCapacity: Number(this.asString(record.capacidade_onibus)),
       legacyCardNumber: this.optional(this.asString(record.numero_carterinha).trim()),
       observation: observation.length > 0 ? observation : null,
-      academicYear: Number.isInteger(academicYear) ? academicYear : null,
+      legacyCreatedYear: Number.isInteger(legacyCreatedYear) ? legacyCreatedYear : null,
+      destinationAcademicYear,
     };
   }
 
@@ -710,19 +733,17 @@ export class LegacyImportService {
       pending("Capacidade do onibus legado diverge do ATRETU");
     }
     const academicYear =
-      record.academicYear !== null
-        ? context.academicYears.get(record.academicYear) ?? null
-        : null;
+      context.academicYears.get(record.destinationAcademicYear) ?? null;
     const academicYearRelation: LegacyRelationPreview = academicYear
       ? {
-          legacyName: record.academicYear !== null ? String(record.academicYear) : null,
+          legacyName: String(record.destinationAcademicYear),
           status: "FOUND",
           message: "Encontrado no ATRETU",
           resolved: { id: academicYear.id, name: String(academicYear.year) },
           willCreate: false,
         }
       : {
-          legacyName: record.academicYear !== null ? String(record.academicYear) : null,
+          legacyName: String(record.destinationAcademicYear),
           status: "BLOCKED",
           message: "Ano letivo nao possui correspondencia ativa",
           resolved: null,
@@ -750,6 +771,8 @@ export class LegacyImportService {
       name: record.fullName,
       cpf: record.cpf,
       cpfMasked: record.cpf ? maskCpf(record.cpf) : "",
+      legacyCreatedYear: record.legacyCreatedYear,
+      destinationAcademicYear: record.destinationAcademicYear,
       institutionLegacy: record.institutionRaw,
       institution,
       course: record.course,

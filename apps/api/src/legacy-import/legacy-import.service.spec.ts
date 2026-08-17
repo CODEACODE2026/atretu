@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { LegacyImportService } from "./legacy-import.service.js";
 
 const academicYear = {
-  id: "year-2024",
-  year: 2024,
+  id: "year-2026",
+  year: 2026,
   isCurrent: true,
   status: "ACTIVE",
   createdAt: new Date(),
@@ -87,6 +87,7 @@ function record(overrides: Record<string, unknown> = {}) {
 }
 
 const preview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
   fileName: "piloto.json",
   mimeType: "application/json",
   sizeBytes: 1000,
@@ -115,6 +116,9 @@ const preview = await service.analyzeAcademicImport({
 
 assert.equal(preview.items.length, 10);
 assert.equal(preview.items[0]?.name, "ADRIELY AIKO HOGAHA MORAIS");
+assert.equal(preview.items[0]?.legacyCreatedYear, 2024);
+assert.equal(preview.items[0]?.destinationAcademicYear, 2026);
+assert.equal(preview.items[0]?.relations.academicYear.legacyName, "2026");
 assert.equal(preview.items[0]?.status, "BLOQUEADO");
 assert.equal(preview.items[0]?.canImport, false);
 assert(preview.items[0]?.reasons.includes("CPF duplicado dentro do JSON"));
@@ -141,6 +145,7 @@ assert(preview.items[9]?.reasons.includes("legacy_id duplicado dentro do JSON"))
 assert(preview.items[9]?.reasons.includes("Observacao sugere desligamento, mudanca ou inativacao"));
 
 const readyPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
   fileName: "pronto.json",
   records: [record({ legacy_id: 880, cpf: "390.533.447-05" })],
 });
@@ -148,6 +153,7 @@ assert.equal(readyPreview.items[0]?.status, "PRONTO");
 assert.equal(readyPreview.items[0]?.canImport, true);
 
 const alreadyImportedPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
   fileName: "importado.json",
   records: [record({ legacy_id: 900, cpf: "390.533.447-05" })],
 });
@@ -160,6 +166,7 @@ assert(
 await assert.rejects(
   () =>
     service.analyzeAcademicImport({
+      destinationAcademicYear: 2026,
       fileName: "piloto.txt",
       records: [record()],
     }),
@@ -171,6 +178,7 @@ await assert.rejects(
     service.importAcademicSelection(
       {
         records: [record({ legacy_id: 881, nome_instituicao: "IFPR NOTURNO" })],
+        destinationAcademicYear: 2026,
         selectedLegacyIds: [881],
         confirmReviewRequired: true,
       },
