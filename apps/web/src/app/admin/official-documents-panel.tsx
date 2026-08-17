@@ -14,14 +14,17 @@ import {
   RefreshCw,
   Save,
   ScrollText,
+  Search,
   Send,
 } from "lucide-react";
 import {
   api,
+  type ApiUser,
   type StudentSummary,
   type OfficialDocumentDynamicSignatureMode,
   type IssueInstitutionalOfficialDocumentBody,
   type OfficialDocumentModel,
+  type OfficialDocumentIssueStatusFilter,
   type OfficialDocumentVariable,
   type OfficialDocumentCatalogItem,
   type OfficialDocumentIssue,
@@ -36,11 +39,20 @@ import {
 } from "./components/admin-ui";
 import { formatDateTime } from "./students/student-profile-utils";
 
-export function OfficialDocumentsPanel() {
+type OfficialDocumentsTab = "models" | "issued" | "institutional";
+
+export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
   const [documents, setDocuments] = useState<OfficialDocumentCatalogItem[]>([]);
   const [models, setModels] = useState<OfficialDocumentModel[]>([]);
   const [modelIssues, setModelIssues] = useState<OfficialDocumentIssue[]>([]);
   const [variables, setVariables] = useState<OfficialDocumentVariable[]>([]);
+  const [activeTab, setActiveTab] = useState<OfficialDocumentsTab>("models");
+  const [issueSearch, setIssueSearch] = useState("");
+  const [issueStatus, setIssueStatus] =
+    useState<OfficialDocumentIssueStatusFilter>("all");
+  const [issuesPage, setIssuesPage] = useState(1);
+  const [issuesTotalPages, setIssuesTotalPages] = useState(1);
+  const [issuesTotal, setIssuesTotal] = useState(0);
   const [modelDialog, setModelDialog] = useState<OfficialDocumentModel | "new" | null>(null);
   const [modelIssueDialog, setModelIssueDialog] =
     useState<OfficialDocumentModel | null>(null);
@@ -52,10 +64,11 @@ export function OfficialDocumentsPanel() {
     useState<OfficialDocumentCatalogItem | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const canReadInvalidatedPdf = user.roles.includes("SUPER_ADMIN");
 
   useEffect(() => {
     void loadDocuments();
-  }, []);
+  }, [issueSearch, issueStatus, issuesPage]);
 
   async function loadDocuments() {
     setLoading(true);
@@ -65,12 +78,19 @@ export function OfficialDocumentsPanel() {
         await Promise.all([
           api.listInstitutionalOfficialDocuments(),
           api.listOfficialDocumentModels(),
-          api.listOfficialDocumentModelIssues(),
+          api.listOfficialDocumentIssues({
+            limit: 20,
+            page: issuesPage,
+            search: issueSearch || undefined,
+            status: issueStatus,
+          }),
           api.listOfficialDocumentVariables(),
         ]);
       setDocuments(response.data);
       setModels(modelsResponse.data);
       setModelIssues(issuesResponse.data);
+      setIssuesTotal(issuesResponse.pagination.total);
+      setIssuesTotalPages(issuesResponse.pagination.totalPages);
       setVariables(variablesResponse.data);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar documentos oficiais.");
@@ -217,6 +237,33 @@ export function OfficialDocumentsPanel() {
     }
   }
 
+  async function openAdminIssue(
+    issue: OfficialDocumentIssue,
+    disposition: "attachment" | "inline",
+  ) {
+    setBusy(`admin-${disposition}-${issue.id}`);
+    setError("");
+    try {
+      const result = issue.studentId
+        ? await api.downloadOfficialDocument(issue.studentId, issue.id, disposition)
+        : await api.downloadInstitutionalOfficialDocument(issue.id, disposition);
+      const url = URL.createObjectURL(result.blob);
+      if (disposition === "inline") {
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = result.fileName;
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao abrir documento.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <div className="space-y-5">
       <AdminModuleHeader
@@ -226,6 +273,22 @@ export function OfficialDocumentsPanel() {
         title="Documentos Oficiais"
       />
 
+      <div className="flex gap-2 overflow-x-auto border-b border-slate-200 pb-2">
+        <DocumentsTabButton active={activeTab === "models"} onClick={() => setActiveTab("models")}>
+          Modelos
+        </DocumentsTabButton>
+        <DocumentsTabButton active={activeTab === "issued"} onClick={() => setActiveTab("issued")}>
+          Documentos emitidos
+        </DocumentsTabButton>
+        <DocumentsTabButton active={activeTab === "institutional"} onClick={() => setActiveTab("institutional")}>
+          Institucionais
+        </DocumentsTabButton>
+      </div>
+
+      {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
+      {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
+
+      {activeTab === "models" ? (
       <section className={adminTheme.card}>
         <AdminSectionHeader
           action={
@@ -242,8 +305,6 @@ export function OfficialDocumentsPanel() {
           description="Modelos em texto simples com variaveis controladas, versao atual e historico imutavel nas emissoes."
           title="Modelos"
         />
-        {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
-        {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
         <div className="grid gap-3 p-4 xl:grid-cols-2">
           {loading ? (
             <AdminEmptyState loading title="Carregando modelos..." />
@@ -264,48 +325,84 @@ export function OfficialDocumentsPanel() {
           )}
         </div>
       </section>
+      ) : null}
 
+      {activeTab === "issued" ? (
       <section className={adminTheme.card}>
         <AdminSectionHeader
-          description="Emissoes geradas a partir de modelos dinamicos, salvas no historico oficial com snapshot."
+          description="Emissoes oficiais com busca, status, protocolo, versao e PDF rastreavel."
           title="Documentos emitidos"
         />
+        <div className="grid gap-3 border-b border-slate-200/70 p-4 lg:grid-cols-[minmax(0,1fr)_12rem_auto]">
+          <label className="relative min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              className={cx(adminTheme.control, "w-full pl-9")}
+              onChange={(event) => {
+                setIssueSearch(event.target.value);
+                setIssuesPage(1);
+              }}
+              placeholder="Buscar por acadêmico, modelo ou protocolo"
+              type="search"
+              value={issueSearch}
+            />
+          </label>
+          <select
+            className={adminTheme.control}
+            onChange={(event) => {
+              setIssueStatus(event.target.value as OfficialDocumentIssueStatusFilter);
+              setIssuesPage(1);
+            }}
+            value={issueStatus}
+          >
+            <option value="all">Todos</option>
+            <option value="ISSUED">Válidos</option>
+            <option value="INVALIDATED">Invalidados</option>
+          </select>
+          <button className={adminTheme.secondaryButton} disabled={loading || Boolean(busy)} onClick={() => void loadDocuments()} type="button">
+            <RefreshCw size={16} />
+            Atualizar
+          </button>
+        </div>
         <div className="grid gap-3 p-4">
           {loading ? (
             <AdminEmptyState loading title="Carregando emissoes..." />
           ) : modelIssues.length === 0 ? (
-            <AdminEmptyState title="Nenhum documento dinamico emitido" />
+            <AdminEmptyState title="Nenhum documento emitido encontrado" />
           ) : (
-            modelIssues.map((issue) => (
-              <div
-                className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 lg:grid-cols-[1fr_auto]"
-                key={issue.id}
-              >
-                <div>
-                  <p className="font-semibold text-slate-950">
-                    {issue.model?.name ?? "Modelo removido"} · v{issue.templateVersion}
-                  </p>
-                  <p className="mt-1">
-                    {issue.studentName ?? "Academico nao identificado"} · {issue.protocol} · {formatDateTime(issue.issuedAt)}
-                  </p>
-                </div>
-                <span className="text-xs font-semibold uppercase text-slate-500">
-                  Snapshot preservado
-                </span>
-              </div>
-            ))
+            <IssuedDocumentsTable
+              busy={busy}
+              canReadInvalidatedPdf={canReadInvalidatedPdf}
+              issues={modelIssues}
+              onDownload={(issue) => openAdminIssue(issue, "attachment")}
+              onView={(issue) => openAdminIssue(issue, "inline")}
+            />
           )}
+          {!loading && modelIssues.length > 0 ? (
+            <div className="flex flex-col gap-2 border-t border-slate-200 pt-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {issuesTotal} registro(s) · página {issuesPage} de {issuesTotalPages}
+              </span>
+              <div className="flex gap-2">
+                <button className={adminTheme.secondaryButton} disabled={issuesPage <= 1 || loading} onClick={() => setIssuesPage((page) => Math.max(1, page - 1))} type="button">
+                  Anterior
+                </button>
+                <button className={adminTheme.secondaryButton} disabled={issuesPage >= issuesTotalPages || loading} onClick={() => setIssuesPage((page) => Math.min(issuesTotalPages, page + 1))} type="button">
+                  Próxima
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
+      ) : null}
 
+      {activeTab === "institutional" ? (
       <section className={adminTheme.card}>
         <AdminSectionHeader
           description="Regimento Interno e demais documentos gerais da instituicao, sem vinculo com academico especifico."
           title="Institucionais"
         />
-        {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
-        {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
-
         <div className="p-4">
           {loading ? (
             <AdminEmptyState loading title="Carregando documentos oficiais..." />
@@ -329,6 +426,7 @@ export function OfficialDocumentsPanel() {
           )}
         </div>
       </section>
+      ) : null}
 
       {issueDialog ? (
         <InstitutionalIssueDialog
@@ -370,6 +468,124 @@ export function OfficialDocumentsPanel() {
       ) : null}
     </div>
   );
+}
+
+function DocumentsTabButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cx(
+        "whitespace-nowrap rounded-lg border px-4 py-2 text-sm font-semibold transition",
+        active
+          ? "border-emerald-700 bg-emerald-700 text-white"
+          : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:text-emerald-800",
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
+function IssuedDocumentsTable({
+  busy,
+  canReadInvalidatedPdf,
+  issues,
+  onDownload,
+  onView,
+}: {
+  busy: string;
+  canReadInvalidatedPdf: boolean;
+  issues: OfficialDocumentIssue[];
+  onDownload: (issue: OfficialDocumentIssue) => void;
+  onView: (issue: OfficialDocumentIssue) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full min-w-[920px] text-left text-sm">
+        <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-500">
+          <tr>
+            <th className="px-3 py-3">Acadêmico</th>
+            <th className="px-3 py-3">Modelo</th>
+            <th className="px-3 py-3">Versão</th>
+            <th className="px-3 py-3">Protocolo</th>
+            <th className="px-3 py-3">Emissão</th>
+            <th className="px-3 py-3">Status</th>
+            <th className="px-3 py-3">Ações</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {issues.map((issue) => {
+            const invalidated = issue.status === "INVALIDATED";
+            const pdfDisabled = Boolean(busy) || (invalidated && !canReadInvalidatedPdf);
+            return (
+              <tr className={invalidated ? "bg-red-50/40" : "bg-white"} key={issue.id}>
+                <td className="px-3 py-3 font-medium text-slate-950">
+                  {issue.studentName ?? "Institucional"}
+                </td>
+                <td className="px-3 py-3 text-slate-700">
+                  {issue.model?.name ?? documentTypeLabel(issue.type)}
+                </td>
+                <td className="px-3 py-3 text-slate-700">v{issue.templateVersion}</td>
+                <td className="px-3 py-3 font-mono text-xs text-slate-700">
+                  {issue.protocol}
+                </td>
+                <td className="px-3 py-3 text-slate-700">
+                  {formatDateTime(issue.issuedAt)}
+                </td>
+                <td className="px-3 py-3">
+                  <div className="grid gap-1">
+                    <AdminStatusBadge tone={invalidated ? "red" : "green"}>
+                      {invalidated ? "Invalidado" : "Válido"}
+                    </AdminStatusBadge>
+                    {invalidated ? (
+                      <span className="text-xs text-red-700">
+                        {issue.invalidatedAt ? formatDateTime(issue.invalidatedAt) : "sem data"} · {issue.invalidationReason ?? "sem motivo"}
+                      </span>
+                    ) : null}
+                  </div>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button className={adminTheme.secondaryButton} disabled={pdfDisabled} onClick={() => onView(issue)} type="button">
+                      <Eye size={15} />
+                      Visualizar
+                    </button>
+                    <button className={adminTheme.secondaryButton} disabled={pdfDisabled} onClick={() => onDownload(issue)} type="button">
+                      <Download size={15} />
+                      Baixar
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function documentTypeLabel(type: OfficialDocumentIssue["type"]) {
+  const labels: Record<OfficialDocumentIssue["type"], string> = {
+    ADHESION_TERM: "Termo de Adesão",
+    ANNUAL_CLEARANCE_DECLARATION: "Declaração de Quitação Anual",
+    DYNAMIC_TEMPLATE: "Modelo dinâmico",
+    INTERNAL_REGULATION: "Regimento Interno",
+    TERMINATION_LETTER: "Carta de Desligamento",
+    TERMINATION_TERM: "Termo de Desligamento",
+    TRANSPORT_REFUND_REQUEST: "Solicitação de Reembolso",
+    TRANSPORT_REGULATION: "Regulamento do Transporte",
+  };
+  return labels[type];
 }
 
 function InstitutionalDocumentCard({

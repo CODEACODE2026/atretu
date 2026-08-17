@@ -461,7 +461,7 @@ function AdminWorkspace({
               user={user}
             />
           ) : null}
-          {area === "official-documents" ? <OfficialDocumentsPanel /> : null}
+          {area === "official-documents" ? <OfficialDocumentsPanel user={user} /> : null}
           {area === "reports" ? <ReportsPanel user={user} /> : null}
           {area === "settings" ? <AssociationSettingsPanel /> : null}
           {area === "jobs" ? <JobsMonitorPanel /> : null}

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -10,11 +11,13 @@ import {
   BoardMembershipStatus,
   OfficialDocumentDynamicSignatureMode,
   OfficialDocumentIssue,
+  OfficialDocumentIssueStatus,
   OfficialDocumentModel,
   OfficialDocumentModelStatus,
   OfficialDocumentModelVersion,
   OfficialDocumentType,
   Prisma,
+  RoleCode,
   StudentHistoryEventType,
 } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
@@ -32,6 +35,8 @@ import type {
   IssueInstitutionalOfficialDocumentDto,
   IssueDynamicOfficialDocumentDto,
   IssueOfficialDocumentDto,
+  InvalidateOfficialDocumentDto,
+  ListOfficialDocumentIssuesDto,
   UpdateOfficialDocumentModelDto,
 } from "./dto/official-documents.dto.js";
 import {
@@ -291,6 +296,7 @@ export class OfficialDocumentsService {
       include: {
         documentModel: true,
         documentModelVersion: true,
+        invalidatedBy: { select: { id: true, name: true, email: true } },
         issuedBy: { select: { id: true, name: true, email: true } },
         student: { include: { person: true } },
       },
@@ -300,6 +306,60 @@ export class OfficialDocumentsService {
     return { data: issues.map((issue) => this.toIssueResponse(issue)) };
   }
 
+  async listIssues(query: ListOfficialDocumentIssuesDto) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const search = query.search?.trim();
+    const where: Prisma.OfficialDocumentIssueWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(search
+        ? {
+            OR: [
+              { protocol: { contains: search, mode: "insensitive" } },
+              { fileName: { contains: search, mode: "insensitive" } },
+              {
+                documentModel: {
+                  name: { contains: search, mode: "insensitive" },
+                },
+              },
+              {
+                student: {
+                  person: {
+                    fullName: { contains: search, mode: "insensitive" },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+    const [issues, total] = await this.prisma.$transaction([
+      this.prisma.officialDocumentIssue.findMany({
+        where,
+        include: {
+          documentModel: true,
+          documentModelVersion: true,
+          invalidatedBy: { select: { id: true, name: true, email: true } },
+          issuedBy: { select: { id: true, name: true, email: true } },
+          student: { include: { person: true } },
+        },
+        orderBy: { issuedAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.officialDocumentIssue.count({ where }),
+    ]);
+    return {
+      data: issues.map((issue) => this.toIssueResponse(issue)),
+      pagination: {
+        limit,
+        page,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
   async listStudentModelIssues(studentId: string, currentUser: AuthUser) {
     await this.getStudent(studentId, currentUser);
     const issues = await this.prisma.officialDocumentIssue.findMany({
@@ -307,7 +367,9 @@ export class OfficialDocumentsService {
       include: {
         documentModel: true,
         documentModelVersion: true,
+        invalidatedBy: { select: { id: true, name: true, email: true } },
         issuedBy: { select: { id: true, name: true, email: true } },
+        student: { include: { person: true } },
       },
       orderBy: { issuedAt: "desc" },
     });
@@ -507,7 +569,11 @@ export class OfficialDocumentsService {
           return null;
         }
         const type = definition.type;
-        const latestIssue = issues.find((issue) => issue.documentType === type);
+        const latestIssue = issues.find(
+          (issue) =>
+            issue.documentType === type &&
+            issue.status === OfficialDocumentIssueStatus.ISSUED,
+        );
         const canIssue = definition.canIssue(student);
         return {
           type,
@@ -537,7 +603,11 @@ export class OfficialDocumentsService {
           .filter((definition) => definition.scope === "INSTITUTIONAL")
           .map(async (definition) => {
           const type = definition.type;
-          const latestIssue = issues.find((issue) => issue.documentType === type);
+          const latestIssue = issues.find(
+            (issue) =>
+              issue.documentType === type &&
+              issue.status === OfficialDocumentIssueStatus.ISSUED,
+          );
           return {
             type,
             title: definition.title,
@@ -697,6 +767,17 @@ export class OfficialDocumentsService {
               version: definition.version,
               notes: this.issueNotes(snapshot),
             },
+          },
+        });
+        await tx.studentHistoryEvent.create({
+          data: {
+            studentId,
+            eventType: StudentHistoryEventType.OFFICIAL_DOCUMENT_ISSUED,
+            officialDocumentIssueId: created.id,
+            performedByUserId: currentUser.id,
+            justification: sourceIssueId
+              ? `Documento oficial reemitido: ${created.protocol}`
+              : `Documento oficial emitido: ${created.protocol}`,
           },
         });
         return created;
@@ -889,6 +970,17 @@ export class OfficialDocumentsService {
             },
           },
         });
+        await tx.studentHistoryEvent.create({
+          data: {
+            studentId,
+            eventType: StudentHistoryEventType.OFFICIAL_DOCUMENT_ISSUED,
+            officialDocumentIssueId: created.id,
+            performedByUserId: currentUser.id,
+            justification: sourceIssueId
+              ? `Documento oficial reemitido: ${created.protocol}`
+              : `Documento oficial emitido: ${created.protocol}`,
+          },
+        });
         return created;
       });
       return this.toIssueResponse(issue);
@@ -1042,6 +1134,80 @@ export class OfficialDocumentsService {
     );
   }
 
+  async invalidateStudentIssue(
+    studentId: string,
+    issueId: string,
+    payload: InvalidateOfficialDocumentDto,
+    currentUser: AuthUser,
+  ) {
+    if (!currentUser.roles.includes(RoleCode.SUPER_ADMIN)) {
+      throw new ForbiddenException("Somente SUPER_ADMIN pode invalidar documento oficial.");
+    }
+    const reason = payload.reason?.trim();
+    if (!reason) {
+      throw new BadRequestException("Informe o motivo da invalidacao.");
+    }
+    await this.getStudent(studentId, currentUser);
+    const issue = await this.findIssue(studentId, issueId);
+    if (issue.status === OfficialDocumentIssueStatus.INVALIDATED) {
+      throw new BadRequestException("Documento oficial ja esta invalidado.");
+    }
+    const invalidatedAt = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const record = await tx.officialDocumentIssue.update({
+        where: { id: issue.id },
+        data: {
+          invalidatedAt,
+          invalidatedByUserId: currentUser.id,
+          invalidationReason: reason,
+          status: OfficialDocumentIssueStatus.INVALIDATED,
+        },
+        include: {
+          documentModel: true,
+          documentModelVersion: true,
+          invalidatedBy: { select: { id: true, name: true, email: true } },
+          issuedBy: { select: { id: true, name: true, email: true } },
+          student: { include: { person: true } },
+        },
+      });
+      await tx.administrativeAuditLog.create({
+        data: {
+          eventType: AdministrativeAuditEventType.OFFICIAL_DOCUMENT_INVALIDATED,
+          userId: currentUser.id,
+          domain: "official_documents",
+          recordId: issue.id,
+          metadata: {
+            action: "invalidate",
+            documentType: issue.documentType,
+            issueId: issue.id,
+            modelId: issue.documentModelId,
+            modelVersionId: issue.documentModelVersionId,
+            protocol: issue.protocol,
+            reason,
+            statusAfter: OfficialDocumentIssueStatus.INVALIDATED,
+            statusBefore: issue.status,
+            studentId,
+            templateKey: issue.templateKey,
+            templateVersion: issue.templateVersion,
+            version: issue.version,
+          },
+        },
+      });
+      await tx.studentHistoryEvent.create({
+        data: {
+          studentId,
+          eventType: StudentHistoryEventType.OFFICIAL_DOCUMENT_INVALIDATED,
+          officialDocumentIssueId: issue.id,
+          performedByUserId: currentUser.id,
+          justification: reason,
+          occurredAt: invalidatedAt,
+        },
+      });
+      return record;
+    });
+    return this.toIssueResponse(updated);
+  }
+
   async reissueInstitutionalDocument(issueId: string, currentUser: AuthUser) {
     const source = await this.findInstitutionalIssue(issueId);
     return this.issueInstitutionalDocument(source.documentType, currentUser, issueId);
@@ -1066,6 +1232,7 @@ export class OfficialDocumentsService {
   ) {
     await this.getStudent(studentId, currentUser);
     const issue = await this.findIssue(studentId, issueId);
+    this.assertCanReadIssueFile(issue, currentUser);
     const buffer = await this.storage.read(issue.storageKey);
     await this.audit.record({
       eventType:
@@ -1098,6 +1265,7 @@ export class OfficialDocumentsService {
     currentUser: AuthUser,
   ) {
     const issue = await this.findInstitutionalIssue(issueId);
+    this.assertCanReadIssueFile(issue, currentUser);
     const buffer = await this.storage.read(issue.storageKey);
     await this.audit.record({
       eventType:
@@ -1187,7 +1355,13 @@ export class OfficialDocumentsService {
   private async findIssue(studentId: string, issueId: string) {
     const issue = await this.prisma.officialDocumentIssue.findFirst({
       where: { id: issueId, studentId },
-      include: { issuedBy: { select: { id: true, name: true, email: true } } },
+      include: {
+        documentModel: true,
+        documentModelVersion: true,
+        invalidatedBy: { select: { id: true, name: true, email: true } },
+        issuedBy: { select: { id: true, name: true, email: true } },
+        student: { include: { person: true } },
+      },
     });
     if (!issue) {
       throw new NotFoundException("Documento emitido nao encontrado");
@@ -1198,12 +1372,29 @@ export class OfficialDocumentsService {
   private async findInstitutionalIssue(issueId: string) {
     const issue = await this.prisma.officialDocumentIssue.findFirst({
       where: { id: issueId, studentId: null },
-      include: { issuedBy: { select: { id: true, name: true, email: true } } },
+      include: {
+        invalidatedBy: { select: { id: true, name: true, email: true } },
+        issuedBy: { select: { id: true, name: true, email: true } },
+      },
     });
     if (!issue) {
       throw new NotFoundException("Documento emitido nao encontrado");
     }
     return issue;
+  }
+
+  private assertCanReadIssueFile(
+    issue: OfficialDocumentIssue,
+    currentUser: AuthUser,
+  ) {
+    if (
+      issue.status === OfficialDocumentIssueStatus.INVALIDATED &&
+      !currentUser.roles.includes(RoleCode.SUPER_ADMIN)
+    ) {
+      throw new ForbiddenException(
+        "Documento invalidado fica acessivel apenas para SUPER_ADMIN.",
+      );
+    }
   }
 
   private async buildSnapshot(
@@ -2005,6 +2196,7 @@ export class OfficialDocumentsService {
     issue: OfficialDocumentIssue & {
       documentModel?: OfficialDocumentModel | null;
       documentModelVersion?: OfficialDocumentModelVersion | null;
+      invalidatedBy?: { id: string; name: string; email: string } | null;
       issuedBy?: { id: string; name: string; email: string } | null;
       student?: { person?: { fullName: string } } | null;
     },
@@ -2041,6 +2233,15 @@ export class OfficialDocumentsService {
             email: issue.issuedBy.email,
           }
         : null,
+      invalidatedAt: issue.invalidatedAt?.toISOString() ?? null,
+      invalidatedBy: issue.invalidatedBy
+        ? {
+            id: issue.invalidatedBy.id,
+            name: issue.invalidatedBy.name,
+            email: issue.invalidatedBy.email,
+          }
+        : null,
+      invalidationReason: issue.invalidationReason,
       sourceIssueId: issue.sourceIssueId,
       notes: issue.notes,
       resolvedContent:

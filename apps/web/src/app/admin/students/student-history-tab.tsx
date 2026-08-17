@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDollarSign,
+  FileText,
   GraduationCap,
   IdCard,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const historyFilters: Array<{
   { key: "all", label: "Todos", icon: BookOpen },
   { key: "finance", label: "Financeiro", icon: CircleDollarSign },
   { key: "cards", label: "Carteirinhas", icon: IdCard },
+  { key: "documents", label: "Documentos", icon: FileText },
   { key: "academic", label: "Academico", icon: GraduationCap },
 ];
 
@@ -241,6 +243,9 @@ function historyIcon(event: StudentHistoryEvent) {
   }
   if (category === "cards") {
     return IdCard;
+  }
+  if (category === "documents") {
+    return FileText;
   }
   return GraduationCap;
 }

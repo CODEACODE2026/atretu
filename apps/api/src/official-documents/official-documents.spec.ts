@@ -100,6 +100,10 @@ for (const fragment of [
   "DYNAMIC_TEMPLATE",
   "enum OfficialDocumentModelStatus",
   "enum OfficialDocumentDynamicSignatureMode",
+  "INVALIDATED",
+  "invalidatedByUserId",
+  "invalidationReason",
+  "invalidatedAt",
   "model OfficialDocumentModel",
   "model OfficialDocumentModelVersion",
   "signatureMode",
@@ -113,6 +117,7 @@ for (const fragment of [
   "role            BoardMemberRole?",
   "OFFICIAL_DOCUMENT_ISSUED",
   "OFFICIAL_DOCUMENT_REISSUED",
+  "OFFICIAL_DOCUMENT_INVALIDATED",
   "OFFICIAL_DOCUMENT_VIEWED",
   "OFFICIAL_DOCUMENT_DOWNLOADED",
 ]) {
@@ -121,6 +126,7 @@ for (const fragment of [
 
 for (const fragment of [
   '@Controller("students/:studentId/official-documents")',
+  '@Controller("official-documents/issues")',
   '@Controller("official-documents/models")',
   '@Controller("official-documents/institutional")',
   "CreateOfficialDocumentModelDto",
@@ -131,6 +137,7 @@ for (const fragment of [
   '@Get()',
   '@Post(":type/issue")',
   '@Post(":issueId/reissue")',
+  '@Post(":issueId/invalidate")',
   '@Get(":issueId/file")',
   "@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)",
 ]) {
@@ -139,7 +146,9 @@ for (const fragment of [
 
 for (const fragment of [
   "OfficialDocumentDynamicSignatureMode",
+  "OfficialDocumentIssueStatus",
   "@IsEnum(OfficialDocumentDynamicSignatureMode)",
+  "InvalidateOfficialDocumentDto",
   "signatureMode?: OfficialDocumentDynamicSignatureMode",
 ]) {
   assert.ok(dto.includes(fragment), `dto must include ${fragment}`);
@@ -166,6 +175,9 @@ for (const fragment of [
   "dynamicSignatureMode",
   "resolveDynamicSigners",
   "signaturePreview",
+  "listIssues",
+  "invalidateStudentIssue",
+  "OfficialDocumentIssueStatus.INVALIDATED",
   "resolveDynamicTemplate",
   "OFFICIAL_DOCUMENT_MODEL_CREATED",
   "OFFICIAL_DOCUMENT_MODEL_VERSION_CREATED",
@@ -198,6 +210,9 @@ for (const fragment of [
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_REISSUED",
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_VIEWED",
   "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_DOWNLOADED",
+  "AdministrativeAuditEventType.OFFICIAL_DOCUMENT_INVALIDATED",
+  "StudentHistoryEventType.OFFICIAL_DOCUMENT_ISSUED",
+  "StudentHistoryEventType.OFFICIAL_DOCUMENT_INVALIDATED",
   "source.documentType",
   "resolveTerminationTermPayload",
   "resolveAdhesionTermPayload",

@@ -2880,6 +2880,8 @@ function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     MANUAL_FINANCIAL_INCOME_RECORDED: "Entrada financeira",
     BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
     BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
+    OFFICIAL_DOCUMENT_ISSUED: "Documento emitido",
+    OFFICIAL_DOCUMENT_INVALIDATED: "Documento invalidado",
   };
   return labels[eventType];
 }

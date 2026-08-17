@@ -584,6 +584,8 @@ export type OfficialDocumentType =
   | "TRANSPORT_REGULATION"
   | "TERMINATION_LETTER"
   | "TERMINATION_TERM";
+export type OfficialDocumentIssueStatus = "ISSUED" | "INVALIDATED";
+export type OfficialDocumentIssueStatusFilter = OfficialDocumentIssueStatus | "all";
 export type OfficialDocumentSituation = "ISSUED" | "NOT_ISSUED";
 
 export type OfficialDocumentIssue = {
@@ -598,7 +600,7 @@ export type OfficialDocumentIssue = {
     category: string;
     status: OfficialDocumentModelStatus;
   } | null;
-  status: "ISSUED";
+  status: OfficialDocumentIssueStatus;
   templateKey: string;
   templateVersion: number;
   version: number;
@@ -608,6 +610,9 @@ export type OfficialDocumentIssue = {
   checksumSha256: string;
   issuedAt: string;
   issuedBy: { id: string; name: string; email: string } | null;
+  invalidatedAt: string | null;
+  invalidatedBy: { id: string; name: string; email: string } | null;
+  invalidationReason: string | null;
   sourceIssueId: string | null;
   notes: string | null;
   resolvedContent: string | null;
@@ -729,6 +734,16 @@ export type OfficialDocumentModelsResponse = {
 
 export type OfficialDocumentModelIssuesResponse = {
   data: OfficialDocumentIssue[];
+};
+
+export type OfficialDocumentIssuesResponse = {
+  data: OfficialDocumentIssue[];
+  pagination: {
+    limit: number;
+    page: number;
+    total: number;
+    totalPages: number;
+  };
 };
 
 export type OfficialDocumentVariablesResponse = {
@@ -1005,7 +1020,9 @@ export type StudentHistoryEvent = {
     | "BANK_SLIP_CANCELLED"
     | "MANUAL_FINANCIAL_INCOME_RECORDED"
     | "BOARD_MEMBERSHIP_STARTED"
-    | "BOARD_MEMBERSHIP_ENDED";
+    | "BOARD_MEMBERSHIP_ENDED"
+    | "OFFICIAL_DOCUMENT_ISSUED"
+    | "OFFICIAL_DOCUMENT_INVALIDATED";
   suspensionReason?: "NON_PAYMENT" | "INFRACTION" | "OTHER" | null;
   terminationReason?: "WITHDRAWAL" | "NON_PAYMENT" | null;
   justification?: string | null;
@@ -1014,6 +1031,7 @@ export type StudentHistoryEvent = {
   bus?: BusRecord | null;
   busAssignment?: BusAssignmentRecord | null;
   boardMembership?: BoardMembershipRecord | null;
+  officialDocumentIssue?: OfficialDocumentIssue | null;
 };
 
 export type ReenrollmentPreview = {
@@ -2825,6 +2843,17 @@ export const api = {
     );
   },
 
+  listOfficialDocumentIssues(params?: {
+    limit?: number;
+    page?: number;
+    search?: string;
+    status?: OfficialDocumentIssueStatusFilter;
+  }) {
+    return request<OfficialDocumentIssuesResponse>(
+      withParams("/official-documents/issues", params),
+    );
+  },
+
   listInstitutionalOfficialDocuments() {
     return request<OfficialDocumentsResponse>("/official-documents/institutional");
   },
@@ -2847,6 +2876,20 @@ export const api = {
     return request<OfficialDocumentIssue>(
       `/students/${studentId}/official-documents/${issueId}/reissue`,
       { method: "POST" },
+    );
+  },
+
+  invalidateOfficialDocument(
+    studentId: string,
+    issueId: string,
+    body: { reason: string },
+  ) {
+    return request<OfficialDocumentIssue>(
+      `/students/${studentId}/official-documents/${issueId}/invalidate`,
+      {
+        body: JSON.stringify(body),
+        method: "POST",
+      },
     );
   },
 

@@ -1266,6 +1266,7 @@ export class StudentsService {
         bus: true,
         busAssignment: { include: { bus: true } },
         boardMembership: true,
+        officialDocumentIssue: true,
       },
       orderBy: { occurredAt: "desc" },
     });

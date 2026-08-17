@@ -69,6 +69,7 @@ enum AdministrativeAuditEventType {
   STUDENT_DOCUMENT_REMOVED
   OFFICIAL_DOCUMENT_ISSUED
   OFFICIAL_DOCUMENT_REISSUED
+  OFFICIAL_DOCUMENT_INVALIDATED
   OFFICIAL_DOCUMENT_VIEWED
   OFFICIAL_DOCUMENT_DOWNLOADED
   PRE_REGISTRATION_RECEIVED
@@ -159,6 +160,8 @@ enum StudentHistoryEventType {
   MANUAL_FINANCIAL_INCOME_RECORDED
   BOARD_MEMBERSHIP_STARTED
   BOARD_MEMBERSHIP_ENDED
+  OFFICIAL_DOCUMENT_ISSUED
+  OFFICIAL_DOCUMENT_INVALIDATED
 }
 
 enum StudentSuspensionReason {
@@ -337,6 +340,7 @@ enum OfficialDocumentType {
 
 enum OfficialDocumentIssueStatus {
   ISSUED
+  INVALIDATED
 }
 
 enum OfficialDocumentModelStatus {
@@ -415,6 +419,7 @@ model User {
   uploadedStudentDocuments   StudentDocument[]                   @relation("StudentDocumentUploadedBy")
   removedStudentDocuments    StudentDocument[]                   @relation("StudentDocumentRemovedBy")
   issuedOfficialDocuments    OfficialDocumentIssue[]             @relation("OfficialDocumentIssuedBy")
+  invalidatedOfficialDocuments OfficialDocumentIssue[]            @relation("OfficialDocumentInvalidatedBy")
   officialDocumentModels      OfficialDocumentModel[]             @relation("OfficialDocumentModelCreatedBy")
   officialDocumentModelVersions OfficialDocumentModelVersion[]    @relation("OfficialDocumentModelVersionCreatedBy")
   reviewedPreRegistrations   PublicPreRegistration[]             @relation("PreRegistrationReviewedBy")
@@ -652,6 +657,7 @@ model StudentHistoryEvent {
   invoiceId                 String?                   @map("invoice_id") @db.Uuid
   bankSlipId                String?                   @map("bank_slip_id") @db.Uuid
   manualFinancialMovementId String?                   @map("manual_financial_movement_id") @db.Uuid
+  officialDocumentIssueId   String?                   @map("official_document_issue_id") @db.Uuid
   performedByUserId         String?                   @map("performed_by_user_id") @db.Uuid
   occurredAt                DateTime                  @default(now()) @map("occurred_at") @db.Timestamptz(6)
   createdAt                 DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -663,6 +669,7 @@ model StudentHistoryEvent {
   invoice                   Invoice?                  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   bankSlip                  BankSlip?                 @relation(fields: [bankSlipId], references: [id], onDelete: SetNull)
   manualFinancialMovement   ManualFinancialMovement?  @relation(fields: [manualFinancialMovementId], references: [id], onDelete: SetNull)
+  officialDocumentIssue     OfficialDocumentIssue?    @relation(fields: [officialDocumentIssueId], references: [id], onDelete: SetNull)
   performedBy               User?                     @relation("StudentHistoryPerformedBy", fields: [performedByUserId], references: [id], onDelete: SetNull)
 
   @@index([studentId, occurredAt])
@@ -673,6 +680,7 @@ model StudentHistoryEvent {
   @@index([invoiceId, occurredAt])
   @@index([bankSlipId, occurredAt])
   @@index([manualFinancialMovementId, occurredAt])
+  @@index([officialDocumentIssueId, occurredAt])
   @@map("student_history_events")
 }
 
@@ -1209,9 +1217,12 @@ model OfficialDocumentIssue {
   sizeBytes       Int                         @map("size_bytes")
   checksumSha256  String                      @map("checksum_sha256") @db.VarChar(64)
   issuedByUserId  String?                     @map("issued_by_user_id") @db.Uuid
+  invalidatedByUserId String?                  @map("invalidated_by_user_id") @db.Uuid
   sourceIssueId   String?                     @map("source_issue_id") @db.Uuid
   contentSnapshot Json                        @map("content_snapshot")
   notes           String?                     @db.VarChar(500)
+  invalidationReason String?                  @map("invalidation_reason") @db.VarChar(500)
+  invalidatedAt   DateTime?                   @map("invalidated_at") @db.Timestamptz(6)
   issuedAt        DateTime                    @default(now()) @map("issued_at") @db.Timestamptz(6)
   createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1219,8 +1230,10 @@ model OfficialDocumentIssue {
   documentModel   OfficialDocumentModel?      @relation(fields: [documentModelId], references: [id], onDelete: SetNull)
   documentModelVersion OfficialDocumentModelVersion? @relation(fields: [documentModelVersionId], references: [id], onDelete: SetNull)
   issuedBy        User?                       @relation("OfficialDocumentIssuedBy", fields: [issuedByUserId], references: [id], onDelete: SetNull)
+  invalidatedBy   User?                       @relation("OfficialDocumentInvalidatedBy", fields: [invalidatedByUserId], references: [id], onDelete: SetNull)
   sourceIssue     OfficialDocumentIssue?      @relation("OfficialDocumentReissue", fields: [sourceIssueId], references: [id], onDelete: SetNull)
   reissues        OfficialDocumentIssue[]     @relation("OfficialDocumentReissue")
+  historyEvents   StudentHistoryEvent[]
 
   @@index([studentId, documentType, issuedAt])
   @@index([documentType, issuedAt])
@@ -1228,6 +1241,7 @@ model OfficialDocumentIssue {
   @@index([documentModelId, issuedAt])
   @@index([documentModelVersionId])
   @@index([issuedByUserId, issuedAt])
+  @@index([invalidatedByUserId, invalidatedAt])
   @@index([sourceIssueId])
   @@map("official_document_issues")
 }

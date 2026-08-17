@@ -14,6 +14,7 @@ export type StudentHistoryCategory =
   | "all"
   | "finance"
   | "cards"
+  | "documents"
   | "academic";
 
 export function emptyToUndefined(value?: string) {
@@ -109,6 +110,8 @@ export function historyEventLabel(eventType: StudentHistoryEvent["eventType"]) {
     MANUAL_FINANCIAL_INCOME_RECORDED: "Entrada financeira",
     BOARD_MEMBERSHIP_STARTED: "Entrada na diretoria",
     BOARD_MEMBERSHIP_ENDED: "Saida da diretoria",
+    OFFICIAL_DOCUMENT_ISSUED: "Documento emitido",
+    OFFICIAL_DOCUMENT_INVALIDATED: "Documento invalidado",
   };
   return labels[eventType];
 }
@@ -132,6 +135,12 @@ export function historyEventCategory(
     eventType === "STUDENT_CARD_INVALIDATED"
   ) {
     return "cards";
+  }
+  if (
+    eventType === "OFFICIAL_DOCUMENT_ISSUED" ||
+    eventType === "OFFICIAL_DOCUMENT_INVALIDATED"
+  ) {
+    return "documents";
   }
   return "academic";
 }
@@ -187,6 +196,9 @@ export function historyEventDescription(event: StudentHistoryEvent) {
   if (event.boardMembership?.role) {
     return `Cargo: ${boardMemberRoleLabel(event.boardMembership.role)}`;
   }
+  if (event.officialDocumentIssue?.protocol) {
+    return `Protocolo: ${event.officialDocumentIssue.protocol}`;
+  }
   return "";
 }
 
@@ -211,6 +223,18 @@ export function historyEventDetails(event: StudentHistoryEvent) {
   }
   if (event.boardMembership?.status) {
     details.push(`Status da diretoria: ${event.boardMembership.status}`);
+  }
+  if (event.officialDocumentIssue?.protocol) {
+    details.push(`Protocolo: ${event.officialDocumentIssue.protocol}`);
+  }
+  if (event.officialDocumentIssue?.status) {
+    details.push(
+      `Status do documento: ${
+        event.officialDocumentIssue.status === "INVALIDATED"
+          ? "Invalidado"
+          : "Válido"
+      }`,
+    );
   }
   return details;
 }

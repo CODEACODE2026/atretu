@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type {
+  ApiUser,
   StudentDocumentRecord,
   StudentDocumentType,
 } from "../../../lib/api";
@@ -48,15 +49,17 @@ export function StudentDocumentsTab({
   onSummary,
   studentId,
   studentName,
+  user,
 }: {
   onChanged: () => Promise<void>;
   onSummary: (summary: { active: number; missing: number }) => void;
   studentId: string;
   studentName: string;
+  user: ApiUser;
 }) {
   return (
     <div className="grid gap-4">
-      <StudentOfficialDocuments studentId={studentId} studentName={studentName} />
+      <StudentOfficialDocuments studentId={studentId} studentName={studentName} user={user} />
       <StudentPhoto onChanged={onChanged} studentId={studentId} />
       <StudentDocuments onChanged={onChanged} onSummary={onSummary} studentId={studentId} />
     </div>

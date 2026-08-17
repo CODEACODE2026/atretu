@@ -245,6 +245,7 @@ export function StudentProfileView({
                 onSummary={setDocumentSummary}
                 studentId={student.id}
                 studentName={student.person.fullName}
+                user={user}
               />
             ) : null}
             {tab === "transport" ? (

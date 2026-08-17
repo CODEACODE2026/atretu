@@ -11,8 +11,10 @@ import {
   MoreHorizontal,
   RefreshCcw,
   Send,
+  XCircle,
 } from "lucide-react";
 import type {
+  ApiUser,
   IssueOfficialDocumentBody,
   OfficialDocumentCatalogItem,
   OfficialDocumentIssue,
@@ -32,9 +34,11 @@ import { formatBytes, formatDateTime } from "./student-profile-utils";
 export function StudentOfficialDocuments({
   studentId,
   studentName,
+  user,
 }: {
   studentId: string;
   studentName: string;
+  user: ApiUser;
 }) {
   const [documents, setDocuments] = useState<OfficialDocumentCatalogItem[]>([]);
   const [models, setModels] = useState<OfficialDocumentModel[]>([]);
@@ -63,6 +67,9 @@ export function StudentOfficialDocuments({
   } | null>(null);
   const [historyDialog, setHistoryDialog] =
     useState<OfficialDocumentCatalogItem | null>(null);
+  const [invalidateDialog, setInvalidateDialog] =
+    useState<OfficialDocumentIssue | null>(null);
+  const canInvalidate = user.roles.includes("SUPER_ADMIN");
 
   useEffect(() => {
     void loadDocuments();
@@ -251,6 +258,22 @@ export function StudentOfficialDocuments({
     }
   }
 
+  async function invalidateIssue(issue: OfficialDocumentIssue, reason: string) {
+    setBusy(`${issue.id}:invalidate`);
+    setMessage("");
+    setError("");
+    try {
+      await api.invalidateOfficialDocument(studentId, issue.id, { reason });
+      setMessage("Documento invalidado com segurança.");
+      setInvalidateDialog(null);
+      await loadDocuments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Erro ao invalidar documento");
+    } finally {
+      setBusy("");
+    }
+  }
+
   const sortedDocuments = [...documents].sort(compareOfficialDocuments);
   const issuedCount = documents.filter((item) => item.latestIssue).length;
   const pendingCount = documents.filter((item) => !item.latestIssue && item.canIssue).length;
@@ -332,16 +355,30 @@ export function StudentOfficialDocuments({
                   <p className="mt-1">
                     {issue.protocol} · {formatDateTime(issue.issuedAt)} · {issue.issuedBy?.name ?? "Usuario nao identificado"}
                   </p>
+                  {issue.status === "INVALIDATED" ? (
+                    <p className="mt-2 text-xs font-semibold text-red-700">
+                      Invalidado em {issue.invalidatedAt ? formatDateTime(issue.invalidatedAt) : "data nao informada"} · {issue.invalidationReason ?? "motivo nao informado"}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2 lg:justify-end">
-                  <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={() => void openIssue(issue, "inline")} type="button">
+                  <AdminStatusBadge tone={issue.status === "INVALIDATED" ? "red" : "green"}>
+                    {issue.status === "INVALIDATED" ? "Invalidado" : "Válido"}
+                  </AdminStatusBadge>
+                  <button className={adminTheme.secondaryButton} disabled={Boolean(busy) || (issue.status === "INVALIDATED" && !canInvalidate)} onClick={() => void openIssue(issue, "inline")} type="button">
                     <Eye size={15} />
                     Visualizar
                   </button>
-                  <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={() => void openIssue(issue, "attachment")} type="button">
+                  <button className={adminTheme.secondaryButton} disabled={Boolean(busy) || (issue.status === "INVALIDATED" && !canInvalidate)} onClick={() => void openIssue(issue, "attachment")} type="button">
                     <Download size={15} />
                     Baixar
                   </button>
+                  {canInvalidate && issue.status !== "INVALIDATED" ? (
+                    <button className={adminTheme.secondaryButton} disabled={Boolean(busy)} onClick={() => setInvalidateDialog(issue)} type="button">
+                      <XCircle size={15} />
+                      Invalidar documento
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -413,6 +450,14 @@ export function StudentOfficialDocuments({
           issue={detailsDialog.issue}
           item={detailsDialog.item}
           onClose={() => setDetailsDialog(null)}
+        />
+      ) : null}
+      {invalidateDialog ? (
+        <InvalidateOfficialDocumentDialog
+          busy={busy === `${invalidateDialog.id}:invalidate`}
+          issue={invalidateDialog}
+          onCancel={() => setInvalidateDialog(null)}
+          onSubmit={(reason) => void invalidateIssue(invalidateDialog, reason)}
         />
       ) : null}
     </section>
@@ -829,6 +874,7 @@ function OfficialDocumentHistoryDialog({
                         {formatDateTime(issue.issuedAt)}
                       </p>
                       <dl className="mt-2 grid gap-1 text-sm text-slate-600">
+                        <CompactMeta label="Status" value={officialIssueStatusLabel(issue)} />
                         <CompactMeta label="Protocolo" value={issue.protocol} />
                         <CompactMeta label="Versão" value={`v${issue.version}`} />
                         <CompactMeta
@@ -839,6 +885,22 @@ function OfficialDocumentHistoryDialog({
                           label="Assinado por"
                           value={formatSignerNames(issue)}
                         />
+                        {issue.status === "INVALIDATED" ? (
+                          <>
+                            <CompactMeta
+                              label="Invalidado em"
+                              value={
+                                issue.invalidatedAt
+                                  ? formatDateTime(issue.invalidatedAt)
+                                  : "nao informado"
+                              }
+                            />
+                            <CompactMeta
+                              label="Motivo"
+                              value={issue.invalidationReason ?? "nao informado"}
+                            />
+                          </>
+                        ) : null}
                       </dl>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
@@ -917,6 +979,7 @@ function OfficialDocumentDetailsDialog({
         <div className="grid gap-4 p-5">
           <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
             <DetailRow label="Emissão" value={formatDateTime(issue.issuedAt)} />
+            <DetailRow label="Status" value={officialIssueStatusLabel(issue)} />
             <DetailRow label="Protocolo" value={issue.protocol} />
             <DetailRow label="Versão" value={`v${issue.version}`} />
             <DetailRow label="Arquivo" value={formatBytes(issue.sizeBytes)} />
@@ -924,6 +987,26 @@ function OfficialDocumentDetailsDialog({
               label="Emitido por"
               value={issue.issuedBy?.name ?? "usuario removido"}
             />
+            {issue.status === "INVALIDATED" ? (
+              <>
+                <DetailRow
+                  label="Invalidado em"
+                  value={
+                    issue.invalidatedAt
+                      ? formatDateTime(issue.invalidatedAt)
+                      : "nao informado"
+                  }
+                />
+                <DetailRow
+                  label="Invalidado por"
+                  value={issue.invalidatedBy?.name ?? "usuario removido"}
+                />
+                <DetailRow
+                  label="Motivo"
+                  value={issue.invalidationReason ?? "nao informado"}
+                />
+              </>
+            ) : null}
           </div>
 
           {details.length > 0 ? (
@@ -957,6 +1040,71 @@ function OfficialDocumentDetailsDialog({
         <div className="flex justify-end border-t border-slate-200 bg-slate-50/80 px-5 py-4">
           <button className={adminTheme.secondaryButton} onClick={onClose} type="button">
             Fechar
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function InvalidateOfficialDocumentDialog({
+  busy,
+  issue,
+  onCancel,
+  onSubmit,
+}: {
+  busy: boolean;
+  issue: OfficialDocumentIssue;
+  onCancel: () => void;
+  onSubmit: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const canSubmit = reason.trim().length >= 5;
+
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center overflow-x-hidden bg-slate-950/45 p-4 backdrop-blur-[2px]">
+      <section
+        aria-modal="true"
+        className="max-h-[92vh] w-full max-w-[calc(100vw-2rem)] overflow-auto rounded-2xl border border-red-200 bg-white shadow-xl md:max-w-xl"
+        role="dialog"
+      >
+        <div className="border-b border-red-100 bg-red-50 px-5 py-4">
+          <h2 className="text-base font-semibold text-red-950">
+            Invalidar documento
+          </h2>
+          <p className="mt-1 text-sm leading-5 text-red-800">
+            O protocolo, snapshot, versão e PDF histórico serão preservados.
+          </p>
+        </div>
+        <div className="grid gap-4 p-5">
+          <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-sm">
+            <DetailRow label="Protocolo" value={issue.protocol} />
+            <DetailRow label="Modelo" value={issue.model?.name ?? "Documento oficial"} />
+            <DetailRow label="Versão" value={`v${issue.templateVersion}`} />
+          </div>
+          <label className="grid gap-1 text-sm font-semibold text-slate-700">
+            Motivo da invalidação
+            <textarea
+              className={cx(adminTheme.control, "h-28 w-full py-2")}
+              maxLength={500}
+              onChange={(event) => setReason(event.target.value)}
+              required
+              value={reason}
+            />
+          </label>
+        </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50/80 px-5 py-4 sm:flex-row sm:justify-end">
+          <button className={cx(adminTheme.secondaryButton, "justify-center")} disabled={busy} onClick={onCancel} type="button">
+            Cancelar
+          </button>
+          <button
+            className={cx(adminTheme.primaryButton, "justify-center bg-red-700 hover:bg-red-800")}
+            disabled={busy || !canSubmit}
+            onClick={() => onSubmit(reason)}
+            type="button"
+          >
+            <XCircle aria-hidden="true" size={16} />
+            {busy ? "Invalidando..." : "Confirmar invalidação"}
           </button>
         </div>
       </section>
@@ -1095,6 +1243,10 @@ function formatSignerNames(issue: OfficialDocumentIssue) {
     .map((signer) => signer.name ?? signer.signerName)
     .filter(Boolean);
   return names.length > 0 ? names.join(", ") : "nao informado";
+}
+
+function officialIssueStatusLabel(issue: OfficialDocumentIssue) {
+  return issue.status === "INVALIDATED" ? "Invalidado" : "Válido";
 }
 
 function compareOfficialDocuments(

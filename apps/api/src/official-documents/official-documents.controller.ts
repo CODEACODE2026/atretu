@@ -20,9 +20,11 @@ import type { AuthUser } from "../users/users.service.js";
 import {
   DownloadOfficialDocumentDto,
   CreateOfficialDocumentModelDto,
+  InvalidateOfficialDocumentDto,
   IssueDynamicOfficialDocumentDto,
   IssueInstitutionalOfficialDocumentDto,
   IssueOfficialDocumentDto,
+  ListOfficialDocumentIssuesDto,
   UpdateOfficialDocumentModelDto,
   UpdateOfficialDocumentModelStatusDto,
 } from "./dto/official-documents.dto.js";
@@ -103,6 +105,22 @@ export class OfficialDocumentsController {
     return this.officialDocuments.reissueDocument(studentId, issueId, user);
   }
 
+  @Roles(RoleCode.SUPER_ADMIN)
+  @Post(":issueId/invalidate")
+  invalidateOfficialDocument(
+    @Param("studentId") studentId: string,
+    @Param("issueId") issueId: string,
+    @Body() body: InvalidateOfficialDocumentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.invalidateStudentIssue(
+      studentId,
+      issueId,
+      body,
+      user,
+    );
+  }
+
   @Get(":issueId")
   getOfficialDocumentIssue(
     @Param("studentId") studentId: string,
@@ -138,6 +156,21 @@ export class OfficialDocumentsController {
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("Content-Security-Policy", "default-src 'none'");
     return response.send(file.buffer);
+  }
+}
+
+@UseGuards(AuthGuard, RolesGuard)
+@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Controller("official-documents/issues")
+export class OfficialDocumentIssuesController {
+  constructor(
+    @Inject(OfficialDocumentsService)
+    private readonly officialDocuments: OfficialDocumentsService,
+  ) {}
+
+  @Get()
+  listIssues(@Query() query: ListOfficialDocumentIssuesDto) {
+    return this.officialDocuments.listIssues(query);
   }
 }
 

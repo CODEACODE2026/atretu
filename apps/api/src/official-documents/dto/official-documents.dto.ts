@@ -12,6 +12,7 @@ import {
 } from "class-validator";
 import {
   OfficialDocumentDynamicSignatureMode,
+  OfficialDocumentIssueStatus,
   OfficialDocumentModelStatus,
   OfficialDocumentType,
 } from "@prisma/client";
@@ -27,6 +28,39 @@ export class DownloadOfficialDocumentDto {
   @IsEnum(FileDisposition)
   @Transform(({ value }) => (value === "" ? undefined : value))
   disposition: FileDisposition = FileDisposition.ATTACHMENT;
+}
+
+export class ListOfficialDocumentIssuesDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  search?: string;
+
+  @IsOptional()
+  @IsEnum(OfficialDocumentIssueStatus)
+  @Transform(({ value }) => (value === "" || value === "all" ? undefined : value))
+  status?: OfficialDocumentIssueStatus;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Transform(({ value }) => (value === undefined || value === "" ? 1 : Number(value)))
+  page: number = 1;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Transform(({ value }) => (value === undefined || value === "" ? 20 : Number(value)))
+  limit: number = 20;
+}
+
+export class InvalidateOfficialDocumentDto {
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  reason!: string;
 }
 
 export class IssueOfficialDocumentDto {
