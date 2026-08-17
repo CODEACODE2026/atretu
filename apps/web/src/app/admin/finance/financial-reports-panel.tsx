@@ -46,6 +46,21 @@ const categoryLabels: Record<ManualFinancialMovementCategory, string> = {
 };
 
 const ASSOCIATION_NAME = "ATRETU";
+const chartColors = [
+  "#1F6F5F",
+  "#2563EB",
+  "#F59E0B",
+  "#7C3AED",
+  "#E11D48",
+  "#0891B2",
+  "#65A30D",
+  "#EA580C",
+  "#475569",
+  "#BE123C",
+  "#0D9488",
+  "#9333EA",
+  "#4D7C0F",
+];
 
 export function FinancialReportsPanel({ user }: { user: ApiUser }) {
   const defaultPeriod = useMemo(() => currentSaoPauloMonth(), []);
@@ -199,37 +214,21 @@ export function FinancialReportsPanel({ user }: { user: ApiUser }) {
       </div>
 
       {report ? (
-        <>
-          <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
-            <div className="border-b border-slate-200/80 px-4 py-4">
-              <h3 className="text-base font-semibold text-slate-950">
-                Evolução financeira — últimos 12 meses
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <div className="grid min-w-[760px] gap-2 p-4">
-                {report.comparison.map((month) => (
-                  <ComparisonRow key={month.month} row={month} />
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <div className="grid gap-4 xl:grid-cols-2">
-            <CategoryTable
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
+          <MonthlyEvolutionChart rows={report.comparison} />
+          <div className="grid min-w-0 gap-4">
+            <CategoryDonutChart
               empty="Nenhuma despesa paga no período."
               rows={report.expenseCategories}
-              showPercentage
               title="Despesas por categoria"
             />
-            <CategoryTable
+            <CategoryDonutChart
               empty="Nenhuma entrada manual recebida no período."
               rows={report.incomeCategories}
-              showPercentage
-              title="Composição das receitas"
+              title="Outras entradas"
             />
           </div>
-        </>
+        </div>
       ) : null}
     </section>
   );
@@ -412,7 +411,7 @@ function ReportCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
-          <p className="mt-2 truncate text-2xl font-semibold text-slate-950">
+          <p className="mt-2 whitespace-nowrap text-xl font-semibold leading-tight text-slate-950 2xl:text-2xl">
             {loading ? "..." : value ?? "R$ 0,00"}
           </p>
         </div>
@@ -424,94 +423,216 @@ function ReportCard({
   );
 }
 
-function ComparisonRow({ row }: { row: FinancialReportComparisonMonth }) {
-  const max = Math.max(row.revenueCents, row.expenseCents, 1);
+function MonthlyEvolutionChart({ rows }: { rows: FinancialReportComparisonMonth[] }) {
+  const hasMovement = rows.some((row) => row.revenueCents !== 0 || row.expenseCents !== 0 || row.resultCents !== 0);
+  if (!hasMovement) {
+    return (
+      <section className={cx(adminTheme.card, "min-w-0 p-5")}>
+        <ChartHeader title="Evolução financeira — últimos 12 meses" />
+        <EmptyChartState message="Sem movimentação financeira no período." />
+      </section>
+    );
+  }
+
+  const width = 760;
+  const height = 320;
+  const plot = { bottom: 46, left: 56, right: 28, top: 28 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const maxValue = Math.max(...rows.flatMap((row) => [row.revenueCents, row.expenseCents, row.resultCents]), 1);
+  const minValue = Math.min(0, ...rows.map((row) => row.resultCents));
+  const range = Math.max(1, maxValue - minValue);
+  const baseline = plot.top + (maxValue / range) * plotHeight;
+  const groupWidth = plotWidth / rows.length;
+  const barWidth = Math.max(4, Math.min(12, groupWidth / 4.5));
+  const yFor = (value: number) => plot.top + ((maxValue - value) / range) * plotHeight;
+  const gridValues = [maxValue, Math.round((maxValue + minValue) / 2), minValue];
+
   return (
-    <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 md:grid-cols-[120px_1fr_110px] md:items-center">
-      <div className="text-sm font-semibold capitalize text-slate-700">{row.label}</div>
-      <div className="grid gap-2">
-        <Bar label="Receita" tone="positive" value={row.revenueCents} width={(row.revenueCents / max) * 100} />
-        <Bar label="Despesa" tone="negative" value={row.expenseCents} width={(row.expenseCents / max) * 100} />
+    <section className={cx(adminTheme.card, "min-w-0 p-5")}>
+      <ChartHeader title="Evolução financeira — últimos 12 meses" />
+      <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold text-slate-600">
+        <LegendDot color="#1F6F5F" label="Receita" />
+        <LegendDot color="#DC2626" label="Despesa" />
+        <LegendDot color="#2563EB" label="Resultado positivo" />
+        <LegendDot color="#F97316" label="Resultado negativo" />
       </div>
-      <div className={cx("text-sm font-semibold", row.resultStatus === "NEGATIVE" ? "text-red-700" : "text-emerald-700")}>
-        {row.resultStatus === "NEGATIVE" ? "-" : "+"} {row.resultFormatted}
+      <div className="mt-3 w-full overflow-hidden">
+        <svg aria-label="Gráfico de evolução financeira dos últimos 12 meses" className="block h-auto w-full" role="img" viewBox={`0 0 ${width} ${height}`}>
+          {gridValues.map((value) => {
+            const y = yFor(value);
+            return (
+              <g key={value}>
+                <line stroke="#E2E8F0" strokeWidth="1" x1={plot.left} x2={width - plot.right} y1={y} y2={y} />
+                <text fill="#64748B" fontSize="10" textAnchor="end" x={plot.left - 8} y={y + 3}>
+                  {formatCompactCurrency(value)}
+                </text>
+              </g>
+            );
+          })}
+          <line stroke="#94A3B8" strokeWidth="1.2" x1={plot.left} x2={width - plot.right} y1={baseline} y2={baseline} />
+          {rows.map((row, index) => {
+            const center = plot.left + index * groupWidth + groupWidth / 2;
+            const tooltip = `${row.label}\nReceita: ${row.revenueFormatted}\nDespesa: ${row.expenseFormatted}\nResultado: ${formatSignedResult(row)}`;
+            const bars = [
+              { color: "#1F6F5F", offset: -barWidth * 1.25, value: row.revenueCents },
+              { color: "#DC2626", offset: 0, value: row.expenseCents },
+              { color: row.resultStatus === "NEGATIVE" ? "#F97316" : "#2563EB", offset: barWidth * 1.25, value: row.resultCents },
+            ];
+            return (
+              <g key={row.month}>
+                <title>{tooltip}</title>
+                {bars.map((bar) => {
+                  const y = yFor(bar.value);
+                  const top = Math.min(y, baseline);
+                  const height = Math.max(2, Math.abs(baseline - y));
+                  return (
+                    <rect
+                      fill={bar.color}
+                      key={`${row.month}-${bar.color}`}
+                      rx="2"
+                      width={barWidth}
+                      x={center + bar.offset - barWidth / 2}
+                      y={top}
+                      height={height}
+                    />
+                  );
+                })}
+                <rect fill="transparent" height={plotHeight} width={groupWidth} x={plot.left + index * groupWidth} y={plot.top}>
+                  <title>{tooltip}</title>
+                </rect>
+                <text fill="#475569" fontSize="10" textAnchor="middle" x={center} y={height - 18}>
+                  {row.label.replace(/\s+de\s+/i, "/").replace(/\.$/, "")}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
       </div>
-    </div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+        <ChartMetric label="Maior receita" value={formatCurrency(Math.max(...rows.map((row) => row.revenueCents)))} />
+        <ChartMetric label="Maior despesa" value={formatCurrency(Math.max(...rows.map((row) => row.expenseCents)))} />
+        <ChartMetric label="Resultado atual" value={formatSignedResult(rows[rows.length - 1]!)} />
+      </div>
+    </section>
   );
 }
 
-function Bar({
-  label,
-  tone,
-  value,
-  width,
-}: {
-  label: string;
-  tone: "positive" | "negative";
-  value: number;
-  width: number;
-}) {
-  return (
-    <div className="grid grid-cols-[70px_1fr_110px] items-center gap-2 text-xs text-slate-600">
-      <span>{label}</span>
-      <span className="h-2 overflow-hidden rounded-full bg-slate-100">
-        <span
-          className={cx("block h-full rounded-full", tone === "positive" ? "bg-[#1F6F5F]" : "bg-red-500")}
-          style={{ width: `${Math.max(width, value > 0 ? 3 : 0)}%` }}
-        />
-      </span>
-      <span className="text-right font-semibold text-slate-700">{formatCurrency(value)}</span>
-    </div>
-  );
-}
-
-function CategoryTable({
+function CategoryDonutChart({
   empty,
   rows,
-  showPercentage,
   title,
 }: {
   empty: string;
   rows: FinancialReportCategory[];
-  showPercentage?: boolean;
   title: string;
 }) {
+  const totalCents = rows.reduce((sum, row) => sum + row.totalCents, 0);
+  const hasData = rows.length > 0 && totalCents > 0;
   return (
-    <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
-      <div className="border-b border-slate-200/80 px-4 py-4">
-        <h3 className="text-base font-semibold text-slate-950">{title}</h3>
-      </div>
-      {rows.length === 0 ? (
-        <div className="flex items-center gap-2 px-4 py-8 text-sm text-slate-500">
-          <MinusCircle aria-hidden="true" className="h-4 w-4" />
-          {empty}
+    <section className={cx(adminTheme.card, "min-w-0 p-5")}>
+      <ChartHeader title={title} />
+      {hasData ? (
+        <div className="mt-4 grid min-w-0 gap-4 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-center xl:grid-cols-1 2xl:grid-cols-[150px_minmax(0,1fr)]">
+          <svg aria-label={`Donut de ${title.toLowerCase()}`} className="mx-auto h-[150px] w-[150px]" role="img" viewBox="0 0 120 120">
+            <circle cx="60" cy="60" fill="none" r="42" stroke="#E2E8F0" strokeWidth="18" />
+            {donutSegments(rows, totalCents).map((segment) => (
+              <circle
+                cx="60"
+                cy="60"
+                fill="none"
+                key={segment.key}
+                r="42"
+                stroke={segment.color}
+                strokeDasharray={`${segment.length} ${segment.circumference - segment.length}`}
+                strokeDashoffset={segment.offset}
+                strokeLinecap="butt"
+                strokeWidth="18"
+                transform="rotate(-90 60 60)"
+              >
+                <title>{segment.tooltip}</title>
+              </circle>
+            ))}
+            <text fill="#0F172A" fontSize="10" fontWeight="700" textAnchor="middle" x="60" y="57">
+              Total
+            </text>
+            <text fill="#1F6F5F" fontSize="10" fontWeight="700" textAnchor="middle" x="60" y="70">
+              {formatCurrency(totalCents)}
+            </text>
+          </svg>
+          <div className="grid min-w-0 gap-2">
+            {rows.map((row, index) => (
+              <div className="grid min-w-0 grid-cols-[1fr_auto] items-center gap-3 text-sm" key={row.category} title={`${categoryLabels[row.category]} - ${row.totalFormatted} - ${row.percentage.toFixed(2)}%`}>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} />
+                  <span className="truncate text-slate-700">{categoryLabels[row.category]}</span>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold text-slate-950">{row.totalFormatted}</p>
+                  <p className="text-xs text-slate-500">{row.percentage.toFixed(2)}%</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3 text-left">Categoria</th>
-                <th className="px-4 py-3 text-right">Qtd.</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                {showPercentage ? <th className="px-4 py-3 text-right">%</th> : null}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.map((row) => (
-                <tr key={row.category}>
-                  <td className="px-4 py-3 font-medium text-slate-800">{categoryLabels[row.category]}</td>
-                  <td className="px-4 py-3 text-right text-slate-600">{row.count}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-800">{row.totalFormatted}</td>
-                  {showPercentage ? <td className="px-4 py-3 text-right text-slate-600">{row.percentage.toFixed(2)}%</td> : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <EmptyChartState message={empty} />
       )}
     </section>
   );
+}
+
+function ChartHeader({ title }: { title: string }) {
+  return (
+    <div>
+      <h3 className="text-base font-semibold text-slate-950">{title}</h3>
+    </div>
+  );
+}
+
+function EmptyChartState({ message }: { message: string }) {
+  return (
+    <div className="mt-4 flex min-h-[132px] items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+      <MinusCircle aria-hidden="true" className="h-4 w-4 shrink-0" />
+      {message}
+    </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+      {label}
+    </span>
+  );
+}
+
+function ChartMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-3 py-2">
+      <p className="font-medium text-slate-500">{label}</p>
+      <p className="mt-1 font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function donutSegments(rows: FinancialReportCategory[], totalCents: number) {
+  const circumference = 2 * Math.PI * 42;
+  let offset = 0;
+  return rows.map((row, index) => {
+    const length = (row.totalCents / totalCents) * circumference;
+    const segment = {
+      circumference,
+      color: chartColors[index % chartColors.length]!,
+      key: row.category,
+      length,
+      offset: -offset,
+      tooltip: `${categoryLabels[row.category]}\nValor: ${row.totalFormatted}\nPercentual: ${row.percentage.toFixed(2)}%`,
+    };
+    offset += length;
+    return segment;
+  });
 }
 
 function currentSaoPauloMonth() {
@@ -537,4 +658,18 @@ function formatCurrency(valueCents: number) {
     currency: "BRL",
     style: "currency",
   }).format(valueCents / 100);
+}
+
+function formatCompactCurrency(valueCents: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    compactDisplay: "short",
+    maximumFractionDigits: 1,
+    notation: "compact",
+    style: "currency",
+    currency: "BRL",
+  }).format(valueCents / 100);
+}
+
+function formatSignedResult(row: FinancialReportComparisonMonth) {
+  return `${row.resultStatus === "NEGATIVE" ? "-" : "+"} ${row.resultFormatted}`;
 }
