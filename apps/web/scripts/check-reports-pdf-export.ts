@@ -28,6 +28,40 @@ async function main() {
   assertIncludes(longPdfText, "Aluno 125", "PDF long report last row");
   assert(pageCount(longPdfText) > 1, "PDF long report must paginate");
 
+  const financialPdfText = await blobToLatin1(buildReportPdf(makeFinancialReport("POSITIVE"), user, fakeLogo()));
+  assertIncludes(financialPdfText, "Relatório financeiro gerencial", "financial PDF title");
+  assertIncludes(financialPdfText, "Resumo financeiro", "financial PDF summary section");
+  assertIncludes(financialPdfText, "Mensalidades recebidas", "financial PDF invoice revenue");
+  assertIncludes(financialPdfText, "Outras entradas", "financial PDF manual income");
+  assertIncludes(financialPdfText, "Receita total", "financial PDF total revenue highlight");
+  assertIncludes(financialPdfText, "Despesas pagas", "financial PDF paid expenses");
+  assertIncludes(financialPdfText, "Resultado do mês", "financial PDF monthly result highlight");
+  assertIncludes(financialPdfText, "Composição das receitas", "financial PDF income composition");
+  assertIncludes(financialPdfText, "Composição das despesas", "financial PDF expense composition");
+  assertIncludes(financialPdfText, "Evolução financeira - últimos 12 meses", "financial PDF comparison chart");
+  assertIncludes(financialPdfText, "Doação", "financial PDF income category");
+  assertIncludes(financialPdfText, "93.46%", "financial PDF category percentage");
+  assertIncludes(financialPdfText, "+ R$ 2.500,00", "financial PDF positive result");
+  assertIncludes(financialPdfText, "/Im1 Do", "financial PDF logo image");
+  assert(!financialPdfText.includes("America/Sao_Paulo"), "financial PDF must not expose timezone in body");
+  assert(!financialPdfText.includes("Registros:"), "financial PDF must not expose row count noise");
+  assert(!financialPdfText.includes("Competência"), "financial PDF must not repeat competence details");
+  assert(!financialPdfText.includes("Seção"), "financial PDF must not expose generic section column");
+  assert(!financialPdfText.includes("Detalhe"), "financial PDF must not expose generic detail column");
+  assert(!financialPdfText.includes("Comparativo dos últimos 12 meses"), "financial PDF must not use old comparison table title");
+  assert(pageCount(financialPdfText) === 1, "financial PDF with regular August 2026 data should fit one page");
+
+  const negativeFinancialPdfText = await blobToLatin1(buildReportPdf(makeFinancialReport("NEGATIVE"), user));
+  assertIncludes(negativeFinancialPdfText, "- R$ 1.400,00", "financial PDF negative result");
+
+  const zeroFinancialPdfText = await blobToLatin1(buildReportPdf(makeFinancialReport("ZERO"), user));
+  assertIncludes(zeroFinancialPdfText, "R$ 0,00", "financial PDF zero values");
+  assertIncludes(zeroFinancialPdfText, "Nenhuma receita adicional no período.", "financial PDF empty income categories");
+
+  const longFinancialPdfText = await blobToLatin1(buildReportPdf(makeFinancialReport("MANY_CATEGORIES"), user));
+  assert(pageCount(longFinancialPdfText) > 1, "financial PDF with many categories must paginate");
+  assertIncludes(longFinancialPdfText, "Página 2 de", "financial PDF pagination");
+
   const xlsxText = await blobToUtf8(buildReportXlsx(activeStudents, user));
   assertIncludes(xlsxText, "Acadêmicos ativos", "XLSX title with accent");
   assertIncludes(xlsxText, "Instituição", "XLSX institution column with accent");
@@ -40,6 +74,94 @@ async function main() {
   }
 
   console.log("Reports PDF export guard OK");
+}
+
+function makeFinancialReport(mode: "MANY_CATEGORIES" | "NEGATIVE" | "POSITIVE" | "ZERO"): GeneratedReport {
+  const positiveSummary = [
+    { label: "Mensalidades recebidas", value: "R$ 4.000,00" },
+    { label: "Outras entradas", value: "R$ 535,00" },
+    { highlight: true, label: "Receita total", tone: "positive" as const, value: "R$ 4.535,00" },
+    { label: "Despesas pagas", value: "R$ 2.035,00" },
+    { highlight: true, label: "Resultado do mês", tone: "positive" as const, value: "+ R$ 2.500,00" },
+  ];
+  const negativeSummary = [
+    { label: "Mensalidades recebidas", value: "R$ 1.000,00" },
+    { label: "Outras entradas", value: "R$ 100,00" },
+    { highlight: true, label: "Receita total", tone: "positive" as const, value: "R$ 1.100,00" },
+    { label: "Despesas pagas", value: "R$ 2.500,00" },
+    { highlight: true, label: "Resultado do mês", tone: "negative" as const, value: "- R$ 1.400,00" },
+  ];
+  const zeroSummary = [
+    { label: "Mensalidades recebidas", value: "R$ 0,00" },
+    { label: "Outras entradas", value: "R$ 0,00" },
+    { highlight: true, label: "Receita total", tone: "positive" as const, value: "R$ 0,00" },
+    { label: "Despesas pagas", value: "R$ 0,00" },
+    { highlight: true, label: "Resultado do mês", tone: "positive" as const, value: "+ R$ 0,00" },
+  ];
+  const baseIncomeCategories = [
+    { count: 1, label: "Doação", percentage: 93.46, totalFormatted: "R$ 500,00" },
+    { count: 1, label: "Segunda via", percentage: 4.67, totalFormatted: "R$ 25,00" },
+    { count: 1, label: "Xerox", percentage: 1.87, totalFormatted: "R$ 10,00" },
+  ];
+  const baseExpenseCategories = [
+    { count: 2, label: "Combustível", percentage: 72.24, totalFormatted: "R$ 1.470,00" },
+    { count: 1, label: "Contabilidade", percentage: 27.76, totalFormatted: "R$ 565,00" },
+  ];
+  const manyCategories = Array.from({ length: 13 }, (_, index) => ({
+    count: index + 1,
+    label: `Categoria ${String(index + 1).padStart(2, "0")}`,
+    percentage: index === 0 ? 20 : 6.67,
+    totalFormatted: `R$ ${(index + 1) * 100},00`,
+  }));
+
+  return {
+    category: "Financeiro",
+    columns: [],
+    financialMonthly: {
+      comparison: Array.from({ length: 12 }, (_, index) => {
+        const revenueCents = mode === "ZERO" ? 0 : 100000 + index * 12000;
+        const expenseCents = mode === "ZERO" ? 0 : 60000 + index * 8000;
+        const resultCents = mode === "NEGATIVE" && index === 11 ? -140000 : revenueCents - expenseCents;
+        return {
+          expenseCents,
+          expenseFormatted: money(expenseCents),
+          label: `${String(index + 1).padStart(2, "0")}/2026`,
+          resultFormatted: money(Math.abs(resultCents)),
+          resultStatus: resultCents < 0 ? "NEGATIVE" : "POSITIVE",
+          revenueCents,
+          revenueFormatted: money(revenueCents),
+        };
+      }),
+      expenseCategories: mode === "ZERO" ? [] : mode === "MANY_CATEGORIES" ? manyCategories : baseExpenseCategories,
+      incomeCategories: mode === "ZERO" ? [] : mode === "MANY_CATEGORIES" ? manyCategories : baseIncomeCategories,
+      periodLabel: "agosto de 2026",
+      summary: mode === "ZERO" ? zeroSummary : mode === "NEGATIVE" ? negativeSummary : positiveSummary,
+    },
+    filters: [
+      { label: "Associação", value: "ATRETU" },
+      { label: "Período", value: "agosto de 2026" },
+    ],
+    generatedAt,
+    rows: [],
+    summary: [],
+    title: "Relatório financeiro gerencial",
+  };
+}
+
+function fakeLogo() {
+  return {
+    bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+    height: 32,
+    name: "Im1",
+    width: 48,
+  };
+}
+
+function money(valueCents: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    currency: "BRL",
+    style: "currency",
+  }).format(valueCents / 100);
 }
 
 function makeStudentsReport(count: number, title: string): GeneratedReport {

@@ -25,6 +25,7 @@ import { adminTheme, cx } from "../admin-theme";
 import {
   downloadReportPdf,
   type GeneratedReport,
+  type FinancialMonthlyPdfCategory,
   type ReportRow,
 } from "../reports/report-export";
 
@@ -202,7 +203,7 @@ export function FinancialReportsPanel({ user }: { user: ApiUser }) {
           <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
             <div className="border-b border-slate-200/80 px-4 py-4">
               <h3 className="text-base font-semibold text-slate-950">
-                Comparativo dos últimos 12 meses
+                Evolução financeira — últimos 12 meses
               </h3>
             </div>
             <div className="overflow-x-auto">
@@ -224,7 +225,8 @@ export function FinancialReportsPanel({ user }: { user: ApiUser }) {
             <CategoryTable
               empty="Nenhuma entrada manual recebida no período."
               rows={report.incomeCategories}
-              title="Entradas manuais por categoria"
+              showPercentage
+              title="Composição das receitas"
             />
           </div>
         </>
@@ -237,17 +239,48 @@ function toGeneratedReport(report: FinancialMonthlyReport): GeneratedReport {
   return {
     category: "Financeiro",
     columns: [
-      { key: "section", label: "Seção" },
       { key: "item", label: "Item" },
+      { key: "count", label: "Qtd.", type: "number" },
       { key: "revenue", label: "Receita" },
       { key: "expense", label: "Despesa" },
       { key: "result", label: "Resultado" },
-      { key: "detail", label: "Detalhe" },
+      { key: "percentage", label: "%" },
     ],
+    financialMonthly: {
+      comparison: report.comparison,
+      expenseCategories: toPdfCategories(report.expenseCategories),
+      incomeCategories: toPdfCategories(report.incomeCategories),
+      periodLabel: report.period.label,
+      summary: [
+        {
+          label: "Mensalidades recebidas",
+          value: report.summary.invoiceRevenueFormatted,
+        },
+        {
+          label: "Outras entradas",
+          value: report.summary.manualIncomeFormatted,
+        },
+        {
+          highlight: true,
+          label: "Receita total",
+          tone: "positive",
+          value: report.summary.totalRevenueFormatted,
+        },
+        {
+          label: "Despesas pagas",
+          value: report.summary.expenseFormatted,
+        },
+        {
+          highlight: true,
+          label: "Resultado do mês",
+          tone: report.summary.resultStatus === "NEGATIVE" ? "negative" : "positive",
+          value: `${report.summary.resultStatus === "NEGATIVE" ? "-" : "+"} ${report.summary.resultFormatted}`,
+        },
+      ],
+    },
     filters: [
       { label: "Associação", value: ASSOCIATION_NAME },
       { label: "Período", value: report.period.label },
-      { label: "Fuso", value: report.period.timezone },
     ],
     generatedAt: new Date().toISOString(),
     rows: [
@@ -272,56 +305,56 @@ function toGeneratedReport(report: FinancialMonthlyReport): GeneratedReport {
 function summaryRows(report: FinancialMonthlyReport): ReportRow[] {
   return [
     {
-      detail: "Mensalidades efetivamente recebidas no período",
+      count: "",
       expense: "",
-      item: "Receita de mensalidades",
+      item: "Mensalidades recebidas",
+      percentage: "",
       result: "",
       revenue: report.summary.invoiceRevenueFormatted,
-      section: "Resumo do período",
     },
     {
-      detail: "Entradas manuais recebidas no período",
+      count: "",
       expense: "",
       item: "Outras entradas",
+      percentage: "",
       result: "",
       revenue: report.summary.manualIncomeFormatted,
-      section: "Resumo do período",
     },
     {
-      detail: "Mensalidades + outras entradas",
+      count: "",
       expense: "",
       item: "Receita total",
+      percentage: "",
       result: "",
       revenue: report.summary.totalRevenueFormatted,
-      section: "Resumo do período",
     },
     {
-      detail: "Despesas pagas no período",
+      count: "",
       expense: report.summary.expenseFormatted,
-      item: "Despesas",
+      item: "Despesas pagas",
+      percentage: "",
       result: "",
       revenue: "",
-      section: "Resumo do período",
     },
     {
-      detail: "Receita total - despesas",
+      count: "",
       expense: "",
       item: "Resultado",
+      percentage: "",
       result: `${report.summary.resultStatus === "NEGATIVE" ? "-" : "+"} ${report.summary.resultFormatted}`,
       revenue: "",
-      section: "Resumo do período",
     },
   ];
 }
 
 function comparisonRows(rows: FinancialReportComparisonMonth[]): ReportRow[] {
   return rows.map((row) => ({
-    detail: `Competência ${row.month}`,
+    count: "",
     expense: row.expenseFormatted,
     item: row.label,
+    percentage: "",
     result: `${row.resultStatus === "NEGATIVE" ? "-" : "+"} ${row.resultFormatted}`,
     revenue: row.revenueFormatted,
-    section: "Comparativo dos últimos 12 meses",
   }));
 }
 
@@ -333,22 +366,31 @@ function categoryRows(
   if (rows.length === 0) {
     return [
       {
-        detail: "Nenhum registro encontrado.",
+        count: "",
         expense: "",
         item: section,
+        percentage: "",
         result: "",
         revenue: "",
-        section,
       },
     ];
   }
   return rows.map((row) => ({
-    detail: `${row.count} lançamento(s) · ${row.percentage.toFixed(2)}%`,
+    count: row.count,
     expense: target === "expense" ? row.totalFormatted : "",
     item: categoryLabels[row.category],
+    percentage: `${row.percentage.toFixed(2)}%`,
     result: "",
     revenue: target === "revenue" ? row.totalFormatted : "",
-    section,
+  }));
+}
+
+function toPdfCategories(rows: FinancialReportCategory[]): FinancialMonthlyPdfCategory[] {
+  return rows.map((row) => ({
+    count: row.count,
+    label: categoryLabels[row.category],
+    percentage: row.percentage,
+    totalFormatted: row.totalFormatted,
   }));
 }
 

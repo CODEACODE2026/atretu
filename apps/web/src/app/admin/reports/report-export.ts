@@ -13,11 +13,40 @@ export type ReportRow = Record<string, string | number | boolean | null | undefi
 export type GeneratedReport = {
   category: string;
   columns: ReportColumn[];
+  financialMonthly?: FinancialMonthlyPdfReport;
   filters: Array<{ label: string; value: string }>;
   generatedAt: string;
   rows: ReportRow[];
   summary: Array<{ label: string; value: string }>;
   title: string;
+};
+
+export type FinancialMonthlyPdfReport = {
+  comparison: Array<{
+    expenseCents: number;
+    expenseFormatted: string;
+    label: string;
+    resultFormatted: string;
+    resultStatus: "NEGATIVE" | "POSITIVE";
+    revenueCents: number;
+    revenueFormatted: string;
+  }>;
+  expenseCategories: FinancialMonthlyPdfCategory[];
+  incomeCategories: FinancialMonthlyPdfCategory[];
+  periodLabel: string;
+  summary: Array<{
+    highlight?: boolean;
+    label: string;
+    tone?: "negative" | "neutral" | "positive";
+    value: string;
+  }>;
+};
+
+export type FinancialMonthlyPdfCategory = {
+  count: number;
+  label: string;
+  percentage: number;
+  totalFormatted: string;
 };
 
 export async function downloadReportPdf(report: GeneratedReport, user: ApiUser) {
@@ -126,6 +155,10 @@ function buildPrintHtml(report: GeneratedReport, user: ApiUser) {
 }
 
 export function buildReportPdf(report: GeneratedReport, user: ApiUser, logo?: PdfRasterImage | null) {
+  if (report.financialMonthly) {
+    return buildFinancialMonthlyReportPdf(report, user, report.financialMonthly, logo);
+  }
+
   const landscape = report.columns.length >= 6;
   const pageWidth = landscape ? 842 : 595;
   const pageHeight = landscape ? 595 : 842;
@@ -182,6 +215,229 @@ export function buildReportPdf(report: GeneratedReport, user: ApiUser, logo?: Pd
   });
 
   return createPdf(pageContents, pageWidth, pageHeight, logo ? [logo] : []);
+}
+
+function buildFinancialMonthlyReportPdf(
+  report: GeneratedReport,
+  user: ApiUser,
+  financial: FinancialMonthlyPdfReport,
+  logo?: PdfRasterImage | null,
+) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const margin = 36;
+  const usableWidth = pageWidth - margin * 2;
+  const footerY = 26;
+  const bottomLimit = 54;
+  const pages: string[][] = [];
+  let lines = createFinancialPdfPage(report, user, financial.periodLabel, pageWidth, pageHeight, margin, logo);
+  let y = pageHeight - 126;
+
+  const appendPage = () => {
+    pages.push(lines);
+    lines = createFinancialPdfPage(report, user, financial.periodLabel, pageWidth, pageHeight, margin, logo);
+    y = pageHeight - 126;
+  };
+
+  const requireSpace = (height: number) => {
+    if (y - height < bottomLimit) {
+      appendPage();
+    }
+  };
+
+  requireSpace(72);
+  y = drawFinancialSummary(lines, financial.summary, margin, y, usableWidth);
+
+  requireSpace(financialCategoryTableHeight(financial.incomeCategories.length));
+  y = drawFinancialCategoriesTable(lines, {
+    empty: "Nenhuma receita adicional no período.",
+    rows: financial.incomeCategories,
+    title: "Composição das receitas",
+    x: margin,
+    y,
+    width: usableWidth,
+  });
+
+  requireSpace(financialCategoryTableHeight(financial.expenseCategories.length));
+  y = drawFinancialCategoriesTable(lines, {
+    empty: "Nenhuma despesa paga no período.",
+    rows: financial.expenseCategories,
+    title: "Composição das despesas",
+    x: margin,
+    y,
+    width: usableWidth,
+  });
+
+  requireSpace(210);
+  y = drawFinancialComparisonChart(lines, financial.comparison, margin, y, usableWidth);
+
+  pages.push(lines);
+  const pageContents = pages.map((pageLines, index) => {
+    drawPdfFooter(pageLines, report, pageWidth, margin, footerY, index + 1, pages.length);
+    return pageLines.join("\n");
+  });
+
+  return createPdf(pageContents, pageWidth, pageHeight, logo ? [logo] : []);
+}
+
+function createFinancialPdfPage(
+  report: GeneratedReport,
+  user: ApiUser,
+  period: string,
+  pageWidth: number,
+  pageHeight: number,
+  margin: number,
+  logo?: PdfRasterImage | null,
+) {
+  const lines: string[] = [];
+  const usableWidth = pageWidth - margin * 2;
+  if (logo) {
+    drawPdfImage(lines, logo.name, margin, pageHeight - 66, 42, 30, logo);
+  } else {
+    drawPdfRect(lines, margin, pageHeight - 66, 42, 30, "15 46 46");
+    drawPdfText(lines, "AT", margin + 11, pageHeight - 55, 13, { bold: true, color: "255 255 255", maxWidth: 22 });
+  }
+  drawPdfText(lines, "ATRETU", margin + 54, pageHeight - 45, 10, { bold: true, color: "15 46 46", maxWidth: 120 });
+  drawPdfText(lines, report.title, margin + 54, pageHeight - 62, 15, { bold: true, color: "15 23 42", maxWidth: usableWidth * 0.58 });
+  drawPdfText(lines, `Período: ${period}`, margin + 54, pageHeight - 77, 9, {
+    color: "71 85 105",
+    maxWidth: usableWidth * 0.58,
+  });
+  drawPdfText(lines, `Emitido em ${formatDateTime(report.generatedAt)}`, margin, pageHeight - 48, 8, { align: "right", color: "71 85 105", maxWidth: usableWidth });
+  drawPdfText(lines, `Usuário: ${user.name}`, margin, pageHeight - 61, 8, { align: "right", color: "71 85 105", maxWidth: usableWidth });
+  drawPdfLine(lines, margin, pageHeight - 92, pageWidth - margin, pageHeight - 92, "15 46 46", 1.2);
+  return lines;
+}
+
+function drawFinancialSummary(
+  lines: string[],
+  summary: FinancialMonthlyPdfReport["summary"],
+  x: number,
+  y: number,
+  width: number,
+) {
+  drawPdfText(lines, "Resumo financeiro", x, y, 10, { bold: true, color: "15 23 42", maxWidth: width });
+  const gap = 6;
+  const cardWidth = (width - gap * 4) / 5;
+  const cardHeight = 42;
+  summary.forEach((item, index) => {
+    const cardX = x + index * (cardWidth + gap);
+    const fill = item.highlight ? (item.tone === "negative" ? "254 242 242" : "236 253 245") : "248 250 252";
+    const stroke = item.highlight ? (item.tone === "negative" ? "185 28 28" : "31 111 95") : "203 213 225";
+    drawPdfRect(lines, cardX, y - 50, cardWidth, cardHeight, fill);
+    drawPdfLine(lines, cardX, y - 8, cardX + cardWidth, y - 8, stroke, 0.7);
+    drawPdfText(lines, item.label, cardX + 7, y - 23, 6.2, { color: "100 116 139", maxWidth: cardWidth - 14 });
+    drawPdfText(lines, item.value, cardX + 7, y - 39, item.highlight ? 10 : 8.5, {
+      bold: true,
+      color: item.tone === "negative" ? "185 28 28" : item.tone === "positive" ? "31 111 95" : "15 23 42",
+      maxWidth: cardWidth - 14,
+    });
+  });
+  return y - 66;
+}
+
+function drawFinancialCategoriesTable(
+  lines: string[],
+  options: {
+    empty: string;
+    rows: FinancialMonthlyPdfCategory[];
+    title: string;
+    width: number;
+    x: number;
+    y: number;
+  },
+) {
+  const shownRows = options.rows;
+  const omitted = 0;
+  const rowHeight = 17;
+  const tableHeight = financialCategoryTableHeight(shownRows.length);
+  drawPdfText(lines, options.title, options.x, options.y, 10, { bold: true, color: "15 23 42", maxWidth: options.width });
+  const headerY = options.y - 18;
+  drawPdfRect(lines, options.x, headerY - 14, options.width, 18, "15 46 46");
+  const widths = [options.width * 0.46, options.width * 0.16, options.width * 0.22, options.width * 0.16];
+  let currentX = options.x;
+  ["Categoria", "Qtd.", "Valor", "%"].forEach((label, index) => {
+    drawPdfText(lines, label, currentX + 6, headerY - 7, 7, {
+      align: index === 0 ? "left" : "right",
+      bold: true,
+      color: "255 255 255",
+      maxWidth: widths[index]! - 12,
+    });
+    currentX += widths[index]!;
+  });
+  if (shownRows.length === 0) {
+    drawPdfRect(lines, options.x, headerY - 31, options.width, rowHeight, "248 250 252");
+    drawPdfText(lines, options.empty, options.x + 6, headerY - 25, 7.5, { color: "100 116 139", maxWidth: options.width - 12 });
+  } else {
+    shownRows.forEach((row, rowIndex) => {
+      const rowY = headerY - 18 - rowIndex * rowHeight;
+      drawPdfRect(lines, options.x, rowY - rowHeight + 6, options.width, rowHeight, rowIndex % 2 === 0 ? "255 255 255" : "248 250 252");
+      let x = options.x;
+      const cells = [
+        row.label,
+        String(row.count),
+        row.totalFormatted,
+        `${row.percentage.toFixed(2)}%`,
+      ];
+      cells.forEach((cell, index) => {
+        drawPdfText(lines, cell, x + 6, rowY - 5, 7.4, {
+          align: index === 0 ? "left" : "right",
+          color: index >= 2 ? "15 23 42" : "71 85 105",
+          maxWidth: widths[index]! - 12,
+        });
+        x += widths[index]!;
+      });
+      drawPdfLine(lines, options.x, rowY - rowHeight + 6, options.x + options.width, rowY - rowHeight + 6, "226 232 240", 0.35);
+    });
+  }
+  if (omitted > 0) {
+    drawPdfText(lines, `+ ${omitted} categoria(s) adicional(is)`, options.x + 6, headerY - 22 - shownRows.length * rowHeight, 7, {
+      color: "100 116 139",
+      maxWidth: options.width - 12,
+    });
+  }
+  return options.y - tableHeight - 12;
+}
+
+function financialCategoryTableHeight(rowCount: number) {
+  return 24 + Math.max(1, rowCount) * 17 + 12;
+}
+
+function drawFinancialComparisonChart(
+  lines: string[],
+  rows: FinancialMonthlyPdfReport["comparison"],
+  x: number,
+  y: number,
+  width: number,
+) {
+  drawPdfText(lines, "Evolução financeira - últimos 12 meses", x, y, 10, { bold: true, color: "15 23 42", maxWidth: width });
+  const max = Math.max(...rows.flatMap((row) => [row.revenueCents, row.expenseCents]), 1);
+  const rowHeight = 13;
+  const chartX = x + 72;
+  const chartWidth = width - 214;
+  const resultX = x + width - 112;
+  rows.forEach((row, index) => {
+    const rowY = y - 20 - index * rowHeight;
+    const revenueWidth = Math.max(row.revenueCents > 0 ? 1.5 : 0, (row.revenueCents / max) * chartWidth);
+    const expenseWidth = Math.max(row.expenseCents > 0 ? 1.5 : 0, (row.expenseCents / max) * chartWidth);
+    drawPdfText(lines, row.label, x, rowY - 1, 6.6, { color: "71 85 105", maxWidth: 64 });
+    drawPdfRect(lines, chartX, rowY + 1, chartWidth, 3.2, "226 232 240");
+    drawPdfRect(lines, chartX, rowY + 1, revenueWidth, 3.2, "31 111 95");
+    drawPdfRect(lines, chartX, rowY - 4, chartWidth, 3.2, "226 232 240");
+    drawPdfRect(lines, chartX, rowY - 4, expenseWidth, 3.2, "220 38 38");
+    drawPdfText(lines, row.revenueFormatted, chartX + chartWidth + 8, rowY + 0.3, 5.8, { color: "31 111 95", maxWidth: 50 });
+    drawPdfText(lines, row.expenseFormatted, chartX + chartWidth + 8, rowY - 4.7, 5.8, { color: "185 28 28", maxWidth: 50 });
+    drawPdfText(lines, `${row.resultStatus === "NEGATIVE" ? "-" : "+"} ${row.resultFormatted}`, resultX, rowY - 1.8, 6.4, {
+      align: "right",
+      bold: true,
+      color: row.resultStatus === "NEGATIVE" ? "185 28 28" : "31 111 95",
+      maxWidth: 112,
+    });
+  });
+  drawPdfText(lines, "Receita", chartX, y - 184, 6, { color: "31 111 95", maxWidth: 42 });
+  drawPdfText(lines, "Despesa", chartX + 48, y - 184, 6, { color: "185 28 28", maxWidth: 42 });
+  drawPdfText(lines, "Resultado mensal", resultX, y - 184, 6, { align: "right", color: "100 116 139", maxWidth: 112 });
+  return y - 202;
 }
 
 function createPdfPage(
