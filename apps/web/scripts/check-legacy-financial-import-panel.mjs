@@ -25,6 +25,18 @@ for (const [fragment, message] of [
     "selectedLegacyFinancialIds",
     "Financial import must support individual financial record selection",
   ],
+  [
+    "resolvedLegacyStudentName",
+    "Financial preview must render a friendly resolved student name",
+  ],
+  [
+    "Carteirinha ATRETU:",
+    "Financial preview must render the ATRETU card number when available",
+  ],
+  [
+    "Legado:",
+    "Financial preview must keep the legacy student id visible",
+  ],
   ["Resultado financeiro", "Financial import result panel must be present"],
 ]) {
   assertIncludes(panelSource, fragment, message);
@@ -49,6 +61,7 @@ const financialCard = sourceBetween(
   "function wait",
 );
 for (const forbidden of [
+  "Academico resolvido:",
   'label="CPF"',
   'label="Instituicao"',
   'label="Curso / serie"',

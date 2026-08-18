@@ -1067,6 +1067,8 @@ function FinancialPreviewCard({
   onToggle: () => void;
 }) {
   const canSelect = item.legacyFinancialId !== null && item.canImport;
+  const studentName = resolvedLegacyStudentName(item);
+  const cardNumber = item.legacyStudentImport?.atretuCardNumber;
   return (
     <article
       className={cx(
@@ -1089,11 +1091,14 @@ function FinancialPreviewCard({
             onChange={onToggle}
           />
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-slate-950">
-              Academico resolvido: {item.legacyStudentImport?.studentId ?? "sem vinculo"}
+            <span className="block break-words text-sm font-semibold leading-5 text-slate-950">
+              {studentName}
             </span>
             <span className="mt-1 block break-words text-xs text-slate-500">
-              legacy_student_id {item.legacyStudentId ?? "-"} · legacy_financial_id {item.legacyFinancialId ?? "-"} · origem Sistema legado
+              Carteirinha ATRETU: {cardNumber || "nao disponivel"} · Legado: {item.legacyStudentId ?? "-"}
+            </span>
+            <span className="mt-1 block break-words text-xs text-slate-500">
+              legacy_financial_id {item.legacyFinancialId ?? "-"} · origem Sistema legado
             </span>
           </span>
         </label>
@@ -1116,6 +1121,13 @@ function FinancialPreviewCard({
       </p>
     </article>
   );
+}
+
+function resolvedLegacyStudentName(item: LegacyFinancialPreviewItem) {
+  const name = item.legacyStudentImport?.studentName?.trim();
+  if (name) return name;
+  if (item.legacyStudentId !== null) return `Academico legado ${item.legacyStudentId}`;
+  return "Academico legado sem vinculo";
 }
 
 function wait(ms: number) {

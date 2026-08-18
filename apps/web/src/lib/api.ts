@@ -519,7 +519,12 @@ export type LegacyFinancialPreviewItem = {
   linhaDigitavel: string | null;
   codigoBarras: string | null;
   boletoPath: string | null;
-  legacyStudentImport: { id: string; studentId: string } | null;
+  legacyStudentImport: {
+    id: string;
+    studentId: string;
+    studentName: string | null;
+    atretuCardNumber: string | null;
+  } | null;
   status: LegacyFinancialPreviewStatus;
   canImport: boolean;
   reasons: string[];

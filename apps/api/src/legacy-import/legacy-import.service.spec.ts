@@ -35,6 +35,8 @@ const bus = {
   updatedAt: new Date(),
 };
 
+let legacyStudentImportFindManyCalls = 0;
+
 const prisma = {
   institution: { findMany: async () => [institution] },
   shift: { findMany: async () => [shift] },
@@ -47,18 +49,39 @@ const prisma = {
         : [],
   },
   legacyStudentImport: {
-    findMany: async ({ where }: { where: { legacyId: { in: number[] } } }) =>
-      where.legacyId.in.includes(900)
-        ? [
-            {
-              id: "legacy-student-900",
-              legacyId: 900,
-              source: "LEGACY",
-              legacyTable: "tab_academico",
-              studentId: "student-900",
-            },
-          ]
-        : [],
+    findMany: async ({ where }: { where: { legacyId: { in: number[] } } }) => {
+      legacyStudentImportFindManyCalls += 1;
+      return [
+        ...(where.legacyId.in.includes(900)
+          ? [
+              {
+                id: "legacy-student-900",
+                legacyId: 900,
+                source: "LEGACY",
+                legacyTable: "tab_academico",
+                studentId: "student-900",
+                generatedCardNumber: "252026",
+                person: { fullName: "ADRIANO CHAVES LIMA DE SOUZA JUNIOR" },
+                studentCard: { cardNumber: "252026" },
+              },
+            ]
+          : []),
+        ...(where.legacyId.in.includes(902)
+          ? [
+              {
+                id: "legacy-student-902",
+                legacyId: 902,
+                source: "LEGACY",
+                legacyTable: "tab_academico",
+                studentId: "student-902",
+                generatedCardNumber: null,
+                person: { fullName: null },
+                studentCard: null,
+              },
+            ]
+          : []),
+      ];
+    },
   },
   legacyFinancialImport: {
     findMany: async ({ where }: { where: { legacyFinancialId: { in: number[] } } }) =>
@@ -205,6 +228,7 @@ assert(
   alreadyImportedPreview.items[0]?.reasons.includes("Registro legado ja importado"),
 );
 
+legacyStudentImportFindManyCalls = 0;
 const financialPreview = await service.analyzeFinancialImport({
   fileName: "financeiro.json",
   mimeType: "application/json",
@@ -263,6 +287,7 @@ const financialPreview = await service.analyzeFinancialImport({
   ],
 });
 
+assert.equal(legacyStudentImportFindManyCalls, 1);
 assert.equal(financialPreview.summary.totalRecords, 4);
 assert.equal(financialPreview.summary.totalLegacyStudents, 2);
 assert.equal(financialPreview.summary.linkedLegacyStudents, 1);
@@ -276,6 +301,11 @@ assert.equal(financialPreview.summary.paidAmountCents, 25450);
 assert.equal(financialPreview.summary.fineAmountCents, 125);
 assert.equal(financialPreview.summary.interestAmountCents, 275);
 assert.equal(financialPreview.items[0]?.canImport, true);
+assert.equal(
+  financialPreview.items[0]?.legacyStudentImport?.studentName,
+  "ADRIANO CHAVES LIMA DE SOUZA JUNIOR",
+);
+assert.equal(financialPreview.items[0]?.legacyStudentImport?.atretuCardNumber, "252026");
 assert.equal(financialPreview.items[1]?.status, "BLOQUEADO");
 assert(
   financialPreview.items[1]?.reasons.includes(
@@ -285,6 +315,33 @@ assert(
 assert.equal(financialPreview.items[2]?.status, "JA_IMPORTADO");
 assert.equal(financialPreview.items[3]?.statusBoleto, "VENCIDO");
 assert.equal(financialPreview.items[3]?.canImport, true);
+assert.equal(
+  financialPreview.items[3]?.legacyStudentImport?.studentName,
+  financialPreview.items[0]?.legacyStudentImport?.studentName,
+);
+
+const financialFallbackPreview = await service.analyzeFinancialImport({
+  fileName: "financeiro-sem-carteirinha.json",
+  mimeType: "application/json",
+  sizeBytes: 300,
+  records: [
+    {
+      legacy_financial_id: 44,
+      legacy_student_id: 902,
+      data_emissao: "2024-09-09 10:29:00",
+      data_vencimento: "2024-09-20 00:00:00",
+      status_boleto: "PENDENTE",
+      valor_boleto: 150,
+      situacao_boleto: 1,
+    },
+  ],
+});
+assert.equal(financialFallbackPreview.items[0]?.canImport, true);
+assert.equal(financialFallbackPreview.items[0]?.legacyStudentImport?.studentName, null);
+assert.equal(
+  financialFallbackPreview.items[0]?.legacyStudentImport?.atretuCardNumber,
+  null,
+);
 
 await assert.rejects(
   () =>

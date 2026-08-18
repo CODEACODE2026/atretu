@@ -128,7 +128,12 @@ type LegacyFinancialPreviewItem = {
   linhaDigitavel: string | null;
   codigoBarras: string | null;
   boletoPath: string | null;
-  legacyStudentImport: { id: string; studentId: string } | null;
+  legacyStudentImport: {
+    id: string;
+    studentId: string;
+    studentName: string | null;
+    atretuCardNumber: string | null;
+  } | null;
   status: LegacyFinancialPreviewStatus;
   canImport: boolean;
   reasons: string[];
@@ -1256,7 +1261,14 @@ export class LegacyImportService {
           legacyTable: LEGACY_TABLE,
           legacyId: { in: legacyStudentIds },
         },
-        select: { id: true, legacyId: true, studentId: true },
+        select: {
+          id: true,
+          legacyId: true,
+          studentId: true,
+          generatedCardNumber: true,
+          person: { select: { fullName: true } },
+          studentCard: { select: { cardNumber: true } },
+        },
       }),
       this.prisma.legacyFinancialImport.findMany({
         where: {
@@ -1345,7 +1357,17 @@ export class LegacyImportService {
       linhaDigitavel: record.linhaDigitavel ?? null,
       codigoBarras: record.codigoBarras ?? null,
       boletoPath: record.boletoPath ?? null,
-      legacyStudentImport,
+      legacyStudentImport: legacyStudentImport
+        ? {
+            id: legacyStudentImport.id,
+            studentId: legacyStudentImport.studentId,
+            studentName: legacyStudentImport.person?.fullName ?? null,
+            atretuCardNumber:
+              legacyStudentImport.studentCard?.cardNumber ??
+              legacyStudentImport.generatedCardNumber ??
+              null,
+          }
+        : null,
       status,
       canImport: status === "PRONTO",
       reasons,
