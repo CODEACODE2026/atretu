@@ -7,7 +7,9 @@ import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   AnalyzeLegacyAcademicImportDto,
+  AnalyzeLegacyFinancialImportDto,
   ImportLegacyAcademicSelectionDto,
+  ImportLegacyFinancialSelectionDto,
 } from "./dto/legacy-import.dto.js";
 import { LegacyImportService } from "./legacy-import.service.js";
 
@@ -25,12 +27,25 @@ export class LegacyImportController {
     return this.legacyImport.analyzeAcademicImport(body);
   }
 
+  @Post("financial/analyze")
+  analyzeFinancial(@Body() body: AnalyzeLegacyFinancialImportDto) {
+    return this.legacyImport.analyzeFinancialImport(body);
+  }
+
   @Post("academics/import")
   importAcademics(
     @Body() body: ImportLegacyAcademicSelectionDto,
     @CurrentUser() user: AuthUser,
   ) {
     return this.legacyImport.importAcademicSelection(body, user);
+  }
+
+  @Post("financial/import")
+  importFinancial(
+    @Body() body: ImportLegacyFinancialSelectionDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.legacyImport.importFinancialSelection(body, user);
   }
 
   @Post("academics/import-jobs")

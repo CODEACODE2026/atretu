@@ -49,7 +49,21 @@ const prisma = {
   legacyStudentImport: {
     findMany: async ({ where }: { where: { legacyId: { in: number[] } } }) =>
       where.legacyId.in.includes(900)
-        ? [{ legacyId: 900, source: "LEGACY", legacyTable: "tab_academico" }]
+        ? [
+            {
+              id: "legacy-student-900",
+              legacyId: 900,
+              source: "LEGACY",
+              legacyTable: "tab_academico",
+              studentId: "student-900",
+            },
+          ]
+        : [],
+  },
+  legacyFinancialImport: {
+    findMany: async ({ where }: { where: { legacyFinancialId: { in: number[] } } }) =>
+      where.legacyFinancialId.in.includes(999)
+        ? [{ legacyFinancialId: 999 }]
         : [],
   },
   studentCard: {
@@ -189,6 +203,94 @@ assert.equal(alreadyImportedPreview.items[0]?.status, "JA_IMPORTADO");
 assert.equal(alreadyImportedPreview.items[0]?.canImport, false);
 assert(
   alreadyImportedPreview.items[0]?.reasons.includes("Registro legado ja importado"),
+);
+
+const financialPreview = await service.analyzeFinancialImport({
+  fileName: "financeiro.json",
+  mimeType: "application/json",
+  sizeBytes: 500,
+  records: [
+    {
+      legacy_financial_id: 41,
+      legacy_student_id: 900,
+      data_emissao: "2024-05-09 10:29:00",
+      data_vencimento: "2024-05-20 00:00:00",
+      status_boleto: "BAIXADO",
+      valor_boleto: 300,
+      linha_digitavel: "74891160090010050728407827151007997220000030000",
+      nosso_numero: "600001005",
+      codigo_barras: "74899972200000300001160000100507280782715100",
+      caminhao_boleto: "https://example.test/boleto.pdf",
+      valor_multa: null,
+      valor_juros: null,
+      valor_pago: null,
+      data_pagamento: null,
+      situacao_boleto: 2,
+      status_mail: 0,
+      dt_envio_boleto: null,
+    },
+    {
+      legacy_financial_id: 42,
+      legacy_student_id: 901,
+      data_emissao: "2024-06-09 10:29:00",
+      data_vencimento: "2024-06-20 00:00:00",
+      status_boleto: "PAGO",
+      valor_boleto: 250.5,
+      valor_multa: 1.25,
+      valor_juros: 2.75,
+      valor_pago: 254.5,
+      data_pagamento: "2024-06-19 12:00:00",
+      situacao_boleto: 0,
+    },
+    {
+      legacy_financial_id: 999,
+      legacy_student_id: 900,
+      data_emissao: "2024-07-09 10:29:00",
+      data_vencimento: "2024-07-20 00:00:00",
+      status_boleto: "PENDENTE",
+      valor_boleto: 275,
+      situacao_boleto: 1,
+    },
+  ],
+});
+
+assert.equal(financialPreview.summary.totalRecords, 3);
+assert.equal(financialPreview.summary.totalLegacyStudents, 2);
+assert.equal(financialPreview.summary.linkedLegacyStudents, 1);
+assert.deepEqual(financialPreview.summary.unlinkedLegacyStudents, [901]);
+assert.equal(financialPreview.summary.byStatus.BAIXADO, 1);
+assert.equal(financialPreview.summary.byStatus.PAGO, 1);
+assert.equal(financialPreview.summary.byStatus.PENDENTE, 1);
+assert.equal(financialPreview.summary.nominalAmountCents, 82550);
+assert.equal(financialPreview.summary.paidAmountCents, 25450);
+assert.equal(financialPreview.summary.fineAmountCents, 125);
+assert.equal(financialPreview.summary.interestAmountCents, 275);
+assert.equal(financialPreview.items[0]?.canImport, true);
+assert.equal(financialPreview.items[1]?.status, "BLOQUEADO");
+assert(
+  financialPreview.items[1]?.reasons.includes(
+    "legacy_student_id sem vinculo em LegacyStudentImport",
+  ),
+);
+assert.equal(financialPreview.items[2]?.status, "JA_IMPORTADO");
+
+await assert.rejects(
+  () =>
+    service.importFinancialSelection(
+      {
+        fileName: "financeiro.json",
+        records: financialPreview.items.map((item) => ({
+          legacy_financial_id: item.legacyFinancialId ?? undefined,
+          legacy_student_id: item.legacyStudentId ?? undefined,
+          status_boleto: item.statusBoleto,
+          situacao_boleto: item.situacaoBoleto,
+          valor_boleto: item.nominalAmountCents ? item.nominalAmountCents / 100 : null,
+        })),
+        selectedLegacyStudentIds: [900],
+      },
+      { id: "user-admin" } as never,
+    ),
+  /historico somente leitura/,
 );
 
 await assert.rejects(

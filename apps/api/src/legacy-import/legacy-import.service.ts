@@ -12,6 +12,7 @@ import {
   BusAssignmentEventType,
   BusAssignmentStatus,
   EnrollmentStatus,
+  LegacyFinancialStatus,
   Prisma,
   RecordStatus,
   StudentCardStatus,
@@ -26,8 +27,11 @@ import { isValidCpf, maskCpf, normalizeCpf } from "../students/cpf.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   AnalyzeLegacyAcademicImportDto,
+  AnalyzeLegacyFinancialImportDto,
   ImportLegacyAcademicSelectionDto,
+  ImportLegacyFinancialSelectionDto,
   LegacyAcademicRawRecordDto,
+  LegacyFinancialRawRecordDto,
 } from "./dto/legacy-import.dto.js";
 
 type PreviewStatus = "PRONTO" | "PENDENCIA" | "BLOQUEADO" | "JA_IMPORTADO";
@@ -90,9 +94,46 @@ type LegacyPreviewItem = {
 
 const SOURCE = "LEGACY";
 const LEGACY_TABLE = "tab_academico";
+const LEGACY_FINANCIAL_TABLE = "tab_financeiro";
 const MAX_RECORDS = 500;
+const MAX_FINANCIAL_RECORDS = 5000;
 const IMPORT_CHUNK_SIZE = 25;
 const SUSPICIOUS_OBSERVATION = /\b(deslig\w*|mudan\w*|transfer\w*|cancel\w*|inativ\w*|suspend\w*|tranc\w*|fora|saiu)\b/i;
+const LEGACY_FINANCIAL_STATUS_MAP = {
+  PAGO: 0,
+  PENDENTE: 1,
+  BAIXADO: 2,
+  VENCIDO: 3,
+} as const satisfies Record<LegacyFinancialStatus, number>;
+type LegacyFinancialPreviewStatus =
+  | "PRONTO"
+  | "BLOQUEADO"
+  | "JA_IMPORTADO";
+type PreparedFinancialRecord =
+  ReturnType<LegacyImportService["prepareFinancialRecord"]>;
+type LegacyFinancialPreviewItem = {
+  index: number;
+  legacyFinancialId: number | null;
+  legacyStudentId: number | null;
+  statusBoleto: string;
+  situacaoBoleto: number | null;
+  nominalAmountCents: number | null;
+  paidAmountCents: number | null;
+  fineAmountCents: number | null;
+  interestAmountCents: number | null;
+  issuedAt: string | null;
+  dueDate: string | null;
+  paidAt: string | null;
+  nossoNumero: string | null;
+  linhaDigitavel: string | null;
+  codigoBarras: string | null;
+  boletoPath: string | null;
+  legacyStudentImport: { id: string; studentId: string } | null;
+  status: LegacyFinancialPreviewStatus;
+  canImport: boolean;
+  reasons: string[];
+  normalized: PreparedFinancialRecord;
+};
 type LegacyImportJobStatus = "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
 type LegacyImportJobResult = {
   legacyId: number | null;
@@ -169,6 +210,252 @@ export class LegacyImportService {
       limits: { maxRecordsPerBatch: MAX_RECORDS, chunkSize: IMPORT_CHUNK_SIZE },
       summary: this.summarize(items),
       items,
+    };
+  }
+
+  async analyzeFinancialImport(body: AnalyzeLegacyFinancialImportDto) {
+    this.validateFinancialFileMetadata(body);
+    const prepared = body.records.map((record, index) =>
+      this.prepareFinancialRecord(record, index),
+    );
+    const duplicateFinancialIds = this.findDuplicates(
+      prepared
+        .map((record) => record.legacyFinancialId)
+        .filter((legacyId): legacyId is number => legacyId !== null),
+    );
+    const context = await this.loadFinancialResolutionContext(prepared);
+    const items = prepared.map((record) =>
+      this.buildFinancialPreviewItem(record, context, duplicateFinancialIds),
+    );
+    const selectedStatuses = (["PAGO", "PENDENTE", "BAIXADO", "VENCIDO"] as const)
+      .reduce<Record<string, number>>((accumulator, status) => {
+        accumulator[status] = items.filter(
+          (item) => item.normalized.status === status,
+        ).length;
+        return accumulator;
+      }, {});
+    const uniqueStudentIds = new Set(
+      items
+        .map((item) => item.legacyStudentId)
+        .filter((legacyId): legacyId is number => legacyId !== null),
+    );
+    const linkedStudentIds = new Set(
+      items
+        .filter((item) => item.legacyStudentImport)
+        .map((item) => item.legacyStudentId)
+        .filter((legacyId): legacyId is number => legacyId !== null),
+    );
+    const importedIds = new Set(
+      items
+        .filter((item) => item.status === "JA_IMPORTADO")
+        .map((item) => item.legacyFinancialId)
+        .filter((legacyId): legacyId is number => legacyId !== null),
+    );
+
+    return {
+      file: {
+        fileName: body.fileName ?? null,
+        mimeType: body.mimeType ?? null,
+        sizeBytes: body.sizeBytes ?? null,
+      },
+      limits: { maxRecordsPerBatch: MAX_FINANCIAL_RECORDS, chunkSize: IMPORT_CHUNK_SIZE },
+      summary: {
+        totalRecords: items.length,
+        totalLegacyStudents: uniqueStudentIds.size,
+        linkedLegacyStudents: linkedStudentIds.size,
+        unlinkedLegacyStudents: [...uniqueStudentIds]
+          .filter((legacyId) => !linkedStudentIds.has(legacyId))
+          .sort((left, right) => left - right),
+        alreadyImported: importedIds.size,
+        importable: items.filter((item) => item.canImport).length,
+        blocked: items.filter((item) => item.status === "BLOQUEADO").length,
+        byStatus: selectedStatuses,
+        nominalAmountCents: this.sumFinancial(items, "nominalAmountCents"),
+        paidAmountCents: this.sumFinancial(items, "paidAmountCents"),
+        fineAmountCents: this.sumFinancial(items, "fineAmountCents"),
+        interestAmountCents: this.sumFinancial(items, "interestAmountCents"),
+        inconsistencies: items
+          .filter((item) => item.reasons.length > 0)
+          .map((item) => ({
+            legacyFinancialId: item.legacyFinancialId,
+            legacyStudentId: item.legacyStudentId,
+            status: item.status,
+            reasons: item.reasons,
+          })),
+        duplicateLegacyFinancialIds: [...duplicateFinancialIds].sort(
+          (left, right) => left - right,
+        ),
+      },
+      items,
+    };
+  }
+
+  async importFinancialSelection(
+    body: ImportLegacyFinancialSelectionDto,
+    user: AuthUser,
+  ) {
+    if (!body.confirmReadOnlyHistoryOnly) {
+      throw new BadRequestException(
+        "Importacao financeira legado exige confirmacao de historico somente leitura",
+      );
+    }
+    const preview = await this.analyzeFinancialImport(body);
+    const selectedStudents = new Set(body.selectedLegacyStudentIds);
+    const selectedItems = preview.items.filter(
+      (item) =>
+        item.legacyStudentId !== null && selectedStudents.has(item.legacyStudentId),
+    );
+    if (selectedItems.length === 0) {
+      throw new BadRequestException("Nenhum registro financeiro selecionado");
+    }
+    if (selectedItems.some((item) => !item.canImport && item.status !== "JA_IMPORTADO")) {
+      throw new BadRequestException(
+        "Selecao contem registros financeiros bloqueados",
+      );
+    }
+
+    const batch = await this.prisma.legacyImportBatch.create({
+      data: {
+        source: SOURCE,
+        legacyTable: LEGACY_FINANCIAL_TABLE,
+        fileName: this.optional(body.fileName),
+        totalRecords: body.records.length,
+        importedByUserId: user.id,
+        createdBaseRecords: {
+          selectedLegacyStudentIds: [...selectedStudents].sort((left, right) => left - right),
+          selectedRecords: selectedItems.length,
+          readOnlyHistoryOnly: true,
+          operationalEffects: {
+            invoices: 0,
+            bankSlips: 0,
+            collections: 0,
+            sicrediCalls: 0,
+          },
+        },
+      },
+    });
+    await this.audit.record({
+      eventType: AdministrativeAuditEventType.LEGACY_IMPORT_BATCH_CREATED,
+      domain: "legacy_financial_import_batches",
+      recordId: batch.id,
+      userId: user.id,
+      metadata: {
+        source: SOURCE,
+        legacyTable: LEGACY_FINANCIAL_TABLE,
+        fileName: body.fileName ?? "",
+        totalRecords: body.records.length,
+        selectedRecords: selectedItems.length,
+        selectedLegacyStudentIds: [...selectedStudents],
+      },
+    });
+
+    let imported = 0;
+    let ignored = 0;
+    const results = [];
+    for (const item of selectedItems) {
+      if (item.status === "JA_IMPORTADO") {
+        ignored += 1;
+        results.push({
+          legacyFinancialId: item.legacyFinancialId,
+          legacyStudentId: item.legacyStudentId,
+          status: "JA_IMPORTADO",
+          reason: "Registro financeiro legado ja importado",
+        });
+        continue;
+      }
+      if (!item.legacyStudentImport || item.legacyFinancialId === null) {
+        throw new BadRequestException("Registro financeiro sem vinculo legado");
+      }
+      await this.prisma.legacyFinancialImport.create({
+        data: {
+          batchId: batch.id,
+          legacyStudentImportId: item.legacyStudentImport.id,
+          studentId: item.legacyStudentImport.studentId,
+          legacyFinancialId: item.legacyFinancialId,
+          legacyStudentId: item.legacyStudentId!,
+          status: item.normalized.status!,
+          situacaoBoleto: item.normalized.situacaoBoleto!,
+          nominalAmountCents: item.normalized.nominalAmountCents!,
+          paidAmountCents: item.normalized.paidAmountCents,
+          fineAmountCents: item.normalized.fineAmountCents ?? 0,
+          interestAmountCents: item.normalized.interestAmountCents ?? 0,
+          issuedAt: item.normalized.issuedAt,
+          dueDate: item.normalized.dueDate,
+          paidAt: item.normalized.paidAt,
+          nossoNumero: item.normalized.nossoNumero,
+          linhaDigitavel: item.normalized.linhaDigitavel,
+          codigoBarras: item.normalized.codigoBarras,
+          boletoPath: item.normalized.boletoPath,
+          mailStatus: item.normalized.mailStatus,
+          sentAt: item.normalized.sentAt,
+          importedByUserId: user.id,
+          metadata: {
+            source: SOURCE,
+            legacyTable: LEGACY_FINANCIAL_TABLE,
+            rawStatusBoleto: item.statusBoleto,
+            rawSituacaoBoleto: item.situacaoBoleto,
+            readOnlyHistoryOnly: true,
+            operationalEffects: {
+              invoiceCreated: false,
+              bankSlipCreated: false,
+              collectionCreated: false,
+              sicrediCalled: false,
+            },
+          },
+        },
+      });
+      await this.audit.record({
+        eventType: AdministrativeAuditEventType.LEGACY_FINANCIAL_HISTORY_IMPORTED,
+        domain: "legacy_financial_imports",
+        recordId: batch.id,
+        userId: user.id,
+        metadata: {
+          batchId: batch.id,
+          legacyFinancialId: item.legacyFinancialId,
+          legacyStudentId: item.legacyStudentId,
+          status: item.normalized.status,
+          readOnlyHistoryOnly: true,
+        },
+      });
+      imported += 1;
+      results.push({
+        legacyFinancialId: item.legacyFinancialId,
+        legacyStudentId: item.legacyStudentId,
+        status: "IMPORTADO",
+      });
+    }
+
+    const updatedBatch = await this.prisma.legacyImportBatch.update({
+      where: { id: batch.id },
+      data: {
+        importedCount: imported,
+        failedCount: 0,
+        createdBaseRecords: {
+          selectedLegacyStudentIds: [...selectedStudents].sort((left, right) => left - right),
+          selectedRecords: selectedItems.length,
+          imported,
+          ignored,
+          readOnlyHistoryOnly: true,
+          operationalEffects: {
+            invoices: 0,
+            bankSlips: 0,
+            collections: 0,
+            sicrediCalls: 0,
+          },
+          results,
+        },
+      },
+    });
+
+    return {
+      batch: updatedBatch,
+      summary: {
+        imported,
+        ignored,
+        selectedRecords: selectedItems.length,
+        selectedLegacyStudentIds: [...selectedStudents].sort((left, right) => left - right),
+      },
+      results,
     };
   }
 
@@ -591,13 +878,16 @@ export class LegacyImportService {
   async rollbackBatch(batchId: string, user: AuthUser) {
     const batch = await this.prisma.legacyImportBatch.findUnique({
       where: { id: batchId },
-      include: { students: true },
+      include: { students: true, financialRecords: true },
     });
     if (!batch) {
       throw new NotFoundException("Batch de importacao nao encontrado");
     }
     if (batch.rolledBackAt) {
       throw new BadRequestException("Batch ja possui rollback");
+    }
+    if (batch.source === SOURCE && batch.legacyTable === LEGACY_FINANCIAL_TABLE) {
+      return this.rollbackFinancialBatch(batch.id, user.id);
     }
     if (batch.source !== SOURCE || batch.legacyTable !== LEGACY_TABLE) {
       throw new BadRequestException("Rollback permitido apenas para piloto legado");
@@ -669,6 +959,43 @@ export class LegacyImportService {
         },
       });
       return count;
+    });
+
+    return { batchId, removed, residuals: 0 };
+  }
+
+  private async rollbackFinancialBatch(batchId: string, userId: string) {
+    const removed = await this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.legacyFinancialImport.deleteMany({
+        where: { batchId },
+      });
+      await tx.legacyImportBatch.delete({ where: { id: batchId } });
+      await tx.administrativeAuditLog.deleteMany({
+        where: {
+          OR: [
+            { domain: "legacy_financial_import_batches", recordId: batchId },
+            {
+              domain: "legacy_financial_imports",
+              eventType: AdministrativeAuditEventType.LEGACY_FINANCIAL_HISTORY_IMPORTED,
+              metadata: { path: ["batchId"], equals: batchId },
+            },
+          ],
+        },
+      });
+      await tx.administrativeAuditLog.create({
+        data: {
+          eventType: AdministrativeAuditEventType.LEGACY_IMPORT_BATCH_ROLLED_BACK,
+          domain: "legacy_financial_import_batches",
+          recordId: batchId,
+          userId,
+          metadata: {
+            source: SOURCE,
+            legacyTable: LEGACY_FINANCIAL_TABLE,
+            removed: deleted.count,
+          },
+        },
+      });
+      return deleted.count;
     });
 
     return { batchId, removed, residuals: 0 };
@@ -847,6 +1174,212 @@ export class LegacyImportService {
     ) {
       throw new BadRequestException("MIME do arquivo JSON invalido");
     }
+  }
+
+  private validateFinancialFileMetadata(body: AnalyzeLegacyFinancialImportDto) {
+    if (body.records.length > MAX_FINANCIAL_RECORDS) {
+      throw new BadRequestException("Importacao financeira limitada a 5000 registros por JSON");
+    }
+    if (body.fileName && !body.fileName.toLowerCase().endsWith(".json")) {
+      throw new BadRequestException("Arquivo deve ter extensao .json");
+    }
+    if (
+      body.mimeType &&
+      !["application/json", "text/json", ""].includes(body.mimeType)
+    ) {
+      throw new BadRequestException("MIME do arquivo JSON invalido");
+    }
+  }
+
+  private prepareFinancialRecord(record: LegacyFinancialRawRecordDto, index: number) {
+    const statusRaw = this.cleanSpaces(this.asString(record.status_boleto)).toUpperCase();
+    const status = this.parseLegacyFinancialStatus(statusRaw);
+    return {
+      index,
+      legacyFinancialId: this.parseInteger(record.legacy_financial_id),
+      legacyStudentId: this.parseInteger(record.legacy_student_id),
+      issuedAt: this.parseLegacyDateTime(record.data_emissao),
+      dueDate: this.parseLegacyDateOnly(record.data_vencimento),
+      status,
+      statusRaw,
+      nominalAmountCents: this.parseMoneyCents(record.valor_boleto),
+      linhaDigitavel: this.optional(this.cleanSpaces(this.asString(record.linha_digitavel))),
+      nossoNumero: this.optional(this.cleanSpaces(this.asString(record.nosso_numero))),
+      codigoBarras: this.optional(this.cleanSpaces(this.asString(record.codigo_barras))),
+      boletoPath: this.optional(
+        this.cleanSpaces(
+          this.asString(record.caminho_boleto ?? record.caminhao_boleto),
+        ),
+      ),
+      fineAmountCents: this.parseMoneyCents(record.valor_multa),
+      interestAmountCents: this.parseMoneyCents(record.valor_juros),
+      paidAmountCents: this.parseMoneyCents(record.valor_pago),
+      paidAt: this.parseLegacyDateTime(record.data_pagamento),
+      situacaoBoleto: this.parseInteger(record.situacao_boleto),
+      mailStatus: this.parseInteger(record.status_mail),
+      sentAt: this.parseLegacyDateTime(record.dt_envio_boleto),
+    };
+  }
+
+  private async loadFinancialResolutionContext(records: PreparedFinancialRecord[]) {
+    const legacyStudentIds = records
+      .map((record) => record.legacyStudentId)
+      .filter((legacyId): legacyId is number => legacyId !== null);
+    const legacyFinancialIds = records
+      .map((record) => record.legacyFinancialId)
+      .filter((legacyId): legacyId is number => legacyId !== null);
+    const [studentImports, importedFinancials] = await Promise.all([
+      this.prisma.legacyStudentImport.findMany({
+        where: {
+          source: SOURCE,
+          legacyTable: LEGACY_TABLE,
+          legacyId: { in: legacyStudentIds },
+        },
+        select: { id: true, legacyId: true, studentId: true },
+      }),
+      this.prisma.legacyFinancialImport.findMany({
+        where: {
+          source: SOURCE,
+          legacyTable: LEGACY_FINANCIAL_TABLE,
+          legacyFinancialId: { in: legacyFinancialIds },
+        },
+        select: { legacyFinancialId: true },
+      }),
+    ]);
+    return {
+      studentImports: new Map(studentImports.map((record) => [record.legacyId, record])),
+      importedFinancials: new Set(
+        importedFinancials.map((record) => record.legacyFinancialId),
+      ),
+    };
+  }
+
+  private buildFinancialPreviewItem(
+    record: PreparedFinancialRecord,
+    context: Awaited<ReturnType<LegacyImportService["loadFinancialResolutionContext"]>>,
+    duplicateFinancialIds: Set<number>,
+  ): LegacyFinancialPreviewItem {
+    const reasons: string[] = [];
+    let status: LegacyFinancialPreviewStatus = "PRONTO";
+    const block = (reason: string) => {
+      status = "BLOQUEADO";
+      reasons.push(reason);
+    };
+
+    if (record.legacyFinancialId === null) block("legacy_financial_id obrigatorio");
+    if (record.legacyStudentId === null) block("legacy_student_id obrigatorio");
+    if (
+      record.legacyFinancialId !== null &&
+      context.importedFinancials.has(record.legacyFinancialId)
+    ) {
+      status = "JA_IMPORTADO";
+      reasons.push("Registro financeiro legado ja importado");
+    }
+    if (
+      record.legacyFinancialId !== null &&
+      duplicateFinancialIds.has(record.legacyFinancialId)
+    ) {
+      block("legacy_financial_id duplicado dentro do JSON");
+    }
+    if (!record.status) block("status_boleto desconhecido");
+    if (record.status && record.situacaoBoleto !== LEGACY_FINANCIAL_STATUS_MAP[record.status]) {
+      block(
+        `situacao_boleto inconsistente para ${record.status}; esperado ${LEGACY_FINANCIAL_STATUS_MAP[record.status]}`,
+      );
+    }
+    if (record.nominalAmountCents === null || record.nominalAmountCents <= 0) {
+      block("valor_boleto invalido");
+    }
+    for (const [field, value] of [
+      ["valor_pago", record.paidAmountCents],
+      ["valor_multa", record.fineAmountCents],
+      ["valor_juros", record.interestAmountCents],
+    ] as const) {
+      if (value !== null && value < 0) block(`${field} negativo`);
+    }
+    if (record.issuedAt === undefined) block("data_emissao invalida");
+    if (record.dueDate === undefined) block("data_vencimento invalida");
+    if (record.paidAt === undefined) block("data_pagamento invalida");
+    if (record.sentAt === undefined) block("dt_envio_boleto invalida");
+    const legacyStudentImport =
+      record.legacyStudentId === null
+        ? null
+        : context.studentImports.get(record.legacyStudentId) ?? null;
+    if (!legacyStudentImport) block("legacy_student_id sem vinculo em LegacyStudentImport");
+
+    return {
+      index: record.index,
+      legacyFinancialId: record.legacyFinancialId,
+      legacyStudentId: record.legacyStudentId,
+      statusBoleto: record.statusRaw,
+      situacaoBoleto: record.situacaoBoleto,
+      nominalAmountCents: record.nominalAmountCents,
+      paidAmountCents: record.paidAmountCents,
+      fineAmountCents: record.fineAmountCents,
+      interestAmountCents: record.interestAmountCents,
+      issuedAt: record.issuedAt?.toISOString() ?? null,
+      dueDate: record.dueDate?.toISOString().slice(0, 10) ?? null,
+      paidAt: record.paidAt?.toISOString() ?? null,
+      nossoNumero: record.nossoNumero ?? null,
+      linhaDigitavel: record.linhaDigitavel ?? null,
+      codigoBarras: record.codigoBarras ?? null,
+      boletoPath: record.boletoPath ?? null,
+      legacyStudentImport,
+      status,
+      canImport: status === "PRONTO",
+      reasons,
+      normalized: record,
+    };
+  }
+
+  private sumFinancial(
+    items: LegacyFinancialPreviewItem[],
+    field:
+      | "nominalAmountCents"
+      | "paidAmountCents"
+      | "fineAmountCents"
+      | "interestAmountCents",
+  ) {
+    return items.reduce((total, item) => total + (item[field] ?? 0), 0);
+  }
+
+  private parseLegacyFinancialStatus(value: string): LegacyFinancialStatus | null {
+    if (value === "PAGO") return LegacyFinancialStatus.PAGO;
+    if (value === "PENDENTE") return LegacyFinancialStatus.PENDENTE;
+    if (value === "BAIXADO") return LegacyFinancialStatus.BAIXADO;
+    if (value === "VENCIDO") return LegacyFinancialStatus.VENCIDO;
+    return null;
+  }
+
+  private parseMoneyCents(value: unknown) {
+    if (value === null || value === undefined || value === "") return null;
+    const normalized =
+      typeof value === "number"
+        ? value
+        : Number(this.asString(value).replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(normalized)) return null;
+    return Math.round(normalized * 100);
+  }
+
+  private parseInteger(value: unknown) {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(this.asString(value));
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  private parseLegacyDateTime(value: unknown): Date | null | undefined {
+    const raw = this.asString(value).trim();
+    if (!raw) return null;
+    const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+    const date = new Date(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
+    if (Number.isNaN(date.getTime())) return undefined;
+    return date;
+  }
+
+  private parseLegacyDateOnly(value: unknown): Date | null | undefined {
+    const date = this.parseLegacyDateTime(value);
+    if (!date || date === undefined) return date;
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   }
 
   private resolveDestinationAcademicYear(body: AnalyzeLegacyAcademicImportDto) {

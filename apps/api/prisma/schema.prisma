@@ -113,6 +113,7 @@ enum AdministrativeAuditEventType {
   OFFICIAL_DOCUMENT_MODEL_INACTIVATED
   LEGACY_IMPORT_BATCH_CREATED
   LEGACY_STUDENT_IMPORTED
+  LEGACY_FINANCIAL_HISTORY_IMPORTED
   LEGACY_IMPORT_BATCH_ROLLED_BACK
 }
 
@@ -404,6 +405,13 @@ enum ManualFinancialMovementAttachmentStatus {
   REMOVED
 }
 
+enum LegacyFinancialStatus {
+  PAGO
+  PENDENTE
+  BAIXADO
+  VENCIDO
+}
+
 model User {
   id                            String                              @id @default(uuid()) @db.Uuid
   name                          String                              @db.VarChar(120)
@@ -445,27 +453,29 @@ model User {
   associationSettingsUpdates    AssociationSettings[]               @relation("AssociationSettingsUpdatedBy")
   institutions                  UserInstitution[]
   legacyImportBatches           LegacyImportBatch[]                 @relation("LegacyImportBatchImportedBy")
+  legacyFinancialImports        LegacyFinancialImport[]             @relation("LegacyFinancialImportImportedBy")
 
   @@map("users")
 }
 
 model LegacyImportBatch {
-  id               String                @id @default(uuid()) @db.Uuid
-  source           String                @default("LEGACY") @db.VarChar(40)
-  legacyTable      String                @default("tab_academico") @map("legacy_table") @db.VarChar(80)
-  fileName         String?               @map("file_name") @db.VarChar(180)
-  totalRecords     Int                   @map("total_records")
-  importedCount    Int                   @default(0) @map("imported_count")
-  pendingCount     Int                   @default(0) @map("pending_count")
-  blockedCount     Int                   @default(0) @map("blocked_count")
-  failedCount      Int                   @default(0) @map("failed_count")
-  createdBaseRecords Json                 @default("{\"institutions\":[],\"shifts\":[],\"buses\":[]}") @map("created_base_records")
-  rolledBackAt     DateTime?             @map("rolled_back_at") @db.Timestamptz(6)
-  importedByUserId String?               @map("imported_by_user_id") @db.Uuid
-  importedAt       DateTime              @default(now()) @map("imported_at") @db.Timestamptz(6)
-  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  importedBy       User?                 @relation("LegacyImportBatchImportedBy", fields: [importedByUserId], references: [id], onDelete: SetNull)
-  students         LegacyStudentImport[]
+  id                 String                  @id @default(uuid()) @db.Uuid
+  source             String                  @default("LEGACY") @db.VarChar(40)
+  legacyTable        String                  @default("tab_academico") @map("legacy_table") @db.VarChar(80)
+  fileName           String?                 @map("file_name") @db.VarChar(180)
+  totalRecords       Int                     @map("total_records")
+  importedCount      Int                     @default(0) @map("imported_count")
+  pendingCount       Int                     @default(0) @map("pending_count")
+  blockedCount       Int                     @default(0) @map("blocked_count")
+  failedCount        Int                     @default(0) @map("failed_count")
+  createdBaseRecords Json                    @default("{\"institutions\":[],\"shifts\":[],\"buses\":[]}") @map("created_base_records")
+  rolledBackAt       DateTime?               @map("rolled_back_at") @db.Timestamptz(6)
+  importedByUserId   String?                 @map("imported_by_user_id") @db.Uuid
+  importedAt         DateTime                @default(now()) @map("imported_at") @db.Timestamptz(6)
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  importedBy         User?                   @relation("LegacyImportBatchImportedBy", fields: [importedByUserId], references: [id], onDelete: SetNull)
+  students           LegacyStudentImport[]
+  financialRecords   LegacyFinancialImport[]
 
   @@index([source, legacyTable, importedAt])
   @@index([importedByUserId, importedAt])
@@ -473,29 +483,30 @@ model LegacyImportBatch {
 }
 
 model LegacyStudentImport {
-  id                  String            @id @default(uuid()) @db.Uuid
-  batchId             String            @map("batch_id") @db.Uuid
-  source              String            @default("LEGACY") @db.VarChar(40)
-  legacyTable         String            @default("tab_academico") @map("legacy_table") @db.VarChar(80)
-  legacyId            Int               @map("legacy_id")
-  studentId           String            @unique @map("student_id") @db.Uuid
-  personId            String            @map("person_id") @db.Uuid
-  enrollmentId        String            @map("enrollment_id") @db.Uuid
-  studentCardId       String            @map("student_card_id") @db.Uuid
-  busAssignmentId     String?           @map("bus_assignment_id") @db.Uuid
-  legacyCardNumber    String?           @map("legacy_card_number") @db.VarChar(32)
-  legacyCreatedYear   Int?              @map("legacy_created_year")
-  previousCardSequenceNumber Int        @map("previous_card_sequence_number")
-  generatedCardNumber String            @map("generated_card_number") @db.VarChar(32)
-  importedByUserId    String?           @map("imported_by_user_id") @db.Uuid
-  importedAt          DateTime          @default(now()) @map("imported_at") @db.Timestamptz(6)
-  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  batch               LegacyImportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
-  student             Student           @relation(fields: [studentId], references: [id], onDelete: Restrict)
-  person              Person            @relation(fields: [personId], references: [id], onDelete: Restrict)
-  enrollment          Enrollment        @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
-  studentCard         StudentCard       @relation(fields: [studentCardId], references: [id], onDelete: Restrict)
-  busAssignment       BusAssignment?    @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
+  id                         String                  @id @default(uuid()) @db.Uuid
+  batchId                    String                  @map("batch_id") @db.Uuid
+  source                     String                  @default("LEGACY") @db.VarChar(40)
+  legacyTable                String                  @default("tab_academico") @map("legacy_table") @db.VarChar(80)
+  legacyId                   Int                     @map("legacy_id")
+  studentId                  String                  @unique @map("student_id") @db.Uuid
+  personId                   String                  @map("person_id") @db.Uuid
+  enrollmentId               String                  @map("enrollment_id") @db.Uuid
+  studentCardId              String                  @map("student_card_id") @db.Uuid
+  busAssignmentId            String?                 @map("bus_assignment_id") @db.Uuid
+  legacyCardNumber           String?                 @map("legacy_card_number") @db.VarChar(32)
+  legacyCreatedYear          Int?                    @map("legacy_created_year")
+  previousCardSequenceNumber Int                     @map("previous_card_sequence_number")
+  generatedCardNumber        String                  @map("generated_card_number") @db.VarChar(32)
+  importedByUserId           String?                 @map("imported_by_user_id") @db.Uuid
+  importedAt                 DateTime                @default(now()) @map("imported_at") @db.Timestamptz(6)
+  createdAt                  DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  batch                      LegacyImportBatch       @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  student                    Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  person                     Person                  @relation(fields: [personId], references: [id], onDelete: Restrict)
+  enrollment                 Enrollment              @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  studentCard                StudentCard             @relation(fields: [studentCardId], references: [id], onDelete: Restrict)
+  busAssignment              BusAssignment?          @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
+  financialRecords           LegacyFinancialImport[]
 
   @@unique([source, legacyTable, legacyId])
   @@index([batchId])
@@ -696,6 +707,7 @@ model Student {
   bankSlipIssueBatchItems  BankSlipIssueBatchItem[]
   manualFinancialMovements ManualFinancialMovement[]
   legacyStudentImport      LegacyStudentImport?
+  legacyFinancialImports   LegacyFinancialImport[]
 
   @@index([status, createdAt])
   @@index([joinedAt])
@@ -975,6 +987,49 @@ model ManualFinancialMovement {
   @@index([studentId, transactionDate])
   @@index([createdByUserId, createdAt])
   @@map("manual_financial_movements")
+}
+
+model LegacyFinancialImport {
+  id                    String                @id @default(uuid()) @db.Uuid
+  batchId               String                @map("batch_id") @db.Uuid
+  legacyStudentImportId String                @map("legacy_student_import_id") @db.Uuid
+  studentId             String                @map("student_id") @db.Uuid
+  source                String                @default("LEGACY") @db.VarChar(40)
+  legacyTable           String                @default("tab_financeiro") @map("legacy_table") @db.VarChar(80)
+  legacyFinancialId     Int                   @map("legacy_financial_id")
+  legacyStudentId       Int                   @map("legacy_student_id")
+  status                LegacyFinancialStatus
+  situacaoBoleto        Int                   @map("situacao_boleto")
+  nominalAmountCents    Int                   @map("nominal_amount_cents")
+  paidAmountCents       Int?                  @map("paid_amount_cents")
+  fineAmountCents       Int                   @default(0) @map("fine_amount_cents")
+  interestAmountCents   Int                   @default(0) @map("interest_amount_cents")
+  issuedAt              DateTime?             @map("issued_at") @db.Timestamptz(6)
+  dueDate               DateTime?             @map("due_date") @db.Date
+  paidAt                DateTime?             @map("paid_at") @db.Timestamptz(6)
+  nossoNumero           String?               @map("nosso_numero") @db.VarChar(80)
+  linhaDigitavel        String?               @map("linha_digitavel") @db.VarChar(120)
+  codigoBarras          String?               @map("codigo_barras") @db.VarChar(120)
+  boletoPath            String?               @map("boleto_path") @db.VarChar(500)
+  mailStatus            Int?                  @map("mail_status")
+  sentAt                DateTime?             @map("sent_at") @db.Timestamptz(6)
+  metadata              Json?
+  importedByUserId      String?               @map("imported_by_user_id") @db.Uuid
+  importedAt            DateTime              @default(now()) @map("imported_at") @db.Timestamptz(6)
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  batch                 LegacyImportBatch     @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  legacyStudentImport   LegacyStudentImport   @relation(fields: [legacyStudentImportId], references: [id], onDelete: Restrict)
+  student               Student               @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  importedBy            User?                 @relation("LegacyFinancialImportImportedBy", fields: [importedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([source, legacyTable, legacyFinancialId])
+  @@index([batchId])
+  @@index([legacyStudentId])
+  @@index([studentId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([paidAt])
+  @@map("legacy_financial_imports")
 }
 
 model ManualFinancialMovementAttachment {

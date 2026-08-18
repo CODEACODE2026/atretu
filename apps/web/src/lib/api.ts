@@ -598,6 +598,32 @@ export type StudentDetail = Omit<StudentSummary, "person" | "currentEnrollment">
   person: PersonRecord;
   guardian: GuardianRecord | null;
   enrollments: EnrollmentRecord[];
+  legacyFinancialHistory?: LegacyFinancialHistoryRecord[];
+};
+
+export type LegacyFinancialStatus = "PAGO" | "PENDENTE" | "BAIXADO" | "VENCIDO";
+
+export type LegacyFinancialHistoryRecord = {
+  id: string;
+  legacyFinancialId: number;
+  legacyStudentId: number;
+  status: LegacyFinancialStatus;
+  situacaoBoleto: number;
+  nominalAmountCents: number;
+  paidAmountCents?: number | null;
+  fineAmountCents: number;
+  interestAmountCents: number;
+  issuedAt?: string | null;
+  dueDate?: string | null;
+  paidAt?: string | null;
+  nossoNumero?: string | null;
+  linhaDigitavel?: string | null;
+  codigoBarras?: string | null;
+  boletoPath?: string | null;
+  mailStatus?: number | null;
+  sentAt?: string | null;
+  source: "LEGACY" | string;
+  importedAt: string;
 };
 
 export type PersonRecord = {

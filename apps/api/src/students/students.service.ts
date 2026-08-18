@@ -2213,6 +2213,9 @@ export class StudentsService {
         orderBy: { academicYear: { year: "desc" } },
         include: this.enrollmentInclude(),
       },
+      legacyFinancialImports: {
+        orderBy: [{ dueDate: "desc" }, { importedAt: "desc" }],
+      },
     } satisfies Prisma.StudentInclude;
   }
 
@@ -2347,6 +2350,28 @@ export class StudentsService {
       enrollments: student.enrollments.map((enrollment) =>
         this.toEnrollment(enrollment),
       ),
+      legacyFinancialHistory: student.legacyFinancialImports.map((record) => ({
+        id: record.id,
+        legacyFinancialId: record.legacyFinancialId,
+        legacyStudentId: record.legacyStudentId,
+        status: record.status,
+        situacaoBoleto: record.situacaoBoleto,
+        nominalAmountCents: record.nominalAmountCents,
+        paidAmountCents: record.paidAmountCents,
+        fineAmountCents: record.fineAmountCents,
+        interestAmountCents: record.interestAmountCents,
+        issuedAt: record.issuedAt,
+        dueDate: record.dueDate,
+        paidAt: record.paidAt,
+        nossoNumero: record.nossoNumero,
+        linhaDigitavel: record.linhaDigitavel,
+        codigoBarras: record.codigoBarras,
+        boletoPath: record.boletoPath,
+        mailStatus: record.mailStatus,
+        sentAt: record.sentAt,
+        source: record.source,
+        importedAt: record.importedAt,
+      })),
     };
   }
 
