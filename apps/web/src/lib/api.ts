@@ -693,7 +693,6 @@ export type StudentDetail = Omit<StudentSummary, "person" | "currentEnrollment">
   person: PersonRecord;
   guardian: GuardianRecord | null;
   enrollments: EnrollmentRecord[];
-  legacyFinancialHistory?: LegacyFinancialHistoryRecord[];
 };
 
 export type LegacyFinancialStatus = "PAGO" | "PENDENTE" | "BAIXADO" | "VENCIDO";
@@ -719,6 +718,24 @@ export type LegacyFinancialHistoryRecord = {
   sentAt?: string | null;
   source: "LEGACY" | string;
   importedAt: string;
+};
+
+export type LegacyFinancialHistoryQuery = {
+  page?: number;
+  limit?: number;
+  status?: LegacyFinancialStatus | "";
+  year?: number | "";
+  order?: "asc" | "desc";
+};
+
+export type LegacyFinancialHistoryResponse = ListResponse<LegacyFinancialHistoryRecord> & {
+  summary: {
+    totalRecords: number;
+    byStatus: Record<LegacyFinancialStatus, number>;
+    nominalAmountCents: number;
+    paidAmountCents: number;
+    years: number[];
+  };
 };
 
 export type PersonRecord = {
@@ -2825,6 +2842,22 @@ export const api = {
 
   getStudent(id: string) {
     return request<StudentDetail>(`/students/${id}`);
+  },
+
+  listStudentLegacyFinancialHistory(
+    studentId: string,
+    query: LegacyFinancialHistoryQuery = {},
+  ) {
+    const params = new URLSearchParams();
+    if (query.page) params.set("page", String(query.page));
+    if (query.limit) params.set("limit", String(query.limit));
+    if (query.status) params.set("status", query.status);
+    if (query.year) params.set("year", String(query.year));
+    if (query.order) params.set("order", query.order);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request<LegacyFinancialHistoryResponse>(
+      `/students/${studentId}/legacy-financial-history${suffix}`,
+    );
   },
 
   updateStudentPerson(id: string, body: StudentPayload["person"]) {

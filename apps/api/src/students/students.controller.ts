@@ -23,6 +23,7 @@ import {
   EndBoardMembershipDto,
   ListAcademicYearsDto,
   ListStudentDocumentationStatusDto,
+  ListStudentLegacyFinancialHistoryDto,
   ListStudentsDto,
   ReactivateStudentDto,
   ReinstateStudentDto,
@@ -140,6 +141,16 @@ export class StudentsController {
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   getStudent(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.students.getStudent(id, user);
+  }
+
+  @Get("students/:id/legacy-financial-history")
+  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  listStudentLegacyFinancialHistory(
+    @Param("id") id: string,
+    @Query() query: ListStudentLegacyFinancialHistoryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.listStudentLegacyFinancialHistory(id, query, user);
   }
 
   @Get("students/:id/reenrollment-preview")

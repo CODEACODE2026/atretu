@@ -14,7 +14,7 @@ import {
   MinLength,
   ValidateNested,
 } from "class-validator";
-import { BoardMemberRole } from "@prisma/client";
+import { BoardMemberRole, LegacyFinancialStatus } from "@prisma/client";
 
 export enum StudentStatusFilter {
   ACTIVE = "active",
@@ -117,6 +117,36 @@ export class ListStudentsDto {
 export class ListStudentDocumentationStatusDto extends ListStudentsDto {
   @IsEnum(DocumentationStatusFilter)
   documentationStatus!: DocumentationStatusFilter;
+}
+
+export class ListStudentLegacyFinancialHistoryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit = 10;
+
+  @IsOptional()
+  @IsEnum(LegacyFinancialStatus)
+  status?: LegacyFinancialStatus;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  year?: number;
+
+  @IsOptional()
+  @IsEnum(SortOrder)
+  order = SortOrder.DESC;
 }
 
 export class PersonInputDto {

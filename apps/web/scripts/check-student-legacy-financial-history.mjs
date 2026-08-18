@@ -9,8 +9,13 @@ const apiSource = readFileSync(resolve("src/lib/api.ts"), "utf8");
 
 assertIncludes(
   apiSource,
-  "legacyFinancialHistory?: LegacyFinancialHistoryRecord[]",
-  "Student detail must expose legacy financial history separately",
+  "listStudentLegacyFinancialHistory",
+  "API client must expose paginated legacy financial history",
+);
+assertIncludes(
+  apiSource,
+  "/legacy-financial-history",
+  "API client must call the paginated legacy financial history endpoint",
 );
 assertIncludes(
   financePanelSource,
@@ -19,14 +24,33 @@ assertIncludes(
 );
 assertIncludes(
   financePanelSource,
-  "records={student.legacyFinancialHistory ?? []}",
-  "Student finance tab must use only the read-only legacy financial collection",
+  "LEGACY_FINANCIAL_PAGE_SIZE = 10",
+  "Student finance tab must keep legacy history at 10 records per page",
+);
+assertIncludes(
+  financePanelSource,
+  "response={legacyFinancialHistory}",
+  "Student finance tab must render the paginated legacy history response",
 );
 assertIncludes(
   financePanelSource,
   "Sem ações Sicredi para registros legados",
   "Legacy financial cards must make the Sicredi action boundary explicit",
 );
+for (const [fragment, message] of [
+  ["Total", "Legacy history summary must include total records"],
+  ["Pagos", "Legacy history summary must include paid count"],
+  ["Baixados", "Legacy history summary must include settled/cancelled count"],
+  ["Pendentes", "Legacy history summary must include pending count"],
+  ["Vencidos", "Legacy history summary must include overdue count"],
+  ["Ver detalhes", "Legacy history rows must expose detail expansion"],
+  ["Pagina {pagination.page} de {totalPages}", "Legacy history must show page count"],
+  ["Exibindo {firstVisible}-{lastVisible} de {pagination.total}", "Legacy history must show visible range"],
+  ["Mais recente primeiro", "Legacy history must support newest first sorting"],
+  ["Mais antigo primeiro", "Legacy history must support oldest first sorting"],
+]) {
+  assertIncludes(financePanelSource, fragment, message);
+}
 
 const legacySection = sourceBetween(
   financePanelSource,

@@ -31,6 +31,7 @@ import {
   type InvoicePreview,
   type InvoiceRecord,
   type InvoiceStatus,
+  type LegacyFinancialHistoryResponse,
   type LegacyFinancialHistoryRecord,
   type StudentDetail,
   type StudentSummary,
@@ -109,6 +110,8 @@ const invoiceCancellationOptions: Array<{
   { label: "Fatura duplicada", value: "DUPLICATE" },
   { label: "Outro motivo", value: "OTHER" },
 ];
+
+const LEGACY_FINANCIAL_PAGE_SIZE = 10;
 
 export function FinancePanel({
   initialArea = "invoices",
@@ -2170,6 +2173,17 @@ export function StudentInvoicesForStudent({
   const [description, setDescription] = useState("");
   const [createFormOpen, setCreateFormOpen] = useState(false);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
+  const [legacyFinancialHistory, setLegacyFinancialHistory] =
+    useState<LegacyFinancialHistoryResponse | null>(null);
+  const [legacyFinancialLoading, setLegacyFinancialLoading] = useState(true);
+  const [legacyFinancialPage, setLegacyFinancialPage] = useState(1);
+  const [legacyFinancialStatus, setLegacyFinancialStatus] =
+    useState<LegacyFinancialHistoryRecord["status"] | "">("");
+  const [legacyFinancialYear, setLegacyFinancialYear] = useState<number | "">("");
+  const [legacyFinancialOrder, setLegacyFinancialOrder] = useState<"asc" | "desc">(
+    "desc",
+  );
+  const [expandedLegacyFinancialId, setExpandedLegacyFinancialId] = useState("");
   const [saving, setSaving] = useState(false);
   const issueBankSlipInFlightRef = useRef("");
   const [dialog, setDialog] = useState<{
@@ -2183,6 +2197,21 @@ export function StudentInvoicesForStudent({
     void loadInvoices();
   }, [student.id]);
 
+  useEffect(() => {
+    setLegacyFinancialPage(1);
+    setExpandedLegacyFinancialId("");
+  }, [student.id]);
+
+  useEffect(() => {
+    void loadLegacyFinancialHistory();
+  }, [
+    student.id,
+    legacyFinancialPage,
+    legacyFinancialStatus,
+    legacyFinancialYear,
+    legacyFinancialOrder,
+  ]);
+
   async function loadInvoices() {
     setError("");
     setLoadingInvoices(true);
@@ -2194,6 +2223,35 @@ export function StudentInvoicesForStudent({
       setError(caught instanceof Error ? caught.message : "Erro ao carregar faturas");
     } finally {
       setLoadingInvoices(false);
+    }
+  }
+
+  async function loadLegacyFinancialHistory() {
+    setLegacyFinancialLoading(true);
+    try {
+      const response = await api.listStudentLegacyFinancialHistory(student.id, {
+        page: legacyFinancialPage,
+        limit: LEGACY_FINANCIAL_PAGE_SIZE,
+        status: legacyFinancialStatus,
+        year: legacyFinancialYear,
+        order: legacyFinancialOrder,
+      });
+      setLegacyFinancialHistory(response);
+      if (
+        response.pagination.totalPages > 0 &&
+        legacyFinancialPage > response.pagination.totalPages
+      ) {
+        setLegacyFinancialPage(response.pagination.totalPages);
+      }
+    } catch (caught) {
+      setLegacyFinancialHistory(null);
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Erro ao carregar historico financeiro legado",
+      );
+    } finally {
+      setLegacyFinancialLoading(false);
     }
   }
 
@@ -2673,7 +2731,34 @@ export function StudentInvoicesForStudent({
         )}
       </div>
       <LegacyFinancialHistorySection
-        records={student.legacyFinancialHistory ?? []}
+        expandedRecordId={expandedLegacyFinancialId}
+        loading={legacyFinancialLoading}
+        onOrderChange={(nextOrder) => {
+          setLegacyFinancialOrder(nextOrder);
+          setLegacyFinancialPage(1);
+          setExpandedLegacyFinancialId("");
+        }}
+        onPageChange={setLegacyFinancialPage}
+        onStatusChange={(nextStatus) => {
+          setLegacyFinancialStatus(nextStatus);
+          setLegacyFinancialPage(1);
+          setExpandedLegacyFinancialId("");
+        }}
+        onToggleDetails={(recordId) =>
+          setExpandedLegacyFinancialId((current) =>
+            current === recordId ? "" : recordId,
+          )
+        }
+        onYearChange={(nextYear) => {
+          setLegacyFinancialYear(nextYear);
+          setLegacyFinancialPage(1);
+          setExpandedLegacyFinancialId("");
+        }}
+        order={legacyFinancialOrder}
+        pageSize={LEGACY_FINANCIAL_PAGE_SIZE}
+        response={legacyFinancialHistory}
+        status={legacyFinancialStatus}
+        year={legacyFinancialYear}
       />
       {message ? <p className="mt-2 text-xs text-emerald-700">{message}</p> : null}
       {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
@@ -2722,112 +2807,276 @@ function StudentFinanceSummaryItem({
 }
 
 function LegacyFinancialHistorySection({
-  records,
+  expandedRecordId,
+  loading,
+  onOrderChange,
+  onPageChange,
+  onStatusChange,
+  onToggleDetails,
+  onYearChange,
+  order,
+  pageSize,
+  response,
+  status,
+  year,
 }: {
-  records: LegacyFinancialHistoryRecord[];
+  expandedRecordId: string;
+  loading: boolean;
+  onOrderChange: (order: "asc" | "desc") => void;
+  onPageChange: (page: number) => void;
+  onStatusChange: (status: LegacyFinancialHistoryRecord["status"] | "") => void;
+  onToggleDetails: (recordId: string) => void;
+  onYearChange: (year: number | "") => void;
+  order: "asc" | "desc";
+  pageSize: number;
+  response: LegacyFinancialHistoryResponse | null;
+  status: LegacyFinancialHistoryRecord["status"] | "";
+  year: number | "";
 }) {
+  const records = response?.data ?? [];
+  const summary = response?.summary ?? emptyLegacyFinancialSummary();
+  const pagination = response?.pagination ?? {
+    page: 1,
+    limit: pageSize,
+    total: 0,
+    totalPages: 0,
+  };
+  const totalPages = Math.max(pagination.totalPages, 1);
+  const firstVisible =
+    pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
+  const lastVisible = Math.min(pagination.page * pagination.limit, pagination.total);
+
   return (
     <section className="grid gap-3 border-t border-slate-200 pt-4">
-      <div>
-        <h4 className="text-sm font-semibold text-slate-950">
-          Histórico financeiro legado
-        </h4>
-        <p className="mt-1 text-xs text-slate-500">
-          Registros importados do sistema legado em modo somente leitura.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-950">
+            Histórico financeiro legado
+          </h4>
+          <p className="mt-1 text-xs text-slate-500">
+            Somente leitura. Sem ações Sicredi para registros legados.
+          </p>
+        </div>
+        {loading ? (
+          <span className="text-xs font-medium text-slate-500">
+            Carregando historico...
+          </span>
+        ) : null}
       </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
+        <LegacyFinancialSummaryItem label="Total" value={String(summary.totalRecords)} />
+        <LegacyFinancialSummaryItem label="Pagos" value={String(summary.byStatus.PAGO)} />
+        <LegacyFinancialSummaryItem label="Baixados" value={String(summary.byStatus.BAIXADO)} />
+        <LegacyFinancialSummaryItem label="Pendentes" value={String(summary.byStatus.PENDENTE)} />
+        <LegacyFinancialSummaryItem label="Vencidos" value={String(summary.byStatus.VENCIDO)} />
+        <LegacyFinancialSummaryItem label="Nominal" value={formatCents(summary.nominalAmountCents)} />
+        <LegacyFinancialSummaryItem label="Pago" value={formatCents(summary.paidAmountCents)} />
+      </div>
+
+      <div className="grid gap-2 rounded-lg border border-slate-200 bg-white p-3 md:grid-cols-3">
+        <label className="grid gap-1 text-xs font-medium text-slate-600">
+          Status
+          <select
+            className={adminTheme.control}
+            onChange={(event) =>
+              onStatusChange(event.target.value as LegacyFinancialHistoryRecord["status"] | "")
+            }
+            value={status}
+          >
+            <option value="">Todos</option>
+            <option value="PAGO">Pago</option>
+            <option value="BAIXADO">Baixado</option>
+            <option value="PENDENTE">Pendente</option>
+            <option value="VENCIDO">Vencido</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-slate-600">
+          Ano
+          <select
+            className={adminTheme.control}
+            onChange={(event) =>
+              onYearChange(event.target.value ? Number(event.target.value) : "")
+            }
+            value={year}
+          >
+            <option value="">Todos</option>
+            {summary.years.map((availableYear) => (
+              <option key={availableYear} value={availableYear}>
+                {availableYear}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs font-medium text-slate-600">
+          Ordem
+          <select
+            className={adminTheme.control}
+            onChange={(event) => onOrderChange(event.target.value as "asc" | "desc")}
+            value={order}
+          >
+            <option value="desc">Mais recente primeiro</option>
+            <option value="asc">Mais antigo primeiro</option>
+          </select>
+        </label>
+      </div>
+
       {records.length === 0 ? (
         <div className={cx(adminTheme.softPanel, "p-4 text-sm text-slate-600")}>
-          Nenhum histórico financeiro legado importado.
+          {loading
+            ? "Carregando historico financeiro legado..."
+            : "Nenhum histórico financeiro legado encontrado."}
         </div>
       ) : (
-        <div className="grid gap-3">
-          {records.map((record) => (
-            <LegacyFinancialHistoryCard key={record.id} record={record} />
-          ))}
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="grid gap-0 divide-y divide-slate-100">
+            {records.map((record) => (
+              <LegacyFinancialHistoryRow
+                expanded={expandedRecordId === record.id}
+                key={record.id}
+                onToggleDetails={() => onToggleDetails(record.id)}
+                record={record}
+              />
+            ))}
+          </div>
+          <div className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-xs text-slate-600 md:flex-row md:items-center md:justify-between">
+            <span>
+              Pagina {pagination.page} de {totalPages} · Exibindo {firstVisible}-{lastVisible} de {pagination.total}
+            </span>
+            <div className="flex gap-2">
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={loading || pagination.page <= 1}
+                onClick={() => onPageChange(Math.max(pagination.page - 1, 1))}
+                type="button"
+              >
+                Anterior
+              </button>
+              <button
+                className={adminTheme.secondaryButton}
+                disabled={loading || pagination.page >= totalPages}
+                onClick={() => onPageChange(Math.min(pagination.page + 1, totalPages))}
+                type="button"
+              >
+                Proxima
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-function LegacyFinancialHistoryCard({
+function LegacyFinancialSummaryItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function LegacyFinancialHistoryRow({
+  expanded,
+  onToggleDetails,
+  record,
+}: {
+  expanded: boolean;
+  onToggleDetails: () => void;
+  record: LegacyFinancialHistoryRecord;
+}) {
+  const paidValue =
+    record.paidAmountCents === null || record.paidAmountCents === undefined
+      ? "-"
+      : formatCents(record.paidAmountCents);
+
+  return (
+    <article className="min-w-0 bg-white px-3 py-3 text-sm">
+      <div className="grid min-w-0 gap-2 md:grid-cols-[7rem_8rem_8rem_8rem_9rem_auto] md:items-center">
+        <span className="font-medium text-slate-900">
+          {formatOptionalDate(record.dueDate)}
+        </span>
+        <span className={legacyFinancialStatusBadgeClass(record.status)}>
+          {legacyFinancialStatusLabel(record.status)}
+        </span>
+        <span className="text-slate-700">{formatCents(record.nominalAmountCents)}</span>
+        <span className="text-slate-700">{paidValue}</span>
+        <span className="text-slate-500">
+          {record.paidAt ? `Pago ${formatDate(record.paidAt)}` : "Pagamento -"}
+        </span>
+        <button
+          className="justify-self-start rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50 md:justify-self-end"
+          onClick={onToggleDetails}
+          type="button"
+        >
+          {expanded ? "Ocultar detalhes" : "Ver detalhes"}
+        </button>
+      </div>
+      {expanded ? <LegacyFinancialHistoryDetails record={record} /> : null}
+    </article>
+  );
+}
+
+function LegacyFinancialHistoryDetails({
   record,
 }: {
   record: LegacyFinancialHistoryRecord;
 }) {
   return (
-    <article className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={legacyFinancialStatusBadgeClass(record.status)}>
-              Status: {legacyFinancialStatusLabel(record.status)}
-            </span>
-            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
-              Origem: Sistema legado
-            </span>
-          </div>
-          <p className="mt-2 text-xs text-slate-500">
-            ID financeiro legado: {record.legacyFinancialId}
-          </p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-right">
-          <p className="text-xs font-medium text-slate-500">Valor original</p>
-          <p className="text-base font-semibold text-slate-950">
-            {formatCents(record.nominalAmountCents)}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-        <StudentInvoiceField
-          label="Vencimento"
-          value={formatOptionalDate(record.dueDate)}
-        />
-        <StudentInvoiceField
-          label="Multa"
-          value={formatCents(record.fineAmountCents)}
-        />
-        <StudentInvoiceField
-          label="Juros"
-          value={formatCents(record.interestAmountCents)}
-        />
-        <StudentInvoiceField
-          label="Valor pago"
-          value={
-            record.paidAmountCents === null || record.paidAmountCents === undefined
-              ? "-"
-              : formatCents(record.paidAmountCents)
-          }
-        />
-        <StudentInvoiceField
-          label="Pagamento"
-          value={formatOptionalDate(record.paidAt)}
-        />
-        <StudentInvoiceField
-          label="Nosso número"
-          value={record.nossoNumero?.trim() || "-"}
-        />
-        <StudentInvoiceField
-          label="Linha digitável"
-          value={record.linhaDigitavel?.trim() || "-"}
-        />
-        <StudentInvoiceField
-          label="Código de barras"
-          value={record.codigoBarras?.trim() || "-"}
-        />
-      </div>
-      {record.boletoPath ? (
-        <p className="break-all rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-          Caminho legado do boleto: {record.boletoPath}
-        </p>
-      ) : null}
-      <p className="text-xs font-medium text-slate-500">
+    <div className="mt-3 grid min-w-0 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs md:grid-cols-2 xl:grid-cols-4">
+      <StudentInvoiceField
+        label="ID financeiro legado"
+        value={String(record.legacyFinancialId)}
+      />
+      <StudentInvoiceField label="Multa" value={formatCents(record.fineAmountCents)} />
+      <StudentInvoiceField label="Juros" value={formatCents(record.interestAmountCents)} />
+      <StudentInvoiceField
+        label="Nosso número"
+        value={record.nossoNumero?.trim() || "-"}
+      />
+      <StudentInvoiceField
+        label="Linha digitável"
+        valueClassName="break-all"
+        value={record.linhaDigitavel?.trim() || "-"}
+      />
+      <StudentInvoiceField
+        label="Código de barras"
+        valueClassName="break-all"
+        value={record.codigoBarras?.trim() || "-"}
+      />
+      <StudentInvoiceField
+        label="Caminho legado do boleto"
+        valueClassName="break-all"
+        value={record.boletoPath?.trim() || "-"}
+      />
+      <StudentInvoiceField label="Origem" value="Sistema legado" />
+      <p className="break-words font-medium text-slate-500 md:col-span-2 xl:col-span-4">
         Somente leitura. Sem ações Sicredi para registros legados.
       </p>
-    </article>
+    </div>
   );
+}
+
+function emptyLegacyFinancialSummary(): LegacyFinancialHistoryResponse["summary"] {
+  return {
+    totalRecords: 0,
+    byStatus: {
+      PAGO: 0,
+      BAIXADO: 0,
+      PENDENTE: 0,
+      VENCIDO: 0,
+    },
+    nominalAmountCents: 0,
+    paidAmountCents: 0,
+    years: [],
+  };
 }
 
 function StudentInvoiceCard({
@@ -3021,11 +3270,21 @@ function StudentInvoiceCard({
   );
 }
 
-function StudentInvoiceField({ label, value }: { label: string; value: string }) {
+function StudentInvoiceField({
+  label,
+  value,
+  valueClassName = "truncate",
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
   return (
     <div className="min-w-0 rounded-lg border border-slate-100 bg-white px-3 py-2">
       <p className="text-xs font-medium text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-slate-900">{value}</p>
+      <p className={cx("mt-1 text-sm font-medium text-slate-900", valueClassName)}>
+        {value}
+      </p>
     </div>
   );
 }

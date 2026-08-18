@@ -14,6 +14,7 @@ import {
   BusAssignmentEndReason,
   BusAssignmentEventType,
   BusAssignmentStatus,
+  LegacyFinancialStatus,
   Prisma,
   RecordStatus,
   RoleCode,
@@ -54,6 +55,7 @@ import {
   DocumentationStatusFilter,
   ListAcademicYearsDto,
   ListStudentDocumentationStatusDto,
+  ListStudentLegacyFinancialHistoryDto,
   ListStudentsDto,
   ReactivateStudentDto,
   ReinstateStudentDto,
@@ -404,6 +406,102 @@ export class StudentsService {
     }
 
     return this.toStudentDetail(student);
+  }
+
+  async listStudentLegacyFinancialHistory(
+    id: string,
+    query: ListStudentLegacyFinancialHistoryDto,
+    currentUser?: AuthUser,
+  ) {
+    const student = await this.prisma.student.findFirst({
+      where: { id, ...this.studentScopeWhere(currentUser) },
+      select: { id: true },
+    });
+    if (!student) {
+      throw new NotFoundException("Academico nao encontrado");
+    }
+
+    const pagination = resolvePagination(query, {
+      defaultLimit: 10,
+      maxLimit: 50,
+    });
+    const baseWhere: Prisma.LegacyFinancialImportWhereInput = {
+      studentId: id,
+      source: "LEGACY",
+    };
+    const filteredWhere: Prisma.LegacyFinancialImportWhereInput = {
+      ...baseWhere,
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.year
+        ? {
+            dueDate: {
+              gte: new Date(Date.UTC(query.year, 0, 1)),
+              lt: new Date(Date.UTC(query.year + 1, 0, 1)),
+            },
+          }
+        : {}),
+    };
+    const order = query.order === SortOrder.ASC ? "asc" : "desc";
+    const [records, total, totals, statusCounts, yearRows] = await Promise.all([
+      this.prisma.legacyFinancialImport.findMany({
+        where: filteredWhere,
+        orderBy: [{ dueDate: order }, { importedAt: order }],
+        skip: pagination.skip,
+        take: pagination.limit,
+      }),
+      this.prisma.legacyFinancialImport.count({ where: filteredWhere }),
+      this.prisma.legacyFinancialImport.aggregate({
+        where: baseWhere,
+        _count: { _all: true },
+        _sum: {
+          nominalAmountCents: true,
+          paidAmountCents: true,
+        },
+      }),
+      this.prisma.legacyFinancialImport.groupBy({
+        by: ["status"],
+        where: baseWhere,
+        _count: { status: true },
+      }),
+      this.prisma.legacyFinancialImport.findMany({
+        where: baseWhere,
+        select: { dueDate: true },
+      }),
+    ]);
+
+    const byStatus: Record<LegacyFinancialStatus, number> = {
+      PAGO: 0,
+      BAIXADO: 0,
+      PENDENTE: 0,
+      VENCIDO: 0,
+    };
+    for (const item of statusCounts) {
+      byStatus[item.status] = item._count.status;
+    }
+    const years = [
+      ...new Set(
+        yearRows
+          .map((record) => record.dueDate?.getUTCFullYear() ?? null)
+          .filter((recordYear): recordYear is number => recordYear !== null),
+      ),
+    ].sort((left, right) => right - left);
+
+    return {
+      data: records.map((record) => this.toLegacyFinancialHistoryRecord(record)),
+      summary: {
+        totalRecords: totals._count._all,
+        byStatus,
+        nominalAmountCents: totals._sum.nominalAmountCents ?? 0,
+        paidAmountCents: totals._sum.paidAmountCents ?? 0,
+        years,
+      },
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
   }
 
   async listReenrollmentCandidates(query: ListStudentsDto, currentUser?: AuthUser) {
@@ -2213,9 +2311,6 @@ export class StudentsService {
         orderBy: { academicYear: { year: "desc" } },
         include: this.enrollmentInclude(),
       },
-      legacyFinancialImports: {
-        orderBy: [{ dueDate: "desc" }, { importedAt: "desc" }],
-      },
     } satisfies Prisma.StudentInclude;
   }
 
@@ -2350,28 +2445,33 @@ export class StudentsService {
       enrollments: student.enrollments.map((enrollment) =>
         this.toEnrollment(enrollment),
       ),
-      legacyFinancialHistory: student.legacyFinancialImports.map((record) => ({
-        id: record.id,
-        legacyFinancialId: record.legacyFinancialId,
-        legacyStudentId: record.legacyStudentId,
-        status: record.status,
-        situacaoBoleto: record.situacaoBoleto,
-        nominalAmountCents: record.nominalAmountCents,
-        paidAmountCents: record.paidAmountCents,
-        fineAmountCents: record.fineAmountCents,
-        interestAmountCents: record.interestAmountCents,
-        issuedAt: record.issuedAt,
-        dueDate: record.dueDate,
-        paidAt: record.paidAt,
-        nossoNumero: record.nossoNumero,
-        linhaDigitavel: record.linhaDigitavel,
-        codigoBarras: record.codigoBarras,
-        boletoPath: record.boletoPath,
-        mailStatus: record.mailStatus,
-        sentAt: record.sentAt,
-        source: record.source,
-        importedAt: record.importedAt,
-      })),
+    };
+  }
+
+  private toLegacyFinancialHistoryRecord(
+    record: Prisma.LegacyFinancialImportGetPayload<Record<string, never>>,
+  ) {
+    return {
+      id: record.id,
+      legacyFinancialId: record.legacyFinancialId,
+      legacyStudentId: record.legacyStudentId,
+      status: record.status,
+      situacaoBoleto: record.situacaoBoleto,
+      nominalAmountCents: record.nominalAmountCents,
+      paidAmountCents: record.paidAmountCents,
+      fineAmountCents: record.fineAmountCents,
+      interestAmountCents: record.interestAmountCents,
+      issuedAt: record.issuedAt,
+      dueDate: record.dueDate,
+      paidAt: record.paidAt,
+      nossoNumero: record.nossoNumero,
+      linhaDigitavel: record.linhaDigitavel,
+      codigoBarras: record.codigoBarras,
+      boletoPath: record.boletoPath,
+      mailStatus: record.mailStatus,
+      sentAt: record.sentAt,
+      source: record.source,
+      importedAt: record.importedAt,
     };
   }
 
