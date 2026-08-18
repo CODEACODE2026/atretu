@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Banknote,
-  CalendarDays,
   Download,
   Eye,
   FileText,
@@ -66,6 +65,8 @@ import { FinanceFilters } from "./finance/finance-filters";
 import { type CollectionFilters } from "./finance/collections/collection-display-utils";
 import { InvoiceActiveFilterChips } from "./finance/invoice-active-filter-chips";
 import { InvoiceBulkActionBar } from "./finance/invoice-bulk-action-bar";
+import { InvoiceCompactRow } from "./finance/invoice-compact-row";
+import { InvoiceDetails } from "./finance/invoice-details";
 import {
   calculateInvoiceOperationalSummary,
   filterInvoicesByQuickFilter,
@@ -3106,66 +3107,12 @@ function StudentInvoiceCard({
 }) {
   const primaryAction = studentInvoicePrimaryAction(invoice, bankSlip);
   return (
-    <article className={cx(adminTheme.card, "grid gap-4 p-4 text-sm")}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-lg font-semibold text-slate-950">{invoice.amountFormatted}</p>
-            <span className={invoiceStatusBadgeClass(invoice)}>
-              {invoiceStatusLabel(invoice)}
-            </span>
-          </div>
-          <p className="mt-1 flex items-center gap-1 text-xs font-medium text-slate-500">
-            <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
-            Vencimento em {formatDate(invoice.dueDate)}
-          </p>
-        </div>
-        <div className="rounded-lg bg-slate-50 px-3 py-2 text-right text-xs text-slate-600">
-          <p className="font-semibold text-slate-900">
-            {invoice.enrollment.academicYear.year}
-          </p>
-          <p className="max-w-[15rem] truncate">{invoice.enrollment.institution.name}</p>
-        </div>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <StudentInvoiceField
-          label="Descrição"
-          value={invoice.description?.trim() || "Sem descrição"}
-        />
-        <StudentInvoiceField
-          label="Competência"
-          value={formatMonthYear(invoice.dueDate) ?? "-"}
-        />
-        <StudentInvoiceField
-          label="Boleto"
-          value={studentBankSlipNumberLabel(bankSlip)}
-        />
-        <StudentInvoiceField
-          label="Atualizada em"
-          value={formatDateTime(invoice.updatedAt)}
-        />
-      </div>
-
-      <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 md:grid-cols-2">
-        <div>
-          <p className="font-medium text-slate-500">Situação do boleto</p>
-          <div className="mt-1">
-            <BankSlipCompact bankSlip={bankSlip} />
-          </div>
-        </div>
-        <div>
-          <p className="font-medium text-slate-500">Última consulta</p>
-          <p className="mt-1 text-slate-800">
-            {bankSlip && bankSlip.lastCheckedAt ? formatDateTime(bankSlip.lastCheckedAt) : "-"}
-          </p>
-        </div>
-      </div>
-
-      {expanded ? <BankSlipDetails bankSlip={bankSlip} invoice={invoice} /> : null}
-
-      <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2">
+    <InvoiceCompactRow
+      bankSlip={bankSlip}
+      busy={busy}
+      expanded={expanded}
+      expandedActions={
+        <>
           {primaryAction === "issue" ? (
             <button
               className={adminTheme.primaryButton}
@@ -3199,18 +3146,7 @@ function StudentInvoiceCard({
               Consultar boleto
             </button>
           ) : null}
-        </div>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            className={adminTheme.secondaryButton}
-            disabled={busy}
-            onClick={onToggleDetails}
-            type="button"
-          >
-            <Eye className="h-4 w-4" aria-hidden="true" />
-            {expanded ? "Ocultar detalhes" : "Ver detalhes"}
-          </button>
           {bankSlip && primaryAction !== "sync" ? (
             <button
               className={adminTheme.secondaryButton}
@@ -3264,9 +3200,13 @@ function StudentInvoiceCard({
               Cancelar fatura
             </button>
           ) : null}
-        </div>
-      </div>
-    </article>
+        </>
+      }
+      expandedChildren={<InvoiceDetails bankSlip={bankSlip} invoice={invoice} />}
+      invoice={invoice}
+      onToggleDetails={onToggleDetails}
+      showStudent={false}
+    />
   );
 }
 
@@ -3418,203 +3358,6 @@ function InvoicePreviewBox({ preview }: { preview: InvoicePreview }) {
   );
 }
 
-function BankSlipCompact({
-  bankSlip,
-}: {
-  bankSlip: BankSlipListRecord | null | undefined;
-}) {
-  if (bankSlip === undefined) {
-    return <span className="text-xs text-slate-500">Carregando boleto...</span>;
-  }
-  if (!bankSlip) {
-    return <span className="text-xs text-slate-500">Sem boleto</span>;
-  }
-  return (
-    <div className="grid gap-1 text-xs text-slate-700">
-      <span className={bankSlipStatusClass(bankSlip.status)}>
-        {bankSlipStatusLabel(bankSlip.status)}
-      </span>
-      {bankSlipNossoNumero(bankSlip) ? (
-        <span>Nosso número: {bankSlipNossoNumero(bankSlip)}</span>
-      ) : null}
-      {bankSlip.lastCheckedAt ? (
-        <span>Última consulta: {formatDateTime(bankSlip.lastCheckedAt)}</span>
-      ) : null}
-    </div>
-  );
-}
-
-function BankSlipDetails({
-  bankSlip,
-  invoice,
-}: {
-  bankSlip: BankSlipListRecord | null | undefined;
-  invoice: InvoiceRecord;
-}) {
-  if (bankSlip === undefined) {
-    return <p className="text-sm text-slate-500">Carregando boleto...</p>;
-  }
-  if (!bankSlip) {
-    return (
-      <div className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-600">
-        Esta fatura ainda não possui boleto Sicredi.
-      </div>
-    );
-  }
-  return (
-    <div className="mt-2 grid gap-2 rounded border border-slate-200 bg-white p-3 text-sm text-slate-700 md:grid-cols-2">
-      <p><strong>Situação:</strong> {bankSlipStatusLabel(bankSlip.status)}</p>
-      {isFullBankSlip(bankSlip) ? (
-        <>
-          <p><strong>Ambiente:</strong> {bankSlip.environment}</p>
-          <p><strong>Seu número:</strong> {bankSlip.seuNumero}</p>
-        </>
-      ) : null}
-      <p>
-        <strong>Nosso número:</strong>{" "}
-        {isFullBankSlip(bankSlip)
-          ? (bankSlip.nossoNumero ?? "-")
-          : (bankSlip.nossoNumeroMasked ?? "-")}
-      </p>
-      <p><strong>Emissão:</strong> {formatOptionalDateTime(bankSlip.issuedAt)}</p>
-      {isFullBankSlip(bankSlip) && bankSlip.pdfStoredAt ? (
-        <p><strong>PDF arquivado:</strong> {formatOptionalDateTime(bankSlip.pdfStoredAt)}</p>
-      ) : null}
-      <p><strong>Última consulta:</strong> {formatOptionalDateTime(bankSlip.lastCheckedAt)}</p>
-      <p><strong>Pagamento:</strong> {formatOptionalDateTime(bankSlip.paidAt)}</p>
-      {isFullBankSlip(bankSlip) ? (
-        <>
-          <p><strong>Valor pago:</strong> {formatOptionalCents(bankSlip.paidAmountCents)}</p>
-          <p><strong>Baixa solicitada:</strong> {formatOptionalDateTime(bankSlip.cancellationRequestedAt)}</p>
-        </>
-      ) : null}
-      <p><strong>Baixa confirmada:</strong> {formatOptionalDateTime(bankSlip.cancelledAt)}</p>
-      {isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
-        <p className="md:col-span-2 break-all">
-          <strong>Linha digitável:</strong> {formatLinhaDigitavel(bankSlip.linhaDigitavel)}
-        </p>
-      ) : null}
-      {isFullBankSlip(bankSlip) && bankSlip.codigoBarras ? (
-        <p className="md:col-span-2 break-all">
-          <strong>Código de barras:</strong> {bankSlip.codigoBarras}
-        </p>
-      ) : null}
-      {isFullBankSlip(bankSlip) && bankSlip.providerErrorMessage ? (
-        <p className="md:col-span-2 rounded border border-amber-200 bg-amber-50 p-2 text-amber-800">
-          {bankSlip.providerErrorMessage}
-        </p>
-      ) : null}
-      {bankSlip.status === "UNKNOWN" ? (
-        <p className="md:col-span-2 rounded border border-amber-200 bg-amber-50 p-2 text-amber-800">
-          O sistema não conseguiu confirmar se o boleto foi criado no Sicredi. Não tente emitir novamente. Use a consulta de situação ou procure o administrador.
-        </p>
-      ) : null}
-      {invoice.status === "PAID" ? (
-        <p className="md:col-span-2 rounded border border-emerald-200 bg-emerald-50 p-2 text-emerald-800">
-          Pagamento confirmado.
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function InvoiceBankSlipActions({
-  bankSlip,
-  busy,
-  invoice,
-  onCancelInvoice,
-  onCancelSlip,
-  onCopy,
-  onIssue,
-  onPdf,
-  onSync,
-  onToggleDetails,
-}: {
-  bankSlip: BankSlipListRecord | null | undefined;
-  busy: boolean;
-  invoice: InvoiceRecord;
-  onCancelInvoice: () => void;
-  onCancelSlip: () => void;
-  onCopy: () => void;
-  onIssue: () => void;
-  onPdf: () => void;
-  onSync: () => void;
-  onToggleDetails: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      <button
-        className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-        disabled={busy}
-        onClick={onToggleDetails}
-        type="button"
-      >
-        Detalhes
-      </button>
-      {canIssueBankSlip(invoice, bankSlip) ? (
-        <button
-          className="rounded border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-700 disabled:opacity-60"
-          disabled={busy}
-          onClick={onIssue}
-          type="button"
-        >
-          {busy ? "Emitindo..." : issueBankSlipButtonLabel(bankSlip)}
-        </button>
-      ) : null}
-      {bankSlip ? (
-        <button
-          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-          disabled={busy}
-          onClick={onSync}
-          type="button"
-        >
-          Consultar
-        </button>
-      ) : null}
-      {isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
-        <button
-          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-          disabled={busy}
-          onClick={onCopy}
-          type="button"
-        >
-          Copiar linha
-        </button>
-      ) : null}
-      {canDownloadBankSlipPdf(bankSlip) ? (
-        <button
-          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
-          disabled={busy}
-          onClick={onPdf}
-          type="button"
-        >
-          Baixar boleto
-        </button>
-      ) : null}
-      {canRequestBankSlipCancellation(invoice, bankSlip) ? (
-        <button
-          className="rounded border border-amber-200 px-2 py-1 text-xs font-medium text-amber-700 disabled:opacity-60"
-          disabled={busy}
-          onClick={onCancelSlip}
-          type="button"
-        >
-          Solicitar baixa
-        </button>
-      ) : null}
-      {canCancelInvoiceDirectly(invoice, bankSlip) ? (
-        <button
-          className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-700 disabled:opacity-60"
-          disabled={busy}
-          onClick={onCancelInvoice}
-          type="button"
-        >
-          Cancelar fatura
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function Pagination({
   page,
   setPage,
@@ -3647,30 +3390,6 @@ function Pagination({
       </button>
     </div>
   );
-}
-
-function invoiceStatusLabel(invoice: InvoiceRecord) {
-  if (invoice.status === "PAID") {
-    return "Paga";
-  }
-  if (invoice.status === "CANCELLED") {
-    return "Cancelada";
-  }
-  return invoice.overdue ? "Vencida" : "Aberta";
-}
-
-function invoiceStatusBadgeClass(invoice: InvoiceRecord) {
-  const base = "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold";
-  if (invoice.status === "PAID") {
-    return `${base} bg-emerald-50 text-emerald-700`;
-  }
-  if (invoice.status === "CANCELLED") {
-    return `${base} bg-slate-100 text-slate-700`;
-  }
-  if (invoice.overdue) {
-    return `${base} bg-red-50 text-red-700`;
-  }
-  return `${base} bg-sky-50 text-sky-700`;
 }
 
 function legacyFinancialStatusLabel(status: LegacyFinancialHistoryRecord["status"]) {
@@ -3746,18 +3465,6 @@ function studentInvoicePrimaryAction(
   return "none";
 }
 
-function studentBankSlipNumberLabel(
-  bankSlip: BankSlipListRecord | null | undefined,
-) {
-  if (bankSlip === undefined) {
-    return "Carregando";
-  }
-  if (!bankSlip) {
-    return "Indisponível";
-  }
-  return bankSlipNossoNumero(bankSlip) ?? "Sem número";
-}
-
 function parseMoneyToCentsSafe(value: string) {
   if (!value.trim()) {
     return null;
@@ -3795,13 +3502,6 @@ function isFullBankSlip(
   bankSlip: BankSlipListRecord | null | undefined,
 ): bankSlip is BankSlipRecord {
   return Boolean(bankSlip && "linhaDigitavel" in bankSlip);
-}
-
-function bankSlipNossoNumero(bankSlip: BankSlipListRecord) {
-  return isFullBankSlip(bankSlip)
-    ? bankSlip.nossoNumeroMasked ??
-        (bankSlip.nossoNumero ? maskNossoNumero(bankSlip.nossoNumero) : null)
-    : bankSlip.nossoNumeroMasked;
 }
 
 export function bankSlipStatusLabel(status: BankSlipStatus) {
@@ -4174,26 +3874,6 @@ export function canDownloadBankSlipPdf(
   );
 }
 
-function bankSlipStatusClass(status: BankSlipStatus) {
-  const base = "inline-flex w-fit rounded px-2 py-1 font-medium";
-  if (status === "PAID") {
-    return `${base} bg-emerald-50 text-emerald-700`;
-  }
-  if (status === "ISSUED") {
-    return `${base} bg-sky-50 text-sky-700`;
-  }
-  if (status === "PENDING_CANCELLATION" || status === "UNKNOWN") {
-    return `${base} bg-amber-50 text-amber-700`;
-  }
-  if (status === "CANCELLED") {
-    return `${base} bg-slate-100 text-slate-700`;
-  }
-  if (status === "ISSUE_FAILED" || status === "CANCELLATION_FAILED") {
-    return `${base} bg-red-50 text-red-700`;
-  }
-  return `${base} bg-slate-50 text-slate-700`;
-}
-
 function syncResultMessage(previous: BankSlipStatus | undefined, next: BankSlipStatus) {
   if (next === "PAID" && previous !== "PAID") {
     return "Pagamento confirmado";
@@ -4202,27 +3882,6 @@ function syncResultMessage(previous: BankSlipStatus | undefined, next: BankSlipS
     return "Baixa confirmada";
   }
   return "Consulta concluída";
-}
-
-function maskNossoNumero(value: string) {
-  return `${"*".repeat(Math.max(0, value.length - 3))}${value.slice(-3)}`;
-}
-
-function formatLinhaDigitavel(value: string) {
-  return value.replace(/(\d{5})(?=\d)/g, "$1 ").trim();
-}
-
-function formatOptionalDateTime(value?: string | Date | null) {
-  return formatDateTime(value);
-}
-
-function formatOptionalCents(value?: number | null) {
-  return typeof value === "number"
-    ? new Intl.NumberFormat("pt-BR", {
-        style: "currency",
-        currency: "BRL",
-      }).format(value / 100)
-    : "-";
 }
 
 function safeBankSlipFileName(fileName: string, invoiceId: string) {
