@@ -251,17 +251,27 @@ const financialPreview = await service.analyzeFinancialImport({
       valor_boleto: 275,
       situacao_boleto: 1,
     },
+    {
+      legacy_financial_id: 43,
+      legacy_student_id: 900,
+      data_emissao: "2024-08-09 10:29:00",
+      data_vencimento: "2024-08-20 00:00:00",
+      status_boleto: "VENCIDO",
+      valor_boleto: 125,
+      situacao_boleto: 3,
+    },
   ],
 });
 
-assert.equal(financialPreview.summary.totalRecords, 3);
+assert.equal(financialPreview.summary.totalRecords, 4);
 assert.equal(financialPreview.summary.totalLegacyStudents, 2);
 assert.equal(financialPreview.summary.linkedLegacyStudents, 1);
 assert.deepEqual(financialPreview.summary.unlinkedLegacyStudents, [901]);
 assert.equal(financialPreview.summary.byStatus.BAIXADO, 1);
 assert.equal(financialPreview.summary.byStatus.PAGO, 1);
 assert.equal(financialPreview.summary.byStatus.PENDENTE, 1);
-assert.equal(financialPreview.summary.nominalAmountCents, 82550);
+assert.equal(financialPreview.summary.byStatus.VENCIDO, 1);
+assert.equal(financialPreview.summary.nominalAmountCents, 95050);
 assert.equal(financialPreview.summary.paidAmountCents, 25450);
 assert.equal(financialPreview.summary.fineAmountCents, 125);
 assert.equal(financialPreview.summary.interestAmountCents, 275);
@@ -273,6 +283,8 @@ assert(
   ),
 );
 assert.equal(financialPreview.items[2]?.status, "JA_IMPORTADO");
+assert.equal(financialPreview.items[3]?.statusBoleto, "VENCIDO");
+assert.equal(financialPreview.items[3]?.canImport, true);
 
 await assert.rejects(
   () =>

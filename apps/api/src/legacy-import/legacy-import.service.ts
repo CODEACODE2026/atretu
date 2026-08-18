@@ -300,11 +300,22 @@ export class LegacyImportService {
       );
     }
     const preview = await this.analyzeFinancialImport(body);
-    const selectedStudents = new Set(body.selectedLegacyStudentIds);
-    const selectedItems = preview.items.filter(
-      (item) =>
-        item.legacyStudentId !== null && selectedStudents.has(item.legacyStudentId),
-    );
+    const selectedFinancials = new Set(body.selectedLegacyFinancialIds ?? []);
+    const selectedStudents = new Set(body.selectedLegacyStudentIds ?? []);
+    if (selectedFinancials.size === 0 && selectedStudents.size === 0) {
+      throw new BadRequestException("Nenhum registro financeiro selecionado");
+    }
+    const selectedItems =
+      selectedFinancials.size > 0
+        ? preview.items.filter(
+            (item) =>
+              item.legacyFinancialId !== null &&
+              selectedFinancials.has(item.legacyFinancialId),
+          )
+        : preview.items.filter(
+            (item) =>
+              item.legacyStudentId !== null && selectedStudents.has(item.legacyStudentId),
+          );
     if (selectedItems.length === 0) {
       throw new BadRequestException("Nenhum registro financeiro selecionado");
     }
@@ -323,6 +334,9 @@ export class LegacyImportService {
         importedByUserId: user.id,
         createdBaseRecords: {
           selectedLegacyStudentIds: [...selectedStudents].sort((left, right) => left - right),
+          selectedLegacyFinancialIds: [...selectedFinancials].sort(
+            (left, right) => left - right,
+          ),
           selectedRecords: selectedItems.length,
           readOnlyHistoryOnly: true,
           operationalEffects: {
@@ -346,6 +360,7 @@ export class LegacyImportService {
         totalRecords: body.records.length,
         selectedRecords: selectedItems.length,
         selectedLegacyStudentIds: [...selectedStudents],
+        selectedLegacyFinancialIds: [...selectedFinancials],
       },
     });
 
@@ -432,6 +447,9 @@ export class LegacyImportService {
         failedCount: 0,
         createdBaseRecords: {
           selectedLegacyStudentIds: [...selectedStudents].sort((left, right) => left - right),
+          selectedLegacyFinancialIds: [...selectedFinancials].sort(
+            (left, right) => left - right,
+          ),
           selectedRecords: selectedItems.length,
           imported,
           ignored,
@@ -454,6 +472,9 @@ export class LegacyImportService {
         ignored,
         selectedRecords: selectedItems.length,
         selectedLegacyStudentIds: [...selectedStudents].sort((left, right) => left - right),
+        selectedLegacyFinancialIds: [...selectedFinancials].sort(
+          (left, right) => left - right,
+        ),
       },
       results,
     };

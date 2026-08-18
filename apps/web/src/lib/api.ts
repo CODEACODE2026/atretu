@@ -488,6 +488,96 @@ export type LegacyAcademicPreviewResponse = {
   items: LegacyAcademicPreviewItem[];
 };
 
+export type LegacyFinancialRawRecord = Record<string, unknown> & {
+  legacy_financial_id?: number;
+  legacy_student_id?: number;
+};
+
+export type LegacyFinancialImportPayload = {
+  fileName?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  records: LegacyFinancialRawRecord[];
+};
+
+export type LegacyFinancialPreviewStatus = "PRONTO" | "BLOQUEADO" | "JA_IMPORTADO";
+
+export type LegacyFinancialPreviewItem = {
+  index: number;
+  legacyFinancialId: number | null;
+  legacyStudentId: number | null;
+  statusBoleto: string;
+  situacaoBoleto: number | null;
+  nominalAmountCents: number | null;
+  paidAmountCents: number | null;
+  fineAmountCents: number | null;
+  interestAmountCents: number | null;
+  issuedAt: string | null;
+  dueDate: string | null;
+  paidAt: string | null;
+  nossoNumero: string | null;
+  linhaDigitavel: string | null;
+  codigoBarras: string | null;
+  boletoPath: string | null;
+  legacyStudentImport: { id: string; studentId: string } | null;
+  status: LegacyFinancialPreviewStatus;
+  canImport: boolean;
+  reasons: string[];
+};
+
+export type LegacyFinancialPreviewResponse = {
+  file: {
+    fileName: string | null;
+    mimeType: string | null;
+    sizeBytes: number | null;
+  };
+  limits: { maxRecordsPerBatch: number; chunkSize: number };
+  summary: {
+    totalRecords: number;
+    totalLegacyStudents: number;
+    linkedLegacyStudents: number;
+    unlinkedLegacyStudents: number[];
+    alreadyImported: number;
+    importable: number;
+    blocked: number;
+    byStatus: Record<LegacyFinancialStatus, number>;
+    nominalAmountCents: number;
+    paidAmountCents: number;
+    fineAmountCents: number;
+    interestAmountCents: number;
+    inconsistencies: Array<{
+      legacyFinancialId: number | null;
+      legacyStudentId: number | null;
+      status: LegacyFinancialPreviewStatus;
+      reasons: string[];
+    }>;
+    duplicateLegacyFinancialIds: number[];
+  };
+  items: LegacyFinancialPreviewItem[];
+};
+
+export type LegacyFinancialImportResponse = {
+  batch: {
+    id: string;
+    importedCount: number;
+    failedCount: number;
+    createdBaseRecords?: unknown;
+  };
+  summary: {
+    imported: number;
+    ignored: number;
+    selectedRecords: number;
+    selectedLegacyStudentIds: number[];
+    selectedLegacyFinancialIds?: number[];
+  };
+  results: Array<{
+    legacyFinancialId: number | null;
+    legacyStudentId: number | null;
+    status: "IMPORTADO" | "JA_IMPORTADO";
+    reason?: string;
+  }>;
+};
+
 export type LegacyImportJobStatus =
   | "QUEUED"
   | "PROCESSING"
@@ -2296,6 +2386,32 @@ export const api = {
   getLegacyAcademicImportJob(jobId: string) {
     return request<LegacyAcademicImportJob>(
       `/admin/legacy-import/academics/import-jobs/${jobId}`,
+    );
+  },
+
+  analyzeLegacyFinancialImport(body: LegacyFinancialImportPayload) {
+    return request<LegacyFinancialPreviewResponse>(
+      "/admin/legacy-import/financial/analyze",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  importLegacyFinancialHistory(
+    body: LegacyFinancialImportPayload & {
+      selectedLegacyStudentIds: number[];
+      selectedLegacyFinancialIds: number[];
+      confirmReadOnlyHistoryOnly: boolean;
+    },
+  ) {
+    return request<LegacyFinancialImportResponse>(
+      "/admin/legacy-import/financial/import",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
     );
   },
 
