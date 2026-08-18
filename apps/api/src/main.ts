@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import cookieParser from "cookie-parser";
+import { json, urlencoded } from "express";
 import helmet from "helmet";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
@@ -9,7 +10,9 @@ import { AppConfigService } from "./config/app-config.service.js";
 import { createOriginCheckMiddleware } from "./security/origin-check.middleware.js";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, new ExpressAdapter());
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(), {
+    bodyParser: false,
+  });
   const config = app.get(AppConfigService).values;
 
   if (config.trustedProxyHops > 0) {
@@ -27,6 +30,8 @@ async function bootstrap() {
       referrerPolicy: { policy: "no-referrer" },
     }),
   );
+  app.use(json({ limit: "20mb" }));
+  app.use(urlencoded({ extended: true, limit: "20mb" }));
   app.use(cookieParser());
   app.useGlobalPipes(
     new ValidationPipe({

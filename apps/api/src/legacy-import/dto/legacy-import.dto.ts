@@ -212,14 +212,14 @@ export class AnalyzeLegacyFinancialImportDto {
 export class ImportLegacyFinancialSelectionDto extends AnalyzeLegacyFinancialImportDto {
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(500)
+  @ArrayMaxSize(5000)
   @Type(() => Number)
   @IsInt({ each: true })
   selectedLegacyStudentIds?: number[];
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(500)
+  @ArrayMaxSize(5000)
   @Type(() => Number)
   @IsInt({ each: true })
   selectedLegacyFinancialIds?: number[];
