@@ -404,7 +404,21 @@ export function DashboardChartCard({
   chart: DashboardChart;
   emptyText?: string;
 }) {
-  const max = Math.max(...chart.data.map((item) => item.value), 0);
+  const isOccupancyChart = chart.key === "occupancyByBus";
+  const isInstitutionChart = chart.key === "studentsByInstitution";
+  const chartData = [...chart.data].sort((left, right) => {
+    if (isOccupancyChart) {
+      const leftPercent = busOccupancyPercent(left);
+      const rightPercent = busOccupancyPercent(right);
+      return rightPercent - leftPercent || left.label.localeCompare(right.label);
+    }
+    if (isInstitutionChart) {
+      return right.value - left.value || left.label.localeCompare(right.label);
+    }
+    return 0;
+  });
+  const max = Math.max(...chartData.map((item) => item.value), 0);
+  const total = chartData.reduce((sum, item) => sum + item.value, 0);
 
   return (
     <DashboardSection
@@ -419,27 +433,42 @@ export function DashboardChartCard({
       }
       subtitle={chart.description}
       title={chart.title}
-      tone={chart.key === "occupancyByBus" ? "info" : "neutral"}
+      tone={isOccupancyChart ? "info" : "neutral"}
     >
       {chart.data.length === 0 || max === 0 ? (
         <DashboardEmptyState compact text={emptyText} />
       ) : (
         <div className="grid min-w-0 gap-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2 text-xs text-slate-500">
-            <span>0</span>
-            <span>{chart.key === "occupancyByBus" ? "Ocupacao" : "Escala relativa"}</span>
-            <span>{formatChartValue(max)}</span>
-          </div>
+          {isOccupancyChart ? (
+            <DashboardTransportSummary data={chartData} />
+          ) : (
+            <div className="flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-2 text-xs text-slate-500">
+              <span>0</span>
+              <span className="min-w-0 text-center">
+                {isInstitutionChart
+                  ? `Ranking por quantidade - total ${formatChartValue(total)}`
+                  : "Escala relativa"}
+              </span>
+              <span>{formatChartValue(max)}</span>
+            </div>
+          )}
           <div className="grid min-w-0 gap-3">
-            {chart.data.map((point) => (
-              <DashboardBarRow
-                key={`${chart.key}-${point.busId ?? point.label}`}
-                label={point.label}
-                point={point}
-                value={pointValueLabel(chart, point)}
-                widthPercent={chart.key === "occupancyByBus" ? point.occupancyPercent ?? 0 : (point.value / max) * 100}
-              />
-            ))}
+            {chartData.map((point, index) => {
+              const widthPercent = isOccupancyChart
+                ? busOccupancyPercent(point)
+                : (point.value / max) * 100;
+              return (
+                <DashboardBarRow
+                  index={index}
+                  key={`${chart.key}-${point.busId ?? point.label}`}
+                  label={point.label}
+                  point={point}
+                  total={total}
+                  value={pointValueLabel(chart, point, total)}
+                  widthPercent={widthPercent}
+                />
+              );
+            })}
           </div>
         </div>
       )}
@@ -624,26 +653,46 @@ export function resolveListItemTone(item: DashboardListItem): VisualTone {
 }
 
 function DashboardBarRow({
+  index,
   label,
   point,
+  total,
   value,
   widthPercent,
 }: {
+  index: number;
   label: string;
   point: DashboardChartPoint;
+  total: number;
   value: string;
   widthPercent: number;
 }) {
   const tone = resolveChartTone(point);
-  const width = Math.max(4, Math.min(widthPercent, 100));
+  const width = Math.min(Math.max(widthPercent, 0), 100);
+  const isBus = typeof point.capacity === "number";
+  const rank = index + 1;
 
   return (
-    <div className="grid min-w-0 gap-1.5">
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <span className="min-w-0 break-words font-semibold text-slate-700">
-          {label}
-        </span>
-        <span className="shrink-0 font-bold text-slate-950">{value}</span>
+    <div className="grid min-w-0 gap-2 rounded-lg border border-slate-100 bg-white/70 p-3 shadow-sm">
+      <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
+        <div className="flex min-w-0 items-start gap-2">
+          {!isBus ? (
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#EEF7F4] text-xs font-bold text-[#14534D] ring-1 ring-[#D8E9E4]">
+              {rank}
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <span className="block break-words font-semibold text-slate-800">
+              {label}
+            </span>
+            <span className="mt-1 block break-words leading-5 text-slate-500">
+              {value}
+            </span>
+          </div>
+        </div>
+        {point.status ? (
+          <DashboardStatusBadge label={statusLabel(point.status)} tone={tone} />
+        ) : null}
       </div>
       <div
         aria-label={`${label}: ${value}`}
@@ -659,11 +708,52 @@ function DashboardBarRow({
           style={{ width: `${width}%` }}
         />
       </div>
-      {point.status ? (
-        <div>
-          <DashboardStatusBadge label={statusLabel(point.status)} tone={tone} />
-        </div>
+      {!isBus && total > 0 ? (
+        <p className="text-[11px] leading-4 text-slate-500">
+          Barra em escala relativa ao maior volume do ranking.
+        </p>
       ) : null}
+    </div>
+  );
+}
+
+function DashboardTransportSummary({ data }: { data: DashboardChartPoint[] }) {
+  const summary = data.reduce(
+    (acc, point) => {
+      const capacity = point.capacity ?? 0;
+      const occupied = point.occupiedSeats ?? point.value;
+      acc.totalBuses += 1;
+      acc.capacity += capacity;
+      acc.occupied += occupied;
+      acc.available += point.availableSeats ?? Math.max(capacity - occupied, 0);
+      if (point.status === "FULL" || point.status === "NEAR_FULL") {
+        acc.attention += 1;
+      }
+      return acc;
+    },
+    { attention: 0, available: 0, capacity: 0, occupied: 0, totalBuses: 0 },
+  );
+
+  const items = [
+    ["Total de ônibus", summary.totalBuses],
+    ["Vagas totais", summary.capacity],
+    ["Ocupadas", summary.occupied],
+    ["Livres", summary.available],
+    ["Quase lotados/lotados", summary.attention],
+  ] as const;
+
+  return (
+    <div className="grid min-w-0 gap-2 rounded-lg border border-[#D8E9E4] bg-[#F8FAFA]/80 p-3 sm:grid-cols-5">
+      {items.map(([label, value]) => (
+        <div className="min-w-0" key={label}>
+          <p className="break-words text-[11px] font-semibold uppercase leading-4 text-slate-500">
+            {label}
+          </p>
+          <p className="mt-1 text-base font-bold text-slate-950">
+            {formatChartValue(value)}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -681,14 +771,37 @@ function resolveChartTone(point: DashboardChartPoint): VisualTone {
   return "info";
 }
 
-function pointValueLabel(chart: DashboardChart, point: DashboardChartPoint) {
+function pointValueLabel(
+  chart: DashboardChart,
+  point: DashboardChartPoint,
+  total: number,
+) {
   if (chart.key === "occupancyByBus") {
-    return `${point.occupiedSeats ?? 0}/${point.capacity ?? 0}`;
+    const occupied = point.occupiedSeats ?? 0;
+    const capacity = point.capacity ?? 0;
+    const available = point.availableSeats ?? Math.max(capacity - occupied, 0);
+    return `${formatChartValue(occupied)} de ${formatChartValue(capacity)} ocupadas · ${formatPercent(busOccupancyPercent(point))} · ${formatChartValue(available)} ${available === 1 ? "vaga livre" : "vagas livres"}`;
+  }
+  if (chart.key === "studentsByInstitution") {
+    return `${formatChartValue(point.value)} ${point.value === 1 ? "acadêmico" : "acadêmicos"} · ${formatPercent(total > 0 ? (point.value / total) * 100 : 0)}`;
   }
   if (typeof point.amountCents === "number") {
     return formatCents(point.amountCents);
   }
   return formatChartValue(point.value);
+}
+
+function busOccupancyPercent(point: DashboardChartPoint) {
+  const capacity = point.capacity ?? 0;
+  const occupied = point.occupiedSeats ?? 0;
+  return capacity > 0 ? (occupied / capacity) * 100 : 0;
+}
+
+function formatPercent(value: number) {
+  return `${new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  }).format(value)}%`;
 }
 
 function formatChartValue(value: number) {
