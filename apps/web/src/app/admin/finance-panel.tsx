@@ -25,6 +25,7 @@ import {
   type BankSlipIssueBatchPreview,
   type BankSlipSummary,
   type BankSlipStatus,
+  type CollectionSummary,
   type InvoiceCancellationReason,
   type InvoiceListSummary,
   type InvoicePreview,
@@ -76,7 +77,11 @@ import {
 import { InvoiceList } from "./finance/invoice-list";
 import { InvoiceOperationalSummaryCards } from "./finance/invoice-operational-summary";
 import { FinanceNavigation } from "./finance/finance-navigation";
-import { FinanceSummaryCards } from "./finance/finance-summary";
+import {
+  FinanceSummaryCards,
+  type FinanceMonthlyOverview,
+  type FinanceSituationSlice,
+} from "./finance/finance-summary";
 import { FinancialReportsPanel } from "./finance/financial-reports-panel";
 import { ManualMovementsPanel } from "./finance/manual-movements-panel";
 
@@ -144,6 +149,16 @@ export function FinancePanel({
   const [search, setSearch] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
   const defaultMonth = useMemo(() => currentMonthRange(), []);
+  const defaultOverviewPeriod = useMemo(() => currentMonthParts(), []);
+  const [overviewMonth, setOverviewMonth] = useState(defaultOverviewPeriod.month);
+  const [overviewYear, setOverviewYear] = useState(defaultOverviewPeriod.year);
+  const [monthlyOverview, setMonthlyOverview] = useState<FinanceMonthlyOverview[]>([]);
+  const [situationBreakdown, setSituationBreakdown] = useState<FinanceSituationSlice[]>([]);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState("");
+  const [collectionSummary, setCollectionSummary] = useState<CollectionSummary | null>(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
+  const [collectionError, setCollectionError] = useState("");
   const [academicYearId, setAcademicYearId] = useState(
     initialInvoiceFilters?.academicYearId ?? "",
   );
@@ -306,6 +321,12 @@ export function FinancePanel({
   }, []);
 
   useEffect(() => {
+    if (financeArea === "overview") {
+      void loadOverviewData();
+    }
+  }, [academicYearId, canViewCollections, financeArea, institutionId, overviewMonth, overviewYear]);
+
+  useEffect(() => {
     setFinanceArea(
       initialArea === "collections" && !canViewCollections ? "invoices" : initialArea,
     );
@@ -446,6 +467,116 @@ export function FinancePanel({
       setError(caught instanceof Error ? caught.message : "Erro ao carregar lotes");
     } finally {
       setIssueBatchesLoading(false);
+    }
+  }
+
+  async function loadOverviewData() {
+    const periodRange = monthRange(overviewYear, overviewMonth);
+    setOverviewLoading(true);
+    setCollectionLoading(canViewCollections);
+    setOverviewError("");
+    setCollectionError("");
+    try {
+      const monthRanges = lastMonthRanges(overviewYear, overviewMonth, 12);
+      const [
+        monthlyResponses,
+        openResponse,
+        overdueResponse,
+        paidResponse,
+        cancelledResponse,
+        collectionsResponse,
+      ] = await Promise.all([
+        Promise.all(
+          monthRanges.map((range) =>
+            api.listInvoices({
+              page: 1,
+              limit: 1,
+              academicYearId,
+              institutionId,
+              overdue: "all",
+              dueDateFrom: range.from,
+              dueDateTo: range.to,
+              sort: "dueDate",
+              order: "asc",
+            }),
+          ),
+        ),
+        api.listInvoices({
+          page: 1,
+          limit: 1,
+          academicYearId,
+          institutionId,
+          status: "OPEN",
+          overdue: "notOverdue",
+          dueDateFrom: periodRange.from,
+          dueDateTo: periodRange.to,
+        }),
+        api.listInvoices({
+          page: 1,
+          limit: 1,
+          academicYearId,
+          institutionId,
+          status: "OPEN",
+          overdue: "overdue",
+          dueDateFrom: periodRange.from,
+          dueDateTo: periodRange.to,
+        }),
+        api.listInvoices({
+          page: 1,
+          limit: 1,
+          academicYearId,
+          institutionId,
+          status: "PAID",
+          overdue: "all",
+          dueDateFrom: periodRange.from,
+          dueDateTo: periodRange.to,
+        }),
+        api.listInvoices({
+          page: 1,
+          limit: 1,
+          academicYearId,
+          institutionId,
+          status: "CANCELLED",
+          overdue: "all",
+          dueDateFrom: periodRange.from,
+          dueDateTo: periodRange.to,
+        }),
+        canViewCollections
+          ? api.getCollectionSummary({
+              academicYearId,
+              institutionId,
+            })
+          : Promise.resolve(null),
+      ]);
+
+      setMonthlyOverview(
+        monthRanges.map((range, index) => {
+          const item = monthlyResponses[index];
+          return {
+            key: range.from,
+            label: range.label,
+            openAmountCents: item?.summary?.openAmountCents ?? 0,
+            overdueAmountCents: item?.summary?.overdueAmountCents ?? 0,
+            paidAmountCents: item?.summary?.paidAmountCents ?? 0,
+          };
+        }),
+      );
+      setSituationBreakdown([
+        toSituationSlice("paid", "Pago", "#1F6F5F", paidResponse),
+        toSituationSlice("open", "Em aberto", "#2563EB", openResponse),
+        toSituationSlice("overdue", "Vencido", "#DC2626", overdueResponse),
+        toSituationSlice("cancelled", "Cancelado/baixado", "#F59E0B", cancelledResponse),
+      ]);
+      setCollectionSummary(collectionsResponse);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Erro ao carregar visão geral";
+      setOverviewError(message);
+      if (canViewCollections) {
+        setCollectionError(message);
+      }
+    } finally {
+      setOverviewLoading(false);
+      setCollectionLoading(false);
     }
   }
 
@@ -1293,6 +1424,15 @@ export function FinancePanel({
     }
   }
 
+  function changeOverviewPeriod(month: number, year: number) {
+    const nextRange = monthRange(year, month);
+    setOverviewMonth(month);
+    setOverviewYear(year);
+    setDueDateFrom(nextRange.from);
+    setDueDateTo(nextRange.to);
+    setPage(1);
+  }
+
   const invoiceActions = (
     <div className="flex flex-wrap gap-2 sm:justify-end">
       <button
@@ -1898,10 +2038,29 @@ export function FinancePanel({
       {financeArea === "overview" ? (
         <>
           <FinanceAreaHeader
-            description="Resumo operacional de faturas, boletos e recebimentos do período."
+            description="Resumo operacional de faturas, boletos e cobrança com base em dados persistidos."
             title="Visão geral financeira"
           />
-          <FinanceSummaryCards loading={loading} summary={financeSummary} />
+          {overviewError ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {overviewError}
+            </div>
+          ) : null}
+          <FinanceSummaryCards
+            collectionError={collectionError}
+            collectionLoading={collectionLoading}
+            collectionSummary={canViewCollections ? collectionSummary : null}
+            loading={loading}
+            monthlyEvolution={monthlyOverview}
+            onNavigate={changeFinanceArea}
+            onPeriodChange={changeOverviewPeriod}
+            onRefreshOverview={() => void loadOverviewData()}
+            overviewLoading={overviewLoading}
+            periodMonth={overviewMonth}
+            periodYear={overviewYear}
+            situationBreakdown={situationBreakdown}
+            summary={financeSummary}
+          />
         </>
       ) : null}
       {financeArea === "invoices" ? (
@@ -3483,6 +3642,31 @@ function formatCents(value: number) {
   }).format(value / 100);
 }
 
+function toSituationSlice(
+  key: string,
+  label: string,
+  color: string,
+  response: { pagination: { total: number }; summary?: InvoiceListSummary },
+): FinanceSituationSlice {
+  const summary = response.summary;
+  const amountCents =
+    key === "paid"
+      ? summary?.paidAmountCents ?? 0
+      : key === "cancelled"
+      ? summary?.cancelledAmountCents ?? 0
+      : key === "overdue"
+      ? summary?.overdueAmountCents ?? 0
+      : summary?.openAmountCents ?? 0;
+
+  return {
+    amountCents,
+    color,
+    count: response.pagination.total,
+    key,
+    label,
+  };
+}
+
 function mergeBankSlipSummaries(
   invoices: InvoiceRecord[],
   current: Record<string, BankSlipListRecord | null | undefined>,
@@ -3966,12 +4150,36 @@ function createIdempotencyKey() {
 
 function currentMonthRange() {
   const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+  return monthRange(now.getUTCFullYear(), now.getUTCMonth() + 1);
+}
+
+function currentMonthParts() {
+  const now = new Date();
+  return {
+    month: now.getUTCMonth() + 1,
+    year: now.getUTCFullYear(),
+  };
+}
+
+function monthRange(year: number, month: number) {
+  const safeMonth = Math.min(Math.max(month, 1), 12);
+  const from = new Date(Date.UTC(year, safeMonth - 1, 1));
+  const to = new Date(Date.UTC(year, safeMonth, 0));
   return {
     from: from.toISOString().slice(0, 10),
+    label: from.toLocaleDateString("pt-BR", {
+      month: "short",
+      timeZone: "UTC",
+    }).replace(".", ""),
     to: to.toISOString().slice(0, 10),
   };
+}
+
+function lastMonthRanges(year: number, month: number, count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1 - (count - 1 - index), 1));
+    return monthRange(date.getUTCFullYear(), date.getUTCMonth() + 1);
+  });
 }
 
 function todayDate() {
