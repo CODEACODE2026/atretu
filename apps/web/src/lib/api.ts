@@ -2068,16 +2068,14 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | ApiErrorResponseBody
-      | null;
+    const body = await readJsonOrNull<ApiErrorResponseBody>(response);
     if (!skipSessionInvalidationEvent) {
       notifySessionInvalid(path, response.status);
     }
     throw new ApiRequestError(formatApiErrorBody(body), response.status, body?.code);
   }
 
-  return response.json() as Promise<T>;
+  return readJsonResponse<T>(response, path, fetchOptions.method);
 }
 
 async function requestBlob(path: string, options: RequestInit = {}) {
@@ -2087,9 +2085,7 @@ async function requestBlob(path: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | ApiErrorResponseBody
-      | null;
+    const body = await readJsonOrNull<ApiErrorResponseBody>(response);
     notifySessionInvalid(path, response.status);
     throw new ApiRequestError(formatApiErrorBody(body), response.status);
   }
@@ -2099,6 +2095,43 @@ async function requestBlob(path: string, options: RequestInit = {}) {
     fileName: fileNameFromDisposition(response.headers.get("content-disposition")),
     headers: response.headers,
   };
+}
+
+async function readJsonResponse<T>(
+  response: Response,
+  path: string,
+  method?: string,
+): Promise<T> {
+  if (response.status === 204 || method?.toUpperCase() === "HEAD") {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  if (!text) {
+    const contentLength = response.headers.get("content-length");
+    if (contentLength === "0") {
+      return undefined as T;
+    }
+    throw new ApiRequestError(
+      `Resposta vazia da API para ${path}`,
+      response.status,
+    );
+  }
+
+  return JSON.parse(text) as T;
+}
+
+async function readJsonOrNull<T>(response: Response): Promise<T | null> {
+  const text = await response.text().catch(() => "");
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
 }
 
 function formatApiErrorBody(body: ApiErrorResponseBody | null) {
