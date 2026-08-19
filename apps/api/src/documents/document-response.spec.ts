@@ -3,6 +3,7 @@ import type { Response } from "express";
 import { DocumentsController } from "./documents.controller.js";
 import { StudentPhotosController } from "./student-photos.controller.js";
 import { FileDisposition } from "./dto/documents.dto.js";
+import { PreRegistrationsController } from "../pre-registrations/pre-registrations.controller.js";
 
 const USER = {
   email: "admin@atretu.local",
@@ -68,6 +69,22 @@ const service = {
       mimeType: "image/png",
     };
   },
+  async getPreRegistrationDocumentFile(input: {
+    preRegistrationId: string;
+    documentId: string;
+    userId: string;
+    disposition: FileDisposition;
+  }) {
+    assert.equal(input.preRegistrationId, "pre-registration-id");
+    assert.equal(input.documentId, "pre-registration-document-id");
+    assert.equal(input.userId, USER.id);
+    assert.equal(input.disposition, FileDisposition.INLINE);
+    return {
+      ...file,
+      disposition: FileDisposition.INLINE,
+      fileName: "comprovante matrícula.pdf",
+    };
+  },
 };
 
 const documentController = new DocumentsController(service as never);
@@ -109,4 +126,30 @@ assert.equal(photoResponse.headers.get("Content-Type"), "image/png");
 assert.equal(
   photoResponse.headers.get("Content-Disposition"),
   'inline; filename="atretu-foto.png"',
+);
+
+const preRegistrationController = new PreRegistrationsController(service as never);
+const preRegistrationResponse = createResponse();
+await preRegistrationController.getPreRegistrationDocumentFile(
+  "pre-registration-id",
+  "pre-registration-document-id",
+  { disposition: FileDisposition.INLINE },
+  USER as never,
+  preRegistrationResponse.response,
+);
+
+assert.equal(preRegistrationResponse.sent, file.buffer);
+assert.equal(
+  preRegistrationResponse.sent?.toString().startsWith('{"type":"Buffer"'),
+  false,
+);
+assert.equal(preRegistrationResponse.headers.get("Content-Type"), "application/pdf");
+assert.equal(preRegistrationResponse.headers.get("Content-Length"), "15");
+assert.equal(
+  preRegistrationResponse.headers.get("Content-Disposition"),
+  'inline; filename="comprovante matricula.pdf"; filename*=UTF-8\'\'comprovante%20matr%C3%ADcula.pdf',
+);
+assert.equal(
+  preRegistrationResponse.headers.get("Cache-Control"),
+  "no-store, private",
 );

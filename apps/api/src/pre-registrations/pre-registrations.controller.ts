@@ -4,6 +4,7 @@ import {
   Get,
   Inject,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -87,7 +88,7 @@ export class PreRegistrationsController {
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   @Get("pre-registrations/:id")
   getPreRegistration(
-    @Param("id") id: string,
+    @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ) {
     return this.preRegistrations.getPreRegistration(id, user);
@@ -97,11 +98,11 @@ export class PreRegistrationsController {
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   @Get("pre-registrations/:id/documents/:documentId/file")
   async getPreRegistrationDocumentFile(
-    @Param("id") id: string,
-    @Param("documentId") documentId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("documentId", ParseUUIDPipe) documentId: string,
     @Query() query: DownloadStudentDocumentDto,
     @CurrentUser() user: AuthUser,
-    @Res({ passthrough: true }) response: Response,
+    @Res() response: Response,
   ) {
     const file = await this.preRegistrations.getPreRegistrationDocumentFile({
       preRegistrationId: id,
@@ -114,21 +115,21 @@ export class PreRegistrationsController {
     response.setHeader("Content-Length", String(file.sizeBytes));
     response.setHeader(
       "Content-Disposition",
-      `${file.disposition}; filename=\"${file.fileName}\"`,
+      contentDisposition(file.disposition, file.fileName),
     );
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("Cache-Control", "no-store, private");
     response.setHeader("Pragma", "no-cache");
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("Content-Security-Policy", "default-src 'none'");
-    return file.buffer;
+    return response.send(file.buffer);
   }
 
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   @Post("pre-registrations/:id/approve")
   approvePreRegistration(
-    @Param("id") id: string,
+    @Param("id", ParseUUIDPipe) id: string,
     @Body() body: ApprovePreRegistrationDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -139,7 +140,7 @@ export class PreRegistrationsController {
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   @Post("pre-registrations/:id/reject")
   rejectPreRegistration(
-    @Param("id") id: string,
+    @Param("id", ParseUUIDPipe) id: string,
     @Body() body: RejectPreRegistrationDto,
     @CurrentUser() user: AuthUser,
   ) {
@@ -150,4 +151,21 @@ export class PreRegistrationsController {
       user,
     );
   }
+}
+
+function contentDisposition(disposition: string, fileName: string) {
+  const fallbackFileName =
+    fileName
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\x20-\x7e]/g, "_")
+      .replace(/["\\;]/g, "_")
+      .trim() || "documento";
+  return `${disposition}; filename="${fallbackFileName}"; filename*=UTF-8''${encodeRFC5987ValueChars(fileName)}`;
+}
+
+function encodeRFC5987ValueChars(value: string) {
+  return encodeURIComponent(value).replace(/['()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }

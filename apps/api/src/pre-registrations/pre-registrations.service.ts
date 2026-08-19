@@ -310,7 +310,7 @@ export class PreRegistrationsService {
 
     return {
       buffer,
-      fileName: this.downloadFileName(document.documentType, document.extension),
+      fileName: this.headerSafeFileName(document.originalFileName),
       mimeType: document.mimeType,
       sizeBytes: document.sizeBytes,
       disposition: input.disposition,
@@ -795,6 +795,7 @@ export class PreRegistrationsService {
       documents: record.documents.map((document) => ({
         id: document.id,
         documentType: document.documentType,
+        originalFileName: document.originalFileName,
         mimeType: document.mimeType,
         extension: document.extension,
         sizeBytes: document.sizeBytes,
@@ -819,14 +820,6 @@ export class PreRegistrationsService {
     };
   }
 
-  private downloadFileName(
-    documentType: StudentDocumentType,
-    extension: string,
-  ): string {
-    const date = new Date().toISOString().slice(0, 10);
-    return `atretu-pre-cadastro-${documentType.toLowerCase()}-${date}.${extension}`;
-  }
-
   private buildPreRegistrationStorageKey(input: {
     preRegistrationId: string;
     documentType: StudentDocumentType;
@@ -840,6 +833,10 @@ export class PreRegistrationsService {
       input.documentId,
       input.storedFileName,
     ].join("/");
+  }
+
+  private headerSafeFileName(fileName: string): string {
+    return fileName.replace(/["\\]/g, "_");
   }
 
   private parsePastOrTodayDate(value: string): Date {

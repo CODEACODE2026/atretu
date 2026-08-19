@@ -1,7 +1,21 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Clipboard, Search, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  Clipboard,
+  Download,
+  Eye,
+  FileText,
+  GraduationCap,
+  Search,
+  ShieldCheck,
+  type LucideIcon,
+  UserRound,
+  UsersRound,
+  X,
+  XCircle,
+} from "lucide-react";
 import {
   api,
   type AcademicYear,
@@ -11,9 +25,15 @@ import {
   type PreRegistrationDocumentRecord,
   type PreRegistrationStatus,
   type PreRegistrationSummary,
+  type StudentDocumentType,
 } from "../../lib/api";
 import { maskCpf, maskPhone } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
+import {
+  AdminEmptyState,
+  AdminModuleHeader,
+  AdminStatusBadge,
+} from "./components/admin-ui";
 
 type PreRegistrationStatusFilter = PreRegistrationStatus | "all";
 type PreRegistrationFilterChip = {
@@ -34,6 +54,19 @@ const documentLabels: Record<string, string> = {
   RG: "RG",
   PROOF_OF_ADDRESS: "Comprovante de residencia",
   PROOF_OF_ENROLLMENT: "Comprovante de matricula",
+};
+
+const expectedDocumentTypes: StudentDocumentType[] = [
+  "CPF",
+  "RG",
+  "PROOF_OF_ADDRESS",
+  "PROOF_OF_ENROLLMENT",
+];
+
+type DocumentPreviewState = {
+  document: PreRegistrationDocumentRecord;
+  fileName: string;
+  url: string;
 };
 
 export function PreRegistrationsPanel({
@@ -68,6 +101,7 @@ export function PreRegistrationsPanel({
   const [message, setMessage] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
   const [error, setError] = useState("");
+  const [documentPreview, setDocumentPreview] = useState<DocumentPreviewState | null>(null);
   const initialFilterValues = useMemo(
     () => ({
       academicYearId: initialAcademicYearId ?? "",
@@ -145,6 +179,14 @@ export function PreRegistrationsPanel({
     }
     void loadApprovalBuses(selected.academicYear.id);
   }, [selected?.id, selected?.status, selected?.academicYear.id]);
+
+  useEffect(() => {
+    return () => {
+      if (documentPreview) {
+        URL.revokeObjectURL(documentPreview.url);
+      }
+    };
+  }, [documentPreview]);
 
   async function loadItems(nextSearch = search) {
     setLoading(true);
@@ -331,10 +373,7 @@ export function PreRegistrationsPanel({
     }
   }
 
-  async function handleDownload(
-    item: PreRegistrationDocumentRecord,
-    disposition: "attachment" | "inline",
-  ) {
+  async function handlePreviewDocument(item: PreRegistrationDocumentRecord) {
     if (!selected) {
       return;
     }
@@ -343,23 +382,47 @@ export function PreRegistrationsPanel({
       const { blob, fileName } = await api.downloadPreRegistrationDocument(
         selected.id,
         item.id,
-        disposition,
+        "inline",
       );
       const objectUrl = URL.createObjectURL(blob);
-      if (disposition === "inline") {
+      if (blob.type === "application/pdf") {
         window.open(objectUrl, "_blank", "noopener,noreferrer");
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-      } else {
-        const link = document.createElement("a");
-        link.href = objectUrl;
-        link.download = fileName;
-        link.click();
-        URL.revokeObjectURL(objectUrl);
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+        await refreshSelected();
+        return;
       }
+      setDocumentPreview({ document: item, fileName, url: objectUrl });
       await refreshSelected();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao abrir documento");
+      setError(documentErrorMessage(caught, "preview"));
     }
+  }
+
+  async function handleDownloadDocument(item: PreRegistrationDocumentRecord) {
+    if (!selected) {
+      return;
+    }
+    setError("");
+    try {
+      const { blob, fileName } = await api.downloadPreRegistrationDocument(
+        selected.id,
+        item.id,
+        "attachment",
+      );
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+      await refreshSelected();
+    } catch (caught) {
+      setError(documentErrorMessage(caught, "download"));
+    }
+  }
+
+  function closeDocumentPreview() {
+    setDocumentPreview(null);
   }
 
   async function copyPublicPreRegistrationLink() {
@@ -374,23 +437,9 @@ export function PreRegistrationsPanel({
   }
 
   return (
-    <div className="grid gap-4">
-      <section
-        aria-labelledby="pre-registration-filters-title"
-        className={cx(adminTheme.card, "min-w-0 p-5")}
-      >
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h2
-              className={cx(adminTheme.titleText, "text-base")}
-              id="pre-registration-filters-title"
-            >
-              Filtros
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Refine os pre-cadastros por busca, ano letivo, instituicao e status.
-            </p>
-          </div>
+    <div className="grid gap-5">
+      <AdminModuleHeader
+        actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             {copyMessage ? (
               <span
@@ -408,13 +457,35 @@ export function PreRegistrationsPanel({
               <Clipboard className="h-4 w-4" aria-hidden />
               Copiar link de pré-cadastro
             </button>
-            {referencesLoading ? (
-              <span className="text-sm text-slate-500">Carregando filtros...</span>
-            ) : null}
           </div>
+        }
+        description="Acompanhe solicitações recebidas, valide dados acadêmicos e revise documentos privados enviados pelo acadêmico."
+        eyebrow="Pré-cadastro"
+        icon={Clipboard}
+        title="Análise de pré-cadastros"
+      />
+      <section
+        aria-labelledby="pre-registration-filters-title"
+        className={cx(adminTheme.card, "min-w-0 p-5")}
+      >
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2
+              className={cx(adminTheme.titleText, "text-base")}
+              id="pre-registration-filters-title"
+            >
+              Filtros
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Refine os pre-cadastros por busca, ano letivo, instituicao e status.
+            </p>
+          </div>
+          {referencesLoading ? (
+            <span className="text-sm text-slate-500">Carregando filtros...</span>
+          ) : null}
         </div>
         {referencesError ? (
-          <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             {referencesError}
           </div>
         ) : null}
@@ -526,18 +597,18 @@ export function PreRegistrationsPanel({
       </section>
 
       {message ? (
-        <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {message}
         </div>
       ) : null}
       {error ? (
-        <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
-        <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
+        <div className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -627,15 +698,15 @@ export function PreRegistrationsPanel({
           </div>
         </div>
 
-        <aside className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+        <aside className="min-w-0">
           {selected ? (
             <div className="grid gap-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-medium uppercase text-slate-500">
+              <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-[#F8FAFA]/85 p-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                     {selected.publicCode}
                   </p>
-                  <h2 className="mt-1 text-base font-semibold text-slate-950">
+                  <h2 className="mt-1 break-words text-lg font-semibold text-slate-950">
                     {selected.fullName}
                   </h2>
                 </div>
@@ -643,101 +714,65 @@ export function PreRegistrationsPanel({
               </div>
 
               <InfoGroup
+                icon={UserRound}
                 rows={[
                   ["CPF", maskCpf(selected.cpf)],
                   ["RG", selected.rg ?? "-"],
                   ["Nascimento", formatDate(selected.birthDate)],
                   ["Telefone", selected.phone ? maskPhone(selected.phone) : "-"],
                   ["E-mail", selected.email ?? "-"],
-                ]}
-                title="Identificacao"
-              />
-              <InfoGroup
-                rows={[
                   ["Logradouro", selected.addressStreet],
                   ["Numero", selected.addressNumber],
                   ["Bairro", selected.addressNeighborhood],
                   ["Cidade", selected.addressCity],
                 ]}
-                title="Endereco"
+                title="Dados do acadêmico"
               />
               <InfoGroup
+                icon={GraduationCap}
                 rows={[
-                  ["Responsavel", selected.guardian?.fullName ?? "-"],
+                  ["Instituição", selected.institution.name],
+                  ["Curso", selected.course],
+                  ["Série", selected.grade],
+                  ["Turno", selected.shift.name],
+                  ["Ano letivo", String(selected.academicYear.year)],
+                ]}
+                title="Dados acadêmicos"
+              />
+              <InfoGroup
+                icon={UsersRound}
+                rows={[
+                  ["Responsável", selected.guardian?.fullName ?? "-"],
                   ["CPF", selected.guardian?.cpf ? maskCpf(selected.guardian.cpf) : "-"],
                   ["RG", selected.guardian?.rg ?? "-"],
                 ]}
-                title="Responsavel"
+                title="Responsável"
+              />
+              <DocumentSection
+                documents={selected.documents}
+                onDownload={(document) => void handleDownloadDocument(document)}
+                onPreview={(document) => void handlePreviewDocument(document)}
               />
               <InfoGroup
+                icon={ShieldCheck}
                 rows={[
-                  ["Ano Letivo", String(selected.academicYear.year)],
-                  ["Instituicao", selected.institution.name],
-                  ["Curso", selected.course],
-                  ["Serie", selected.grade],
-                  ["Turno", selected.shift.name],
+                  ["Situação", statusLabel(selected.status)],
+                  ["Recebido em", formatDateTime(selected.createdAt)],
+                  ["Analisado em", selected.reviewedAt ? formatDateTime(selected.reviewedAt) : "-"],
+                  ["Analista", selected.reviewedBy?.name ?? "-"],
+                  ["Motivo", selected.rejectionReason ?? "-"],
+                  ["Acadêmico", selected.approvedStudent?.fullName ?? "-"],
                 ]}
-                title="Dados academicos"
+                title="Análise / situação"
               />
 
-              <div className="border-t border-slate-200 pt-4">
-                <h3 className="text-sm font-semibold text-slate-950">
-                  Documentos
-                </h3>
-                <div className="mt-2 grid gap-2">
-                  {selected.documents.length === 0 ? (
-                    <p className="rounded border border-slate-200 p-3 text-sm text-slate-500">
-                      Nenhum documento enviado
-                    </p>
-                  ) : (
-                    selected.documents.map((document) => (
-                      <div
-                        className="rounded border border-slate-200 p-3"
-                        key={document.id}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-medium text-slate-950">
-                              {documentLabels[document.documentType] ??
-                                document.documentType}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {document.extension.toUpperCase()} -{" "}
-                              {formatBytes(document.sizeBytes)} -{" "}
-                              {document.status}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
-                            onClick={() => void handleDownload(document, "inline")}
-                            type="button"
-                          >
-                            Visualizar
-                          </button>
-                          <button
-                            className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
-                            onClick={() =>
-                              void handleDownload(document, "attachment")
-                            }
-                            type="button"
-                          >
-                            Baixar
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
               {selected.status === "PENDING" ? (
-                <div className="grid gap-3 border-t border-slate-200 pt-4">
+                <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-white p-4">
+                  <SectionTitle icon={ShieldCheck} title="Ações administrativas" />
                   <label className="block text-sm font-medium text-slate-700">
-                    Onibus opcional
+                    Ônibus opcional
                     <select
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className={cx(adminTheme.control, "mt-1 w-full")}
                       disabled={approvalBusesLoading}
                       onChange={(event) => setApprovalBusId(event.target.value)}
                       value={approvalBusId}
@@ -768,7 +803,7 @@ export function PreRegistrationsPanel({
                     ) : null}
                   </label>
                   <button
-                    className="rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+                    className={adminTheme.primaryButton}
                     disabled={saving}
                     onClick={() => void approveSelected()}
                     type="button"
@@ -777,9 +812,9 @@ export function PreRegistrationsPanel({
                   </button>
                   <form className="grid gap-2" onSubmit={rejectSelected}>
                     <label className="block text-sm font-medium text-slate-700">
-                      Motivo da rejeicao
+                      Motivo da rejeição
                       <textarea
-                        className="mt-1 min-h-24 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                        className={cx(adminTheme.control, "mt-1 min-h-24 w-full py-2")}
                         maxLength={500}
                         minLength={3}
                         onChange={(event) => setRejectionReason(event.target.value)}
@@ -788,7 +823,7 @@ export function PreRegistrationsPanel({
                       />
                     </label>
                     <button
-                      className="rounded border border-red-200 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60"
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                       disabled={saving}
                       type="submit"
                     >
@@ -797,67 +832,259 @@ export function PreRegistrationsPanel({
                   </form>
                 </div>
               ) : (
-                <InfoGroup
-                  rows={[
-                    ["Analisado em", selected.reviewedAt ? formatDateTime(selected.reviewedAt) : "-"],
-                    ["Analista", selected.reviewedBy?.name ?? "-"],
-                    ["Motivo", selected.rejectionReason ?? "-"],
-                    ["Academico", selected.approvedStudent?.fullName ?? "-"],
-                  ]}
-                  title="Analise"
-                />
+                <div className="rounded-xl border border-slate-200/80 bg-white p-4">
+                  <SectionTitle icon={ShieldCheck} title="Ações administrativas" />
+                  <p className="mt-2 text-sm text-slate-500">
+                    Não há ações pendentes para esta solicitação.
+                  </p>
+                </div>
               )}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">
-              Selecione um pre-cadastro para revisar.
-            </p>
+            <AdminEmptyState
+              description="Abra uma solicitação da lista para conferir dados, documentos e ações de análise."
+              title="Selecione um pré-cadastro"
+            />
           )}
         </aside>
       </div>
+      {documentPreview ? (
+        <DocumentPreviewModal
+          fileName={documentPreview.fileName}
+          onClose={closeDocumentPreview}
+          preview={documentPreview.document}
+          url={documentPreview.url}
+        />
+      ) : null}
     </div>
   );
 }
 
 function InfoGroup({
+  icon,
   rows,
   title,
 }: {
+  icon: LucideIcon;
   rows: Array<[string, string]>;
   title: string;
 }) {
   return (
-    <div className="border-t border-slate-200 pt-4">
-      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+    <section className="rounded-xl border border-slate-200/80 bg-white p-4">
+      <SectionTitle icon={icon} title={title} />
       <dl className="mt-2 grid gap-2 text-sm">
         {rows.map(([label, value]) => (
-          <div className="grid grid-cols-[120px_1fr] gap-2" key={label}>
+          <div className="grid min-w-0 gap-1 sm:grid-cols-[124px_minmax(0,1fr)] sm:gap-2" key={label}>
             <dt className="text-slate-500">{label}</dt>
             <dd className="break-words text-slate-800">{value}</dd>
           </div>
         ))}
       </dl>
-    </div>
+    </section>
   );
 }
 
 function StatusBadge({ status }: { status: PreRegistrationStatus }) {
-  const className =
+  const tone =
     status === "PENDING"
-      ? "bg-amber-50 text-amber-700"
+      ? "orange"
       : status === "APPROVED"
-        ? "bg-emerald-50 text-emerald-700"
-        : "bg-red-50 text-red-700";
+        ? "green"
+        : "red";
   const label =
     status === "PENDING"
       ? "Pendente"
       : status === "APPROVED"
         ? "Aprovado"
         : "Rejeitado";
+  return <AdminStatusBadge tone={tone}>{label}</AdminStatusBadge>;
+}
+
+function SectionTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
   return (
-    <span className={`rounded-full px-2 py-1 text-xs font-medium ${className}`}>
-      {label}
-    </span>
+    <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-950">
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#EEF7F4] text-[#14534D]">
+        <Icon aria-hidden="true" className="h-4 w-4" />
+      </span>
+      <span className="truncate">{title}</span>
+    </h3>
+  );
+}
+
+function DocumentSection({
+  documents,
+  onDownload,
+  onPreview,
+}: {
+  documents: PreRegistrationDocumentRecord[];
+  onDownload: (document: PreRegistrationDocumentRecord) => void;
+  onPreview: (document: PreRegistrationDocumentRecord) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200/80 bg-white p-4">
+      <SectionTitle icon={FileText} title="Documentos enviados" />
+      <div className="mt-3 grid gap-2">
+        {expectedDocumentTypes.map((documentType) => {
+          const document = documents.find((item) => item.documentType === documentType);
+          return (
+            <DocumentRow
+              document={document}
+              documentType={documentType}
+              key={documentType}
+              onDownload={onDownload}
+              onPreview={onPreview}
+            />
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function DocumentRow({
+  document,
+  documentType,
+  onDownload,
+  onPreview,
+}: {
+  document?: PreRegistrationDocumentRecord;
+  documentType: StudentDocumentType;
+  onDownload: (document: PreRegistrationDocumentRecord) => void;
+  onPreview: (document: PreRegistrationDocumentRecord) => void;
+}) {
+  const unavailable = document?.status === "REMOVED";
+  return (
+    <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-[#F8FAFA]/80 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold text-slate-950">
+            {documentLabels[documentType] ?? documentType}
+          </p>
+          <DocumentStatusBadge document={document} />
+        </div>
+        {document ? (
+          <p className="mt-1 break-words text-xs text-slate-500">
+            Arquivo: {document.originalFileName ?? `${documentLabels[document.documentType] ?? "documento"}.${document.extension}`} ·{" "}
+            {document.extension.toUpperCase()} · {formatBytes(document.sizeBytes)}
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-slate-500">Nenhum arquivo recebido para este tipo.</p>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2 sm:justify-end">
+        <button
+          className={cx(adminTheme.secondaryButton, "h-9 px-2.5 text-xs")}
+          disabled={!document || unavailable}
+          onClick={() => document && onPreview(document)}
+          type="button"
+        >
+          <Eye aria-hidden="true" className="h-3.5 w-3.5" />
+          Visualizar
+        </button>
+        <button
+          className={cx(adminTheme.secondaryButton, "h-9 px-2.5 text-xs")}
+          disabled={!document || unavailable}
+          onClick={() => document && onDownload(document)}
+          type="button"
+        >
+          <Download aria-hidden="true" className="h-3.5 w-3.5" />
+          Baixar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DocumentStatusBadge({
+  document,
+}: {
+  document?: PreRegistrationDocumentRecord;
+}) {
+  if (!document) {
+    return <AdminStatusBadge tone="slate">Não enviado</AdminStatusBadge>;
+  }
+  if (document.status === "REMOVED") {
+    return <AdminStatusBadge tone="red">Indisponível</AdminStatusBadge>;
+  }
+  if (document.status === "PROMOTED") {
+    return <AdminStatusBadge tone="green">Enviado</AdminStatusBadge>;
+  }
+  return <AdminStatusBadge tone="blue">Enviado</AdminStatusBadge>;
+}
+
+function DocumentPreviewModal({
+  fileName,
+  onClose,
+  preview,
+  url,
+}: {
+  fileName: string;
+  onClose: () => void;
+  preview: PreRegistrationDocumentRecord;
+  url: string;
+}) {
+  const isPdf = preview.mimeType === "application/pdf";
+  const isImage = preview.mimeType === "image/jpeg" || preview.mimeType === "image/png";
+  return (
+    <div
+      aria-labelledby="pre-registration-document-preview-title"
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid bg-slate-950/55 p-3 sm:p-6"
+      role="dialog"
+    >
+      <div className="mx-auto grid min-h-0 w-full max-w-5xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Visualização segura
+            </p>
+            <h2
+              className="mt-1 break-words text-base font-semibold text-slate-950"
+              id="pre-registration-document-preview-title"
+            >
+              {documentLabels[preview.documentType] ?? preview.documentType}
+            </h2>
+            <p className="mt-1 break-words text-xs text-slate-500">
+              {fileName} · {preview.mimeType} · {formatBytes(preview.sizeBytes)}
+            </p>
+          </div>
+          <button
+            aria-label="Fechar visualização"
+            className={adminTheme.iconButton}
+            onClick={onClose}
+            type="button"
+          >
+            <X aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 overflow-auto bg-slate-100 p-3">
+          {isPdf ? (
+            <iframe
+              className="h-[72vh] w-full rounded-lg border border-slate-200 bg-white"
+              src={url}
+              title={`Visualização de ${fileName}`}
+            />
+          ) : isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt={`Visualização de ${fileName}`}
+              className="mx-auto max-h-[72vh] max-w-full rounded-lg bg-white object-contain shadow-sm"
+              src={url}
+            />
+          ) : (
+            <div className="mx-auto grid max-w-md place-items-center rounded-xl border border-amber-200 bg-amber-50 p-6 text-center text-amber-800">
+              <AlertTriangle aria-hidden="true" className="h-8 w-8" />
+              <p className="mt-3 text-sm font-semibold">
+                Não foi possível pré-visualizar este arquivo.
+              </p>
+              <p className="mt-1 text-sm">
+                Use o botão Baixar para abrir no aplicativo adequado.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -961,6 +1188,20 @@ function formatBytes(value: number) {
     return `${(value / 1024).toFixed(1)} KiB`;
   }
   return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+function documentErrorMessage(caught: unknown, action: "download" | "preview") {
+  const message = caught instanceof Error ? caught.message : "";
+  const normalized = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (normalized.includes("nao encontrado") || normalized.includes("not found")) {
+    return "Documento não encontrado.";
+  }
+  if (normalized.includes("acesso") || normalized.includes("forbidden") || normalized.includes("unauthorized")) {
+    return "Não foi possível abrir o documento.";
+  }
+  return action === "download"
+    ? "Não foi possível baixar o documento."
+    : "Não foi possível abrir o documento.";
 }
 
 function emptyToUndefined(value: string) {

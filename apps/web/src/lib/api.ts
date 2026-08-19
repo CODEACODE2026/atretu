@@ -1177,6 +1177,7 @@ export type PreRegistrationSummary = {
 export type PreRegistrationDocumentRecord = {
   id: string;
   documentType: StudentDocumentType;
+  originalFileName?: string;
   mimeType: string;
   extension: string;
   sizeBytes: number;
@@ -3428,6 +3429,14 @@ function fileNameFromDisposition(value: string | null) {
   const fallback = "atretu-documento";
   if (!value) {
     return fallback;
+  }
+  const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1]);
+    } catch {
+      return fallback;
+    }
   }
   const match = /filename="([^"]+)"/i.exec(value);
   return match?.[1] ?? fallback;
