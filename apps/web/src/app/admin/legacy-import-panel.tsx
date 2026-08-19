@@ -1044,8 +1044,10 @@ function AcademicPreviewCard({
         <Info label="Curso / serie" value={`${item.course || "-"} / ${item.grade || "-"}`} />
         <Info label="Turno" value={formatRelation(item.relations.shift)} />
         <Info label="Onibus" value={formatBusRelation(item.relations.bus)} />
+        <Info label="Status legado" value={formatLegacyStudentStatus(item)} />
+        <Info label="Status destino" value={formatDestinationStudentStatus(item.destinationStatus)} />
         <Info label="Carteirinha legado" value={item.legacyCardNumber ?? "-"} />
-        <Info label="Carteirinha ATRETU" value={item.card.needsAtretuNumber ? "gerar numero ATRETU" : "preservar"} />
+        <Info label="Carteirinha ATRETU" value={item.card.reason} />
         <Info label="Observacao" value={item.observation ?? "-"} />
         <Info label="Ano cadastro legado" value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"} />
         <Info label="Ano letivo destino" value={formatRelation(item.relations.academicYear)} />
@@ -1177,6 +1179,20 @@ function formatBusRelation(
     return `${base} (${relation.legacyCapacity} legado / ${relation.resolvedCapacity} ATRETU)`;
   }
   return base;
+}
+
+function formatLegacyStudentStatus(item: LegacyAcademicPreviewItem) {
+  const code = item.legacyStatus.code ?? "-";
+  return `${item.legacyStatus.label} (${code})`;
+}
+
+function formatDestinationStudentStatus(status: LegacyAcademicPreviewItem["destinationStatus"]) {
+  const labels: Record<string, string> = {
+    ACTIVE: "Ativo",
+    SUSPENDED: "Suspenso",
+    TERMINATED: "Desligado",
+  };
+  return status ? labels[status] ?? status : "-";
 }
 
 function legacyFinancialStatusLabel(status: string) {

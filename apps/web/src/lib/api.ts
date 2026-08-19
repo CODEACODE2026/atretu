@@ -432,6 +432,8 @@ export type LegacyAcademicPreviewItem = {
   name: string;
   cpf: string;
   cpfMasked: string;
+  legacyStatus: { code: number | null; label: string };
+  destinationStatus: StudentStatus | null;
   legacyCreatedYear: number | null;
   destinationAcademicYear: number;
   institutionLegacy: string;

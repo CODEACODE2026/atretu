@@ -191,6 +191,75 @@ assert.equal(readyPreview.items[0]?.canImport, true);
 assert.equal(readyPreview.limits.maxRecordsPerBatch, 500);
 assert.equal(readyPreview.limits.chunkSize, 25);
 
+const suspendedPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "fernanda-suspensa.json",
+  records: [
+    record({
+      legacy_id: 1176,
+      numero_carterinha: 2172025,
+      nome_aluno: "FERNANDA RAMOS GARCIA",
+      endereco: "VILA RURAL, 13",
+      cpf: "064.604.129-01",
+      rg: "102840429",
+      data_nacimento: "15/01/1990",
+      nome_instituicao: "SENAC",
+      curso: "ENFERMAGEM",
+      serie: 1,
+      nome_turno: "NOTURNO",
+      telefone: "(44) 99119-8472",
+      email: "fg261755@gmail.com",
+      data_cadastro: "2025-02-18",
+      status: 7,
+      chapa: 0,
+      nome_onibus: null,
+      capacidade_onibus: null,
+      observacao: "previsão de retorno em outubro",
+      criado: 2025,
+    }),
+  ],
+});
+assert.equal(suspendedPreview.items[0]?.name, "FERNANDA RAMOS GARCIA");
+assert.equal(suspendedPreview.items[0]?.legacyStatus.label, "Suspenso");
+assert.equal(suspendedPreview.items[0]?.destinationStatus, "SUSPENDED");
+assert.equal(suspendedPreview.items[0]?.status, "PENDENCIA");
+assert.equal(suspendedPreview.items[0]?.canImport, true);
+assert.equal(suspendedPreview.items[0]?.busLegacy, null);
+assert.equal(suspendedPreview.items[0]?.relations.bus.message, "Sem onibus no legado");
+assert.equal(suspendedPreview.items[0]?.legacyCreatedYear, 2025);
+assert.equal(suspendedPreview.items[0]?.destinationAcademicYear, 2026);
+assert.equal(suspendedPreview.items[0]?.legacyCardNumber, "2172025");
+assert.equal(suspendedPreview.items[0]?.card.needsAtretuNumber, false);
+assert.equal(
+  suspendedPreview.items[0]?.card.reason,
+  "Academico suspenso nao recebe carteirinha ATRETU ativa na importacao",
+);
+assert.equal(suspendedPreview.items[0]?.observation, "previsão de retorno em outubro");
+assert(
+  suspendedPreview.items[0]?.reasons.includes(
+    "Instituicao nao existe no ATRETU; sera criada ao importar",
+  ),
+);
+
+for (const unsupportedStatus of [0, 3]) {
+  const blockedPreview = await service.analyzeAcademicImport({
+    destinationAcademicYear: 2026,
+    fileName: `status-${unsupportedStatus}.json`,
+    records: [
+      record({
+        legacy_id: 3000 + unsupportedStatus,
+        cpf: unsupportedStatus === 0 ? "529.982.247-25" : "390.533.447-05",
+        status: unsupportedStatus,
+      }),
+    ],
+  });
+  assert.equal(blockedPreview.items[0]?.status, "BLOQUEADO");
+  assert.equal(blockedPreview.items[0]?.canImport, false);
+  assert(
+    blockedPreview.items[0]?.reasons.includes("status legado ainda nao suportado"),
+  );
+}
+
 const fiftyRecords = Array.from({ length: 50 }, (_, index) =>
   record({
     legacy_id: 1000 + index,

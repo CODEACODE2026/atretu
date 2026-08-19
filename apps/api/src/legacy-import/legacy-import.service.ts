@@ -59,6 +59,8 @@ type LegacyPreviewItem = {
   name: string;
   cpf: string;
   cpfMasked: string;
+  legacyStatus: { code: number | null; label: string };
+  destinationStatus: StudentStatus | null;
   legacyCreatedYear: number | null;
   destinationAcademicYear: number;
   institutionLegacy: string;
@@ -98,6 +100,7 @@ const LEGACY_FINANCIAL_TABLE = "tab_financeiro";
 const MAX_RECORDS = 500;
 const MAX_FINANCIAL_RECORDS = 5000;
 const IMPORT_CHUNK_SIZE = 25;
+const UNSUPPORTED_LEGACY_STATUS_MESSAGE = "status legado ainda nao suportado";
 const SUSPICIOUS_OBSERVATION = /\b(deslig\w*|mudan\w*|transfer\w*|cancel\w*|inativ\w*|suspend\w*|tranc\w*|fora|saiu)\b/i;
 const LEGACY_FINANCIAL_STATUS_MAP = {
   PAGO: 0,
@@ -144,7 +147,7 @@ type LegacyImportJobResult = {
   legacyId: number | null;
   status: "IMPORTADO" | "FALHA" | "BLOQUEADO" | "JA_IMPORTADO";
   studentId?: string;
-  cardNumber?: string;
+  cardNumber?: string | null;
   reason?: string;
 };
 type LegacyImportJob = {
@@ -929,11 +932,13 @@ export class LegacyImportService {
       }> = [];
       for (const record of batch.students) {
         await this.assertRollbackSafe(tx, record.studentId);
-        const card = await tx.studentCard.findUnique({
-          where: { id: record.studentCardId },
-          select: { academicYearId: true, sequenceNumber: true },
-        });
-        if (card) {
+        const card = record.studentCardId
+          ? await tx.studentCard.findUnique({
+              where: { id: record.studentCardId },
+              select: { academicYearId: true, sequenceNumber: true },
+            })
+          : null;
+        if (card && record.previousCardSequenceNumber !== null) {
           touchedCardSequences.push({
             academicYearId: card.academicYearId,
             previous: record.previousCardSequenceNumber,
@@ -945,7 +950,7 @@ export class LegacyImportService {
           where: {
             OR: [
               { studentId: record.studentId },
-              { studentCardId: record.studentCardId },
+              ...(record.studentCardId ? [{ studentCardId: record.studentCardId }] : []),
               { busAssignmentId: record.busAssignmentId ?? undefined },
             ],
           },
@@ -956,7 +961,9 @@ export class LegacyImportService {
           });
           await tx.busAssignment.delete({ where: { id: record.busAssignmentId } });
         }
-        await tx.studentCard.delete({ where: { id: record.studentCardId } });
+        if (record.studentCardId) {
+          await tx.studentCard.delete({ where: { id: record.studentCardId } });
+        }
         await tx.enrollment.delete({ where: { id: record.enrollmentId } });
         await tx.student.delete({ where: { id: record.studentId } });
         await tx.person.delete({ where: { id: record.personId } });
@@ -1064,9 +1071,6 @@ export class LegacyImportService {
         item,
         createMissingBaseRecords,
       );
-      const cardSequence = await this.nextCardSequence(tx, item.academicYear.id);
-      const sequenceNumber = cardSequence.next;
-      const cardNumber = buildStudentCardNumber(sequenceNumber, item.academicYear.year);
       const person = await tx.person.create({
         data: {
           fullName: item.normalized.fullName,
@@ -1085,7 +1089,7 @@ export class LegacyImportService {
       const student = await tx.student.create({
         data: {
           personId: person.id,
-          status: StudentStatus.ACTIVE,
+          status: item.normalized.destinationStatus!,
           joinedAt: item.normalized.joinedAt ?? new Date(),
         },
       });
@@ -1121,27 +1125,32 @@ export class LegacyImportService {
           },
         });
       }
-      const card = await tx.studentCard.create({
-        data: {
-          studentId: student.id,
-          enrollmentId: enrollment.id,
-          academicYearId: item.academicYear.id,
-          cardType: StudentCardType.STUDENT,
-          sequenceNumber,
-          cardNumber,
-          status: StudentCardStatus.ACTIVE,
-          issuedByUserId: userId,
-        },
-      });
-      await tx.studentHistoryEvent.create({
-        data: {
-          studentId: student.id,
-          eventType: StudentHistoryEventType.STUDENT_CARD_ISSUED,
-          studentCardId: card.id,
-          justification: "Carteirinha gerada pela importacao piloto legado",
-          performedByUserId: userId,
-        },
-      });
+      const cardData =
+        item.normalized.destinationStatus === StudentStatus.ACTIVE
+          ? await this.createLegacyStudentCard(tx, {
+              academicYearId: item.academicYear.id,
+              academicYear: item.academicYear.year,
+              enrollmentId: enrollment.id,
+              studentId: student.id,
+              userId,
+            })
+          : {
+              id: null,
+              cardNumber: null,
+              previousCardSequenceNumber: null,
+            };
+      if (item.normalized.destinationStatus === StudentStatus.SUSPENDED) {
+        await tx.studentHistoryEvent.create({
+          data: {
+            studentId: student.id,
+            eventType: StudentHistoryEventType.STUDENT_SUSPENDED,
+            suspensionReason: "OTHER",
+            justification: this.legacySuspensionJustification(item),
+            busSeatReleased: false,
+            performedByUserId: userId,
+          },
+        });
+      }
       await tx.legacyStudentImport.create({
         data: {
           batchId,
@@ -1149,12 +1158,12 @@ export class LegacyImportService {
           studentId: student.id,
           personId: person.id,
           enrollmentId: enrollment.id,
-          studentCardId: card.id,
+          studentCardId: cardData.id,
           busAssignmentId,
           legacyCardNumber: item.legacyCardNumber,
           legacyCreatedYear: item.normalized.legacyCreatedYear,
-          previousCardSequenceNumber: cardSequence.previous,
-          generatedCardNumber: cardNumber,
+          previousCardSequenceNumber: cardData.previousCardSequenceNumber,
+          generatedCardNumber: cardData.cardNumber,
           importedByUserId: userId,
         },
       });
@@ -1171,17 +1180,20 @@ export class LegacyImportService {
             batchId,
             studentId: student.id,
             enrollmentId: enrollment.id,
-            studentCardId: card.id,
-            cardNumber,
+            studentCardId: cardData.id,
+            cardNumber: cardData.cardNumber,
             legacyCardNumber: item.legacyCardNumber,
             legacyCreatedYear: item.normalized.legacyCreatedYear,
             destinationAcademicYear: item.academicYear.year,
+            legacyStatus: item.legacyStatus.code,
+            studentStatus: item.normalized.destinationStatus,
+            observation: item.observation ?? "",
           },
         },
       });
       return {
         studentId: student.id,
-        generatedCardNumber: cardNumber,
+        generatedCardNumber: cardData.cardNumber,
         createdBaseRecords: baseRecords.created,
       };
     });
@@ -1200,6 +1212,54 @@ export class LegacyImportService {
     ) {
       throw new BadRequestException("MIME do arquivo JSON invalido");
     }
+  }
+
+  private async createLegacyStudentCard(
+    tx: Prisma.TransactionClient,
+    input: {
+      academicYearId: string;
+      academicYear: number;
+      enrollmentId: string;
+      studentId: string;
+      userId: string;
+    },
+  ) {
+    const cardSequence = await this.nextCardSequence(tx, input.academicYearId);
+    const sequenceNumber = cardSequence.next;
+    const cardNumber = buildStudentCardNumber(sequenceNumber, input.academicYear);
+    const card = await tx.studentCard.create({
+      data: {
+        studentId: input.studentId,
+        enrollmentId: input.enrollmentId,
+        academicYearId: input.academicYearId,
+        cardType: StudentCardType.STUDENT,
+        sequenceNumber,
+        cardNumber,
+        status: StudentCardStatus.ACTIVE,
+        issuedByUserId: input.userId,
+      },
+    });
+    await tx.studentHistoryEvent.create({
+      data: {
+        studentId: input.studentId,
+        eventType: StudentHistoryEventType.STUDENT_CARD_ISSUED,
+        studentCardId: card.id,
+        justification: "Carteirinha gerada pela importacao piloto legado",
+        performedByUserId: input.userId,
+      },
+    });
+    return {
+      id: card.id,
+      cardNumber,
+      previousCardSequenceNumber: cardSequence.previous,
+    };
+  }
+
+  private legacySuspensionJustification(item: LegacyPreviewItem) {
+    const observation = item.observation
+      ? ` Observacao legado: ${item.observation}`
+      : "";
+    return `Academico importado via LEGACY ja como SUSPENSO.${observation}`;
   }
 
   private validateFinancialFileMetadata(body: AnalyzeLegacyFinancialImportDto) {
@@ -1394,6 +1454,20 @@ export class LegacyImportService {
     return null;
   }
 
+  private resolveLegacyStudentStatus(value: number | null) {
+    if (value === 1) return StudentStatus.ACTIVE;
+    if (value === 7) return StudentStatus.SUSPENDED;
+    return null;
+  }
+
+  private legacyStudentStatusLabel(value: number | null) {
+    if (value === 1) return "Ativo";
+    if (value === 7) return "Suspenso";
+    if (value === 0) return "Desligado";
+    if (value === 3) return "Atualizar cadastro / nao renovou";
+    return value === null ? "Nao informado" : `Status ${value}`;
+  }
+
   private parseMoneyCents(value: unknown) {
     if (value === null || value === undefined || value === "") return null;
     const normalized =
@@ -1445,10 +1519,12 @@ export class LegacyImportService {
     const fullName = this.cleanSpaces(this.asString(record.nome_aluno));
     const observation = this.cleanSpaces(this.asString(record.observacao));
     const legacyCreatedYear = Number(this.asString(record.criado));
+    const statusRaw = this.parseInteger(record.status);
     return {
       index,
       legacyId,
-      statusRaw: Number(this.asString(record.status)),
+      statusRaw,
+      destinationStatus: this.resolveLegacyStudentStatus(statusRaw),
       boardRaw: Number(this.asString(record.chapa)),
       cpf,
       birthDate,
@@ -1553,7 +1629,7 @@ export class LegacyImportService {
     if (record.legacyId !== null && duplicateLegacyIds.has(record.legacyId)) {
       block("legacy_id duplicado dentro do JSON");
     }
-    if (record.statusRaw !== 1) block("Sprint aceita somente status = 1");
+    if (!record.destinationStatus) block(UNSUPPORTED_LEGACY_STATUS_MESSAGE);
     if (record.boardRaw !== 0) block("Sprint nao importa diretoria chapa = 1");
     if (!record.cpf) block("CPF obrigatorio");
     else if (!isValidCpf(record.cpf)) block("CPF invalido");
@@ -1678,6 +1754,11 @@ export class LegacyImportService {
       name: record.fullName,
       cpf: record.cpf,
       cpfMasked: record.cpf ? maskCpf(record.cpf) : "",
+      legacyStatus: {
+        code: record.statusRaw,
+        label: this.legacyStudentStatusLabel(record.statusRaw),
+      },
+      destinationStatus: record.destinationStatus,
       legacyCreatedYear: record.legacyCreatedYear,
       destinationAcademicYear: record.destinationAcademicYear,
       institutionLegacy: record.institutionRaw,
@@ -1693,8 +1774,11 @@ export class LegacyImportService {
         legacyNumber: record.legacyCardNumber ?? null,
         hasConflict: Boolean(record.legacyCardNumber && context.cards.has(record.legacyCardNumber)),
         canPreserve: false,
-        needsAtretuNumber: true,
-        reason: "Importacao piloto gera numero ATRETU para preservar a sequencia anual",
+        needsAtretuNumber: record.destinationStatus === StudentStatus.ACTIVE,
+        reason:
+          record.destinationStatus === StudentStatus.SUSPENDED
+            ? "Academico suspenso nao recebe carteirinha ATRETU ativa na importacao"
+            : "Importacao piloto gera numero ATRETU para preservar a sequencia anual",
       },
       observation: record.observation,
       academicYear,

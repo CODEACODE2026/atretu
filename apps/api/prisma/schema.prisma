@@ -491,12 +491,12 @@ model LegacyStudentImport {
   studentId                  String                  @unique @map("student_id") @db.Uuid
   personId                   String                  @map("person_id") @db.Uuid
   enrollmentId               String                  @map("enrollment_id") @db.Uuid
-  studentCardId              String                  @map("student_card_id") @db.Uuid
+  studentCardId              String?                 @map("student_card_id") @db.Uuid
   busAssignmentId            String?                 @map("bus_assignment_id") @db.Uuid
   legacyCardNumber           String?                 @map("legacy_card_number") @db.VarChar(32)
   legacyCreatedYear          Int?                    @map("legacy_created_year")
-  previousCardSequenceNumber Int                     @map("previous_card_sequence_number")
-  generatedCardNumber        String                  @map("generated_card_number") @db.VarChar(32)
+  previousCardSequenceNumber Int?                    @map("previous_card_sequence_number")
+  generatedCardNumber        String?                 @map("generated_card_number") @db.VarChar(32)
   importedByUserId           String?                 @map("imported_by_user_id") @db.Uuid
   importedAt                 DateTime                @default(now()) @map("imported_at") @db.Timestamptz(6)
   createdAt                  DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -504,7 +504,7 @@ model LegacyStudentImport {
   student                    Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
   person                     Person                  @relation(fields: [personId], references: [id], onDelete: Restrict)
   enrollment                 Enrollment              @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
-  studentCard                StudentCard             @relation(fields: [studentCardId], references: [id], onDelete: Restrict)
+  studentCard                StudentCard?            @relation(fields: [studentCardId], references: [id], onDelete: Restrict)
   busAssignment              BusAssignment?          @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
   financialRecords           LegacyFinancialImport[]
 
