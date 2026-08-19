@@ -37,7 +37,13 @@ const yearStatusLabels: Record<YearStatusFilter, string> = {
   all: "Todos",
 };
 
-export function AcademicYearsPanel({ user }: { user: ApiUser }) {
+export function AcademicYearsPanel({
+  embedded = false,
+  user,
+}: {
+  embedded?: boolean;
+  user: ApiUser;
+}) {
   const canWrite = canAccessRestrictedAdmin(user);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [summaryYears, setSummaryYears] = useState<AcademicYear[]>([]);
@@ -159,12 +165,14 @@ export function AcademicYearsPanel({ user }: { user: ApiUser }) {
 
   return (
     <div className="grid min-w-0 gap-5">
-      <AdminModuleHeader
-        description="Organize os períodos letivos disponíveis para matrículas, rematrículas, carteirinhas e consultas operacionais."
-        eyebrow="Configuração acadêmica"
-        icon={CalendarDays}
-        title="Anos letivos"
-      />
+      {!embedded ? (
+        <AdminModuleHeader
+          description="Organize os períodos letivos disponíveis para matrículas, rematrículas, carteirinhas e consultas operacionais."
+          eyebrow="Configuração acadêmica"
+          icon={CalendarDays}
+          title="Anos letivos"
+        />
+      ) : null}
 
       <div className="grid min-w-0 gap-3 md:grid-cols-3">
         <AdminSummaryCard

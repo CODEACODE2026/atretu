@@ -110,7 +110,7 @@ export const ADMIN_NAV_ITEMS = [
     label: "Relatórios",
   },
   {
-    description: "Instituições, turnos e ônibus",
+    description: "Instituições, turnos, ônibus e anos letivos",
     group: "administration",
     icon: ClipboardList,
     key: "base",

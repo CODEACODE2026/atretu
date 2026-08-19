@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Building2,
   BusFront,
+  CalendarDays,
   Clock3,
   Database,
   ListFilter,
@@ -59,7 +60,7 @@ import { StudentCardsPanel } from "./student-cards-panel";
 import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
 import { UsersPanel } from "./users-panel";
 
-type DomainKey = "institutions" | "shifts" | "buses";
+type DomainKey = "institutions" | "shifts" | "buses" | "years";
 type StatusFilter = "active" | "inactive" | "all";
 type SortField = "name" | "status" | "createdAt" | "updatedAt";
 type RecordRow = BaseRecord | BusRecord;
@@ -104,6 +105,7 @@ const DOMAINS: Array<{
   description: string;
   hasCapacity: boolean;
   icon: LucideIcon;
+  recordsDomain: boolean;
 }> = [
   {
     key: "institutions",
@@ -112,6 +114,7 @@ const DOMAINS: Array<{
     description: "Unidades de ensino disponíveis para matrículas e consultas.",
     hasCapacity: false,
     icon: Building2,
+    recordsDomain: true,
   },
   {
     key: "shifts",
@@ -120,6 +123,7 @@ const DOMAINS: Array<{
     description: "Períodos de atendimento usados nos cadastros acadêmicos.",
     hasCapacity: false,
     icon: Clock3,
+    recordsDomain: true,
   },
   {
     key: "buses",
@@ -128,6 +132,16 @@ const DOMAINS: Array<{
     description: "Veículos e capacidade operacional por ano letivo.",
     hasCapacity: true,
     icon: BusFront,
+    recordsDomain: true,
+  },
+  {
+    key: "years",
+    label: "Anos letivos",
+    singular: "ano letivo",
+    description: "Períodos oficiais usados em matrículas, pré-cadastros e carteirinhas.",
+    hasCapacity: false,
+    icon: CalendarDays,
+    recordsDomain: false,
   },
 ];
 const DEFAULT_DOMAIN = DOMAINS[0]!;
@@ -486,6 +500,7 @@ function AdminWorkspace({
             <BaseRecordsPanel
               initialAcademicYearId={dashboardTarget?.academicYearId}
               initialDomain={baseInitialDomain}
+              user={user}
             />
           ) : null}
         </section>
@@ -565,7 +580,12 @@ function parseDashboardHref(href: string): DashboardNavigationTarget | null {
 }
 
 function isDomainKey(value: string | null): value is DomainKey {
-  return value === "institutions" || value === "shifts" || value === "buses";
+  return (
+    value === "institutions" ||
+    value === "shifts" ||
+    value === "buses" ||
+    value === "years"
+  );
 }
 
 function isFinanceArea(value: string | null): value is FinanceArea {
@@ -620,9 +640,11 @@ function isCollectionOperationalStatus(
 function BaseRecordsPanel({
   initialAcademicYearId,
   initialDomain = "institutions",
+  user,
 }: {
   initialAcademicYearId?: string;
   initialDomain?: DomainKey;
+  user: ApiUser;
 }) {
   const [domain, setDomain] = useState<DomainKey>(initialDomain);
   const [records, setRecords] = useState<RecordRow[]>([]);
@@ -697,6 +719,13 @@ function BaseRecordsPanel({
   }
 
   async function loadRecords(nextSearch = search) {
+    if (!currentDomain.recordsDomain) {
+      setRecords([]);
+      setTotalPages(1);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -881,43 +910,11 @@ function BaseRecordsPanel({
   return (
     <div className="grid min-w-0 gap-5">
       <AdminModuleHeader
-        description="Gerencie instituições, turnos e ônibus em uma experiência única, com filtros consistentes e ações agrupadas."
+        description="Gerencie instituições, turnos, ônibus e anos letivos em uma experiência única, com filtros consistentes e ações agrupadas."
         eyebrow="Operação administrativa"
         icon={Database}
         title="Cadastros base"
       />
-
-      <div className="grid min-w-0 gap-3 md:grid-cols-3">
-        <AdminSummaryCard
-          description={`Total carregado em ${currentDomain.label.toLowerCase()}.`}
-          icon={CurrentDomainIcon}
-          label="Registros na página"
-          tone="blue"
-          value={records.length}
-        />
-        <AdminSummaryCard
-          description="Itens disponíveis para uso operacional."
-          icon={UsersRound}
-          label="Ativos"
-          tone="green"
-          value={activeRecords}
-        />
-        <AdminSummaryCard
-          description={
-            currentDomain.hasCapacity
-              ? `${occupiedSeats}/${totalCapacity} lugares ocupados.`
-              : "Itens mantidos fora dos fluxos ativos."
-          }
-          icon={ListFilter}
-          label={currentDomain.hasCapacity ? "Ocupação" : "Inativos"}
-          tone={currentDomain.hasCapacity ? "orange" : "slate"}
-          value={
-            currentDomain.hasCapacity
-              ? `${occupiedSeats}/${totalCapacity || 0}`
-              : inactiveRecords
-          }
-        />
-      </div>
 
       <section className={cx(adminTheme.card, "min-w-0 overflow-hidden p-4")}>
         <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -939,64 +936,100 @@ function BaseRecordsPanel({
             ))}
           </div>
 
-          <form
-            className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-end xl:w-auto"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setPage(1);
-              void loadRecords(search);
-            }}
-          >
-            <label className="grid min-w-0 flex-1 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:w-80">
-              Pesquisar
-              <input
-                className={cx(adminTheme.control, "min-w-0")}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Pesquisar"
-                type="search"
-                value={search}
-              />
-            </label>
-            <button
-              className={cx(adminTheme.primaryButton, "h-10 justify-center")}
-              type="submit"
+          {currentDomain.recordsDomain ? (
+            <form
+              className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-end xl:w-auto"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setPage(1);
+                void loadRecords(search);
+              }}
             >
-              <Search aria-hidden="true" className="h-4 w-4" />
-              Buscar
-            </button>
-          </form>
+              <label className="grid min-w-0 flex-1 gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:w-80">
+                Pesquisar
+                <input
+                  className={cx(adminTheme.control, "min-w-0")}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Pesquisar"
+                  type="search"
+                  value={search}
+                />
+              </label>
+              <button
+                className={cx(adminTheme.primaryButton, "h-10 justify-center")}
+                type="submit"
+              >
+                <Search aria-hidden="true" className="h-4 w-4" />
+                Buscar
+              </button>
+            </form>
+          ) : null}
         </div>
       </section>
 
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
-        <form
-          className={cx(adminTheme.card, "min-w-0 p-4")}
-          onSubmit={handleSubmit}
-        >
-          <div className="flex items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700">
-              <Plus aria-hidden="true" className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-slate-950">
-                {editing ? "Editar" : "Novo"} {currentDomain.singular}
-              </h2>
-              <p className="mt-1 text-sm leading-5 text-slate-600">
-                {currentDomain.description}
-              </p>
-            </div>
-          </div>
-          <label className="mt-4 block text-sm font-medium text-slate-700">
-            Nome
-            <input
-              className={cx(adminTheme.control, "mt-1 w-full")}
-              maxLength={140}
-              minLength={2}
-              onChange={(event) => setName(event.target.value)}
-              required
-              value={name}
+      {currentDomain.recordsDomain ? (
+        <>
+          <div className="grid min-w-0 gap-3 md:grid-cols-3">
+            <AdminSummaryCard
+              description={`Total carregado em ${currentDomain.label.toLowerCase()}.`}
+              icon={CurrentDomainIcon}
+              label="Registros na página"
+              tone="blue"
+              value={records.length}
             />
-          </label>
+            <AdminSummaryCard
+              description="Itens disponíveis para uso operacional."
+              icon={UsersRound}
+              label="Ativos"
+              tone="green"
+              value={activeRecords}
+            />
+            <AdminSummaryCard
+              description={
+                currentDomain.hasCapacity
+                  ? `${occupiedSeats}/${totalCapacity} lugares ocupados.`
+                  : "Itens mantidos fora dos fluxos ativos."
+              }
+              icon={ListFilter}
+              label={currentDomain.hasCapacity ? "Ocupação" : "Inativos"}
+              tone={currentDomain.hasCapacity ? "orange" : "slate"}
+              value={
+                currentDomain.hasCapacity
+                  ? `${occupiedSeats}/${totalCapacity || 0}`
+                  : inactiveRecords
+              }
+            />
+          </div>
+
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+            <form
+              className={cx(adminTheme.card, "min-w-0 p-4")}
+              onSubmit={handleSubmit}
+            >
+              <div className="flex items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700">
+                  <Plus aria-hidden="true" className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-slate-950">
+                    {editing ? "Editar" : "Novo"} {currentDomain.singular}
+                  </h2>
+                  <p className="mt-1 text-sm leading-5 text-slate-600">
+                    {currentDomain.description}
+                  </p>
+                </div>
+              </div>
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                Nome
+                <input
+                  className={cx(adminTheme.control, "mt-1 w-full")}
+                  maxLength={140}
+                  minLength={2}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  value={name}
+                />
+              </label>
 
           {currentDomain.hasCapacity ? (
             <label className="mt-4 block text-sm font-medium text-slate-700">
@@ -1506,6 +1539,10 @@ function BaseRecordsPanel({
           tone={pendingAction.nextStatus === "ACTIVE" ? "green" : "orange"}
         />
       ) : null}
+        </>
+      ) : (
+        <AcademicYearsPanel embedded user={user} />
+      )}
     </div>
   );
 }
