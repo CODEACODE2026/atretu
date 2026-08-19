@@ -66,4 +66,20 @@ assert.ok(
   "Expanded details must preserve optional event details compactly",
 );
 
+const legacySuspensionWithoutBus: StudentHistoryEvent = {
+  ...suspension,
+  id: "legacy-suspension-without-bus",
+  justification:
+    "Academico importado via LEGACY ja como SUSPENSO. Observacao legado: previsão de retorno em outubro",
+  suspensionReason: "OTHER",
+  busSeatReleased: false,
+  bus: null,
+  busAssignment: null,
+};
+assert.deepEqual(
+  historyEventDetails(legacySuspensionWithoutBus),
+  ["Onibus: nao informado no legado"],
+  "Legacy suspended imports without bus must not render a maintained bus seat",
+);
+
 console.log("Student history compact guard OK");

@@ -204,7 +204,9 @@ export function historyEventDescription(event: StudentHistoryEvent) {
 
 export function historyEventDetails(event: StudentHistoryEvent) {
   const details: string[] = [];
-  if (
+  if (isLegacySuspensionWithoutBus(event)) {
+    details.push("Onibus: nao informado no legado");
+  } else if (
     event.busSeatReleased !== null &&
     event.busSeatReleased !== undefined
   ) {
@@ -237,6 +239,15 @@ export function historyEventDetails(event: StudentHistoryEvent) {
     );
   }
   return details;
+}
+
+function isLegacySuspensionWithoutBus(event: StudentHistoryEvent) {
+  return (
+    event.eventType === "STUDENT_SUSPENDED" &&
+    event.justification?.startsWith("Academico importado via LEGACY") &&
+    !event.bus &&
+    !event.busAssignment
+  );
 }
 
 export function reasonLabel(
