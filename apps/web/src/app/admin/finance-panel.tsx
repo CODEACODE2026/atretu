@@ -58,8 +58,8 @@ import { BatchSummaryCards } from "./finance/batch-summary";
 import { CollectionsPanel } from "./collections-panel";
 import {
   type BankSlipListRecord,
-  calculateFinanceSummary,
   type FinanceArea,
+  type FinanceSummary,
   hasActiveFinanceFilters,
 } from "./finance/finance-display-utils";
 import { FinanceFilters } from "./finance/finance-filters";
@@ -134,7 +134,6 @@ export function FinancePanel({
   const canViewCollections =
     user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
-  const [invoiceSummary, setInvoiceSummary] = useState<InvoiceListSummary | null>(null);
   const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<
     Record<string, BankSlipListRecord | null | undefined>
@@ -152,6 +151,9 @@ export function FinancePanel({
   const defaultOverviewPeriod = useMemo(() => currentMonthParts(), []);
   const [overviewMonth, setOverviewMonth] = useState(defaultOverviewPeriod.month);
   const [overviewYear, setOverviewYear] = useState(defaultOverviewPeriod.year);
+  const [overviewSummary, setOverviewSummary] = useState<FinanceSummary>(() =>
+    emptyFinanceSummary(),
+  );
   const [monthlyOverview, setMonthlyOverview] = useState<FinanceMonthlyOverview[]>([]);
   const [situationBreakdown, setSituationBreakdown] = useState<FinanceSituationSlice[]>([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -261,14 +263,12 @@ export function FinancePanel({
     () => calculateBatchSummary(issueBatches),
     [issueBatches],
   );
-  const financeSummary = useMemo(
+  const overviewFinanceSummary = useMemo(
     () => ({
-      ...(invoiceSummary
-        ? { ...invoiceSummary, scope: "filtered" as const }
-        : calculateFinanceSummary(invoices, bankSlips, issueBatch)),
+      ...overviewSummary,
       processingBatches: issueBatch && isIssueBatchRunning(issueBatch) ? 1 : 0,
     }),
-    [bankSlips, invoices, invoiceSummary, issueBatch],
+    [issueBatch, overviewSummary],
   );
   const invoiceOperationalSummary = useMemo(
     () =>
@@ -324,7 +324,7 @@ export function FinancePanel({
     if (financeArea === "overview") {
       void loadOverviewData();
     }
-  }, [academicYearId, canViewCollections, financeArea, institutionId, overviewMonth, overviewYear]);
+  }, [canViewCollections, financeArea, overviewMonth, overviewYear]);
 
   useEffect(() => {
     setFinanceArea(
@@ -432,7 +432,6 @@ export function FinancePanel({
         return;
       }
       setInvoices(response.data);
-      setInvoiceSummary(response.summary ?? null);
       setBankSlips((current) => mergeBankSlipSummaries(response.data, current));
       setSelectedInvoiceIds((current) =>
         current.filter((invoiceId) => response.data.some((invoice) => invoice.id === invoiceId)),
@@ -444,7 +443,6 @@ export function FinancePanel({
       }
       const message = caught instanceof Error ? caught.message : "Erro ao carregar faturas";
       setInvoices([]);
-      setInvoiceSummary(null);
       setBankSlips({});
       setSelectedInvoiceIds([]);
       setTotalPages(1);
@@ -480,6 +478,7 @@ export function FinancePanel({
       const monthRanges = lastMonthRanges(overviewYear, overviewMonth, 12);
       const [
         monthlyResponses,
+        periodResponse,
         openResponse,
         overdueResponse,
         paidResponse,
@@ -491,8 +490,6 @@ export function FinancePanel({
             api.listInvoices({
               page: 1,
               limit: 1,
-              academicYearId,
-              institutionId,
               overdue: "all",
               dueDateFrom: range.from,
               dueDateTo: range.to,
@@ -504,8 +501,13 @@ export function FinancePanel({
         api.listInvoices({
           page: 1,
           limit: 1,
-          academicYearId,
-          institutionId,
+          overdue: "all",
+          dueDateFrom: periodRange.from,
+          dueDateTo: periodRange.to,
+        }),
+        api.listInvoices({
+          page: 1,
+          limit: 1,
           status: "OPEN",
           overdue: "notOverdue",
           dueDateFrom: periodRange.from,
@@ -514,8 +516,6 @@ export function FinancePanel({
         api.listInvoices({
           page: 1,
           limit: 1,
-          academicYearId,
-          institutionId,
           status: "OPEN",
           overdue: "overdue",
           dueDateFrom: periodRange.from,
@@ -524,8 +524,6 @@ export function FinancePanel({
         api.listInvoices({
           page: 1,
           limit: 1,
-          academicYearId,
-          institutionId,
           status: "PAID",
           overdue: "all",
           dueDateFrom: periodRange.from,
@@ -534,21 +532,25 @@ export function FinancePanel({
         api.listInvoices({
           page: 1,
           limit: 1,
-          academicYearId,
-          institutionId,
           status: "CANCELLED",
           overdue: "all",
           dueDateFrom: periodRange.from,
           dueDateTo: periodRange.to,
         }),
         canViewCollections
-          ? api.getCollectionSummary({
-              academicYearId,
-              institutionId,
-            })
+          ? api.getCollectionSummary()
           : Promise.resolve(null),
       ]);
 
+      setOverviewSummary(
+        toOverviewFinanceSummary(
+          periodResponse,
+          openResponse,
+          overdueResponse,
+          paidResponse,
+          cancelledResponse,
+        ),
+      );
       setMonthlyOverview(
         monthRanges.map((range, index) => {
           const item = monthlyResponses[index];
@@ -1425,12 +1427,8 @@ export function FinancePanel({
   }
 
   function changeOverviewPeriod(month: number, year: number) {
-    const nextRange = monthRange(year, month);
     setOverviewMonth(month);
     setOverviewYear(year);
-    setDueDateFrom(nextRange.from);
-    setDueDateTo(nextRange.to);
-    setPage(1);
   }
 
   const invoiceActions = (
@@ -2050,7 +2048,7 @@ export function FinancePanel({
             collectionError={collectionError}
             collectionLoading={collectionLoading}
             collectionSummary={canViewCollections ? collectionSummary : null}
-            loading={loading}
+            loading={overviewLoading}
             monthlyEvolution={monthlyOverview}
             onNavigate={changeFinanceArea}
             onPeriodChange={changeOverviewPeriod}
@@ -2059,7 +2057,7 @@ export function FinancePanel({
             periodMonth={overviewMonth}
             periodYear={overviewYear}
             situationBreakdown={situationBreakdown}
-            summary={financeSummary}
+            summary={overviewFinanceSummary}
           />
         </>
       ) : null}
@@ -3664,6 +3662,41 @@ function toSituationSlice(
     count: response.pagination.total,
     key,
     label,
+  };
+}
+
+function emptyFinanceSummary(): FinanceSummary {
+  return {
+    cancelledAmountCents: 0,
+    failedBankSlips: 0,
+    loadedInvoiceCount: 0,
+    openAmountCents: 0,
+    overdueAmountCents: 0,
+    paidAmountCents: 0,
+    processingBatches: 0,
+    scope: "filtered",
+    totalFilteredInvoiceCount: 0,
+  };
+}
+
+function toOverviewFinanceSummary(
+  periodResponse: { pagination: { total: number }; summary?: InvoiceListSummary },
+  openResponse: { pagination: { total: number }; summary?: InvoiceListSummary },
+  overdueResponse: { pagination: { total: number }; summary?: InvoiceListSummary },
+  paidResponse: { pagination: { total: number }; summary?: InvoiceListSummary },
+  cancelledResponse: { pagination: { total: number }; summary?: InvoiceListSummary },
+): FinanceSummary {
+  return {
+    cancelledAmountCents: cancelledResponse.summary?.cancelledAmountCents ?? 0,
+    failedBankSlips: periodResponse.summary?.failedBankSlips ?? 0,
+    loadedInvoiceCount: periodResponse.summary?.loadedInvoiceCount ?? 0,
+    openAmountCents: openResponse.summary?.openAmountCents ?? 0,
+    overdueAmountCents: overdueResponse.summary?.overdueAmountCents ?? 0,
+    paidAmountCents: paidResponse.summary?.paidAmountCents ?? 0,
+    processingBatches: 0,
+    scope: "filtered",
+    totalFilteredInvoiceCount:
+      periodResponse.summary?.totalFilteredInvoiceCount ?? periodResponse.pagination.total,
   };
 }
 
