@@ -1308,7 +1308,6 @@ export function ReenrollmentsPanel() {
   const [academicYearId, setAcademicYearId] = useState("");
   const [search, setSearch] = useState("");
   const [institutionFilter, setInstitutionFilter] = useState("");
-  const [previousYearFilter, setPreviousYearFilter] = useState("");
   const [selected, setSelected] = useState<StudentSummary | null>(null);
   const [preview, setPreview] = useState<ReenrollmentPreview | null>(null);
   const [enrollment, setEnrollment] =
@@ -1326,6 +1325,22 @@ export function ReenrollmentsPanel() {
     () => years.find((year) => year.id === academicYearId),
     [academicYearId, years],
   );
+  const currentAcademicYear = useMemo(
+    () => years.find((year) => year.isCurrent) ?? null,
+    [years],
+  );
+  const targetYearOptions = useMemo(
+    () =>
+      currentAcademicYear
+        ? years
+            .filter((year) => year.year >= currentAcademicYear.year)
+            .map((year) => ({
+              label: year.isCurrent ? `${year.year} atual` : String(year.year),
+              value: year.id,
+            }))
+        : [],
+    [currentAcademicYear, years],
+  );
   const visibleCandidates = useMemo(
     () =>
       candidates.filter((candidate) => {
@@ -1333,15 +1348,9 @@ export function ReenrollmentsPanel() {
         if (institutionFilter && enrollment?.institution.id !== institutionFilter) {
           return false;
         }
-        if (
-          previousYearFilter &&
-          String(enrollment?.academicYear.year ?? "") !== previousYearFilter
-        ) {
-          return false;
-        }
         return true;
       }),
-    [candidates, institutionFilter, previousYearFilter],
+    [candidates, institutionFilter],
   );
   const institutionOptions = useMemo(
     () =>
@@ -1350,16 +1359,6 @@ export function ReenrollmentsPanel() {
           label: candidate.currentEnrollment?.institution.name ?? "",
           value: candidate.currentEnrollment?.institution.id ?? "",
         })),
-      ),
-    [candidates],
-  );
-  const previousYearOptions = useMemo(
-    () =>
-      uniqueOptions(
-        candidates.map((candidate) => {
-          const year = candidate.currentEnrollment?.academicYear.year;
-          return { label: year ? String(year) : "", value: year ? String(year) : "" };
-        }),
       ),
     [candidates],
   );
@@ -1402,11 +1401,16 @@ export function ReenrollmentsPanel() {
       setInstitutions(institutionsResponse.data);
       setShifts(shiftsResponse.data);
       const target = yearsResponse.data.find((year) => year.isCurrent);
-      setAcademicYearId(target?.id ?? yearsResponse.data[0]?.id ?? "");
+      setAcademicYearId(target?.id ?? "");
+      if (!target) {
+        setCandidates([]);
+        setLoading(false);
+      }
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar referencias",
       );
+      setLoading(false);
     }
   }
 
@@ -1559,7 +1563,7 @@ export function ReenrollmentsPanel() {
           title="Candidatos elegíveis"
         />
         <div className="border-b border-slate-200/80 p-3 sm:p-4">
-          <div className="grid min-w-0 items-end gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(160px,200px)_minmax(160px,220px)_minmax(130px,160px)]">
+          <div className="grid min-w-0 items-end gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(160px,200px)_minmax(180px,240px)]">
             <form
               className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
               onSubmit={(event) => {
@@ -1589,10 +1593,7 @@ export function ReenrollmentsPanel() {
                 setSelected(null);
                 setPreview(null);
               }}
-              options={years.map((year) => ({
-                label: year.isCurrent ? `${year.year} atual` : String(year.year),
-                value: year.id,
-              }))}
+              options={targetYearOptions}
               value={academicYearId}
             />
             <Select
@@ -1600,12 +1601,6 @@ export function ReenrollmentsPanel() {
               onChange={setInstitutionFilter}
               options={institutionOptions}
               value={institutionFilter}
-            />
-            <Select
-              label="Ano anterior"
-              onChange={setPreviousYearFilter}
-              options={previousYearOptions}
-              value={previousYearFilter}
             />
           </div>
         </div>
