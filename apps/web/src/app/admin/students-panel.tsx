@@ -581,6 +581,7 @@ export function StudentsPanel({
     }
     const terminationReason = promptOption("Selecione o motivo do desligamento:", [
       { label: "Desistencia", value: "WITHDRAWAL" },
+      { label: "Termino do curso", value: "COURSE_COMPLETION" },
       { label: "Inadimplencia", value: "NON_PAYMENT" },
     ]);
     if (!terminationReason) {
@@ -2897,5 +2898,8 @@ function reasonLabel(reason: NonNullable<StudentHistoryEvent["suspensionReason"]
 function terminationLabel(
   reason: NonNullable<StudentHistoryEvent["terminationReason"]>,
 ) {
-  return reason === "WITHDRAWAL" ? "Desistencia" : "Inadimplencia";
+  if (reason === "WITHDRAWAL") return "Desistencia";
+  if (reason === "COURSE_COMPLETION") return "Termino do curso";
+  if (reason === "UNSPECIFIED") return "Nao informado no legado";
+  return "Inadimplencia";
 }

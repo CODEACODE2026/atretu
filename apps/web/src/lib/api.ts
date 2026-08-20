@@ -433,6 +433,11 @@ export type LegacyAcademicPreviewItem = {
   cpf: string;
   cpfMasked: string;
   legacyStatus: { code: number | null; label: string };
+  legacyTerminationReason: {
+    code: number | null;
+    legacyLabel: string;
+    destination: "WITHDRAWAL" | "COURSE_COMPLETION" | "NON_PAYMENT" | "UNSPECIFIED" | null;
+  } | null;
   destinationStatus: StudentStatus | null;
   legacyCreatedYear: number | null;
   destinationAcademicYear: number;
@@ -1299,7 +1304,7 @@ export type StudentHistoryEvent = {
     | "OFFICIAL_DOCUMENT_ISSUED"
     | "OFFICIAL_DOCUMENT_INVALIDATED";
   suspensionReason?: "NON_PAYMENT" | "INFRACTION" | "OTHER" | null;
-  terminationReason?: "WITHDRAWAL" | "NON_PAYMENT" | null;
+  terminationReason?: "WITHDRAWAL" | "COURSE_COMPLETION" | "NON_PAYMENT" | "UNSPECIFIED" | null;
   justification?: string | null;
   busSeatReleased?: boolean | null;
   occurredAt: string;
@@ -2976,7 +2981,7 @@ export const api = {
   terminateStudent(
     id: string,
     body: {
-      terminationReason: "WITHDRAWAL" | "NON_PAYMENT";
+      terminationReason: "WITHDRAWAL" | "COURSE_COMPLETION" | "NON_PAYMENT" | "UNSPECIFIED";
       justification: string;
     },
   ) {

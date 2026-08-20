@@ -436,7 +436,113 @@ assert(
   ),
 );
 
-for (const unsupportedStatus of [0]) {
+const terminatedWithoutReasonPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "adriana-status-0-sem-motivo.json",
+  records: [
+    record({
+      legacy_id: 1055,
+      numero_carterinha: null,
+      nome_aluno: "ADRIANA DA SILVA CAMPOS",
+      endereco: "RUA NILZA DE OLIVEIRA PEPINO,1018",
+      cpf: "128.201.769-17",
+      rg: "626964271",
+      data_nacimento: "13/03/2004",
+      nome_instituicao: "IFPR",
+      curso: "ENFERMAGEM",
+      serie: 1,
+      nome_turno: "NOTURNO",
+      telefone: "(55) 44912-8036",
+      email: "NAO@TEM",
+      data_cadastro: "2024-03-18",
+      status: 0,
+      motivo: null,
+      nome_onibus: null,
+      capacidade_onibus: null,
+      observacao: "",
+      criado: 2024,
+    }),
+  ],
+});
+assert.equal(terminatedWithoutReasonPreview.items[0]?.legacyStatus.label, "Desligado");
+assert.equal(terminatedWithoutReasonPreview.items[0]?.destinationStatus, "TERMINATED");
+assert.equal(terminatedWithoutReasonPreview.items[0]?.status, "PRONTO");
+assert.equal(terminatedWithoutReasonPreview.items[0]?.canImport, true);
+assert.equal(terminatedWithoutReasonPreview.items[0]?.academicYear?.year, 2024);
+assert.equal(terminatedWithoutReasonPreview.items[0]?.preservedEnrollmentAcademicYear, 2024);
+assert.deepEqual(terminatedWithoutReasonPreview.items[0]?.legacyTerminationReason, {
+  code: null,
+  legacyLabel: "Nao informado",
+  destination: "UNSPECIFIED",
+});
+assert.equal(terminatedWithoutReasonPreview.items[0]?.card.needsAtretuNumber, false);
+assert.equal(
+  terminatedWithoutReasonPreview.items[0]?.card.reason,
+  "Academico desligado nao recebe carteirinha ATRETU na importacao",
+);
+assert.equal(terminatedWithoutReasonPreview.items[0]?.busLegacy, null);
+assert.equal(terminatedWithoutReasonPreview.items[0]?.observation, null);
+assert(
+  terminatedWithoutReasonPreview.items[0]?.reasons.includes(
+    "Academico legado desligado; ultima matricula sera preservada sem matricula destino, carteirinha, onibus ou financeiro operacional",
+  ),
+);
+
+for (const [motivo, destination] of [
+  [1, "WITHDRAWAL"],
+  [2, "COURSE_COMPLETION"],
+  [3, "NON_PAYMENT"],
+] as const) {
+  const terminatedReasonPreview = await service.analyzeAcademicImport({
+    destinationAcademicYear: 2026,
+    fileName: `status-0-motivo-${motivo}.json`,
+    records: [
+      record({
+        legacy_id: 4000 + motivo,
+        cpf: "390.533.447-05",
+        status: 0,
+        motivo,
+        observacao: motivo === 3 ? "desligado por inadimplencia no legado" : null,
+        numero_carterinha: null,
+        nome_onibus: "Onibus legado referencia",
+        capacidade_onibus: null,
+        criado: 2025,
+      }),
+    ],
+  });
+  assert.equal(terminatedReasonPreview.items[0]?.status, "PRONTO");
+  assert.equal(terminatedReasonPreview.items[0]?.canImport, true);
+  assert.equal(terminatedReasonPreview.items[0]?.destinationStatus, "TERMINATED");
+  assert.equal(terminatedReasonPreview.items[0]?.legacyTerminationReason?.code, motivo);
+  assert.equal(terminatedReasonPreview.items[0]?.legacyTerminationReason?.destination, destination);
+  assert.equal(
+    terminatedReasonPreview.items[0]?.relations.bus.message,
+    "Referencia legado; onibus nao sera criado nem vinculado na importacao",
+  );
+}
+
+const missingYearTerminatedPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "status-0-ano-inexistente.json",
+  records: [
+    record({
+      legacy_id: 4004,
+      cpf: "390.533.447-05",
+      status: 0,
+      motivo: 1,
+      criado: 2023,
+    }),
+  ],
+});
+assert.equal(missingYearTerminatedPreview.items[0]?.status, "BLOQUEADO");
+assert.equal(missingYearTerminatedPreview.items[0]?.canImport, false);
+assert(
+  missingYearTerminatedPreview.items[0]?.reasons.includes(
+    "Ano letivo historico do legado nao existe no ATRETU",
+  ),
+);
+
+for (const unsupportedStatus of [99]) {
   const blockedPreview = await service.analyzeAcademicImport({
     destinationAcademicYear: 2026,
     fileName: `status-${unsupportedStatus}.json`,

@@ -19,6 +19,7 @@ import {
   StudentCardType,
   StudentHistoryEventType,
   StudentStatus,
+  StudentTerminationReason,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -42,6 +43,11 @@ type CreatedBaseRecords = {
   buses: string[];
 };
 type PreparedRecord = ReturnType<LegacyImportService["prepareRecord"]>;
+type LegacyTerminationReason = {
+  code: number | null;
+  legacyLabel: string;
+  destination: StudentTerminationReason | null;
+};
 type LegacyRelationPreview = {
   legacyName: string | null;
   status: RelationState;
@@ -60,6 +66,7 @@ type LegacyPreviewItem = {
   cpf: string;
   cpfMasked: string;
   legacyStatus: { code: number | null; label: string };
+  legacyTerminationReason: LegacyTerminationReason | null;
   destinationStatus: StudentStatus | null;
   legacyCreatedYear: number | null;
   destinationAcademicYear: number;
@@ -102,6 +109,7 @@ const MAX_RECORDS = 500;
 const MAX_FINANCIAL_RECORDS = 5000;
 const IMPORT_CHUNK_SIZE = 25;
 const UNSUPPORTED_LEGACY_STATUS_MESSAGE = "status legado ainda nao suportado";
+const LEGACY_TERMINATED_STATUS = 0;
 const LEGACY_PENDING_REENROLLMENT_STATUS = 3;
 const SUSPICIOUS_OBSERVATION = /\b(deslig\w*|mudan\w*|transfer\w*|cancel\w*|inativ\w*|suspend\w*|tranc\w*|fora|saiu)\b/i;
 const LEGACY_FINANCIAL_STATUS_MAP = {
@@ -1174,6 +1182,21 @@ export class LegacyImportService {
           },
         });
       }
+      if (
+        item.normalized.destinationStatus === StudentStatus.TERMINATED &&
+        item.normalized.legacyTerminationReason?.destination
+      ) {
+        await tx.studentHistoryEvent.create({
+          data: {
+            studentId: student.id,
+            eventType: StudentHistoryEventType.STUDENT_TERMINATED,
+            terminationReason: item.normalized.legacyTerminationReason.destination,
+            justification: this.legacyTerminationJustification(item),
+            busSeatReleased: false,
+            performedByUserId: userId,
+          },
+        });
+      }
       await tx.legacyStudentImport.create({
         data: {
           batchId,
@@ -1212,6 +1235,7 @@ export class LegacyImportService {
             requestedDestinationAcademicYear: item.normalized.destinationAcademicYear,
             legacyStatus: item.legacyStatus.code,
             studentStatus: item.normalized.destinationStatus,
+            legacyTerminationReason: item.legacyTerminationReason,
             enrollmentCreated: Boolean(enrollment),
             destinationEnrollmentCreated: createsDestinationEnrollment && Boolean(enrollment),
             busAssignmentCreated: Boolean(busAssignmentId),
@@ -1309,6 +1333,16 @@ export class LegacyImportService {
       ? ` Observacao legado: ${item.observation}`
       : "";
     return `Academico importado via LEGACY ja como SUSPENSO.${observation}`;
+  }
+
+  private legacyTerminationJustification(item: LegacyPreviewItem) {
+    const reason = item.legacyTerminationReason
+      ? ` Motivo legado: ${item.legacyTerminationReason.legacyLabel}.`
+      : "";
+    const observation = item.observation
+      ? ` Observacao legado: ${item.observation}`
+      : "";
+    return `Academico importado via LEGACY ja como DESLIGADO.${reason}${observation}`;
   }
 
   private validateFinancialFileMetadata(body: AnalyzeLegacyFinancialImportDto) {
@@ -1504,6 +1538,7 @@ export class LegacyImportService {
   }
 
   private resolveLegacyStudentStatus(value: number | null) {
+    if (value === LEGACY_TERMINATED_STATUS) return StudentStatus.TERMINATED;
     if (value === 1) return StudentStatus.ACTIVE;
     if (value === LEGACY_PENDING_REENROLLMENT_STATUS) return StudentStatus.ACTIVE;
     if (value === 7) return StudentStatus.SUSPENDED;
@@ -1511,7 +1546,7 @@ export class LegacyImportService {
   }
 
   private createsDestinationEnrollment(record: { statusRaw: number | null }) {
-    return record.statusRaw !== LEGACY_PENDING_REENROLLMENT_STATUS;
+    return !this.usesLegacyHistoricalEnrollment(record);
   }
 
   private createsEnrollment(record: { destinationStatus: StudentStatus | null }) {
@@ -1523,9 +1558,14 @@ export class LegacyImportService {
     destinationAcademicYear: number;
     statusRaw: number | null;
   }) {
-    return record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+    return this.usesLegacyHistoricalEnrollment(record)
       ? record.legacyCreatedYear
       : record.destinationAcademicYear;
+  }
+
+  private usesLegacyHistoricalEnrollment(record: { statusRaw: number | null }) {
+    return record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS ||
+      record.statusRaw === LEGACY_TERMINATED_STATUS;
   }
 
   private legacyStudentStatusLabel(value: number | null) {
@@ -1534,6 +1574,42 @@ export class LegacyImportService {
     if (value === 0) return "Desligado";
     if (value === LEGACY_PENDING_REENROLLMENT_STATUS) return "Nao renovou / atualizar cadastro";
     return value === null ? "Nao informado" : `Status ${value}`;
+  }
+
+  private resolveLegacyTerminationReason(value: number | null): LegacyTerminationReason | null {
+    if (value === null) {
+      return {
+        code: null,
+        legacyLabel: "Nao informado",
+        destination: StudentTerminationReason.UNSPECIFIED,
+      };
+    }
+    if (value === 1) {
+      return {
+        code: value,
+        legacyLabel: "Desistencia",
+        destination: StudentTerminationReason.WITHDRAWAL,
+      };
+    }
+    if (value === 2) {
+      return {
+        code: value,
+        legacyLabel: "Termino do curso",
+        destination: StudentTerminationReason.COURSE_COMPLETION,
+      };
+    }
+    if (value === 3) {
+      return {
+        code: value,
+        legacyLabel: "Inadimplencia",
+        destination: StudentTerminationReason.NON_PAYMENT,
+      };
+    }
+    return {
+      code: value,
+      legacyLabel: `Motivo ${value}`,
+      destination: null,
+    };
   }
 
   private parseMoneyCents(value: unknown) {
@@ -1588,11 +1664,16 @@ export class LegacyImportService {
     const observation = this.cleanSpaces(this.asString(record.observacao));
     const legacyCreatedYear = Number(this.asString(record.criado));
     const statusRaw = this.parseInteger(record.status);
+    const terminationReasonRaw = this.parseInteger(record.motivo);
     return {
       index,
       legacyId,
       statusRaw,
       destinationStatus: this.resolveLegacyStudentStatus(statusRaw),
+      legacyTerminationReason:
+        statusRaw === LEGACY_TERMINATED_STATUS
+          ? this.resolveLegacyTerminationReason(terminationReasonRaw)
+          : null,
       boardRaw: Number(this.asString(record.chapa)),
       cpf,
       birthDate,
@@ -1704,6 +1785,12 @@ export class LegacyImportService {
       block("legacy_id duplicado dentro do JSON");
     }
     if (!record.destinationStatus) block(UNSUPPORTED_LEGACY_STATUS_MESSAGE);
+    if (
+      record.destinationStatus === StudentStatus.TERMINATED &&
+      !record.legacyTerminationReason?.destination
+    ) {
+      block("Motivo legado de desligamento desconhecido");
+    }
     if (record.boardRaw !== 0) block("Sprint nao importa diretoria chapa = 1");
     if (!record.cpf) block("CPF obrigatorio");
     else if (!isValidCpf(record.cpf)) block("CPF invalido");
@@ -1808,7 +1895,7 @@ export class LegacyImportService {
       pending("Capacidade do onibus legado diverge do ATRETU");
     }
     const academicYear = enrollmentAcademicYearValue
-      ? record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+      ? this.usesLegacyHistoricalEnrollment(record)
         ? context.academicYears.get(enrollmentAcademicYearValue) ?? null
         : context.activeAcademicYears.get(enrollmentAcademicYearValue) ?? null
       : null;
@@ -1825,17 +1912,17 @@ export class LegacyImportService {
       : {
           legacyName: enrollmentAcademicYearValue ? String(enrollmentAcademicYearValue) : null,
           status: "BLOCKED",
-          message: record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+          message: this.usesLegacyHistoricalEnrollment(record)
             ? "Ano letivo historico do legado nao existe no ATRETU"
             : "Ano letivo nao possui correspondencia ativa",
           resolved: null,
           willCreate: false,
     };
-    if (record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS && !enrollmentAcademicYearValue) {
-      block("Ano da ultima matricula legado obrigatorio para status 3");
+    if (this.usesLegacyHistoricalEnrollment(record) && !enrollmentAcademicYearValue) {
+      block("Ano da ultima matricula legado obrigatorio para preservacao historica");
     } else if (!academicYear) {
       block(
-        record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+        this.usesLegacyHistoricalEnrollment(record)
           ? "Ano letivo historico do legado nao existe no ATRETU"
           : "Ano letivo nao possui correspondencia ativa",
       );
@@ -1852,7 +1939,7 @@ export class LegacyImportService {
       pending("Numero de carteirinha legado conflita no ATRETU");
     }
     if (
-      record.statusRaw !== LEGACY_PENDING_REENROLLMENT_STATUS &&
+      !this.usesLegacyHistoricalEnrollment(record) &&
       record.observation &&
       SUSPICIOUS_OBSERVATION.test(record.observation)
     ) {
@@ -1861,6 +1948,11 @@ export class LegacyImportService {
     if (!createsDestinationEnrollment && record.destinationStatus === StudentStatus.ACTIVE) {
       reasons.push(
         "Academico cadastrado como ativo com ultima matricula legado preservada; rematricula destino pendente. Carteirinha e onibus destino nao serao criados na importacao",
+      );
+    }
+    if (record.destinationStatus === StudentStatus.TERMINATED) {
+      reasons.push(
+        "Academico legado desligado; ultima matricula sera preservada sem matricula destino, carteirinha, onibus ou financeiro operacional",
       );
     }
     if (reasons.length === 0) reasons.push("Apto para importacao piloto");
@@ -1883,11 +1975,12 @@ export class LegacyImportService {
         code: record.statusRaw,
         label: this.legacyStudentStatusLabel(record.statusRaw),
       },
+      legacyTerminationReason: record.legacyTerminationReason,
       destinationStatus: record.destinationStatus,
       legacyCreatedYear: record.legacyCreatedYear,
       destinationAcademicYear: record.destinationAcademicYear,
       preservedEnrollmentAcademicYear:
-        record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+        this.usesLegacyHistoricalEnrollment(record)
           ? enrollmentAcademicYearValue
           : null,
       institutionLegacy: record.institutionRaw,
@@ -1911,7 +2004,9 @@ export class LegacyImportService {
           createsDestinationEnrollment && record.destinationStatus === StudentStatus.ACTIVE,
         reason:
           !createsDestinationEnrollment
-            ? "Nao sera emitida enquanto nao houver renovacao"
+            ? record.destinationStatus === StudentStatus.TERMINATED
+              ? "Academico desligado nao recebe carteirinha ATRETU na importacao"
+              : "Nao sera emitida enquanto nao houver renovacao"
             : record.destinationStatus === StudentStatus.SUSPENDED
             ? "Academico suspenso nao recebe carteirinha ATRETU ativa na importacao"
             : "Importacao piloto gera numero ATRETU para preservar a sequencia anual",

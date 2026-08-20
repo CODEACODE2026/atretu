@@ -176,7 +176,9 @@ enum StudentSuspensionReason {
 
 enum StudentTerminationReason {
   WITHDRAWAL
+  COURSE_COMPLETION
   NON_PAYMENT
+  UNSPECIFIED
 }
 
 enum BoardMembershipStatus {

@@ -75,6 +75,8 @@ export function translateReason(reason: string) {
     NON_PAYMENT: "Inadimplencia",
     INFRACTION: "Infracao",
     WITHDRAWAL: "Desistencia",
+    COURSE_COMPLETION: "Termino do curso",
+    UNSPECIFIED: "Nao informado no legado",
     MANUAL_CORRECTION: "Correcao administrativa",
     DUPLICATE: "Registro duplicado",
     OTHER: "Outro motivo",

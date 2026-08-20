@@ -445,7 +445,9 @@ export enum SuspensionReasonDto {
 
 export enum TerminationReasonDto {
   WITHDRAWAL = "WITHDRAWAL",
+  COURSE_COMPLETION = "COURSE_COMPLETION",
   NON_PAYMENT = "NON_PAYMENT",
+  UNSPECIFIED = "UNSPECIFIED",
 }
 
 export class SuspendStudentDto {

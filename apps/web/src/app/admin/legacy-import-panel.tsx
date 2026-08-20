@@ -1006,6 +1006,7 @@ function AcademicPreviewCard({
 }) {
   const canSelect = item.legacyId !== null && item.canImport;
   const pendingReenrollment = item.legacyStatus.code === 3;
+  const legacyTerminated = item.legacyStatus.code === 0;
   return (
     <article
       className={cx(
@@ -1047,9 +1048,16 @@ function AcademicPreviewCard({
         <Info label={pendingReenrollment ? "Onibus legado" : "Onibus"} value={formatBusRelation(item.relations.bus)} />
         <Info label="Status legado" value={formatLegacyStudentStatus(item)} />
         <Info label="Status destino" value={formatDestinationStudentStatus(item.destinationStatus)} />
-        {pendingReenrollment ? (
+        {pendingReenrollment || legacyTerminated ? (
           <>
-            <Info label="Situacao destino" value="Academico cadastrado - aguardando renovacao" />
+            <Info
+              label="Situacao destino"
+              value={
+                legacyTerminated
+                  ? "Academico desligado - preservacao historica"
+                  : "Academico cadastrado - aguardando renovacao"
+              }
+            />
             <Info
               label="Ultima matricula legado"
               value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"}
@@ -1060,18 +1068,34 @@ function AcademicPreviewCard({
             />
             <Info
               label="Rematricula destino"
-              value={`${item.destinationAcademicYear} - pendente`}
+              value={legacyTerminated ? "Nao se aplica" : `${item.destinationAcademicYear} - pendente`}
             />
-            <Info label="Carteirinha ATRETU" value="Nao sera emitida enquanto nao houver renovacao" />
-            <Info label="Onibus destino" value="Nao sera vinculado enquanto nao houver renovacao" />
+            {legacyTerminated ? (
+              <>
+                <Info label="Motivo legado" value={formatLegacyTerminationReason(item)} />
+                <Info label="Motivo destino" value={formatDestinationTerminationReason(item)} />
+              </>
+            ) : null}
+            <Info
+              label="Carteirinha ATRETU"
+              value={
+                legacyTerminated
+                  ? item.card.reason
+                  : "Nao sera emitida enquanto nao houver renovacao"
+              }
+            />
+            <Info
+              label="Onibus destino"
+              value={legacyTerminated ? "Nao sera vinculado" : "Nao sera vinculado enquanto nao houver renovacao"}
+            />
           </>
         ) : null}
         <Info label="Carteirinha legado" value={item.legacyCardNumber ?? "-"} />
-        {!pendingReenrollment ? (
+        {!pendingReenrollment && !legacyTerminated ? (
           <Info label="Carteirinha ATRETU" value={item.card.reason} />
         ) : null}
         <Info label="Observacao" value={item.observation ?? "-"} />
-        {!pendingReenrollment ? (
+        {!pendingReenrollment && !legacyTerminated ? (
           <>
             <Info label="Ano cadastro legado" value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"} />
             <Info label="Ano letivo destino" value={formatRelation(item.relations.academicYear)} />
@@ -1219,6 +1243,21 @@ function formatDestinationStudentStatus(status: LegacyAcademicPreviewItem["desti
     TERMINATED: "Desligado",
   };
   return status ? labels[status] ?? status : "-";
+}
+
+function formatLegacyTerminationReason(item: LegacyAcademicPreviewItem) {
+  const reason = item.legacyTerminationReason;
+  if (!reason) return "-";
+  return reason.code === null ? reason.legacyLabel : `${reason.legacyLabel} (${reason.code})`;
+}
+
+function formatDestinationTerminationReason(item: LegacyAcademicPreviewItem) {
+  const reason = item.legacyTerminationReason?.destination;
+  if (!reason) return "Nao informado";
+  if (reason === "WITHDRAWAL") return "Desistencia";
+  if (reason === "COURSE_COMPLETION") return "Termino do curso";
+  if (reason === "UNSPECIFIED") return "Nao informado no legado";
+  return "Inadimplencia";
 }
 
 function legacyFinancialStatusLabel(status: string) {

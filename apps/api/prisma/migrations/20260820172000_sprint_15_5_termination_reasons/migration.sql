@@ -1,0 +1,2 @@
+ALTER TYPE "StudentTerminationReason" ADD VALUE 'COURSE_COMPLETION';
+ALTER TYPE "StudentTerminationReason" ADD VALUE 'UNSPECIFIED';

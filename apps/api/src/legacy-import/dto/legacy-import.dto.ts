@@ -61,6 +61,9 @@ export class LegacyAcademicRawRecordDto {
   status?: unknown;
 
   @IsOptional()
+  motivo?: unknown;
+
+  @IsOptional()
   chapa?: unknown;
 
   @IsOptional()

@@ -179,7 +179,7 @@ export function StudentActionDialog({
         await onDone("Academico reativado.");
       } else if (action === "terminate") {
         await api.terminateStudent(student.id, {
-          terminationReason: reason as "WITHDRAWAL" | "NON_PAYMENT",
+          terminationReason: reason as "WITHDRAWAL" | "COURSE_COMPLETION" | "NON_PAYMENT" | "UNSPECIFIED",
           justification: justification.trim(),
         });
         await onDone("Academico desligado.");
@@ -287,6 +287,7 @@ export function StudentActionDialog({
                 onChange={setReason}
                 options={[
                   { label: "Desistencia", value: "WITHDRAWAL" },
+                  { label: "Termino do curso", value: "COURSE_COMPLETION" },
                   { label: "Inadimplencia", value: "NON_PAYMENT" },
                 ]}
                 required

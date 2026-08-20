@@ -263,7 +263,10 @@ export function reasonLabel(
 export function terminationLabel(
   reason: NonNullable<StudentHistoryEvent["terminationReason"]>,
 ) {
-  return reason === "WITHDRAWAL" ? "Desistencia" : "Inadimplencia";
+  if (reason === "WITHDRAWAL") return "Desistencia";
+  if (reason === "COURSE_COMPLETION") return "Termino do curso";
+  if (reason === "UNSPECIFIED") return "Nao informado no legado";
+  return "Inadimplencia";
 }
 
 function boardMemberRoleLabel(role: NonNullable<StudentHistoryEvent["boardMembership"]>["role"]) {
