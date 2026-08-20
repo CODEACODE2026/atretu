@@ -438,6 +438,12 @@ export type LegacyAcademicPreviewItem = {
     legacyLabel: string;
     destination: "WITHDRAWAL" | "COURSE_COMPLETION" | "NON_PAYMENT" | "UNSPECIFIED" | null;
   } | null;
+  legacyBoardMembership: {
+    legacyValue: number | null;
+    isBoardMember: boolean;
+    destination: "BOARD_MEMBERSHIP" | null;
+    roleLabel: string;
+  };
   destinationStatus: StudentStatus | null;
   legacyCreatedYear: number | null;
   destinationAcademicYear: number;

@@ -1007,6 +1007,7 @@ function AcademicPreviewCard({
   const canSelect = item.legacyId !== null && item.canImport;
   const pendingReenrollment = item.legacyStatus.code === 3;
   const legacyTerminated = item.legacyStatus.code === 0;
+  const legacyBoardMember = item.legacyBoardMembership.isBoardMember;
   return (
     <article
       className={cx(
@@ -1048,6 +1049,14 @@ function AcademicPreviewCard({
         <Info label={pendingReenrollment ? "Onibus legado" : "Onibus"} value={formatBusRelation(item.relations.bus)} />
         <Info label="Status legado" value={formatLegacyStudentStatus(item)} />
         <Info label="Status destino" value={formatDestinationStudentStatus(item.destinationStatus)} />
+        <Info label="Diretoria" value={legacyBoardMember ? "Sim" : "Nao"} />
+        <Info
+          label="Vinculo destino"
+          value={legacyBoardMember ? "Integrante da Diretoria" : "Academico"}
+        />
+        {legacyBoardMember ? (
+          <Info label="Cargo" value={item.legacyBoardMembership.roleLabel} />
+        ) : null}
         {pendingReenrollment || legacyTerminated ? (
           <>
             <Info

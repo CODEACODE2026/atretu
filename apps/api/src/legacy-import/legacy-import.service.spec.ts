@@ -203,8 +203,74 @@ const readyPreview = await service.analyzeAcademicImport({
 });
 assert.equal(readyPreview.items[0]?.status, "PRONTO");
 assert.equal(readyPreview.items[0]?.canImport, true);
+assert.deepEqual(readyPreview.items[0]?.legacyBoardMembership, {
+  legacyValue: 0,
+  isBoardMember: false,
+  destination: null,
+  roleLabel: "-",
+});
 assert.equal(readyPreview.limits.maxRecordsPerBatch, 500);
 assert.equal(readyPreview.limits.chunkSize, 25);
+
+const boardMemberPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "diretoria.json",
+  records: [record({ legacy_id: 976, cpf: "390.533.447-05", chapa: 1 })],
+});
+assert.equal(boardMemberPreview.items[0]?.status, "PRONTO");
+assert.equal(boardMemberPreview.items[0]?.canImport, true);
+assert.equal(boardMemberPreview.items[0]?.destinationStatus, "ACTIVE");
+assert.deepEqual(boardMemberPreview.items[0]?.legacyBoardMembership, {
+  legacyValue: 1,
+  isBoardMember: true,
+  destination: "BOARD_MEMBERSHIP",
+  roleLabel: "Nao informado no legado",
+});
+assert(
+  boardMemberPreview.items[0]?.reasons.includes(
+    "Academico legado marcado como Diretoria; sera importado normalmente e vinculado a Diretoria sem cargo informado no legado",
+  ),
+);
+
+const cibelePreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "cibele.json",
+  records: [
+    record({
+      legacy_id: 1101,
+      cpf: "390.533.447-05",
+      chapa: 1,
+      nome_instituicao: "",
+      nome_turno: "",
+      nome_onibus: "Onibus inexistente",
+      capacidade_onibus: null,
+    }),
+  ],
+});
+assert.equal(cibelePreview.items[0]?.status, "BLOQUEADO");
+assert.equal(cibelePreview.items[0]?.canImport, false);
+assert.deepEqual(cibelePreview.items[0]?.reasons, [
+  "Registro separado para tratamento administrativo/usuario interno; nao importar como academico nesta etapa.",
+]);
+assert.deepEqual(cibelePreview.items[0]?.legacyBoardMembership, {
+  legacyValue: 1,
+  isBoardMember: false,
+  destination: null,
+  roleLabel: "-",
+});
+
+const unsupportedBoardFlagPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "chapa-desconhecida.json",
+  records: [record({ legacy_id: 977, cpf: "390.533.447-05", chapa: 2 })],
+});
+assert.equal(unsupportedBoardFlagPreview.items[0]?.status, "BLOQUEADO");
+assert.equal(unsupportedBoardFlagPreview.items[0]?.canImport, false);
+assert(
+  unsupportedBoardFlagPreview.items[0]?.reasons.includes(
+    "Valor legado de chapa nao suportado",
+  ),
+);
 
 const suspendedPreview = await service.analyzeAcademicImport({
   destinationAcademicYear: 2026,
@@ -798,6 +864,12 @@ assert.match(serviceSource, /createsDestinationEnrollment &&\s*enrollment &&\s*b
 assert.match(serviceSource, /studentCardId:\s+cardData\.id/);
 assert.match(serviceSource, /previousCardSequenceNumber:\s+cardData\.previousCardSequenceNumber/);
 assert.match(serviceSource, /generatedCardNumber:\s+cardData\.cardNumber/);
+assert.match(serviceSource, /LEGACY_ADMINISTRATIVE_EXCLUDED_IDS = new Set\(\[1101\]\)/);
+assert.match(serviceSource, /LEGACY_BOARD_MEMBERSHIP_START_NOTE/);
+assert.match(serviceSource, /tx\.boardMembership\.create/);
+assert.match(serviceSource, /eventType:\s+StudentHistoryEventType\.BOARD_MEMBERSHIP_STARTED/);
+assert.match(serviceSource, /legacyBoardMembership:\s+item\.legacyBoardMembership/);
+assert.match(serviceSource, /tx\.boardMembership\.deleteMany/);
 assert.match(serviceSource, /invoiceCreated:\s+false/);
 assert.match(serviceSource, /bankSlipCreated:\s+false/);
 assert.match(serviceSource, /collectionCreated:\s+false/);

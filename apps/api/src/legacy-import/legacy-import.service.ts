@@ -20,6 +20,7 @@ import {
   StudentHistoryEventType,
   StudentStatus,
   StudentTerminationReason,
+  BoardMembershipStatus,
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -48,6 +49,12 @@ type LegacyTerminationReason = {
   legacyLabel: string;
   destination: StudentTerminationReason | null;
 };
+type LegacyBoardMembershipPreview = {
+  legacyValue: number | null;
+  isBoardMember: boolean;
+  destination: "BOARD_MEMBERSHIP" | null;
+  roleLabel: string;
+};
 type LegacyRelationPreview = {
   legacyName: string | null;
   status: RelationState;
@@ -67,6 +74,7 @@ type LegacyPreviewItem = {
   cpfMasked: string;
   legacyStatus: { code: number | null; label: string };
   legacyTerminationReason: LegacyTerminationReason | null;
+  legacyBoardMembership: LegacyBoardMembershipPreview;
   destinationStatus: StudentStatus | null;
   legacyCreatedYear: number | null;
   destinationAcademicYear: number;
@@ -111,6 +119,12 @@ const IMPORT_CHUNK_SIZE = 25;
 const UNSUPPORTED_LEGACY_STATUS_MESSAGE = "status legado ainda nao suportado";
 const LEGACY_TERMINATED_STATUS = 0;
 const LEGACY_PENDING_REENROLLMENT_STATUS = 3;
+const LEGACY_BOARD_MEMBER_FLAG = 1;
+const LEGACY_ADMINISTRATIVE_EXCLUDED_IDS = new Set([1101]);
+const LEGACY_ADMINISTRATIVE_EXCLUDED_REASON =
+  "Registro separado para tratamento administrativo/usuario interno; nao importar como academico nesta etapa.";
+const LEGACY_BOARD_MEMBERSHIP_START_NOTE =
+  "Vinculo criado pela importacao legado: chapa = 1";
 const SUSPICIOUS_OBSERVATION = /\b(deslig\w*|mudan\w*|transfer\w*|cancel\w*|inativ\w*|suspend\w*|tranc\w*|fora|saiu)\b/i;
 const LEGACY_FINANCIAL_STATUS_MAP = {
   PAGO: 0,
@@ -941,7 +955,11 @@ export class LegacyImportService {
         sequenceNumber: number;
       }> = [];
       for (const record of batch.students) {
-        await this.assertRollbackSafe(tx, record.studentId);
+        const boardMembershipIds = await this.legacyBoardMembershipIdsForRollback(
+          tx,
+          record.studentId,
+        );
+        await this.assertRollbackSafe(tx, record.studentId, boardMembershipIds);
         const card = record.studentCardId
           ? await tx.studentCard.findUnique({
               where: { id: record.studentCardId },
@@ -960,10 +978,18 @@ export class LegacyImportService {
           { studentId: record.studentId },
           ...(record.studentCardId ? [{ studentCardId: record.studentCardId }] : []),
           ...(record.busAssignmentId ? [{ busAssignmentId: record.busAssignmentId }] : []),
+          ...(boardMembershipIds.length > 0
+            ? [{ boardMembershipId: { in: boardMembershipIds } }]
+            : []),
         ];
         await tx.studentHistoryEvent.deleteMany({
           where: { OR: historyFilters },
         });
+        if (boardMembershipIds.length > 0) {
+          await tx.boardMembership.deleteMany({
+            where: { id: { in: boardMembershipIds } },
+          });
+        }
         if (record.busAssignmentId) {
           await tx.busAssignmentEvent.deleteMany({
             where: { busAssignmentId: record.busAssignmentId },
@@ -998,6 +1024,11 @@ export class LegacyImportService {
               domain: "students",
               recordId: { in: importedStudentIds },
               eventType: AdministrativeAuditEventType.LEGACY_STUDENT_IMPORTED,
+            },
+            {
+              domain: "board_memberships",
+              eventType: AdministrativeAuditEventType.BOARD_MEMBERSHIP_STARTED,
+              metadata: { path: ["batchId"], equals: batch.id },
             },
           ],
         },
@@ -1170,6 +1201,45 @@ export class LegacyImportService {
               cardNumber: null,
               previousCardSequenceNumber: null,
           };
+      const boardMembership = item.legacyBoardMembership.isBoardMember
+        ? await tx.boardMembership.create({
+            data: {
+              studentId: student.id,
+              role: null,
+              startedByUserId: userId,
+              startNote: LEGACY_BOARD_MEMBERSHIP_START_NOTE,
+            },
+          })
+        : null;
+      if (boardMembership) {
+        await tx.studentHistoryEvent.create({
+          data: {
+            studentId: student.id,
+            eventType: StudentHistoryEventType.BOARD_MEMBERSHIP_STARTED,
+            boardMembershipId: boardMembership.id,
+            justification: LEGACY_BOARD_MEMBERSHIP_START_NOTE,
+            performedByUserId: userId,
+          },
+        });
+        await tx.administrativeAuditLog.create({
+          data: {
+            eventType: AdministrativeAuditEventType.BOARD_MEMBERSHIP_STARTED,
+            domain: "board_memberships",
+            recordId: boardMembership.id,
+            userId,
+            metadata: {
+              source: SOURCE,
+              legacyTable: LEGACY_TABLE,
+              legacyId,
+              batchId,
+              studentId: student.id,
+              boardMembershipId: boardMembership.id,
+              role: "UNDEFINED",
+              action: "started_by_legacy_import",
+            },
+          },
+        });
+      }
       if (item.normalized.destinationStatus === StudentStatus.SUSPENDED) {
         await tx.studentHistoryEvent.create({
           data: {
@@ -1236,6 +1306,9 @@ export class LegacyImportService {
             legacyStatus: item.legacyStatus.code,
             studentStatus: item.normalized.destinationStatus,
             legacyTerminationReason: item.legacyTerminationReason,
+            legacyBoardMembership: item.legacyBoardMembership,
+            boardMembershipId: boardMembership?.id ?? null,
+            boardMembershipCreated: Boolean(boardMembership),
             enrollmentCreated: Boolean(enrollment),
             destinationEnrollmentCreated: createsDestinationEnrollment && Boolean(enrollment),
             busAssignmentCreated: Boolean(busAssignmentId),
@@ -1674,7 +1747,7 @@ export class LegacyImportService {
         statusRaw === LEGACY_TERMINATED_STATUS
           ? this.resolveLegacyTerminationReason(terminationReasonRaw)
           : null,
-      boardRaw: Number(this.asString(record.chapa)),
+      boardRaw: this.parseInteger(record.chapa) ?? 0,
       cpf,
       birthDate,
       joinedAt,
@@ -1785,20 +1858,33 @@ export class LegacyImportService {
       block("legacy_id duplicado dentro do JSON");
     }
     if (!record.destinationStatus) block(UNSUPPORTED_LEGACY_STATUS_MESSAGE);
+    const isAdministrativeExcluded =
+      record.legacyId !== null && LEGACY_ADMINISTRATIVE_EXCLUDED_IDS.has(record.legacyId);
+    if (isAdministrativeExcluded) block(LEGACY_ADMINISTRATIVE_EXCLUDED_REASON);
     if (
       record.destinationStatus === StudentStatus.TERMINATED &&
       !record.legacyTerminationReason?.destination
     ) {
       block("Motivo legado de desligamento desconhecido");
     }
-    if (record.boardRaw !== 0) block("Sprint nao importa diretoria chapa = 1");
-    if (!record.cpf) block("CPF obrigatorio");
-    else if (!isValidCpf(record.cpf)) block("CPF invalido");
-    else if (context.existingCpfs.has(record.cpf)) block("CPF ja existente no ATRETU");
-    else if (duplicateCpfs.has(record.cpf)) block("CPF duplicado dentro do JSON");
-    if (!record.birthDate) block("Nascimento DD/MM/YYYY invalido");
-    if (!record.fullName) block("Nome obrigatorio");
-    if (!record.addressStreet) block("Endereco legado ausente");
+    if (!isAdministrativeExcluded) {
+      if (record.boardRaw === LEGACY_BOARD_MEMBER_FLAG) {
+        if (record.statusRaw !== 1) {
+          block("Diretoria legado chapa = 1 suportada somente para status 1");
+        }
+      } else if (record.boardRaw !== 0) {
+        block("Valor legado de chapa nao suportado");
+      }
+    }
+    if (!isAdministrativeExcluded) {
+      if (!record.cpf) block("CPF obrigatorio");
+      else if (!isValidCpf(record.cpf)) block("CPF invalido");
+      else if (context.existingCpfs.has(record.cpf)) block("CPF ja existente no ATRETU");
+      else if (duplicateCpfs.has(record.cpf)) block("CPF duplicado dentro do JSON");
+      if (!record.birthDate) block("Nascimento DD/MM/YYYY invalido");
+      if (!record.fullName) block("Nome obrigatorio");
+      if (!record.addressStreet) block("Endereco legado ausente");
+    }
     const institution = context.institutions.get(record.institutionKey) ?? null;
     const institutionRelation: LegacyRelationPreview = institution
       ? {
@@ -1821,7 +1907,7 @@ export class LegacyImportService {
           resolved: null,
           willCreate: createsEnrollment && Boolean(record.institutionRaw),
         };
-    if (createsEnrollment) {
+    if (!isAdministrativeExcluded && createsEnrollment) {
       if (!record.institutionRaw) block("Instituicao obrigatoria ausente no legado");
       else if (!institution) pending("Instituicao nao existe no ATRETU; sera criada ao importar");
     }
@@ -1848,7 +1934,7 @@ export class LegacyImportService {
           resolved: null,
           willCreate: createsEnrollment && Boolean(record.shiftRaw),
         };
-    if (createsEnrollment) {
+    if (!isAdministrativeExcluded && createsEnrollment) {
       if (!record.shiftRaw) block("Turno obrigatorio ausente no legado");
       else if (!shift) pending("Turno nao existe no ATRETU; sera criado ao importar");
     }
@@ -1881,12 +1967,18 @@ export class LegacyImportService {
         legacyCapacity: hasValidBusCapacity ? record.busCapacity : null,
         resolvedCapacity: null,
       };
-      if (createsDestinationEnrollment) {
+      if (!isAdministrativeExcluded && createsDestinationEnrollment) {
         if (hasValidBusCapacity) pending("Onibus nao existe no ATRETU; sera criado ao importar");
         else block("Onibus nao existe no ATRETU e capacidade legada e invalida");
       }
     }
-    if (createsDestinationEnrollment && bus && hasValidBusCapacity && bus.capacity !== record.busCapacity) {
+    if (
+      !isAdministrativeExcluded &&
+      createsDestinationEnrollment &&
+      bus &&
+      hasValidBusCapacity &&
+      bus.capacity !== record.busCapacity
+    ) {
       busRelation = {
         ...busRelation,
         status: "DIVERGENCE",
@@ -1918,7 +2010,9 @@ export class LegacyImportService {
           resolved: null,
           willCreate: false,
     };
-    if (this.usesLegacyHistoricalEnrollment(record) && !enrollmentAcademicYearValue) {
+    if (isAdministrativeExcluded) {
+      // Cibele fica visivel no preview como bloqueada, sem depender de cadastros-base.
+    } else if (this.usesLegacyHistoricalEnrollment(record) && !enrollmentAcademicYearValue) {
       block("Ano da ultima matricula legado obrigatorio para preservacao historica");
     } else if (!academicYear) {
       block(
@@ -1927,11 +2021,14 @@ export class LegacyImportService {
           : "Ano letivo nao possui correspondencia ativa",
       );
     }
-    if (!destinationAcademicYear) block("Ano letivo destino nao possui correspondencia ativa");
-    if (createsEnrollment && (!record.course || !record.grade)) {
+    if (!isAdministrativeExcluded && !destinationAcademicYear) {
+      block("Ano letivo destino nao possui correspondencia ativa");
+    }
+    if (!isAdministrativeExcluded && createsEnrollment && (!record.course || !record.grade)) {
       block("Curso/serie obrigatorios");
     }
     if (
+      !isAdministrativeExcluded &&
       createsDestinationEnrollment &&
       record.legacyCardNumber &&
       context.cards.has(record.legacyCardNumber)
@@ -1939,6 +2036,7 @@ export class LegacyImportService {
       pending("Numero de carteirinha legado conflita no ATRETU");
     }
     if (
+      !isAdministrativeExcluded &&
       !this.usesLegacyHistoricalEnrollment(record) &&
       record.observation &&
       SUSPICIOUS_OBSERVATION.test(record.observation)
@@ -1953,6 +2051,11 @@ export class LegacyImportService {
     if (record.destinationStatus === StudentStatus.TERMINATED) {
       reasons.push(
         "Academico legado desligado; ultima matricula sera preservada sem matricula destino, carteirinha, onibus ou financeiro operacional",
+      );
+    }
+    if (record.boardRaw === LEGACY_BOARD_MEMBER_FLAG && !isAdministrativeExcluded) {
+      reasons.push(
+        "Academico legado marcado como Diretoria; sera importado normalmente e vinculado a Diretoria sem cargo informado no legado",
       );
     }
     if (reasons.length === 0) reasons.push("Apto para importacao piloto");
@@ -1976,6 +2079,18 @@ export class LegacyImportService {
         label: this.legacyStudentStatusLabel(record.statusRaw),
       },
       legacyTerminationReason: record.legacyTerminationReason,
+      legacyBoardMembership: {
+        legacyValue: record.boardRaw,
+        isBoardMember: record.boardRaw === LEGACY_BOARD_MEMBER_FLAG && !isAdministrativeExcluded,
+        destination:
+          record.boardRaw === LEGACY_BOARD_MEMBER_FLAG && !isAdministrativeExcluded
+            ? "BOARD_MEMBERSHIP"
+            : null,
+        roleLabel:
+          record.boardRaw === LEGACY_BOARD_MEMBER_FLAG && !isAdministrativeExcluded
+            ? "Nao informado no legado"
+            : "-",
+      },
       destinationStatus: record.destinationStatus,
       legacyCreatedYear: record.legacyCreatedYear,
       destinationAcademicYear: record.destinationAcademicYear,
@@ -2331,7 +2446,48 @@ export class LegacyImportService {
     return { previous, next };
   }
 
-  private async assertRollbackSafe(tx: Prisma.TransactionClient, studentId: string) {
+  private async legacyBoardMembershipIdsForRollback(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+  ) {
+    const memberships = await tx.boardMembership.findMany({
+      where: {
+        studentId,
+        startNote: LEGACY_BOARD_MEMBERSHIP_START_NOTE,
+      },
+      select: {
+        id: true,
+        status: true,
+        role: true,
+      },
+    });
+    const ids: string[] = [];
+    for (const membership of memberships) {
+      const history = await tx.studentHistoryEvent.findFirst({
+        where: {
+          studentId,
+          boardMembershipId: membership.id,
+          eventType: StudentHistoryEventType.BOARD_MEMBERSHIP_STARTED,
+          justification: LEGACY_BOARD_MEMBERSHIP_START_NOTE,
+        },
+        select: { id: true },
+      });
+      if (
+        history &&
+        membership.status === BoardMembershipStatus.ACTIVE &&
+        membership.role === null
+      ) {
+        ids.push(membership.id);
+      }
+    }
+    return ids;
+  }
+
+  private async assertRollbackSafe(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+    allowedBoardMembershipIds: string[] = [],
+  ) {
     const student = await tx.student.findUnique({
       where: { id: studentId },
       include: {
@@ -2348,12 +2504,20 @@ export class LegacyImportService {
       },
     });
     if (!student) return;
+    const externalBoardMemberships = await tx.boardMembership.count({
+      where: {
+        studentId,
+        ...(allowedBoardMembershipIds.length > 0
+          ? { id: { notIn: allowedBoardMembershipIds } }
+          : {}),
+      },
+    });
     const counts = student._count;
     const hasExternalData =
       counts.documents > 0 ||
       counts.invoices > 0 ||
       counts.officialDocuments > 0 ||
-      counts.boardMemberships > 0 ||
+      externalBoardMemberships > 0 ||
       counts.manualFinancialMovements > 0 ||
       counts.approvedPreRegistrations > 0;
     if (hasExternalData) {
