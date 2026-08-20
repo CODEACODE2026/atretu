@@ -81,6 +81,7 @@ type LegacyPreviewItem = {
   };
   observation: string | null;
   academicYear: { id: string; year: number } | null;
+  preservedEnrollmentAcademicYear: number | null;
   relations: {
     institution: LegacyRelationPreview;
     shift: LegacyRelationPreview;
@@ -1068,8 +1069,9 @@ export class LegacyImportService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.ensureLegacyNotImported(tx, legacyId);
+      const createsEnrollment = this.createsEnrollment(item.normalized);
       const createsDestinationEnrollment = this.createsDestinationEnrollment(item.normalized);
-      const baseRecords = createsDestinationEnrollment
+      const baseRecords = createsEnrollment
         ? await this.resolveBaseRecordsForImport(
             tx,
             item,
@@ -1110,9 +1112,21 @@ export class LegacyImportService {
               status: EnrollmentStatus.ACTIVE,
             },
           })
-        : null;
+        : createsEnrollment
+          ? await tx.enrollment.create({
+              data: {
+                studentId: student.id,
+                academicYearId: item.academicYear.id,
+                institutionId: baseRecords!.institution.id,
+                shiftId: baseRecords!.shift.id,
+                course: item.normalized.course,
+                grade: item.normalized.grade,
+                status: EnrollmentStatus.ACTIVE,
+              },
+            })
+          : null;
       let busAssignmentId: string | null = null;
-      if (enrollment && baseRecords?.bus) {
+      if (createsDestinationEnrollment && enrollment && baseRecords?.bus) {
         const assignment = await tx.busAssignment.create({
           data: {
             enrollmentId: enrollment.id,
@@ -1133,7 +1147,9 @@ export class LegacyImportService {
         });
       }
       const cardData =
-        enrollment && item.normalized.destinationStatus === StudentStatus.ACTIVE
+        createsDestinationEnrollment &&
+        enrollment &&
+        item.normalized.destinationStatus === StudentStatus.ACTIVE
           ? await this.createLegacyStudentCard(tx, {
               academicYearId: item.academicYear.id,
               academicYear: item.academicYear.year,
@@ -1191,10 +1207,13 @@ export class LegacyImportService {
             cardNumber: cardData.cardNumber,
             legacyCardNumber: item.legacyCardNumber,
             legacyCreatedYear: item.normalized.legacyCreatedYear,
-            destinationAcademicYear: item.academicYear.year,
+            destinationAcademicYear: item.normalized.destinationAcademicYear,
+            enrollmentAcademicYear: item.academicYear.year,
+            requestedDestinationAcademicYear: item.normalized.destinationAcademicYear,
             legacyStatus: item.legacyStatus.code,
             studentStatus: item.normalized.destinationStatus,
             enrollmentCreated: Boolean(enrollment),
+            destinationEnrollmentCreated: createsDestinationEnrollment && Boolean(enrollment),
             busAssignmentCreated: Boolean(busAssignmentId),
             studentCardCreated: Boolean(cardData.id),
             previousCardSequenceNumber: cardData.previousCardSequenceNumber,
@@ -1495,6 +1514,20 @@ export class LegacyImportService {
     return record.statusRaw !== LEGACY_PENDING_REENROLLMENT_STATUS;
   }
 
+  private createsEnrollment(record: { destinationStatus: StudentStatus | null }) {
+    return record.destinationStatus !== null;
+  }
+
+  private enrollmentAcademicYear(record: {
+    legacyCreatedYear: number | null;
+    destinationAcademicYear: number;
+    statusRaw: number | null;
+  }) {
+    return record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+      ? record.legacyCreatedYear
+      : record.destinationAcademicYear;
+  }
+
   private legacyStudentStatusLabel(value: number | null) {
     if (value === 1) return "Ativo";
     if (value === 7) return "Suspenso";
@@ -1656,6 +1689,8 @@ export class LegacyImportService {
       reasons.push(reason);
     };
     const createsDestinationEnrollment = this.createsDestinationEnrollment(record);
+    const createsEnrollment = this.createsEnrollment(record);
+    const enrollmentAcademicYearValue = this.enrollmentAcademicYear(record);
 
     if (record.legacyId === null) block("legacy_id obrigatorio");
     if (record.legacyId !== null && context.imported.has(record.legacyId)) {
@@ -1685,18 +1720,18 @@ export class LegacyImportService {
         }
       : {
           legacyName: record.institutionRaw || null,
-          status: createsDestinationEnrollment
+          status: createsEnrollment
             ? record.institutionRaw ? "WILL_CREATE" : "BLOCKED"
             : "FOUND",
-          message: !createsDestinationEnrollment
-            ? "Referencia legado; cadastro-base nao sera criado sem renovacao"
+          message: !createsEnrollment
+            ? "Referencia legado; cadastro-base nao sera criado"
             : record.institutionRaw
             ? "NAO EXISTE NO ATRETU; sera criada ao importar"
             : "Instituicao obrigatoria ausente no legado",
           resolved: null,
-          willCreate: createsDestinationEnrollment && Boolean(record.institutionRaw),
+          willCreate: createsEnrollment && Boolean(record.institutionRaw),
         };
-    if (createsDestinationEnrollment) {
+    if (createsEnrollment) {
       if (!record.institutionRaw) block("Instituicao obrigatoria ausente no legado");
       else if (!institution) pending("Instituicao nao existe no ATRETU; sera criada ao importar");
     }
@@ -1712,18 +1747,18 @@ export class LegacyImportService {
         }
       : {
           legacyName: record.shiftRaw || null,
-          status: createsDestinationEnrollment
+          status: createsEnrollment
             ? record.shiftRaw ? "WILL_CREATE" : "BLOCKED"
             : "FOUND",
-          message: !createsDestinationEnrollment
-            ? "Referencia legado; turno nao sera criado sem renovacao"
+          message: !createsEnrollment
+            ? "Referencia legado; turno nao sera criado"
             : record.shiftRaw
             ? "NAO EXISTE NO ATRETU; sera criado ao importar"
             : "Turno obrigatorio ausente no legado",
           resolved: null,
-          willCreate: createsDestinationEnrollment && Boolean(record.shiftRaw),
+          willCreate: createsEnrollment && Boolean(record.shiftRaw),
         };
-    if (createsDestinationEnrollment) {
+    if (createsEnrollment) {
       if (!record.shiftRaw) block("Turno obrigatorio ausente no legado");
       else if (!shift) pending("Turno nao existe no ATRETU; sera criado ao importar");
     }
@@ -1747,7 +1782,7 @@ export class LegacyImportService {
           ? hasValidBusCapacity ? "WILL_CREATE" : "BLOCKED"
           : "FOUND",
         message: !createsDestinationEnrollment
-          ? "Referencia legado; onibus nao sera criado nem vinculado sem renovacao"
+          ? "Referencia legado; onibus nao sera criado nem vinculado na importacao"
           : hasValidBusCapacity
           ? `NAO EXISTE NO ATRETU; sera criado ao importar com capacidade ${record.busCapacity}`
           : "Onibus nao existe no ATRETU e capacidade legada e invalida",
@@ -1769,28 +1804,46 @@ export class LegacyImportService {
       };
       pending("Capacidade do onibus legado diverge do ATRETU");
     }
-    const academicYear =
+    const academicYear = enrollmentAcademicYearValue
+      ? context.academicYears.get(enrollmentAcademicYearValue) ?? null
+      : null;
+    const destinationAcademicYear =
       context.academicYears.get(record.destinationAcademicYear) ?? null;
     const academicYearRelation: LegacyRelationPreview = academicYear
       ? {
-          legacyName: String(record.destinationAcademicYear),
+          legacyName: String(enrollmentAcademicYearValue),
           status: "FOUND",
           message: "Encontrado no ATRETU",
           resolved: { id: academicYear.id, name: String(academicYear.year) },
           willCreate: false,
         }
       : {
-          legacyName: String(record.destinationAcademicYear),
+          legacyName: enrollmentAcademicYearValue ? String(enrollmentAcademicYearValue) : null,
           status: "BLOCKED",
-          message: "Ano letivo nao possui correspondencia ativa",
+          message: record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+            ? "Ano letivo da ultima matricula legado nao possui correspondencia ativa"
+            : "Ano letivo nao possui correspondencia ativa",
           resolved: null,
           willCreate: false,
     };
-    if (!academicYear) block("Ano letivo nao possui correspondencia ativa");
-    if (createsDestinationEnrollment && (!record.course || !record.grade)) {
+    if (record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS && !enrollmentAcademicYearValue) {
+      block("Ano da ultima matricula legado obrigatorio para status 3");
+    } else if (!academicYear) {
+      block(
+        record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+          ? "Ano letivo da ultima matricula legado nao possui correspondencia ativa"
+          : "Ano letivo nao possui correspondencia ativa",
+      );
+    }
+    if (!destinationAcademicYear) block("Ano letivo destino nao possui correspondencia ativa");
+    if (createsEnrollment && (!record.course || !record.grade)) {
       block("Curso/serie obrigatorios");
     }
-    if (record.legacyCardNumber && context.cards.has(record.legacyCardNumber)) {
+    if (
+      createsDestinationEnrollment &&
+      record.legacyCardNumber &&
+      context.cards.has(record.legacyCardNumber)
+    ) {
       pending("Numero de carteirinha legado conflita no ATRETU");
     }
     if (record.observation && SUSPICIOUS_OBSERVATION.test(record.observation)) {
@@ -1798,7 +1851,7 @@ export class LegacyImportService {
     }
     if (!createsDestinationEnrollment && record.destinationStatus === StudentStatus.ACTIVE) {
       reasons.push(
-        "Academico cadastrado como ativo; aguardando renovacao. Matricula, carteirinha e onibus nao serao criados na importacao",
+        "Academico cadastrado como ativo com ultima matricula legado preservada; rematricula destino pendente. Carteirinha e onibus destino nao serao criados na importacao",
       );
     }
     if (reasons.length === 0) reasons.push("Apto para importacao piloto");
@@ -1808,8 +1861,9 @@ export class LegacyImportService {
       finalStatus,
     );
     const requiresBaseRecordCreation =
-      createsDestinationEnrollment &&
-      (institutionRelation.willCreate || shiftRelation.willCreate || busRelation.willCreate);
+      institutionRelation.willCreate ||
+      shiftRelation.willCreate ||
+      (createsDestinationEnrollment && busRelation.willCreate);
     return {
       index: record.index,
       legacyId: record.legacyId,
@@ -1823,6 +1877,10 @@ export class LegacyImportService {
       destinationStatus: record.destinationStatus,
       legacyCreatedYear: record.legacyCreatedYear,
       destinationAcademicYear: record.destinationAcademicYear,
+      preservedEnrollmentAcademicYear:
+        record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+          ? enrollmentAcademicYearValue
+          : null,
       institutionLegacy: record.institutionRaw,
       institution,
       course: record.course,
@@ -1834,7 +1892,11 @@ export class LegacyImportService {
       legacyCardNumber: record.legacyCardNumber ?? null,
       card: {
         legacyNumber: record.legacyCardNumber ?? null,
-        hasConflict: Boolean(record.legacyCardNumber && context.cards.has(record.legacyCardNumber)),
+        hasConflict: Boolean(
+          createsDestinationEnrollment &&
+          record.legacyCardNumber &&
+          context.cards.has(record.legacyCardNumber),
+        ),
         canPreserve: false,
         needsAtretuNumber:
           createsDestinationEnrollment && record.destinationStatus === StudentStatus.ACTIVE,
@@ -1896,7 +1958,7 @@ export class LegacyImportService {
         "Ano letivo nao possui correspondencia ativa",
       );
     }
-    if (!this.createsDestinationEnrollment(item.normalized)) {
+    if (!this.createsEnrollment(item.normalized)) {
       return;
     }
     if (!item.institution && !item.relations.institution.willCreate) {
@@ -1917,7 +1979,9 @@ export class LegacyImportService {
     if (institution.created) created.institutions.push(institution.record.id);
     const shift = await this.findOrCreateShift(tx, item, createMissing);
     if (shift.created) created.shifts.push(shift.record.id);
-    const bus = await this.findOrCreateBus(tx, item, createMissing);
+    const bus = this.createsDestinationEnrollment(item.normalized)
+      ? await this.findOrCreateBus(tx, item, createMissing)
+      : { record: null, created: false };
     if (bus.created && bus.record) created.buses.push(bus.record.id);
     return {
       institution: institution.record,

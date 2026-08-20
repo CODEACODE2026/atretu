@@ -10,6 +10,12 @@ const academicYear = {
   createdAt: new Date(),
   updatedAt: new Date(),
 };
+const previousAcademicYear = {
+  ...academicYear,
+  id: "year-2025",
+  year: 2025,
+  isCurrent: false,
+};
 const institution = {
   id: "inst-ifpr",
   name: "IFPR",
@@ -42,7 +48,7 @@ const prisma = {
   institution: { findMany: async () => [institution] },
   shift: { findMany: async () => [shift] },
   bus: { findMany: async () => [bus] },
-  academicYear: { findMany: async () => [academicYear] },
+  academicYear: { findMany: async () => [academicYear, previousAcademicYear] },
   person: {
     findMany: async ({ where }: { where: { cpf: { in: string[] } } }) =>
       where.cpf.in.includes("98765432100")
@@ -250,13 +256,11 @@ const pendingReenrollmentPreview = await service.analyzeAcademicImport({
       legacy_id: 3003,
       cpf: "390.533.447-05",
       status: 3,
-      nome_instituicao: "Instituicao legado nao cadastrada",
-      nome_turno: "Turno legado nao cadastrado",
       nome_onibus: "Onibus legado referencia",
       capacidade_onibus: null,
       observacao: "atualizar cadastro antes da rematricula",
       numero_carterinha: 772024,
-      criado: 2024,
+      criado: 2025,
     }),
   ],
 });
@@ -266,25 +270,27 @@ assert.equal(pendingReenrollmentPreview.items[0]?.status, "PRONTO");
 assert.equal(pendingReenrollmentPreview.items[0]?.canImport, true);
 assert.equal(pendingReenrollmentPreview.items[0]?.requiresBaseRecordCreation, false);
 assert.equal(pendingReenrollmentPreview.items[0]?.card.needsAtretuNumber, false);
+assert.equal(pendingReenrollmentPreview.items[0]?.academicYear?.year, 2025);
+assert.equal(pendingReenrollmentPreview.items[0]?.preservedEnrollmentAcademicYear, 2025);
 assert.equal(
   pendingReenrollmentPreview.items[0]?.card.reason,
   "Nao sera emitida enquanto nao houver renovacao",
 );
-assert.equal(pendingReenrollmentPreview.items[0]?.legacyCreatedYear, 2024);
+assert.equal(pendingReenrollmentPreview.items[0]?.legacyCreatedYear, 2025);
 assert.equal(pendingReenrollmentPreview.items[0]?.destinationAcademicYear, 2026);
-assert.equal(pendingReenrollmentPreview.items[0]?.institutionLegacy, "Instituicao legado nao cadastrada");
+assert.equal(pendingReenrollmentPreview.items[0]?.institutionLegacy, "IFPR");
 assert.equal(pendingReenrollmentPreview.items[0]?.course, "Tecnico");
 assert.equal(pendingReenrollmentPreview.items[0]?.grade, "1");
-assert.equal(pendingReenrollmentPreview.items[0]?.shiftLegacy, "Turno legado nao cadastrado");
+assert.equal(pendingReenrollmentPreview.items[0]?.shiftLegacy, "NOTURNO");
 assert.equal(pendingReenrollmentPreview.items[0]?.busLegacy, "Onibus legado referencia");
 assert.equal(pendingReenrollmentPreview.items[0]?.legacyCardNumber, "772024");
 assert.equal(
   pendingReenrollmentPreview.items[0]?.relations.bus.message,
-  "Referencia legado; onibus nao sera criado nem vinculado sem renovacao",
+  "Referencia legado; onibus nao sera criado nem vinculado na importacao",
 );
 assert(
   pendingReenrollmentPreview.items[0]?.reasons.includes(
-    "Academico cadastrado como ativo; aguardando renovacao. Matricula, carteirinha e onibus nao serao criados na importacao",
+    "Academico cadastrado como ativo com ultima matricula legado preservada; rematricula destino pendente. Carteirinha e onibus destino nao serao criados na importacao",
   ),
 );
 
@@ -538,6 +544,9 @@ assert.match(schemaSource, /enrollmentId\s+String\?\s+@map\("enrollment_id"\)/);
 assert.match(schemaSource, /enrollment\s+Enrollment\?\s+@relation/);
 assert.match(serviceSource, /if \(record\.enrollmentId\) \{\s*await tx\.enrollment\.delete/);
 assert.match(serviceSource, /enrollmentId:\s+enrollment\?\.id \?\? null/);
+assert.match(serviceSource, /private enrollmentAcademicYear/);
+assert.match(serviceSource, /destinationEnrollmentCreated:\s+createsDestinationEnrollment && Boolean\(enrollment\)/);
+assert.match(serviceSource, /createsDestinationEnrollment &&\s*enrollment &&\s*baseRecords\?\.bus/);
 assert.match(serviceSource, /studentCardId:\s+cardData\.id/);
 assert.match(serviceSource, /previousCardSequenceNumber:\s+cardData\.previousCardSequenceNumber/);
 assert.match(serviceSource, /generatedCardNumber:\s+cardData\.cardNumber/);

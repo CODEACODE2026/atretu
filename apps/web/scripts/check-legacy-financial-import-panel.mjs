@@ -43,8 +43,12 @@ for (const [fragment, message] of [
     "Academic status 3 preview must explain the destination situation",
   ],
   [
-    "Nao sera criada durante a importacao",
-    "Academic status 3 preview must state destination enrollment is not created",
+    "Matricula preservada",
+    "Academic status 3 preview must show the preserved historical enrollment",
+  ],
+  [
+    "Rematricula destino",
+    "Academic status 3 preview must state destination reenrollment is pending",
   ],
   [
     "Nao sera emitida enquanto nao houver renovacao",

@@ -1050,7 +1050,18 @@ function AcademicPreviewCard({
         {pendingReenrollment ? (
           <>
             <Info label="Situacao destino" value="Academico cadastrado - aguardando renovacao" />
-            <Info label="Matricula no ano destino" value="Nao sera criada durante a importacao" />
+            <Info
+              label="Ultima matricula legado"
+              value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"}
+            />
+            <Info
+              label="Matricula preservada"
+              value={formatRelation(item.relations.academicYear)}
+            />
+            <Info
+              label="Rematricula destino"
+              value={`${item.destinationAcademicYear} - pendente`}
+            />
             <Info label="Carteirinha ATRETU" value="Nao sera emitida enquanto nao houver renovacao" />
             <Info label="Onibus destino" value="Nao sera vinculado enquanto nao houver renovacao" />
           </>
@@ -1060,8 +1071,12 @@ function AcademicPreviewCard({
           <Info label="Carteirinha ATRETU" value={item.card.reason} />
         ) : null}
         <Info label="Observacao" value={item.observation ?? "-"} />
-        <Info label="Ano cadastro legado" value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"} />
-        <Info label="Ano letivo destino" value={formatRelation(item.relations.academicYear)} />
+        {!pendingReenrollment ? (
+          <>
+            <Info label="Ano cadastro legado" value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"} />
+            <Info label="Ano letivo destino" value={formatRelation(item.relations.academicYear)} />
+          </>
+        ) : null}
       </div>
       <p className="mt-3 text-xs leading-5 text-slate-600">
         {item.reasons.join("; ")}

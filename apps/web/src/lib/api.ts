@@ -436,6 +436,7 @@ export type LegacyAcademicPreviewItem = {
   destinationStatus: StudentStatus | null;
   legacyCreatedYear: number | null;
   destinationAcademicYear: number;
+  preservedEnrollmentAcademicYear: number | null;
   institutionLegacy: string;
   institution: BaseRecord | null;
   course: string;
