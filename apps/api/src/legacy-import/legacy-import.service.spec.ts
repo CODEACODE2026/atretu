@@ -302,6 +302,26 @@ assert(
   ),
 );
 
+const nullObservationPendingReenrollmentPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "amanda-evelin-status-3.json",
+  records: [
+    record({
+      legacy_id: 872,
+      nome_aluno: "AMANDA EVELIN",
+      cpf: "390.533.447-05",
+      status: 3,
+      observacao: null,
+      numero_carterinha: 8722025,
+      criado: 2025,
+    }),
+  ],
+});
+assert.equal(nullObservationPendingReenrollmentPreview.items[0]?.name, "AMANDA EVELIN");
+assert.equal(nullObservationPendingReenrollmentPreview.items[0]?.status, "PRONTO");
+assert.equal(nullObservationPendingReenrollmentPreview.items[0]?.canImport, true);
+assert.equal(nullObservationPendingReenrollmentPreview.items[0]?.observation, null);
+
 const archivedYearPendingReenrollmentPreview = await service.analyzeAcademicImport({
   destinationAcademicYear: 2026,
   fileName: "status-3-ano-arquivado.json",
@@ -353,7 +373,7 @@ const suspiciousPendingReenrollmentPreview = await service.analyzeAcademicImport
     record({
       legacy_id: 871,
       nome_aluno: "AMANDA BARBOZA VICENTE",
-      cpf: "743.026.759-63",
+      cpf: "390.533.447-05",
       status: 3,
       observacao:
         "01/09/2025 Realizado desligamento pelo nao pagamento da mensalidade com vencimento em 20/08/2025",
@@ -363,12 +383,56 @@ const suspiciousPendingReenrollmentPreview = await service.analyzeAcademicImport
   ],
 });
 assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.name, "AMANDA BARBOZA VICENTE");
-assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.status, "BLOQUEADO");
-assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.canImport, false);
+assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.status, "PRONTO");
+assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.canImport, true);
 assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.academicYear?.year, 2024);
+assert.equal(
+  suspiciousPendingReenrollmentPreview.items[0]?.observation,
+  "01/09/2025 Realizado desligamento pelo nao pagamento da mensalidade com vencimento em 20/08/2025",
+);
+
+for (const [legacyId, observation] of [
+  [3006, "historico informa inadimplência em aberto"],
+  [3007, "historico informa cancelamento antes do recadastramento"],
+] as const) {
+  const suspiciousTextPendingReenrollmentPreview = await service.analyzeAcademicImport({
+    destinationAcademicYear: 2026,
+    fileName: `status-3-observacao-${legacyId}.json`,
+    records: [
+      record({
+        legacy_id: legacyId,
+        cpf: "390.533.447-05",
+        status: 3,
+        observacao: observation,
+        numero_carterinha: legacyId,
+        criado: 2025,
+      }),
+    ],
+  });
+  assert.equal(suspiciousTextPendingReenrollmentPreview.items[0]?.status, "PRONTO");
+  assert.equal(suspiciousTextPendingReenrollmentPreview.items[0]?.canImport, true);
+  assert.equal(suspiciousTextPendingReenrollmentPreview.items[0]?.observation, observation);
+}
+
+const suspiciousActivePreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "status-1-observacao-suspeita.json",
+  records: [
+    record({
+      legacy_id: 3008,
+      cpf: "390.533.447-05",
+      status: 1,
+      observacao: "Aluno pediu desligamento",
+      numero_carterinha: 3008,
+      criado: 2024,
+    }),
+  ],
+});
+assert.equal(suspiciousActivePreview.items[0]?.status, "PENDENCIA");
+assert.equal(suspiciousActivePreview.items[0]?.canImport, true);
 assert(
-  suspiciousPendingReenrollmentPreview.items[0]?.reasons.includes(
-    "Observacao indica possivel desligamento, suspensao, inativacao ou mudanca; revisao manual necessaria",
+  suspiciousActivePreview.items[0]?.reasons.includes(
+    "Observacao sugere desligamento, mudanca ou inativacao",
   ),
 );
 

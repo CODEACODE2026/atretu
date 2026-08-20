@@ -1851,14 +1851,12 @@ export class LegacyImportService {
     ) {
       pending("Numero de carteirinha legado conflita no ATRETU");
     }
-    if (record.observation && SUSPICIOUS_OBSERVATION.test(record.observation)) {
-      if (record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS) {
-        block(
-          "Observacao indica possivel desligamento, suspensao, inativacao ou mudanca; revisao manual necessaria",
-        );
-      } else {
-        pending("Observacao sugere desligamento, mudanca ou inativacao");
-      }
+    if (
+      record.statusRaw !== LEGACY_PENDING_REENROLLMENT_STATUS &&
+      record.observation &&
+      SUSPICIOUS_OBSERVATION.test(record.observation)
+    ) {
+      pending("Observacao sugere desligamento, mudanca ou inativacao");
     }
     if (!createsDestinationEnrollment && record.destinationStatus === StudentStatus.ACTIVE) {
       reasons.push(
