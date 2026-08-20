@@ -38,6 +38,22 @@ for (const [fragment, message] of [
     "Financial preview must keep the legacy student id visible",
   ],
   ["Resultado financeiro", "Financial import result panel must be present"],
+  [
+    "Academico cadastrado - aguardando renovacao",
+    "Academic status 3 preview must explain the destination situation",
+  ],
+  [
+    "Nao sera criada durante a importacao",
+    "Academic status 3 preview must state destination enrollment is not created",
+  ],
+  [
+    "Nao sera emitida enquanto nao houver renovacao",
+    "Academic status 3 preview must state no ATRETU card is issued",
+  ],
+  [
+    "Nao sera vinculado enquanto nao houver renovacao",
+    "Academic status 3 preview must state no destination bus assignment is created",
+  ],
 ]) {
   assertIncludes(panelSource, fragment, message);
 }

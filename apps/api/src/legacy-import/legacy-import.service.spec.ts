@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { LegacyImportService } from "./legacy-import.service.js";
 
 const academicYear = {
@@ -241,7 +242,53 @@ assert(
   ),
 );
 
-for (const unsupportedStatus of [0, 3]) {
+const pendingReenrollmentPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "status-3-nao-renovou.json",
+  records: [
+    record({
+      legacy_id: 3003,
+      cpf: "390.533.447-05",
+      status: 3,
+      nome_instituicao: "Instituicao legado nao cadastrada",
+      nome_turno: "Turno legado nao cadastrado",
+      nome_onibus: "Onibus legado referencia",
+      capacidade_onibus: null,
+      observacao: "atualizar cadastro antes da rematricula",
+      numero_carterinha: 772024,
+      criado: 2024,
+    }),
+  ],
+});
+assert.equal(pendingReenrollmentPreview.items[0]?.legacyStatus.label, "Nao renovou / atualizar cadastro");
+assert.equal(pendingReenrollmentPreview.items[0]?.destinationStatus, "ACTIVE");
+assert.equal(pendingReenrollmentPreview.items[0]?.status, "PRONTO");
+assert.equal(pendingReenrollmentPreview.items[0]?.canImport, true);
+assert.equal(pendingReenrollmentPreview.items[0]?.requiresBaseRecordCreation, false);
+assert.equal(pendingReenrollmentPreview.items[0]?.card.needsAtretuNumber, false);
+assert.equal(
+  pendingReenrollmentPreview.items[0]?.card.reason,
+  "Nao sera emitida enquanto nao houver renovacao",
+);
+assert.equal(pendingReenrollmentPreview.items[0]?.legacyCreatedYear, 2024);
+assert.equal(pendingReenrollmentPreview.items[0]?.destinationAcademicYear, 2026);
+assert.equal(pendingReenrollmentPreview.items[0]?.institutionLegacy, "Instituicao legado nao cadastrada");
+assert.equal(pendingReenrollmentPreview.items[0]?.course, "Tecnico");
+assert.equal(pendingReenrollmentPreview.items[0]?.grade, "1");
+assert.equal(pendingReenrollmentPreview.items[0]?.shiftLegacy, "Turno legado nao cadastrado");
+assert.equal(pendingReenrollmentPreview.items[0]?.busLegacy, "Onibus legado referencia");
+assert.equal(pendingReenrollmentPreview.items[0]?.legacyCardNumber, "772024");
+assert.equal(
+  pendingReenrollmentPreview.items[0]?.relations.bus.message,
+  "Referencia legado; onibus nao sera criado nem vinculado sem renovacao",
+);
+assert(
+  pendingReenrollmentPreview.items[0]?.reasons.includes(
+    "Academico cadastrado como ativo; aguardando renovacao. Matricula, carteirinha e onibus nao serao criados na importacao",
+  ),
+);
+
+for (const unsupportedStatus of [0]) {
   const blockedPreview = await service.analyzeAcademicImport({
     destinationAcademicYear: 2026,
     fileName: `status-${unsupportedStatus}.json`,
@@ -477,3 +524,26 @@ assert.deepEqual(sequenceUpdate, {
   where: { academicYearId: "year-2024", lastSequenceNumber: 10 },
   data: { lastSequenceNumber: 9 },
 });
+
+const serviceSource = readFileSync(
+  new URL("./legacy-import.service.ts", import.meta.url),
+  "utf8",
+);
+const schemaSource = readFileSync(
+  new URL("../../prisma/schema.prisma", import.meta.url),
+  "utf8",
+);
+
+assert.match(schemaSource, /enrollmentId\s+String\?\s+@map\("enrollment_id"\)/);
+assert.match(schemaSource, /enrollment\s+Enrollment\?\s+@relation/);
+assert.match(serviceSource, /if \(record\.enrollmentId\) \{\s*await tx\.enrollment\.delete/);
+assert.match(serviceSource, /enrollmentId:\s+enrollment\?\.id \?\? null/);
+assert.match(serviceSource, /studentCardId:\s+cardData\.id/);
+assert.match(serviceSource, /previousCardSequenceNumber:\s+cardData\.previousCardSequenceNumber/);
+assert.match(serviceSource, /generatedCardNumber:\s+cardData\.cardNumber/);
+assert.match(serviceSource, /invoiceCreated:\s+false/);
+assert.match(serviceSource, /bankSlipCreated:\s+false/);
+assert.match(serviceSource, /collectionCreated:\s+false/);
+assert.match(serviceSource, /sicrediCalled:\s+false/);
+assert.doesNotMatch(serviceSource, /LEGACY_IMPORTED_PENDING_REENROLLMENT/);
+assert.doesNotMatch(schemaSource, /LEGACY_IMPORTED_PENDING_REENROLLMENT/);

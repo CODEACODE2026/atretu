@@ -1005,6 +1005,7 @@ function AcademicPreviewCard({
   onToggle: () => void;
 }) {
   const canSelect = item.legacyId !== null && item.canImport;
+  const pendingReenrollment = item.legacyStatus.code === 3;
   return (
     <article
       className={cx(
@@ -1043,11 +1044,21 @@ function AcademicPreviewCard({
         <Info label="Instituicao" value={formatRelation(item.relations.institution)} />
         <Info label="Curso / serie" value={`${item.course || "-"} / ${item.grade || "-"}`} />
         <Info label="Turno" value={formatRelation(item.relations.shift)} />
-        <Info label="Onibus" value={formatBusRelation(item.relations.bus)} />
+        <Info label={pendingReenrollment ? "Onibus legado" : "Onibus"} value={formatBusRelation(item.relations.bus)} />
         <Info label="Status legado" value={formatLegacyStudentStatus(item)} />
         <Info label="Status destino" value={formatDestinationStudentStatus(item.destinationStatus)} />
+        {pendingReenrollment ? (
+          <>
+            <Info label="Situacao destino" value="Academico cadastrado - aguardando renovacao" />
+            <Info label="Matricula no ano destino" value="Nao sera criada durante a importacao" />
+            <Info label="Carteirinha ATRETU" value="Nao sera emitida enquanto nao houver renovacao" />
+            <Info label="Onibus destino" value="Nao sera vinculado enquanto nao houver renovacao" />
+          </>
+        ) : null}
         <Info label="Carteirinha legado" value={item.legacyCardNumber ?? "-"} />
-        <Info label="Carteirinha ATRETU" value={item.card.reason} />
+        {!pendingReenrollment ? (
+          <Info label="Carteirinha ATRETU" value={item.card.reason} />
+        ) : null}
         <Info label="Observacao" value={item.observation ?? "-"} />
         <Info label="Ano cadastro legado" value={item.legacyCreatedYear ? String(item.legacyCreatedYear) : "-"} />
         <Info label="Ano letivo destino" value={formatRelation(item.relations.academicYear)} />

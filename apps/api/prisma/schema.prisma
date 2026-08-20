@@ -490,7 +490,7 @@ model LegacyStudentImport {
   legacyId                   Int                     @map("legacy_id")
   studentId                  String                  @unique @map("student_id") @db.Uuid
   personId                   String                  @map("person_id") @db.Uuid
-  enrollmentId               String                  @map("enrollment_id") @db.Uuid
+  enrollmentId               String?                 @map("enrollment_id") @db.Uuid
   studentCardId              String?                 @map("student_card_id") @db.Uuid
   busAssignmentId            String?                 @map("bus_assignment_id") @db.Uuid
   legacyCardNumber           String?                 @map("legacy_card_number") @db.VarChar(32)
@@ -503,7 +503,7 @@ model LegacyStudentImport {
   batch                      LegacyImportBatch       @relation(fields: [batchId], references: [id], onDelete: Restrict)
   student                    Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
   person                     Person                  @relation(fields: [personId], references: [id], onDelete: Restrict)
-  enrollment                 Enrollment              @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  enrollment                 Enrollment?             @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
   studentCard                StudentCard?            @relation(fields: [studentCardId], references: [id], onDelete: Restrict)
   busAssignment              BusAssignment?          @relation(fields: [busAssignmentId], references: [id], onDelete: SetNull)
   financialRecords           LegacyFinancialImport[]
