@@ -16,6 +16,14 @@ const previousAcademicYear = {
   year: 2025,
   isCurrent: false,
 };
+const archivedAcademicYear = {
+  ...academicYear,
+  id: "year-2024",
+  year: 2024,
+  isCurrent: false,
+  status: "ARCHIVED",
+  archivedAt: new Date(),
+};
 const institution = {
   id: "inst-ifpr",
   name: "IFPR",
@@ -48,7 +56,7 @@ const prisma = {
   institution: { findMany: async () => [institution] },
   shift: { findMany: async () => [shift] },
   bus: { findMany: async () => [bus] },
-  academicYear: { findMany: async () => [academicYear, previousAcademicYear] },
+  academicYear: { findMany: async () => [academicYear, previousAcademicYear, archivedAcademicYear] },
   person: {
     findMany: async ({ where }: { where: { cpf: { in: string[] } } }) =>
       where.cpf.in.includes("98765432100")
@@ -291,6 +299,76 @@ assert.equal(
 assert(
   pendingReenrollmentPreview.items[0]?.reasons.includes(
     "Academico cadastrado como ativo com ultima matricula legado preservada; rematricula destino pendente. Carteirinha e onibus destino nao serao criados na importacao",
+  ),
+);
+
+const archivedYearPendingReenrollmentPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "status-3-ano-arquivado.json",
+  records: [
+    record({
+      legacy_id: 3004,
+      cpf: "390.533.447-05",
+      status: 3,
+      observacao: "aguardando rematricula",
+      numero_carterinha: 782024,
+      criado: 2024,
+    }),
+  ],
+});
+assert.equal(archivedYearPendingReenrollmentPreview.items[0]?.status, "PRONTO");
+assert.equal(archivedYearPendingReenrollmentPreview.items[0]?.canImport, true);
+assert.equal(archivedYearPendingReenrollmentPreview.items[0]?.academicYear?.year, 2024);
+assert.equal(
+  archivedYearPendingReenrollmentPreview.items[0]?.preservedEnrollmentAcademicYear,
+  2024,
+);
+
+const missingYearPendingReenrollmentPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "status-3-ano-inexistente.json",
+  records: [
+    record({
+      legacy_id: 3005,
+      cpf: "390.533.447-05",
+      status: 3,
+      observacao: "aguardando rematricula",
+      numero_carterinha: 792023,
+      criado: 2023,
+    }),
+  ],
+});
+assert.equal(missingYearPendingReenrollmentPreview.items[0]?.status, "BLOQUEADO");
+assert.equal(missingYearPendingReenrollmentPreview.items[0]?.canImport, false);
+assert(
+  missingYearPendingReenrollmentPreview.items[0]?.reasons.includes(
+    "Ano letivo historico do legado nao existe no ATRETU",
+  ),
+);
+
+const suspiciousPendingReenrollmentPreview = await service.analyzeAcademicImport({
+  destinationAcademicYear: 2026,
+  fileName: "amanda-status-3-suspeito.json",
+  records: [
+    record({
+      legacy_id: 871,
+      nome_aluno: "AMANDA BARBOZA VICENTE",
+      cpf: "743.026.759-63",
+      status: 3,
+      observacao:
+        "01/09/2025 Realizado desligamento pelo nao pagamento da mensalidade com vencimento em 20/08/2025",
+      numero_carterinha: 112024,
+      criado: 2024,
+    }),
+  ],
+});
+assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.name, "AMANDA BARBOZA VICENTE");
+assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.status, "BLOQUEADO");
+assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.canImport, false);
+assert.equal(suspiciousPendingReenrollmentPreview.items[0]?.academicYear?.year, 2024);
+assert(
+  suspiciousPendingReenrollmentPreview.items[0]?.reasons.includes(
+    "Observacao indica possivel desligamento, suspensao, inativacao ou mudanca; revisao manual necessaria",
   ),
 );
 

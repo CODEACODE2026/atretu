@@ -1627,9 +1627,7 @@ export class LegacyImportService {
         this.prisma.institution.findMany(),
         this.prisma.shift.findMany(),
         this.prisma.bus.findMany(),
-        this.prisma.academicYear.findMany({
-          where: { status: AcademicYearStatus.ACTIVE },
-        }),
+        this.prisma.academicYear.findMany(),
         this.prisma.person.findMany({
           where: { cpf: { in: records.map((record) => record.cpf).filter(Boolean) } },
           select: { cpf: true, student: { select: { id: true } } },
@@ -1660,6 +1658,11 @@ export class LegacyImportService {
       shifts: new Map(shifts.map((record) => [record.normalizedName, record])),
       buses: new Map(buses.map((record) => [record.normalizedName, record])),
       academicYears: new Map(academicYears.map((record) => [record.year, record])),
+      activeAcademicYears: new Map(
+        academicYears
+          .filter((record) => record.status === AcademicYearStatus.ACTIVE)
+          .map((record) => [record.year, record]),
+      ),
       existingCpfs: new Map(existingCpfs.map((record) => [record.cpf, record])),
       imported: new Map(imported.map((record) => [record.legacyId, record])),
       cards: new Map(cards.map((record) => [record.cardNumber, record])),
@@ -1805,10 +1808,12 @@ export class LegacyImportService {
       pending("Capacidade do onibus legado diverge do ATRETU");
     }
     const academicYear = enrollmentAcademicYearValue
-      ? context.academicYears.get(enrollmentAcademicYearValue) ?? null
+      ? record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
+        ? context.academicYears.get(enrollmentAcademicYearValue) ?? null
+        : context.activeAcademicYears.get(enrollmentAcademicYearValue) ?? null
       : null;
     const destinationAcademicYear =
-      context.academicYears.get(record.destinationAcademicYear) ?? null;
+      context.activeAcademicYears.get(record.destinationAcademicYear) ?? null;
     const academicYearRelation: LegacyRelationPreview = academicYear
       ? {
           legacyName: String(enrollmentAcademicYearValue),
@@ -1821,7 +1826,7 @@ export class LegacyImportService {
           legacyName: enrollmentAcademicYearValue ? String(enrollmentAcademicYearValue) : null,
           status: "BLOCKED",
           message: record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
-            ? "Ano letivo da ultima matricula legado nao possui correspondencia ativa"
+            ? "Ano letivo historico do legado nao existe no ATRETU"
             : "Ano letivo nao possui correspondencia ativa",
           resolved: null,
           willCreate: false,
@@ -1831,7 +1836,7 @@ export class LegacyImportService {
     } else if (!academicYear) {
       block(
         record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS
-          ? "Ano letivo da ultima matricula legado nao possui correspondencia ativa"
+          ? "Ano letivo historico do legado nao existe no ATRETU"
           : "Ano letivo nao possui correspondencia ativa",
       );
     }
@@ -1847,7 +1852,13 @@ export class LegacyImportService {
       pending("Numero de carteirinha legado conflita no ATRETU");
     }
     if (record.observation && SUSPICIOUS_OBSERVATION.test(record.observation)) {
-      pending("Observacao sugere desligamento, mudanca ou inativacao");
+      if (record.statusRaw === LEGACY_PENDING_REENROLLMENT_STATUS) {
+        block(
+          "Observacao indica possivel desligamento, suspensao, inativacao ou mudanca; revisao manual necessaria",
+        );
+      } else {
+        pending("Observacao sugere desligamento, mudanca ou inativacao");
+      }
     }
     if (!createsDestinationEnrollment && record.destinationStatus === StudentStatus.ACTIVE) {
       reasons.push(
