@@ -35,6 +35,8 @@ export function getFutureInvoiceBlockingReason(input: {
 export function getReenrollmentBlockingReason(input: {
   status: StudentStatus;
   hasEnrollmentInTargetYear: boolean;
+  destinationYear?: number | null;
+  latestEnrollmentYear?: number | null;
 }) {
   if (input.status === StudentStatus.SUSPENDED) {
     return "Academico suspenso exige reativacao antes da rematricula";
@@ -45,12 +47,23 @@ export function getReenrollmentBlockingReason(input: {
   if (input.hasEnrollmentInTargetYear) {
     return "Academico ja possui matricula neste Ano Letivo";
   }
+  if (
+    input.destinationYear !== null &&
+    input.destinationYear !== undefined &&
+    input.latestEnrollmentYear !== null &&
+    input.latestEnrollmentYear !== undefined &&
+    input.destinationYear <= input.latestEnrollmentYear
+  ) {
+    return "Ano de destino deve ser posterior a matricula mais recente do academico";
+  }
   return null;
 }
 
 export function canReenroll(input: {
   status: StudentStatus;
   hasEnrollmentInTargetYear: boolean;
+  destinationYear?: number | null;
+  latestEnrollmentYear?: number | null;
 }) {
   return getReenrollmentBlockingReason(input) === null;
 }

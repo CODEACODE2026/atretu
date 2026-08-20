@@ -83,8 +83,100 @@ assert.equal(
   canReenroll({
     status: StudentStatus.ACTIVE,
     hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2024,
+    destinationYear: 2025,
   }),
   true,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2024,
+    destinationYear: 2026,
+  }),
+  true,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2025,
+    destinationYear: 2026,
+  }),
+  true,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: true,
+    latestEnrollmentYear: 2026,
+    destinationYear: 2026,
+  }),
+  false,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2026,
+    destinationYear: 2026,
+  }),
+  false,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2026,
+    destinationYear: 2025,
+  }),
+  false,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2026,
+    destinationYear: 2024,
+  }),
+  false,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2024,
+    destinationYear: 2026,
+  }),
+  true,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.TERMINATED,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2024,
+    destinationYear: 2026,
+  }),
+  false,
+);
+
+assert.equal(
+  canReenroll({
+    status: StudentStatus.SUSPENDED,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2024,
+    destinationYear: 2026,
+  }),
+  false,
 );
 
 assert.equal(
@@ -109,4 +201,14 @@ assert.equal(
     hasEnrollmentInTargetYear: false,
   }),
   "Academico desligado nao pode ser rematriculado nesta Sprint",
+);
+
+assert.equal(
+  getReenrollmentBlockingReason({
+    status: StudentStatus.ACTIVE,
+    hasEnrollmentInTargetYear: false,
+    latestEnrollmentYear: 2026,
+    destinationYear: 2025,
+  }),
+  "Ano de destino deve ser posterior a matricula mais recente do academico",
 );

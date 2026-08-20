@@ -520,7 +520,7 @@ export class StudentsService {
         : {};
     where.enrollments = {
       some: visibleEnrollmentFilter,
-      none: { academicYearId: academicYear.id },
+      none: { academicYear: { year: { gte: academicYear.year } } },
     };
 
     const orderBy = this.buildStudentOrderBy(query);
@@ -613,6 +613,12 @@ export class StudentsService {
     const existingEnrollment = student.enrollments.find(
       (enrollment) => enrollment.academicYear.id === academicYear.id,
     );
+    const blockingReason = getReenrollmentBlockingReason({
+      status: student.status,
+      hasEnrollmentInTargetYear: Boolean(existingEnrollment),
+      destinationYear: academicYear.year,
+      latestEnrollmentYear: previousEnrollment?.academicYear.year,
+    });
     const previousBusAssignment = previousEnrollment
       ? await this.prisma.busAssignment.findFirst({
           where: {
@@ -636,15 +642,8 @@ export class StudentsService {
             note: previousBusAssignment.note,
           }
         : null,
-      eligible:
-        getReenrollmentBlockingReason({
-          status: student.status,
-          hasEnrollmentInTargetYear: Boolean(existingEnrollment),
-        }) === null,
-      blockingReason: getReenrollmentBlockingReason({
-        status: student.status,
-        hasEnrollmentInTargetYear: Boolean(existingEnrollment),
-      }),
+      eligible: blockingReason === null,
+      blockingReason,
     };
   }
 
@@ -840,6 +839,17 @@ export class StudentsService {
           throw new ConflictException(block ?? "Matricula duplicada");
         }
 
+        const previousEnrollment = await this.findOperationalEnrollment(tx, id);
+        const yearBlock = getReenrollmentBlockingReason({
+          status: student.status,
+          hasEnrollmentInTargetYear: false,
+          destinationYear: academicYear.year,
+          latestEnrollmentYear: previousEnrollment?.academicYear.year,
+        });
+        if (yearBlock) {
+          throw new BadRequestException(yearBlock);
+        }
+
         await this.ensureEnrollmentReferences(tx, {
           academicYearId: academicYear.id,
           institutionId: body.institutionId,
@@ -848,7 +858,6 @@ export class StudentsService {
           grade: body.grade,
         });
 
-        const previousEnrollment = await this.findOperationalEnrollment(tx, id);
         const previousAssignment = previousEnrollment
           ? await this.findActiveBusAssignment(tx, previousEnrollment.id)
           : null;
@@ -2054,6 +2063,7 @@ export class StudentsService {
     return tx.enrollment.findFirst({
       where: { studentId },
       orderBy: [{ academicYear: { year: "desc" } }, { createdAt: "desc" }],
+      include: this.enrollmentInclude(),
     });
   }
 
