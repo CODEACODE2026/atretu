@@ -1307,6 +1307,8 @@ export function ReenrollmentsPanel() {
   const [buses, setBuses] = useState<BusRecord[]>([]);
   const [academicYearId, setAcademicYearId] = useState("");
   const [search, setSearch] = useState("");
+  const [institutionFilter, setInstitutionFilter] = useState("");
+  const [previousYearFilter, setPreviousYearFilter] = useState("");
   const [selected, setSelected] = useState<StudentSummary | null>(null);
   const [preview, setPreview] = useState<ReenrollmentPreview | null>(null);
   const [enrollment, setEnrollment] =
@@ -1316,6 +1318,7 @@ export function ReenrollmentsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pendingReenrollment, setPendingReenrollment] = useState(false);
+  const [completedCount, setCompletedCount] = useState(0);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -1323,14 +1326,55 @@ export function ReenrollmentsPanel() {
     () => years.find((year) => year.id === academicYearId),
     [academicYearId, years],
   );
+  const visibleCandidates = useMemo(
+    () =>
+      candidates.filter((candidate) => {
+        const enrollment = candidate.currentEnrollment;
+        if (institutionFilter && enrollment?.institution.id !== institutionFilter) {
+          return false;
+        }
+        if (
+          previousYearFilter &&
+          String(enrollment?.academicYear.year ?? "") !== previousYearFilter
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [candidates, institutionFilter, previousYearFilter],
+  );
+  const institutionOptions = useMemo(
+    () =>
+      uniqueOptions(
+        candidates.map((candidate) => ({
+          label: candidate.currentEnrollment?.institution.name ?? "",
+          value: candidate.currentEnrollment?.institution.id ?? "",
+        })),
+      ),
+    [candidates],
+  );
+  const previousYearOptions = useMemo(
+    () =>
+      uniqueOptions(
+        candidates.map((candidate) => {
+          const year = candidate.currentEnrollment?.academicYear.year;
+          return { label: year ? String(year) : "", value: year ? String(year) : "" };
+        }),
+      ),
+    [candidates],
+  );
+  const selectedBus = useMemo(
+    () => buses.find((bus) => bus.id === busId) ?? null,
+    [busId, buses],
+  );
   const summary = useMemo(
     () => ({
       eligible: candidates.length,
-      pending: candidates.length,
-      completed: message ? 1 : 0,
+      pending: visibleCandidates.length,
+      completed: completedCount,
       blocked: preview && !preview.eligible ? 1 : 0,
     }),
-    [candidates.length, message, preview],
+    [candidates.length, completedCount, preview, visibleCandidates.length],
   );
 
   useEffect(() => {
@@ -1452,6 +1496,7 @@ export function ReenrollmentsPanel() {
         note: emptyToUndefined(note),
       });
       setMessage("Rematrícula criada");
+      setCompletedCount((current) => current + 1);
       setPendingReenrollment(false);
       setSelected(null);
       setPreview(null);
@@ -1476,7 +1521,7 @@ export function ReenrollmentsPanel() {
         title="Rematrículas"
       />
 
-      <div className="grid min-w-0 gap-3 md:grid-cols-4">
+      <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <AdminSummaryCard
           description={selectedYear ? `Ano de destino ${selectedYear.year}.` : "Ano de destino não selecionado."}
           icon={GraduationCap}
@@ -1507,14 +1552,14 @@ export function ReenrollmentsPanel() {
         />
       </div>
 
-      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)] 2xl:grid-cols-[minmax(0,1.65fr)_minmax(400px,0.9fr)]">
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.9fr)] 2xl:grid-cols-[minmax(0,1.55fr)_minmax(400px,0.85fr)]">
       <section className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
         <AdminSectionHeader
-          description="Busque candidatos e escolha o ano letivo de destino."
+          description="Busque e filtre a fila sem alterar os critérios de elegibilidade."
           title="Candidatos elegíveis"
         />
-        <div className="border-b border-slate-200/80 p-4">
-          <div className="grid min-w-0 items-end gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(180px,220px)]">
+        <div className="border-b border-slate-200/80 p-3 sm:p-4">
+          <div className="grid min-w-0 items-end gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(160px,200px)_minmax(160px,220px)_minmax(130px,160px)]">
             <form
               className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
               onSubmit={(event) => {
@@ -1550,118 +1595,85 @@ export function ReenrollmentsPanel() {
               }))}
               value={academicYearId}
             />
+            <Select
+              label="Instituição anterior"
+              onChange={setInstitutionFilter}
+              options={institutionOptions}
+              value={institutionFilter}
+            />
+            <Select
+              label="Ano anterior"
+              onChange={setPreviousYearFilter}
+              options={previousYearOptions}
+              value={previousYearFilter}
+            />
           </div>
         </div>
 
         {message ? <AdminFeedback tone="green">{message}</AdminFeedback> : null}
         {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
 
-        <div className="hidden">
-          <table className="w-full min-w-[760px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Academico</th>
-                <th className="px-4 py-3">CPF</th>
-                <th className="px-4 py-3">Ano anterior</th>
-                <th className="px-4 py-3">Instituicao</th>
-                <th className="px-4 py-3">Curso</th>
-                <th className="px-4 py-3">Acoes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={6}>
-                    <AdminEmptyState loading title="Carregando candidatos" />
-                  </td>
-                </tr>
-              ) : candidates.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={6}>
-                    <AdminEmptyState
-                      description="Ajuste a busca ou selecione outro ano de destino."
-                      title="Nenhum candidato elegível"
-                    />
-                  </td>
-                </tr>
-              ) : (
-                candidates.map((candidate) => (
-                  <tr key={candidate.id}>
-                    <td className="px-4 py-3 font-medium text-slate-950">
-                      {candidate.person.fullName}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {candidate.person.cpfMasked}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      <AdminStatusBadge tone="blue">
-                        {candidate.currentEnrollment?.academicYear.year ?? "-"}
-                      </AdminStatusBadge>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {candidate.currentEnrollment?.institution.name ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {candidate.currentEnrollment?.course ?? "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-                        onClick={() => void selectCandidate(candidate)}
-                        type="button"
-                      >
-                        Preparar
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="grid gap-3 p-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr))]">
+        <div className="grid gap-2 p-3 sm:p-4">
           {loading ? (
             <AdminEmptyState loading title="Carregando candidatos" />
-          ) : candidates.length === 0 ? (
+          ) : visibleCandidates.length === 0 ? (
             <AdminEmptyState
               description="Ajuste a busca ou selecione outro ano de destino."
               title="Nenhum candidato elegível"
             />
           ) : (
-            candidates.map((candidate) => (
-              <article
-                className={cx(adminTheme.card, "grid min-w-0 gap-3 p-3 text-sm")}
+            visibleCandidates.map((candidate) => {
+              const previousEnrollment = candidate.currentEnrollment;
+              const active = selected?.id === candidate.id;
+              const pendingDestination =
+                Boolean(selectedYear) &&
+                previousEnrollment?.academicYear.year !== selectedYear?.year;
+              return (
+              <button
+                className={cx(
+                  "grid min-w-0 gap-2 rounded-lg border p-3 text-left text-sm transition duration-150 focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15 sm:grid-cols-[minmax(13rem,1.2fr)_minmax(16rem,1.4fr)_auto] sm:items-center",
+                  active
+                    ? "border-[#1F6F5F] bg-[#F2F8F6] shadow-sm"
+                    : "border-slate-200/80 bg-white hover:border-[#8DB7AD] hover:bg-slate-50",
+                )}
                 key={candidate.id}
+                onClick={() => void selectCandidate(candidate)}
+                type="button"
               >
                 <div className="min-w-0">
-                  <p className="break-words font-medium text-slate-950">
+                  <p className="break-words font-semibold text-slate-950">
                     {candidate.person.fullName}
                   </p>
                   <p className="mt-1 text-xs text-slate-600">
                     {candidate.person.cpfMasked}
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <AdminStatusBadge tone="green">
+                      Elegível para rematrícula
+                    </AdminStatusBadge>
+                    {pendingDestination ? (
+                      <AdminStatusBadge tone="orange">
+                        Aguardando rematrícula
+                      </AdminStatusBadge>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="grid gap-1 text-xs text-slate-600">
-                  <span className="break-words">
-                    Ano letivo: {candidate.currentEnrollment?.academicYear.year ?? "-"}
+                <div className="grid min-w-0 gap-1 text-xs text-slate-600 sm:grid-cols-2">
+                  <CompactInfo label="Ano anterior" value={previousEnrollment?.academicYear.year} />
+                  <CompactInfo label="Instituição" value={previousEnrollment?.institution.name} />
+                  <CompactInfo label="Curso" value={previousEnrollment?.course} />
+                  <CompactInfo label="Série" value={previousEnrollment?.grade} />
+                  <CompactInfo label="Turno" value={previousEnrollment?.shift.name} />
+                  <CompactInfo label="Ônibus" value="Ver prévia" />
+                </div>
+                <div className="flex justify-start sm:justify-end">
+                  <span className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}>
+                    {active ? "Selecionado" : "Preparar rematrícula"}
                   </span>
-                  <span className="break-words">
-                    Instituicao:{" "}
-                    {candidate.currentEnrollment?.institution.name ?? "-"}
-                  </span>
-                  <span className="break-words">Curso: {candidate.currentEnrollment?.course ?? "-"}</span>
                 </div>
-                <div>
-                  <button
-                    className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs max-[420px]:w-full")}
-                    onClick={() => void selectCandidate(candidate)}
-                    type="button"
-                  >
-                    Preparar
-                  </button>
-                </div>
-              </article>
-            ))
+              </button>
+            );
+            })
           )}
         </div>
       </section>
@@ -1676,31 +1688,48 @@ export function ReenrollmentsPanel() {
         />
 
         {selected && preview ? (
-          <div className="grid gap-4 p-4 sm:p-5">
-            <div className={cx(adminTheme.softPanel, "min-w-0 p-3 text-sm leading-5")}>
-              <p className="break-words font-medium text-slate-950">
-                {selected.person.fullName}
-              </p>
-              <p className="mt-1 break-words text-slate-600">
-                Matrícula anterior preservada:{" "}
-                {preview.previousEnrollment
-                  ? `${preview.previousEnrollment.academicYear.year} - ${preview.previousEnrollment.institution.name}`
-                  : "sem matrícula anterior"}
-              </p>
-              <p className="mt-1 break-words text-slate-600">
-                Instituição: {preview.previousEnrollment?.institution.name ?? "-"}
-              </p>
-              <p className="mt-1 break-words text-slate-600">
-                Transporte anterior:{" "}
-                {preview.previousBusAssignment?.bus.name ?? "sem referência"}
-              </p>
-              <p className="mt-1 break-words text-slate-600">
-                Esta rematrícula não gera boleto, carteirinha ou cópia de documentos.
-              </p>
-              {preview.blockingReason ? (
-                <p className="mt-2 break-words text-red-700">{preview.blockingReason}</p>
-              ) : null}
+          <div className="grid gap-3 p-3 sm:p-4">
+            <div className="grid gap-2">
+              <AdminStatusBadge tone={preview.eligible ? "green" : "red"}>
+                {preview.eligible ? "Prévia válida" : "Bloqueio encontrado"}
+              </AdminStatusBadge>
+              <PreviewBlock title="ACADÊMICO">
+                <CompactInfo label="Nome" value={selected.person.fullName} />
+                <CompactInfo label="CPF" value={selected.person.cpfMasked} />
+                <CompactInfo
+                  label="Motivo da elegibilidade"
+                  value={reenrollmentReason(preview)}
+                />
+              </PreviewBlock>
             </div>
+
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+              <PreviewBlock title="MATRÍCULA ANTERIOR">
+                <EnrollmentSummary enrollment={preview.previousEnrollment} />
+                <CompactInfo
+                  label="Ônibus"
+                  value={preview.previousBusAssignment?.bus.name ?? "Sem ônibus"}
+                />
+              </PreviewBlock>
+              <div className="grid place-items-center text-slate-400 md:px-1 xl:py-0 2xl:px-1">
+                <ChevronRight aria-hidden="true" className="hidden h-5 w-5 md:block xl:hidden 2xl:block" />
+                <span className="text-lg md:hidden xl:block 2xl:hidden">↓</span>
+              </div>
+              <PreviewBlock title={`NOVA MATRÍCULA — ${preview.academicYear.year}`}>
+                <CompactInfo label="Instituição" value={institutionName(institutions, enrollment.institutionId)} />
+                <CompactInfo label="Curso" value={enrollment.course} />
+                <CompactInfo label="Série" value={enrollment.grade} />
+                <CompactInfo label="Turno" value={shiftName(shifts, enrollment.shiftId)} />
+                <CompactInfo label="Ônibus" value={selectedBus?.name ?? "Sem ônibus"} />
+              </PreviewBlock>
+            </div>
+
+            {preview.blockingReason ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <p className="font-semibold">BLOQUEIO</p>
+                <p className="mt-1 break-words">{preview.blockingReason}</p>
+              </div>
+            ) : null}
 
             <EnrollmentFields
               adaptiveLayout
@@ -1708,14 +1737,29 @@ export function ReenrollmentsPanel() {
               institutions={institutions}
               setEnrollment={setEnrollment}
               shifts={shifts}
-              title="Nova matricula anual"
+              title="Campos editáveis"
               years={years}
             />
 
-            <div className="grid gap-2">
+            <div className="grid gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3">
               <h3 className="text-sm font-semibold text-slate-950">
-                Transporte opcional
+                Transporte
               </h3>
+              <div className="grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                <CompactInfo
+                  label="Ônibus anterior"
+                  value={preview.previousBusAssignment?.bus.name ?? "Sem ônibus"}
+                />
+                <CompactInfo
+                  label="Nova matrícula"
+                  value={selectedBus?.name ?? "Sem ônibus"}
+                  tone={
+                    (preview.previousBusAssignment?.bus.id ?? "") !== (selectedBus?.id ?? "")
+                      ? "changed"
+                      : "default"
+                  }
+                />
+              </div>
               <select
                 className={cx(adminTheme.control, "w-full min-w-0")}
                 onChange={(event) => setBusId(event.target.value)}
@@ -1742,13 +1786,13 @@ export function ReenrollmentsPanel() {
               disabled={saving || !preview.eligible}
               type="submit"
             >
-              {saving ? "Criando..." : "Confirmar rematrícula"}
+              {saving ? "Criando..." : "Concluir rematrícula"}
             </button>
           </div>
         ) : (
-          <div className="p-4">
+          <div className="p-3 sm:p-4">
             <AdminEmptyState
-              description="Selecione um candidato elegível na lista para montar a prévia da nova matrícula."
+              description="Selecione uma linha da fila para ver acadêmico, matrícula anterior, nova matrícula e transporte."
               title="Nenhum candidato selecionado"
             />
           </div>
@@ -1757,8 +1801,8 @@ export function ReenrollmentsPanel() {
       </div>
       {pendingReenrollment ? (
         <AdminConfirmDialog
-          confirmLabel={saving ? "Criando..." : "Criar rematrícula"}
-          description="A matrícula anterior será preservada. Transporte é opcional, e esta ação não gera boleto, carteirinha ou cópia de documentos."
+          confirmLabel={saving ? "Criando..." : "Concluir rematrícula"}
+          description={`Acadêmico: ${selected?.person.fullName ?? "-"} · Ano destino: ${selectedYear?.year ?? "-"} · Instituição: ${institutionName(institutions, enrollment.institutionId)} · Curso: ${enrollment.course || "-"} · Série: ${enrollment.grade || "-"} · Turno: ${shiftName(shifts, enrollment.shiftId)} · Ônibus: ${selectedBus?.name ?? "Sem ônibus"}`}
           disabled={saving}
           onCancel={() => setPendingReenrollment(false)}
           onConfirm={() => void confirmReenrollment()}
@@ -1768,6 +1812,86 @@ export function ReenrollmentsPanel() {
       ) : null}
     </div>
   );
+}
+
+function uniqueOptions(options: Array<{ label: string; value: string }>) {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (!option.value || seen.has(option.value)) return false;
+    seen.add(option.value);
+    return true;
+  });
+}
+
+function CompactInfo({
+  label,
+  tone = "default",
+  value,
+}: {
+  label: string;
+  tone?: "default" | "changed";
+  value: number | string | null | undefined;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] font-medium uppercase text-slate-500">{label}</p>
+      <p
+        className={cx(
+          "mt-0.5 break-words text-sm font-medium text-slate-800",
+          tone === "changed" && "text-[#0F6B5E]",
+        )}
+      >
+        {value === null || value === undefined || value === "" ? "-" : value}
+      </p>
+    </div>
+  );
+}
+
+function PreviewBlock({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title: string;
+}) {
+  return (
+    <section className={cx(adminTheme.softPanel, "min-w-0 p-3")}>
+      <h3 className="mb-2 text-xs font-semibold uppercase text-slate-500">{title}</h3>
+      <div className="grid gap-2">{children}</div>
+    </section>
+  );
+}
+
+function EnrollmentSummary({
+  enrollment,
+}: {
+  enrollment: EnrollmentRecord | null | undefined;
+}) {
+  return (
+    <>
+      <CompactInfo label="Ano" value={enrollment?.academicYear.year} />
+      <CompactInfo label="Instituição" value={enrollment?.institution.name} />
+      <CompactInfo label="Curso" value={enrollment?.course} />
+      <CompactInfo label="Série" value={enrollment?.grade} />
+      <CompactInfo label="Turno" value={enrollment?.shift.name} />
+    </>
+  );
+}
+
+function institutionName(institutions: BaseRecord[], institutionId: string) {
+  return institutions.find((institution) => institution.id === institutionId)?.name ?? "-";
+}
+
+function shiftName(shifts: BaseRecord[], shiftId: string) {
+  return shifts.find((shift) => shift.id === shiftId)?.name ?? "-";
+}
+
+function reenrollmentReason(preview: ReenrollmentPreview) {
+  if (!preview.eligible) return preview.blockingReason ?? "Prévia bloqueada";
+  if (preview.previousEnrollment) {
+    return "Matrícula anterior elegível para renovação";
+  }
+  return "Sem matrícula no ano destino";
 }
 
 function PersonFields({
