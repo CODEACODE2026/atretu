@@ -71,6 +71,7 @@ type DashboardNavigationTarget = {
   area: AdminArea;
   academicYearId?: string;
   baseDomain?: DomainKey;
+  boardMembership?: "all" | "active" | "inactive";
   collectionFilters?: {
     academicYearId?: string;
     followUpFrom?: string;
@@ -248,6 +249,7 @@ function AdminWorkspace({
   onUserChange: (user: ApiUser) => void;
   user: ApiUser;
 }) {
+  const router = useRouter();
   const [area, setArea] = useState<AdminArea>("dashboard");
   const [financeInitialArea, setFinanceInitialArea] =
     useState<FinanceArea>("invoices");
@@ -306,6 +308,21 @@ function AdminWorkspace({
   }, [area, hasOperationalAccess]);
 
   useEffect(() => {
+    function applyUrlNavigationContext() {
+      const target = parseDashboardHref(window.location.href);
+      if (target) {
+        applyNavigationTarget(target);
+      }
+    }
+
+    applyUrlNavigationContext();
+    window.addEventListener("popstate", applyUrlNavigationContext);
+    return () => {
+      window.removeEventListener("popstate", applyUrlNavigationContext);
+    };
+  }, [hasOperationalAccess]);
+
+  useEffect(() => {
     const query = window.matchMedia(
       "(min-width: 768px) and (max-width: 1023px)",
     );
@@ -326,6 +343,7 @@ function AdminWorkspace({
       setDashboardTarget(null);
       setMobileNavigationOpen(false);
       setArea("account");
+      router.push(adminAreaHref("account"));
       return;
     }
     setDashboardTarget(null);
@@ -337,6 +355,7 @@ function AdminWorkspace({
     }
     setMobileNavigationOpen(false);
     setArea(nextArea);
+    router.push(adminAreaHref(nextArea));
   }
 
   function handleDashboardShortcut(shortcut: DashboardQuickShortcut) {
@@ -348,20 +367,30 @@ function AdminWorkspace({
     if (!target) {
       return;
     }
-    setDashboardTarget(null);
-    if (target.financeArea) {
-      setFinanceInitialArea(target.financeArea);
-    }
-    if (target.baseDomain) {
-      setBaseInitialDomain(target.baseDomain);
-    }
-    setMobileNavigationOpen(false);
-    setArea(target.area);
+    const href = dashboardTargetHref(target);
+    router.push(href);
+    applyNavigationTarget({ ...target, area: target.area });
   }
 
   function handleDashboardHref(href: string) {
     const target = parseDashboardHref(href);
     if (!target) {
+      return;
+    }
+    router.push(href);
+    applyNavigationTarget(target);
+  }
+
+  function handleClearDashboardContext(nextArea: AdminArea) {
+    setDashboardTarget(null);
+    router.replace(adminAreaHref(nextArea));
+  }
+
+  function applyNavigationTarget(target: DashboardNavigationTarget) {
+    if (target.area !== "account" && !hasOperationalAccess) {
+      setDashboardTarget(null);
+      setMobileNavigationOpen(false);
+      setArea("account");
       return;
     }
     setDashboardTarget(target);
@@ -461,8 +490,10 @@ function AdminWorkspace({
             <StudentsPanel
               initialAcademicYearId={dashboardTarget?.academicYearId}
               initialAction={dashboardTarget?.studentAction}
+              initialBoardMembershipFilter={dashboardTarget?.boardMembership}
               initialInstitutionId={dashboardTarget?.institutionId}
               initialStatusFilter={dashboardTarget?.studentStatus}
+              onClearNavigationContext={() => handleClearDashboardContext("students")}
               user={user}
             />
           ) : null}
@@ -517,6 +548,7 @@ function parseDashboardHref(href: string): DashboardNavigationTarget | null {
   }
 
   const baseDomain = url.searchParams.get("baseDomain");
+  const boardMembership = url.searchParams.get("boardMembership");
   const financeArea = url.searchParams.get("financeArea");
   const studentStatus = url.searchParams.get("studentStatus");
   const action = url.searchParams.get("action");
@@ -535,6 +567,9 @@ function parseDashboardHref(href: string): DashboardNavigationTarget | null {
     area,
     academicYearId,
     baseDomain: isDomainKey(baseDomain) ? baseDomain : undefined,
+    boardMembership: isBoardMembershipFilter(boardMembership)
+      ? boardMembership
+      : undefined,
     collectionFilters:
       academicYearId ||
       institutionId ||
@@ -579,6 +614,28 @@ function parseDashboardHref(href: string): DashboardNavigationTarget | null {
   };
 }
 
+function adminAreaHref(area: AdminArea) {
+  return area === "dashboard" ? "/admin" : `/admin?area=${area}`;
+}
+
+function dashboardTargetHref(target: DashboardNavigationTarget) {
+  const search = new URLSearchParams();
+  search.set("area", target.area);
+  if (target.academicYearId) search.set("academicYearId", target.academicYearId);
+  if (target.baseDomain) search.set("baseDomain", target.baseDomain);
+  if (target.boardMembership) {
+    search.set("boardMembership", target.boardMembership);
+  }
+  if (target.financeArea) search.set("financeArea", target.financeArea);
+  if (target.institutionId) search.set("institutionId", target.institutionId);
+  if (target.preRegistrationStatus) {
+    search.set("preRegistrationStatus", target.preRegistrationStatus);
+  }
+  if (target.studentAction) search.set("action", target.studentAction);
+  if (target.studentStatus) search.set("studentStatus", target.studentStatus);
+  return `/admin?${search.toString()}`;
+}
+
 function isDomainKey(value: string | null): value is DomainKey {
   return (
     value === "institutions" ||
@@ -619,6 +676,12 @@ function isStudentStatusFilter(
     value === "terminated" ||
     value === "all"
   );
+}
+
+function isBoardMembershipFilter(
+  value: string | null,
+): value is "all" | "active" | "inactive" {
+  return value === "all" || value === "active" || value === "inactive";
 }
 
 function isCollectionOperationalStatus(

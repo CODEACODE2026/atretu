@@ -81,14 +81,18 @@ const emptyEnrollment: StudentPayload["enrollment"] = {
 export function StudentsPanel({
   initialAcademicYearId,
   initialAction,
+  initialBoardMembershipFilter,
   initialInstitutionId,
   initialStatusFilter,
+  onClearNavigationContext,
   user,
 }: {
   initialAcademicYearId?: string;
   initialAction?: "new";
+  initialBoardMembershipFilter?: "all" | "active" | "inactive";
   initialInstitutionId?: string;
   initialStatusFilter?: "active" | "suspended" | "terminated" | "all";
+  onClearNavigationContext?: () => void;
   user: ApiUser;
 }) {
   const [view, setView] = useState<"list" | "create" | "profile">("list");
@@ -147,6 +151,9 @@ export function StudentsPanel({
     if (initialStatusFilter) {
       setStatusFilter(initialStatusFilter);
     }
+    if (initialBoardMembershipFilter) {
+      setBoardMembershipFilter(initialBoardMembershipFilter);
+    }
     setPage(1);
     if (initialAction === "new") {
       setView("create");
@@ -154,6 +161,7 @@ export function StudentsPanel({
   }, [
     initialAcademicYearId,
     initialAction,
+    initialBoardMembershipFilter,
     initialInstitutionId,
     initialStatusFilter,
   ]);
@@ -246,6 +254,7 @@ export function StudentsPanel({
     setStatusFilter("active");
     setBoardMembershipFilter("all");
     setPage(1);
+    onClearNavigationContext?.();
     void loadStudents("");
   }
 
@@ -950,6 +959,7 @@ export function StudentsPanel({
               value={statusFilter}
             />
             <StudentFilterSelect
+              includeEmptyOption={false}
               label="Diretoria"
               onChange={(value) => {
                 setBoardMembershipFilter(
@@ -1241,11 +1251,13 @@ function ModernStatusBadge({ status }: { status: StudentSummary["status"] }) {
 }
 
 function StudentFilterSelect({
+  includeEmptyOption = true,
   label,
   onChange,
   options,
   value,
 }: {
+  includeEmptyOption?: boolean;
   label: string;
   onChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
@@ -1260,7 +1272,7 @@ function StudentFilterSelect({
         onChange={(event) => onChange(event.target.value)}
         value={value}
       >
-        <option value="">{label}</option>
+        {includeEmptyOption ? <option value="">{label}</option> : null}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

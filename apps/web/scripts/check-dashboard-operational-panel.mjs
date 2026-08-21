@@ -51,7 +51,13 @@ assertIncludes(primitives, "academics: GraduationCap");
 assertIncludes(primitives, "quickActions: Bell");
 
 assertIncludes(adminShell, "parseDashboardHref");
+assertIncludes(adminShell, "window.location.href");
+assertIncludes(adminShell, "router.push(href)");
+assertIncludes(adminShell, "router.replace(adminAreaHref(nextArea))");
 assertIncludes(adminShell, "studentStatus");
+assertIncludes(adminShell, "boardMembership");
+assertIncludes(adminShell, "initialBoardMembershipFilter");
+assertIncludes(adminShell, "onClearNavigationContext");
 assertIncludes(adminShell, "invoiceFilters");
 assertIncludes(adminShell, "initialCollectionFilters");
 assertIncludes(adminShell, "preRegistrationStatus");
@@ -69,7 +75,11 @@ assertIncludes(collectionsPanel, "initialFilters?: Partial<CollectionFilters>");
 assertIncludes(collectionsPanel, "setFilters({ ...emptyCollectionFilters, ...initialFilters })");
 
 assertIncludes(studentsPanel, "initialStatusFilter");
+assertIncludes(studentsPanel, "initialBoardMembershipFilter");
 assertIncludes(studentsPanel, "initialAction === \"new\"");
+assertIncludes(studentsPanel, "includeEmptyOption={false}");
+assertIncludes(studentsPanel, "setBoardMembershipFilter(\"all\")");
+assertIncludes(studentsPanel, "onClearNavigationContext?.()");
 
 assertIncludes(preRegistrationsPanel, "initialStatus?: PreRegistrationStatus");
 assertIncludes(preRegistrationsPanel, "setStatus(initialStatus)");
