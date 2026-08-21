@@ -32,6 +32,11 @@ import {
   type ReenrollmentPreview,
   type StudentSummary,
 } from "../../lib/api";
+import type {
+  StudentBoardMembershipFilter,
+  StudentListUrlFilters,
+  StudentStatusFilter,
+} from "./admin-dashboard-navigation";
 import {
   maskCep,
   maskCpf,
@@ -83,16 +88,20 @@ export function StudentsPanel({
   initialAction,
   initialBoardMembershipFilter,
   initialInstitutionId,
+  initialShiftId,
   initialStatusFilter,
   onClearNavigationContext,
+  onListFiltersChange,
   user,
 }: {
   initialAcademicYearId?: string;
   initialAction?: "new";
-  initialBoardMembershipFilter?: "all" | "active" | "inactive";
+  initialBoardMembershipFilter?: StudentBoardMembershipFilter;
   initialInstitutionId?: string;
-  initialStatusFilter?: "active" | "suspended" | "terminated" | "all";
+  initialShiftId?: string;
+  initialStatusFilter?: StudentStatusFilter;
   onClearNavigationContext?: () => void;
+  onListFiltersChange?: (filters: StudentListUrlFilters) => void;
   user: ApiUser;
 }) {
   const [view, setView] = useState<"list" | "create" | "profile">("list");
@@ -120,19 +129,25 @@ export function StudentsPanel({
   const [reinstateReason, setReinstateReason] = useState("");
   const [reinstateNote, setReinstateNote] = useState("");
   const [search, setSearch] = useState("");
-  const [academicYearId, setAcademicYearId] = useState("");
-  const [institutionId, setInstitutionId] = useState("");
-  const [shiftId, setShiftId] = useState("");
-  const [statusFilter, setStatusFilter] = useState<
-    "active" | "suspended" | "terminated" | "all"
-  >("active");
-  const [boardMembershipFilter, setBoardMembershipFilter] = useState<
-    "all" | "active" | "inactive"
-  >("all");
+  const [academicYearId, setAcademicYearId] = useState(
+    () => initialAcademicYearId ?? "",
+  );
+  const [institutionId, setInstitutionId] = useState(
+    () => initialInstitutionId ?? "",
+  );
+  const [shiftId, setShiftId] = useState(() => initialShiftId ?? "");
+  const [statusFilter, setStatusFilter] = useState<StudentStatusFilter>(
+    () => initialStatusFilter ?? "active",
+  );
+  const [boardMembershipFilter, setBoardMembershipFilter] =
+    useState<StudentBoardMembershipFilter>(
+      () => initialBoardMembershipFilter ?? "all",
+    );
   const [history, setHistory] = useState<StudentHistoryEvent[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [referencesLoaded, setReferencesLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -142,18 +157,11 @@ export function StudentsPanel({
   }, []);
 
   useEffect(() => {
-    if (initialAcademicYearId) {
-      setAcademicYearId(initialAcademicYearId);
-    }
-    if (initialInstitutionId) {
-      setInstitutionId(initialInstitutionId);
-    }
-    if (initialStatusFilter) {
-      setStatusFilter(initialStatusFilter);
-    }
-    if (initialBoardMembershipFilter) {
-      setBoardMembershipFilter(initialBoardMembershipFilter);
-    }
+    setAcademicYearId(initialAcademicYearId ?? "");
+    setInstitutionId(initialInstitutionId ?? "");
+    setShiftId(initialShiftId ?? "");
+    setStatusFilter(initialStatusFilter ?? "active");
+    setBoardMembershipFilter(initialBoardMembershipFilter ?? "all");
     setPage(1);
     if (initialAction === "new") {
       setView("create");
@@ -163,18 +171,40 @@ export function StudentsPanel({
     initialAction,
     initialBoardMembershipFilter,
     initialInstitutionId,
+    initialShiftId,
     initialStatusFilter,
   ]);
 
   useEffect(() => {
+    if (!referencesLoaded) {
+      return;
+    }
     void loadStudents();
   }, [
+    referencesLoaded,
     page,
     academicYearId,
     institutionId,
     shiftId,
     statusFilter,
     boardMembershipFilter,
+  ]);
+
+  useEffect(() => {
+    onListFiltersChange?.({
+      academicYearId,
+      boardMembership: boardMembershipFilter,
+      institutionId,
+      shiftId,
+      status: statusFilter,
+    });
+  }, [
+    academicYearId,
+    boardMembershipFilter,
+    institutionId,
+    onListFiltersChange,
+    shiftId,
+    statusFilter,
   ]);
 
   useEffect(() => {
@@ -209,6 +239,21 @@ export function StudentsPanel({
       setYears(yearsResponse.data);
       setInstitutions(institutionsResponse.data);
       setShifts(shiftsResponse.data);
+      if (
+        initialAcademicYearId &&
+        !yearsResponse.data.some((year) => year.id === initialAcademicYearId)
+      ) {
+        setAcademicYearId("");
+      }
+      if (
+        initialInstitutionId &&
+        !institutionsResponse.data.some((item) => item.id === initialInstitutionId)
+      ) {
+        setInstitutionId("");
+      }
+      if (initialShiftId && !shiftsResponse.data.some((item) => item.id === initialShiftId)) {
+        setShiftId("");
+      }
       const currentYear = yearsResponse.data.find((year) => year.isCurrent);
       if (currentYear) {
         setEnrollment((current) => ({
@@ -220,22 +265,27 @@ export function StudentsPanel({
       setError(
         caught instanceof Error ? caught.message : "Erro ao carregar referencias",
       );
+    } finally {
+      setReferencesLoaded(true);
     }
   }
 
-  async function loadStudents(nextSearch = search) {
+  async function loadStudents(
+    nextSearch = search,
+    overrides: Partial<StudentListUrlFilters & { page: number }> = {},
+  ) {
     setLoading(true);
     setError("");
     try {
       const response = await api.listStudents({
-        page,
+        page: overrides.page ?? page,
         limit: 10,
         search: nextSearch,
-        academicYearId,
-        institutionId,
-        shiftId,
-        status: statusFilter,
-        boardMembership: boardMembershipFilter,
+        academicYearId: overrides.academicYearId ?? academicYearId,
+        institutionId: overrides.institutionId ?? institutionId,
+        shiftId: overrides.shiftId ?? shiftId,
+        status: overrides.status ?? statusFilter,
+        boardMembership: overrides.boardMembership ?? boardMembershipFilter,
       });
       setStudents(response.data);
       setTotalPages(Math.max(response.pagination.totalPages, 1));
@@ -255,7 +305,14 @@ export function StudentsPanel({
     setBoardMembershipFilter("all");
     setPage(1);
     onClearNavigationContext?.();
-    void loadStudents("");
+    void loadStudents("", {
+      academicYearId: "",
+      boardMembership: "all",
+      institutionId: "",
+      page: 1,
+      shiftId: "",
+      status: "active",
+    });
   }
 
   async function loadCreateBuses(nextAcademicYearId: string) {
@@ -942,11 +999,7 @@ export function StudentsPanel({
               label="Situacao"
               onChange={(value) => {
                 setStatusFilter(
-                  (value || "active") as
-                    | "active"
-                    | "suspended"
-                    | "terminated"
-                    | "all",
+                  (value || "active") as StudentStatusFilter,
                 );
                 setPage(1);
               }}
@@ -963,7 +1016,7 @@ export function StudentsPanel({
               label="Diretoria"
               onChange={(value) => {
                 setBoardMembershipFilter(
-                  (value || "all") as "all" | "active" | "inactive",
+                  (value || "all") as StudentBoardMembershipFilter,
                 );
                 setPage(1);
               }}

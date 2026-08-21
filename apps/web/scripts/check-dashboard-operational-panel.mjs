@@ -27,6 +27,10 @@ const studentsPanel = readFileSync(
   resolve("src/app/admin/students-panel.tsx"),
   "utf8",
 );
+const dashboardNavigation = readFileSync(
+  resolve("src/app/admin/admin-dashboard-navigation.ts"),
+  "utf8",
+);
 const preRegistrationsPanel = readFileSync(
   resolve("src/app/admin/pre-registrations-panel.tsx"),
   "utf8",
@@ -54,6 +58,7 @@ assertIncludes(adminShell, "parseDashboardHref");
 assertIncludes(adminShell, "window.location.href");
 assertIncludes(adminShell, "router.push(href)");
 assertIncludes(adminShell, "router.replace(adminAreaHref(nextArea))");
+assertIncludes(adminShell, "onListFiltersChange={handleStudentsListFiltersChange}");
 assertIncludes(adminShell, "studentStatus");
 assertIncludes(adminShell, "boardMembership");
 assertIncludes(adminShell, "initialBoardMembershipFilter");
@@ -76,10 +81,20 @@ assertIncludes(collectionsPanel, "setFilters({ ...emptyCollectionFilters, ...ini
 
 assertIncludes(studentsPanel, "initialStatusFilter");
 assertIncludes(studentsPanel, "initialBoardMembershipFilter");
+assertIncludes(studentsPanel, "() => initialStatusFilter ?? \"active\"");
+assertIncludes(studentsPanel, "() => initialAcademicYearId ?? \"\"");
+assertIncludes(studentsPanel, "referencesLoaded");
+assertIncludes(studentsPanel, "onListFiltersChange?.({");
 assertIncludes(studentsPanel, "initialAction === \"new\"");
 assertIncludes(studentsPanel, "includeEmptyOption={false}");
 assertIncludes(studentsPanel, "setBoardMembershipFilter(\"all\")");
 assertIncludes(studentsPanel, "onClearNavigationContext?.()");
+
+assertIncludes(dashboardNavigation, "parseStudentStatusFilter");
+assertIncludes(dashboardNavigation, "serializeStudentStatusFilter");
+assertIncludes(dashboardNavigation, "studentsListHref");
+assertIncludes(dashboardNavigation, "case \"SUSPENDED\"");
+assertIncludes(dashboardNavigation, "serializeStudentStatusFilter(target.studentStatus)");
 
 assertIncludes(preRegistrationsPanel, "initialStatus?: PreRegistrationStatus");
 assertIncludes(preRegistrationsPanel, "setStatus(initialStatus)");

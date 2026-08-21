@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Building2,
@@ -24,7 +24,6 @@ import {
   type BaseRecord,
   type BusAssignmentRecord,
   type BusRecord,
-  type CollectionOperationalStatus,
   type DashboardQuickShortcut,
   type ListRecordsParams,
 } from "../../lib/api";
@@ -48,6 +47,16 @@ import {
 import { AdminSidebar } from "./components/admin-sidebar";
 import { AdminTopbar } from "./components/admin-topbar";
 import { MobileNavigation } from "./components/mobile-navigation";
+import {
+  adminAreaHref,
+  dashboardTargetHref,
+  parseDashboardHref,
+  studentsListHref,
+  type DashboardNavigationTarget,
+  type DomainKey,
+  type FinanceArea,
+  type StudentListUrlFilters,
+} from "./admin-dashboard-navigation";
 import { DashboardPanel } from "./dashboard-panel";
 import { FinancePanel } from "./finance-panel";
 import { JobsMonitorPanel } from "./jobs-monitor-panel";
@@ -60,39 +69,9 @@ import { StudentCardsPanel } from "./student-cards-panel";
 import { ReenrollmentsPanel, StudentsPanel } from "./students-panel";
 import { UsersPanel } from "./users-panel";
 
-type DomainKey = "institutions" | "shifts" | "buses" | "years";
 type StatusFilter = "active" | "inactive" | "all";
 type SortField = "name" | "status" | "createdAt" | "updatedAt";
 type RecordRow = BaseRecord | BusRecord;
-type FinanceArea = "invoices" | "collections";
-type StudentStatusFilter = "active" | "suspended" | "terminated" | "all";
-type PreRegistrationInitialStatus = "PENDING" | "APPROVED" | "REJECTED";
-type DashboardNavigationTarget = {
-  area: AdminArea;
-  academicYearId?: string;
-  baseDomain?: DomainKey;
-  boardMembership?: "all" | "active" | "inactive";
-  collectionFilters?: {
-    academicYearId?: string;
-    followUpFrom?: string;
-    followUpTo?: string;
-    institutionId?: string;
-    operationalStatus?: CollectionOperationalStatus;
-  };
-  financeArea?: FinanceArea;
-  invoiceFilters?: {
-    academicYearId?: string;
-    institutionId?: string;
-    overdue?: "all" | "overdue" | "notOverdue";
-    paidAtFrom?: string;
-    paidAtTo?: string;
-    status?: "OPEN" | "PAID" | "CANCELLED" | "";
-  };
-  institutionId?: string;
-  preRegistrationStatus?: PreRegistrationInitialStatus;
-  studentAction?: "new";
-  studentStatus?: StudentStatusFilter;
-};
 type EditingRecord = RecordRow | null;
 type PendingAction = {
   record: RecordRow;
@@ -377,7 +356,7 @@ function AdminWorkspace({
     if (!target) {
       return;
     }
-    router.push(href);
+    router.push(target.area === "students" ? dashboardTargetHref(target) : href);
     applyNavigationTarget(target);
   }
 
@@ -385,6 +364,19 @@ function AdminWorkspace({
     setDashboardTarget(null);
     router.replace(adminAreaHref(nextArea));
   }
+
+  const handleStudentsListFiltersChange = useCallback((filters: StudentListUrlFilters) => {
+    const nextTarget: DashboardNavigationTarget = {
+      area: "students",
+      academicYearId: filters.academicYearId || undefined,
+      boardMembership: filters.boardMembership,
+      institutionId: filters.institutionId || undefined,
+      shiftId: filters.shiftId || undefined,
+      studentStatus: filters.status,
+    };
+    setDashboardTarget(nextTarget);
+    router.replace(studentsListHref(filters));
+  }, [router]);
 
   function applyNavigationTarget(target: DashboardNavigationTarget) {
     if (target.area !== "account" && !hasOperationalAccess) {
@@ -492,8 +484,10 @@ function AdminWorkspace({
               initialAction={dashboardTarget?.studentAction}
               initialBoardMembershipFilter={dashboardTarget?.boardMembership}
               initialInstitutionId={dashboardTarget?.institutionId}
+              initialShiftId={dashboardTarget?.shiftId}
               initialStatusFilter={dashboardTarget?.studentStatus}
               onClearNavigationContext={() => handleClearDashboardContext("students")}
+              onListFiltersChange={handleStudentsListFiltersChange}
               user={user}
             />
           ) : null}
@@ -537,166 +531,6 @@ function AdminWorkspace({
         </section>
       </div>
     </main>
-  );
-}
-
-function parseDashboardHref(href: string): DashboardNavigationTarget | null {
-  const url = new URL(href, "http://atretu.local");
-  const area = url.searchParams.get("area") as AdminArea | null;
-  if (!area) {
-    return null;
-  }
-
-  const baseDomain = url.searchParams.get("baseDomain");
-  const boardMembership = url.searchParams.get("boardMembership");
-  const financeArea = url.searchParams.get("financeArea");
-  const studentStatus = url.searchParams.get("studentStatus");
-  const action = url.searchParams.get("action");
-  const academicYearId = url.searchParams.get("academicYearId") ?? undefined;
-  const institutionId = url.searchParams.get("institutionId") ?? undefined;
-  const preRegistrationStatus = url.searchParams.get("preRegistrationStatus");
-  const invoiceStatus = url.searchParams.get("invoiceStatus");
-  const overdue = url.searchParams.get("overdue");
-  const paidAtFrom = url.searchParams.get("paidAtFrom") ?? undefined;
-  const paidAtTo = url.searchParams.get("paidAtTo") ?? undefined;
-  const operationalStatus = url.searchParams.get("collectionOperationalStatus");
-  const followUpFrom = url.searchParams.get("followUpFrom") ?? undefined;
-  const followUpTo = url.searchParams.get("followUpTo") ?? undefined;
-
-  return {
-    area,
-    academicYearId,
-    baseDomain: isDomainKey(baseDomain) ? baseDomain : undefined,
-    boardMembership: isBoardMembershipFilter(boardMembership)
-      ? boardMembership
-      : undefined,
-    collectionFilters:
-      academicYearId ||
-      institutionId ||
-      operationalStatus ||
-      followUpFrom ||
-      followUpTo
-        ? {
-            academicYearId,
-            followUpFrom,
-            followUpTo,
-            institutionId,
-            operationalStatus: isCollectionOperationalStatus(operationalStatus)
-              ? operationalStatus
-              : undefined,
-          }
-        : undefined,
-    financeArea: isFinanceArea(financeArea) ? financeArea : undefined,
-    invoiceFilters:
-      academicYearId ||
-      institutionId ||
-      invoiceStatus ||
-      overdue ||
-      paidAtFrom ||
-      paidAtTo
-        ? {
-            academicYearId,
-            institutionId,
-            overdue: isOverdueFilter(overdue) ? overdue : undefined,
-            paidAtFrom,
-            paidAtTo,
-            status: isInvoiceStatus(invoiceStatus) ? invoiceStatus : undefined,
-          }
-        : undefined,
-    institutionId,
-    preRegistrationStatus: isPreRegistrationStatus(preRegistrationStatus)
-      ? preRegistrationStatus
-      : undefined,
-    studentAction: action === "new" ? "new" : undefined,
-    studentStatus: isStudentStatusFilter(studentStatus)
-      ? studentStatus
-      : undefined,
-  };
-}
-
-function adminAreaHref(area: AdminArea) {
-  return area === "dashboard" ? "/admin" : `/admin?area=${area}`;
-}
-
-function dashboardTargetHref(target: DashboardNavigationTarget) {
-  const search = new URLSearchParams();
-  search.set("area", target.area);
-  if (target.academicYearId) search.set("academicYearId", target.academicYearId);
-  if (target.baseDomain) search.set("baseDomain", target.baseDomain);
-  if (target.boardMembership) {
-    search.set("boardMembership", target.boardMembership);
-  }
-  if (target.financeArea) search.set("financeArea", target.financeArea);
-  if (target.institutionId) search.set("institutionId", target.institutionId);
-  if (target.preRegistrationStatus) {
-    search.set("preRegistrationStatus", target.preRegistrationStatus);
-  }
-  if (target.studentAction) search.set("action", target.studentAction);
-  if (target.studentStatus) search.set("studentStatus", target.studentStatus);
-  return `/admin?${search.toString()}`;
-}
-
-function isDomainKey(value: string | null): value is DomainKey {
-  return (
-    value === "institutions" ||
-    value === "shifts" ||
-    value === "buses" ||
-    value === "years"
-  );
-}
-
-function isFinanceArea(value: string | null): value is FinanceArea {
-  return value === "invoices" || value === "collections";
-}
-
-function isInvoiceStatus(
-  value: string | null,
-): value is "OPEN" | "PAID" | "CANCELLED" {
-  return value === "OPEN" || value === "PAID" || value === "CANCELLED";
-}
-
-function isOverdueFilter(
-  value: string | null,
-): value is "all" | "overdue" | "notOverdue" {
-  return value === "all" || value === "overdue" || value === "notOverdue";
-}
-
-function isPreRegistrationStatus(
-  value: string | null,
-): value is PreRegistrationInitialStatus {
-  return value === "PENDING" || value === "APPROVED" || value === "REJECTED";
-}
-
-function isStudentStatusFilter(
-  value: string | null,
-): value is StudentStatusFilter {
-  return (
-    value === "active" ||
-    value === "suspended" ||
-    value === "terminated" ||
-    value === "all"
-  );
-}
-
-function isBoardMembershipFilter(
-  value: string | null,
-): value is "all" | "active" | "inactive" {
-  return value === "all" || value === "active" || value === "inactive";
-}
-
-function isCollectionOperationalStatus(
-  value: string | null,
-): value is CollectionOperationalStatus {
-  return (
-    value === "OVERDUE_NO_ACTION" ||
-    value === "CONTACTED" ||
-    value === "PROMISE_ACTIVE" ||
-    value === "PROMISE_BROKEN" ||
-    value === "FOLLOW_UP_SCHEDULED" ||
-    value === "NO_CONTACT" ||
-    value === "PARTIAL_PAYMENT_REVIEW" ||
-    value === "RESOLVED_BY_PAYMENT" ||
-    value === "CANCELLED"
   );
 }
 
