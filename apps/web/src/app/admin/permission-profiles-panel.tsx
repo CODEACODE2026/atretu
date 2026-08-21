@@ -529,7 +529,7 @@ export function PermissionProfilesPanel() {
           confirmLabel={
             pendingAction.action === "inactivate" ? "Inativar" : "Reativar"
           }
-          description={`Confirmar alteração de status do perfil ${pendingAction.profile.name}?`}
+          description={permissionProfileStatusActionDescription(pendingAction)}
           disabled={saving}
           onCancel={() => setPendingAction(null)}
           onConfirm={confirmAction}
@@ -538,6 +538,21 @@ export function PermissionProfilesPanel() {
       ) : null}
     </>
   );
+}
+
+function permissionProfileStatusActionDescription(pendingAction: PendingAction) {
+  if (!pendingAction) {
+    return "";
+  }
+  if (
+    pendingAction.action === "inactivate" &&
+    pendingAction.profile.usersCount > 0
+  ) {
+    const userLabel =
+      pendingAction.profile.usersCount === 1 ? "usuário" : "usuários";
+    return `Este perfil está vinculado a ${pendingAction.profile.usersCount} ${userLabel}. Ao inativá-lo, esses usuários deixarão de obter as permissões deste perfil enquanto ele estiver inativo.`;
+  }
+  return `Confirmar alteração de status do perfil ${pendingAction.profile.name}?`;
 }
 
 function ProfileDialog({
