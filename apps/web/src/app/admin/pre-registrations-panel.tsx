@@ -8,6 +8,7 @@ import {
   Eye,
   FileText,
   GraduationCap,
+  MapPin,
   Search,
   ShieldCheck,
   type LucideIcon,
@@ -73,10 +74,12 @@ export function PreRegistrationsPanel({
   initialAcademicYearId,
   initialInstitutionId,
   initialStatus,
+  onClearNavigationContext,
 }: {
   initialAcademicYearId?: string;
   initialInstitutionId?: string;
   initialStatus?: PreRegistrationStatus;
+  onClearNavigationContext?: () => void;
 }) {
   const [items, setItems] = useState<PreRegistrationSummary[]>([]);
   const [selected, setSelected] = useState<PreRegistrationDetail | null>(null);
@@ -144,6 +147,7 @@ export function PreRegistrationsPanel({
     status !== "all";
   const hasDashboardOrigin =
     dashboardSourceApplied && activeFilterChips.some((chip) => chip.fromDashboard);
+  const selectedId = selected?.id ?? "";
 
   useEffect(() => {
     void loadItems();
@@ -270,6 +274,7 @@ export function PreRegistrationsPanel({
     setPage(1);
     setSelected(null);
     setDashboardSourceApplied(false);
+    onClearNavigationContext?.();
   }
 
   async function openItem(id: string) {
@@ -466,9 +471,9 @@ export function PreRegistrationsPanel({
       />
       <section
         aria-labelledby="pre-registration-filters-title"
-        className={cx(adminTheme.card, "min-w-0 p-5")}
+        className={cx(adminTheme.card, "min-w-0 p-4")}
       >
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h2
               className={cx(adminTheme.titleText, "text-base")}
@@ -490,7 +495,7 @@ export function PreRegistrationsPanel({
           </div>
         ) : null}
         <form
-          className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4"
+          className="mt-3 grid min-w-0 gap-2 md:grid-cols-[minmax(220px,1.5fr)_minmax(130px,0.8fr)_minmax(180px,1fr)_minmax(130px,0.75fr)_auto_auto] md:items-end"
           onSubmit={(event) => {
             event.preventDefault();
             setPage(1);
@@ -498,7 +503,7 @@ export function PreRegistrationsPanel({
             void loadItems(search);
           }}
         >
-          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700 md:col-span-2">
+          <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Busca
             <input
               className={adminTheme.control}
@@ -567,31 +572,28 @@ export function PreRegistrationsPanel({
               ))}
             </select>
           </label>
-          <div className="flex flex-wrap items-end gap-2 md:col-span-2 xl:col-span-4">
-            <button
-              className={adminTheme.primaryButton}
-              disabled={loading}
-              type="submit"
-            >
-              <Search aria-hidden="true" className="h-4 w-4" />
-              Buscar
-            </button>
-            <button
-              className={adminTheme.secondaryButton}
-              disabled={!hasActiveFilters || loading}
-              onClick={clearFilters}
-              type="button"
-            >
-              <XCircle aria-hidden="true" className="h-4 w-4" />
-              Limpar filtros
-            </button>
-          </div>
+          <button
+            className={adminTheme.primaryButton}
+            disabled={loading}
+            type="submit"
+          >
+            <Search aria-hidden="true" className="h-4 w-4" />
+            Buscar
+          </button>
+          <button
+            className={adminTheme.secondaryButton}
+            disabled={!hasActiveFilters || loading}
+            onClick={clearFilters}
+            type="button"
+          >
+            <XCircle aria-hidden="true" className="h-4 w-4" />
+            Limpar filtros
+          </button>
         </form>
 
         <PreRegistrationActiveFilterChips
           chips={activeFilterChips}
           hasDashboardOrigin={hasDashboardOrigin}
-          onClear={clearFilters}
           onRemove={removeFilter}
         />
       </section>
@@ -607,63 +609,93 @@ export function PreRegistrationsPanel({
         </div>
       ) : null}
 
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
         <div className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
+          <div className="grid gap-2 p-3 md:hidden">
+            {loading ? (
+              <p className="px-1 py-4 text-sm text-slate-500">Carregando...</p>
+            ) : items.length === 0 ? (
+              <p className="px-1 py-4 text-sm text-slate-500">
+                Nenhum pre-cadastro encontrado
+              </p>
+            ) : (
+              items.map((item) => (
+                <PreRegistrationMobileCard
+                  item={item}
+                  key={item.id}
+                  onOpen={() => void openItem(item.id)}
+                  selected={item.id === selectedId}
+                />
+              ))
+            )}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-4 py-3">Protocolo</th>
-                  <th className="px-4 py-3">Nome</th>
-                  <th className="px-4 py-3">CPF</th>
-                  <th className="px-4 py-3">Instituicao</th>
-                  <th className="px-4 py-3">Ano</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Envio</th>
-                  <th className="px-4 py-3">Acoes</th>
+                  <th className="px-3 py-2.5">Protocolo</th>
+                  <th className="px-3 py-2.5">Nome</th>
+                  <th className="px-3 py-2.5">CPF</th>
+                  <th className="px-3 py-2.5">Instituicao</th>
+                  <th className="px-3 py-2.5">Ano</th>
+                  <th className="px-3 py-2.5">Status</th>
+                  <th className="px-3 py-2.5">Envio</th>
+                  <th className="px-3 py-2.5">Acoes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={8}>
+                    <td className="px-3 py-6 text-slate-500" colSpan={8}>
                       Carregando...
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6 text-slate-500" colSpan={8}>
+                    <td className="px-3 py-6 text-slate-500" colSpan={8}>
                       Nenhum pre-cadastro encontrado
                     </td>
                   </tr>
                 ) : (
                   items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-4 py-3 font-medium text-slate-950">
+                    <tr
+                      className={cx(
+                        "cursor-pointer transition hover:bg-[#F8FAFA]",
+                        item.id === selectedId
+                          ? "bg-[#F2F8F6] shadow-[inset_3px_0_0_#1F6F5F]"
+                          : undefined,
+                      )}
+                      key={item.id}
+                      onClick={() => void openItem(item.id)}
+                    >
+                      <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-950">
                         {item.publicCode}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {item.fullName}
+                      <td className="max-w-[220px] px-3 py-2.5 text-slate-700">
+                        <span className="line-clamp-2">{item.fullName}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-slate-700">
                         {item.cpfMasked}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {item.institution.name}
+                      <td className="max-w-[200px] px-3 py-2.5 text-slate-700">
+                        <span className="line-clamp-2">{item.institution.name}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-slate-700">
                         {item.academicYear.year}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="whitespace-nowrap px-3 py-2.5">
                         <StatusBadge status={item.status} />
                       </td>
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-600">
                         {formatDateTime(item.createdAt)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2.5">
                         <button
-                          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700"
-                          onClick={() => void openItem(item.id)}
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-[#8DB7AD] hover:bg-[#F2F8F6]"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void openItem(item.id);
+                          }}
                           type="button"
                         >
                           Revisar
@@ -675,32 +707,34 @@ export function PreRegistrationsPanel({
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-end gap-2 border-t border-slate-200 p-4 text-sm text-slate-600">
-            <button
-              className="rounded border border-slate-300 px-3 py-2 disabled:opacity-50"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(current - 1, 1))}
-              type="button"
-            >
-              Anterior
-            </button>
-            <span>
-              {page}/{totalPages}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 py-2.5 text-sm text-slate-600">
+            <span className="text-xs text-slate-500">
+              Página {page} de {totalPages}
             </span>
-            <button
-              className="rounded border border-slate-300 px-3 py-2 disabled:opacity-50"
-              disabled={page >= totalPages}
-              onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
-              type="button"
-            >
-              Proxima
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded border border-slate-300 px-3 py-1.5 disabled:opacity-50"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(current - 1, 1))}
+                type="button"
+              >
+                Anterior
+              </button>
+              <button
+                className="rounded border border-slate-300 px-3 py-1.5 disabled:opacity-50"
+                disabled={page >= totalPages}
+                onClick={() => setPage((current) => Math.min(current + 1, totalPages))}
+                type="button"
+              >
+                Proxima
+              </button>
+            </div>
           </div>
         </div>
 
-        <aside className="min-w-0">
+        <aside className="min-w-0 xl:sticky xl:top-4">
           {selected ? (
-            <div className="grid gap-4">
+            <div className="grid gap-3">
               <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-[#F8FAFA]/85 p-4">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -714,6 +748,7 @@ export function PreRegistrationsPanel({
               </div>
 
               <InfoGroup
+                columns="two"
                 icon={UserRound}
                 rows={[
                   ["CPF", maskCpf(selected.cpf)],
@@ -721,14 +756,11 @@ export function PreRegistrationsPanel({
                   ["Nascimento", formatDate(selected.birthDate)],
                   ["Telefone", selected.phone ? maskPhone(selected.phone) : "-"],
                   ["E-mail", selected.email ?? "-"],
-                  ["Logradouro", selected.addressStreet],
-                  ["Numero", selected.addressNumber],
-                  ["Bairro", selected.addressNeighborhood],
-                  ["Cidade", selected.addressCity],
                 ]}
                 title="Dados do acadêmico"
               />
               <InfoGroup
+                columns="two"
                 icon={GraduationCap}
                 rows={[
                   ["Instituição", selected.institution.name],
@@ -740,6 +772,18 @@ export function PreRegistrationsPanel({
                 title="Dados acadêmicos"
               />
               <InfoGroup
+                columns="two"
+                icon={MapPin}
+                rows={[
+                  ["Logradouro", selected.addressStreet],
+                  ["Número", selected.addressNumber],
+                  ["Bairro", selected.addressNeighborhood],
+                  ["Cidade", selected.addressCity],
+                ]}
+                title="Endereço"
+              />
+              <InfoGroup
+                columns="two"
                 icon={UsersRound}
                 rows={[
                   ["Responsável", selected.guardian?.fullName ?? "-"],
@@ -754,6 +798,7 @@ export function PreRegistrationsPanel({
                 onPreview={(document) => void handlePreviewDocument(document)}
               />
               <InfoGroup
+                columns="two"
                 icon={ShieldCheck}
                 rows={[
                   ["Situação", statusLabel(selected.status)],
@@ -763,12 +808,12 @@ export function PreRegistrationsPanel({
                   ["Motivo", selected.rejectionReason ?? "-"],
                   ["Acadêmico", selected.approvedStudent?.fullName ?? "-"],
                 ]}
-                title="Análise / situação"
+                title="Observações"
               />
 
               {selected.status === "PENDING" ? (
                 <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-white p-4">
-                  <SectionTitle icon={ShieldCheck} title="Ações administrativas" />
+                  <SectionTitle icon={ShieldCheck} title="Ações" />
                   <label className="block text-sm font-medium text-slate-700">
                     Ônibus opcional
                     <select
@@ -814,7 +859,7 @@ export function PreRegistrationsPanel({
                     <label className="block text-sm font-medium text-slate-700">
                       Motivo da rejeição
                       <textarea
-                        className={cx(adminTheme.control, "mt-1 min-h-24 w-full py-2")}
+                        className={cx(adminTheme.control, "mt-1 min-h-20 w-full py-2")}
                         maxLength={500}
                         minLength={3}
                         onChange={(event) => setRejectionReason(event.target.value)}
@@ -833,7 +878,7 @@ export function PreRegistrationsPanel({
                 </div>
               ) : (
                 <div className="rounded-xl border border-slate-200/80 bg-white p-4">
-                  <SectionTitle icon={ShieldCheck} title="Ações administrativas" />
+                  <SectionTitle icon={ShieldCheck} title="Ações" />
                   <p className="mt-2 text-sm text-slate-500">
                     Não há ações pendentes para esta solicitação.
                   </p>
@@ -842,8 +887,8 @@ export function PreRegistrationsPanel({
             </div>
           ) : (
             <AdminEmptyState
-              description="Abra uma solicitação da lista para conferir dados, documentos e ações de análise."
-              title="Selecione um pré-cadastro"
+              description="Selecione um registro para revisar os dados e documentos."
+              title="Nenhum pré-cadastro selecionado"
             />
           )}
         </aside>
@@ -861,26 +906,93 @@ export function PreRegistrationsPanel({
 }
 
 function InfoGroup({
+  columns = "one",
   icon,
   rows,
   title,
 }: {
+  columns?: "one" | "two";
   icon: LucideIcon;
   rows: Array<[string, string]>;
   title: string;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200/80 bg-white p-4">
+    <section className="rounded-xl border border-slate-200/80 bg-white p-3.5">
       <SectionTitle icon={icon} title={title} />
-      <dl className="mt-2 grid gap-2 text-sm">
+      <dl
+        className={cx(
+          "mt-2 grid gap-x-4 gap-y-2 text-sm",
+          columns === "two" ? "sm:grid-cols-2" : undefined,
+        )}
+      >
         {rows.map(([label, value]) => (
-          <div className="grid min-w-0 gap-1 sm:grid-cols-[124px_minmax(0,1fr)] sm:gap-2" key={label}>
-            <dt className="text-slate-500">{label}</dt>
-            <dd className="break-words text-slate-800">{value}</dd>
+          <div className="min-w-0" key={label}>
+            <dt className="text-xs font-medium text-slate-500">{label}</dt>
+            <dd className="mt-0.5 break-words text-sm text-slate-800">{value}</dd>
           </div>
         ))}
       </dl>
     </section>
+  );
+}
+
+function PreRegistrationMobileCard({
+  item,
+  onOpen,
+  selected,
+}: {
+  item: PreRegistrationSummary;
+  onOpen: () => void;
+  selected: boolean;
+}) {
+  return (
+    <article
+      className={cx(
+        "grid gap-2 rounded-lg border p-3 transition",
+        selected
+          ? "border-[#8DB7AD] bg-[#F2F8F6] shadow-[inset_3px_0_0_#1F6F5F]"
+          : "border-slate-200 bg-white",
+      )}
+    >
+      <button className="min-w-0 text-left" onClick={onOpen} type="button">
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+              {item.publicCode}
+            </p>
+            <h3 className="mt-1 break-words text-sm font-semibold text-slate-950">
+              {item.fullName}
+            </h3>
+          </div>
+          <StatusBadge status={item.status} />
+        </div>
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <div className="min-w-0">
+            <dt className="text-slate-500">CPF</dt>
+            <dd className="truncate text-slate-700">{item.cpfMasked}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-slate-500">Ano</dt>
+            <dd className="truncate text-slate-700">{item.academicYear.year}</dd>
+          </div>
+          <div className="col-span-2 min-w-0">
+            <dt className="text-slate-500">Instituicao</dt>
+            <dd className="truncate text-slate-700">{item.institution.name}</dd>
+          </div>
+          <div className="col-span-2 min-w-0">
+            <dt className="text-slate-500">Envio</dt>
+            <dd className="truncate text-slate-700">{formatDateTime(item.createdAt)}</dd>
+          </div>
+        </dl>
+      </button>
+      <button
+        className={cx(adminTheme.secondaryButton, "h-8 justify-self-start px-2.5 text-xs")}
+        onClick={onOpen}
+        type="button"
+      >
+        Revisar
+      </button>
+    </article>
   );
 }
 
@@ -1091,60 +1203,42 @@ function DocumentPreviewModal({
 function PreRegistrationActiveFilterChips({
   chips,
   hasDashboardOrigin,
-  onClear,
   onRemove,
 }: {
   chips: PreRegistrationFilterChip[];
   hasDashboardOrigin: boolean;
-  onClear: () => void;
   onRemove: (key: "academicYear" | "institution" | "status") => void;
 }) {
   if (chips.length === 0) {
-    return (
-      <p className="mt-3 text-sm text-slate-500">
-        Nenhum filtro aplicado.
-      </p>
-    );
+    return null;
   }
 
   return (
-    <div className="mt-3 grid gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase text-slate-500">
-          Filtros ativos
-        </span>
-        {hasDashboardOrigin ? (
-          <span className="rounded-full bg-[#F2F8F6] px-2 py-1 text-xs font-medium text-[#0F2E2E]">
-            Recebidos do Dashboard
-          </span>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {chips.map((chip) => (
-          <span
-            className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
-            key={chip.key}
-          >
-            <span className="truncate">{chip.label}</span>
-            <button
-              aria-label={`Remover filtro ${chip.label}`}
-              className="rounded-full p-0.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F6F5F]/25"
-              onClick={() => onRemove(chip.key)}
-              type="button"
-            >
-              <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
-            </button>
-          </span>
-        ))}
-        <button
-          className={cx(adminTheme.secondaryButton, "h-8 px-2 text-xs")}
-          onClick={onClear}
-          type="button"
+    <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+      <span className="text-xs font-semibold text-slate-500">
+        Filtros ativos:
+      </span>
+      {chips.map((chip) => (
+        <span
+          className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700"
+          key={chip.key}
         >
-          <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
-          Limpar filtros
-        </button>
-      </div>
+          <span className="truncate">{chip.label}</span>
+          <button
+            aria-label={`Remover filtro ${chip.label}`}
+            className="rounded-full p-0.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1F6F5F]/25"
+            onClick={() => onRemove(chip.key)}
+            type="button"
+          >
+            <XCircle aria-hidden="true" className="h-3.5 w-3.5" />
+          </button>
+        </span>
+      ))}
+      {hasDashboardOrigin ? (
+        <span className="rounded-full bg-[#F2F8F6] px-2 py-1 text-xs font-medium text-[#0F2E2E]">
+          Recebidos do Dashboard
+        </span>
+      ) : null}
     </div>
   );
 }

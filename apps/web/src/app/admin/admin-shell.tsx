@@ -518,6 +518,9 @@ function AdminWorkspace({
               initialAcademicYearId={dashboardTarget?.academicYearId}
               initialInstitutionId={dashboardTarget?.institutionId}
               initialStatus={dashboardTarget?.preRegistrationStatus}
+              onClearNavigationContext={() =>
+                handleClearDashboardContext("pre-registrations")
+              }
             />
           ) : null}
           {area === "years" ? <AcademicYearsPanel user={user} /> : null}
