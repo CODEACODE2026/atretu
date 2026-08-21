@@ -17,7 +17,12 @@ export type AuthResponse = {
   user: ApiUser;
 };
 
-export type RoleCode = "SUPER_ADMIN" | "SECRETARIA" | "GESTOR";
+export type RoleCode =
+  | "SUPER_ADMIN"
+  | "ADMINISTRATOR"
+  | "USER"
+  | "SECRETARIA"
+  | "GESTOR";
 export type UserStatus = "ACTIVE" | "INACTIVE";
 
 export type AssociationSettings = {
@@ -113,7 +118,7 @@ export type CreateAdminUserBody = {
   email: string;
   institutionIds: string[];
   name: string;
-  role: Exclude<RoleCode, "GESTOR">;
+  role: Extract<RoleCode, "SUPER_ADMIN" | "SECRETARIA">;
 };
 
 export type UpdateAdminUserBody = Partial<

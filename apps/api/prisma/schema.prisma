@@ -8,6 +8,8 @@ datasource db {
 
 enum RoleCode {
   SUPER_ADMIN
+  ADMINISTRATOR
+  USER
   SECRETARIA
   GESTOR
 }
@@ -418,14 +420,18 @@ model User {
   id                            String                              @id @default(uuid()) @db.Uuid
   name                          String                              @db.VarChar(120)
   email                         String                              @unique @db.VarChar(180)
+  phone                         String?                             @db.VarChar(30)
+  position                      String?                             @db.VarChar(120)
   passwordHash                  String                              @map("password_hash") @db.VarChar(255)
   status                        UserStatus                          @default(ACTIVE)
   mustChangePassword            Boolean                             @default(false) @map("must_change_password")
+  permissionProfileId           String?                             @map("permission_profile_id") @db.Uuid
   createdAt                     DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                     DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
   lastLoginAt                   DateTime?                           @map("last_login_at") @db.Timestamptz(6)
   passwordChangedAt             DateTime?                           @map("password_changed_at") @db.Timestamptz(6)
   blockedAt                     DateTime?                           @map("blocked_at") @db.Timestamptz(6)
+  permissionProfile             PermissionProfile?                  @relation(fields: [permissionProfileId], references: [id], onDelete: SetNull)
   roles                         UserRole[]
   auditLogs                     SecurityAuditLog[]
   administrativeAuditLogs       AdministrativeAuditLog[]
@@ -457,7 +463,33 @@ model User {
   legacyImportBatches           LegacyImportBatch[]                 @relation("LegacyImportBatchImportedBy")
   legacyFinancialImports        LegacyFinancialImport[]             @relation("LegacyFinancialImportImportedBy")
 
+  @@index([permissionProfileId])
   @@map("users")
+}
+
+model PermissionProfile {
+  id          String                        @id @default(uuid()) @db.Uuid
+  name        String                        @unique @db.VarChar(120)
+  description String?                       @db.VarChar(240)
+  isActive    Boolean                       @default(true) @map("is_active")
+  createdAt   DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  permissions PermissionProfilePermission[]
+  users       User[]
+
+  @@index([isActive])
+  @@map("permission_profiles")
+}
+
+model PermissionProfilePermission {
+  profileId     String            @map("profile_id") @db.Uuid
+  permissionKey String            @map("permission_key") @db.VarChar(80)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  profile       PermissionProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, permissionKey])
+  @@index([permissionKey])
+  @@map("permission_profile_permissions")
 }
 
 model LegacyImportBatch {

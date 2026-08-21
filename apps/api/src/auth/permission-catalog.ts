@@ -1,0 +1,177 @@
+export const PERMISSION_CATALOG = [
+  {
+    key: "dashboard.view",
+    label: "Visualizar dashboard",
+    module: "dashboard",
+  },
+  {
+    key: "students.view",
+    label: "Visualizar academicos",
+    module: "students",
+  },
+  {
+    key: "students.create",
+    label: "Criar academicos",
+    module: "students",
+  },
+  {
+    key: "students.update",
+    label: "Editar academicos",
+    module: "students",
+  },
+  {
+    key: "students.changeStatus",
+    label: "Alterar status de academicos",
+    module: "students",
+  },
+  {
+    key: "students.reenroll",
+    label: "Executar rematriculas",
+    module: "students",
+  },
+  {
+    key: "students.board.view",
+    label: "Visualizar diretoria",
+    module: "students",
+  },
+  {
+    key: "students.board.manage",
+    label: "Gerenciar diretoria",
+    module: "students",
+  },
+  {
+    key: "preRegistrations.view",
+    label: "Visualizar pre-cadastros",
+    module: "preRegistrations",
+  },
+  {
+    key: "preRegistrations.review",
+    label: "Revisar pre-cadastros",
+    module: "preRegistrations",
+  },
+  {
+    key: "preRegistrations.documents.view",
+    label: "Visualizar documentos de pre-cadastro",
+    module: "preRegistrations",
+  },
+  {
+    key: "studentCards.view",
+    label: "Visualizar carteirinhas",
+    module: "studentCards",
+  },
+  {
+    key: "studentCards.issue",
+    label: "Emitir carteirinhas",
+    module: "studentCards",
+  },
+  {
+    key: "studentCards.invalidate",
+    label: "Invalidar carteirinhas",
+    module: "studentCards",
+  },
+  {
+    key: "finance.invoices.view",
+    label: "Visualizar faturas",
+    module: "finance",
+  },
+  {
+    key: "finance.invoices.manage",
+    label: "Gerenciar faturas",
+    module: "finance",
+  },
+  {
+    key: "finance.bankSlips.manage",
+    label: "Gerenciar boletos",
+    module: "finance",
+  },
+  {
+    key: "collections.view",
+    label: "Visualizar cobranca",
+    module: "collections",
+  },
+  {
+    key: "collections.manage",
+    label: "Gerenciar cobranca",
+    module: "collections",
+  },
+  {
+    key: "manualMovements.view",
+    label: "Visualizar movimentos manuais",
+    module: "manualMovements",
+  },
+  {
+    key: "manualMovements.manage",
+    label: "Gerenciar movimentos manuais",
+    module: "manualMovements",
+  },
+  {
+    key: "officialDocuments.view",
+    label: "Visualizar documentos oficiais",
+    module: "officialDocuments",
+  },
+  {
+    key: "officialDocuments.issue",
+    label: "Emitir documentos oficiais",
+    module: "officialDocuments",
+  },
+  {
+    key: "officialDocuments.models.manage",
+    label: "Gerenciar modelos de documentos oficiais",
+    module: "officialDocuments",
+  },
+  {
+    key: "reports.view",
+    label: "Visualizar relatorios",
+    module: "reports",
+  },
+  {
+    key: "reports.export",
+    label: "Exportar relatorios",
+    module: "reports",
+  },
+  {
+    key: "baseRecords.view",
+    label: "Visualizar cadastros base",
+    module: "baseRecords",
+  },
+  {
+    key: "baseRecords.manage",
+    label: "Gerenciar cadastros base",
+    module: "baseRecords",
+  },
+  {
+    key: "academicYears.manage",
+    label: "Gerenciar anos letivos",
+    module: "academicYears",
+  },
+  {
+    key: "settings.view",
+    label: "Visualizar configuracoes",
+    module: "settings",
+  },
+  {
+    key: "settings.manage",
+    label: "Gerenciar configuracoes",
+    module: "settings",
+  },
+  {
+    key: "users.view",
+    label: "Visualizar usuarios",
+    module: "users",
+  },
+  {
+    key: "users.manage",
+    label: "Gerenciar usuarios",
+    module: "users",
+  },
+] as const;
+
+export type PermissionKey = (typeof PERMISSION_CATALOG)[number]["key"];
+
+const PERMISSION_KEYS = new Set<string>(
+  PERMISSION_CATALOG.map((permission) => permission.key),
+);
+
+export function isPermissionKey(value: string): value is PermissionKey {
+  return PERMISSION_KEYS.has(value);
+}

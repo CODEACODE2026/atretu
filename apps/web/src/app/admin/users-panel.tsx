@@ -40,7 +40,7 @@ import {
   AdminSummaryCard,
 } from "./components/admin-ui";
 
-type AssignableRole = Exclude<RoleCode, "GESTOR">;
+type AssignableRole = Extract<RoleCode, "SUPER_ADMIN" | "SECRETARIA">;
 type UserFormMode = "create" | "edit" | "institutions";
 type UserFormState = {
   email: string;
@@ -1407,6 +1407,12 @@ function InfoBlock({ label, value }: { label: string; value: string }) {
 function roleLabel(role: RoleCode) {
   if (role === "SUPER_ADMIN") {
     return "SUPER_ADMIN";
+  }
+  if (role === "ADMINISTRATOR") {
+    return "Administrador";
+  }
+  if (role === "USER") {
+    return "Usuário";
   }
   if (role === "SECRETARIA") {
     return "SECRETARIA";
