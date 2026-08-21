@@ -106,6 +106,44 @@ export type PermissionProfileOption = {
   description: string | null;
 };
 
+export type PermissionKey = string;
+
+export type PermissionCatalogItem = {
+  dependencies: PermissionKey[];
+  key: PermissionKey;
+  label: string;
+  module: string;
+};
+
+export type PermissionProfile = {
+  id: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  permissions: PermissionKey[];
+  usersCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PermissionProfileSort = "createdAt" | "name" | "updatedAt";
+
+export type ListPermissionProfilesParams = {
+  limit?: number;
+  order?: "asc" | "desc";
+  page?: number;
+  search?: string;
+  sort?: PermissionProfileSort;
+  status?: "active" | "inactive" | "all";
+};
+
+export type UpsertPermissionProfileBody = {
+  description?: string | null;
+  isActive?: boolean;
+  name: string;
+  permissions: PermissionKey[];
+};
+
 export type AdminUserSort =
   | "createdAt"
   | "email"
@@ -2240,6 +2278,48 @@ export const api = {
 
   listPermissionProfiles() {
     return request<PermissionProfileOption[]>("/admin/users/permission-profiles");
+  },
+
+  listPermissionProfileCatalog() {
+    return request<PermissionCatalogItem[]>("/admin/permission-profiles/catalog");
+  },
+
+  listAdminPermissionProfiles(params?: ListPermissionProfilesParams) {
+    return request<ListResponse<PermissionProfile>>(
+      withParams("/admin/permission-profiles", params),
+    );
+  },
+
+  getPermissionProfile(id: string) {
+    return request<PermissionProfile>(`/admin/permission-profiles/${id}`);
+  },
+
+  createPermissionProfile(body: UpsertPermissionProfileBody) {
+    return request<PermissionProfile>("/admin/permission-profiles", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  updatePermissionProfile(id: string, body: Partial<UpsertPermissionProfileBody>) {
+    return request<PermissionProfile>(`/admin/permission-profiles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+
+  inactivatePermissionProfile(id: string) {
+    return request<PermissionProfile>(
+      `/admin/permission-profiles/${id}/inactivate`,
+      { method: "PATCH" },
+    );
+  },
+
+  reactivatePermissionProfile(id: string) {
+    return request<PermissionProfile>(
+      `/admin/permission-profiles/${id}/reactivate`,
+      { method: "PATCH" },
+    );
   },
 
   createAdminUser(body: CreateAdminUserBody) {

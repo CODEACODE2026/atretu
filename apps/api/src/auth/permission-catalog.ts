@@ -168,10 +168,57 @@ export const PERMISSION_CATALOG = [
 
 export type PermissionKey = (typeof PERMISSION_CATALOG)[number]["key"];
 
+export const RESERVED_PERMISSION_KEYS = [
+  "settings.view",
+  "settings.manage",
+  "users.view",
+  "users.manage",
+] as const satisfies readonly PermissionKey[];
+
+const RESERVED_PERMISSIONS = new Set<PermissionKey>(RESERVED_PERMISSION_KEYS);
+
+export const PERMISSION_DEPENDENCIES: Partial<
+  Record<PermissionKey, readonly PermissionKey[]>
+> = {
+  "academicYears.manage": ["baseRecords.view"],
+  "baseRecords.manage": ["baseRecords.view"],
+  "collections.manage": ["collections.view"],
+  "finance.invoices.manage": ["finance.invoices.view"],
+  "manualMovements.manage": ["manualMovements.view"],
+  "officialDocuments.issue": ["officialDocuments.view"],
+  "officialDocuments.models.manage": ["officialDocuments.view"],
+  "preRegistrations.documents.view": ["preRegistrations.view"],
+  "preRegistrations.review": ["preRegistrations.view"],
+  "reports.export": ["reports.view"],
+  "studentCards.invalidate": ["studentCards.view"],
+  "studentCards.issue": ["studentCards.view"],
+  "students.board.manage": ["students.board.view"],
+  "students.update": ["students.view"],
+};
+
+export const DELEGATABLE_PERMISSION_CATALOG = PERMISSION_CATALOG.filter(
+  (permission) => !RESERVED_PERMISSIONS.has(permission.key),
+).map((permission) => ({
+  ...permission,
+  dependencies: [...(PERMISSION_DEPENDENCIES[permission.key] ?? [])],
+}));
+
+export type DelegatablePermissionKey =
+  (typeof DELEGATABLE_PERMISSION_CATALOG)[number]["key"];
+
 const PERMISSION_KEYS = new Set<string>(
   PERMISSION_CATALOG.map((permission) => permission.key),
+);
+const DELEGATABLE_PERMISSION_KEYS = new Set<string>(
+  DELEGATABLE_PERMISSION_CATALOG.map((permission) => permission.key),
 );
 
 export function isPermissionKey(value: string): value is PermissionKey {
   return PERMISSION_KEYS.has(value);
+}
+
+export function isDelegatablePermissionKey(
+  value: string,
+): value is DelegatablePermissionKey {
+  return DELEGATABLE_PERMISSION_KEYS.has(value);
 }

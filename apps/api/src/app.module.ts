@@ -14,6 +14,7 @@ import { HealthController } from "./health.controller.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { LegacyImportModule } from "./legacy-import/legacy-import.module.js";
 import { OfficialDocumentsModule } from "./official-documents/official-documents.module.js";
+import { PermissionProfilesModule } from "./permission-profiles/permission-profiles.module.js";
 import { PreRegistrationsModule } from "./pre-registrations/pre-registrations.module.js";
 import { StudentCardsModule } from "./student-cards/student-cards.module.js";
 import { StudentsModule } from "./students/students.module.js";
@@ -32,6 +33,7 @@ import { StudentsModule } from "./students/students.module.js";
     DocumentsModule,
     FinanceModule,
     OfficialDocumentsModule,
+    PermissionProfilesModule,
     PreRegistrationsModule,
     StudentCardsModule,
     StudentsModule,

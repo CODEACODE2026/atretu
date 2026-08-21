@@ -1,8 +1,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
+  DELEGATABLE_PERMISSION_CATALOG,
+  isDelegatablePermissionKey,
   isPermissionKey,
   PERMISSION_CATALOG,
+  RESERVED_PERMISSION_KEYS,
   type PermissionKey,
 } from "./permission-catalog.js";
 
@@ -103,6 +106,26 @@ assert.equal(isPermissionKey("jobs.access"), false);
 assert.equal(isPermissionKey("sicredi.technical"), false);
 assert.equal(isPermissionKey("students.delete"), false);
 
+const delegatableKeys = DELEGATABLE_PERMISSION_CATALOG.map(
+  (permission) => permission.key,
+);
+assert.ok(delegatableKeys.every((key) => isPermissionKey(key)));
+assert.equal(isDelegatablePermissionKey("students.view"), true);
+assert.equal(isDelegatablePermissionKey("finance.invoices.view"), true);
+assert.equal(isDelegatablePermissionKey("settings.view"), false);
+assert.equal(isDelegatablePermissionKey("settings.manage"), false);
+assert.equal(isDelegatablePermissionKey("users.view"), false);
+assert.equal(isDelegatablePermissionKey("users.manage"), false);
+assert.equal(isDelegatablePermissionKey("legacyImport.access"), false);
+assert.equal(isDelegatablePermissionKey("jobs.access"), false);
+assert.equal(isDelegatablePermissionKey("sicredi.technical"), false);
+for (const key of RESERVED_PERMISSION_KEYS) {
+  assert.equal(delegatableKeys.includes(key), false);
+}
+for (const permission of DELEGATABLE_PERMISSION_CATALOG) {
+  assert.doesNotMatch(permission.key, /^(settings|users)\./);
+}
+
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(
   (file) =>
     !file.endsWith(".spec.ts") &&
@@ -113,7 +136,10 @@ const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(
     !file.endsWith("users.service.ts"),
 );
 const permissionProfileAuthorizationSourceFiles = authorizationSourceFiles.filter(
-  (file) => !file.includes("/users/"),
+  (file) =>
+    !file.endsWith("app.module.ts") &&
+    !file.includes("/permission-profiles/") &&
+    !file.includes("/users/"),
 );
 
 for (const file of authorizationSourceFiles) {

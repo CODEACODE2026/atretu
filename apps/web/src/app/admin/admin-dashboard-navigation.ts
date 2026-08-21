@@ -56,6 +56,7 @@ const adminAreas = new Set<AdminArea>([
   "jobs",
   "legacy-import",
   "users",
+  "permission-profiles",
   "pre-registrations",
   "years",
   "base",

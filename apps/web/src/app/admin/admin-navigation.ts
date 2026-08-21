@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Settings,
   RefreshCw,
+  ShieldCheck,
   UserCog,
   Users,
   WalletCards,
@@ -30,6 +31,7 @@ export type AdminArea =
   | "jobs"
   | "legacy-import"
   | "users"
+  | "permission-profiles"
   | "pre-registrations"
   | "years"
   | "base";
@@ -138,6 +140,14 @@ export const ADMIN_NAV_ITEMS = [
     icon: UserCog,
     key: "users",
     label: "Usuários",
+    restricted: true,
+  },
+  {
+    description: "Perfis e permissões",
+    group: "administration",
+    icon: ShieldCheck,
+    key: "permission-profiles",
+    label: "Perfis",
     restricted: true,
   },
   {

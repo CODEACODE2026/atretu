@@ -62,6 +62,7 @@ import { FinancePanel } from "./finance-panel";
 import { JobsMonitorPanel } from "./jobs-monitor-panel";
 import { LegacyImportPanel } from "./legacy-import-panel";
 import { OfficialDocumentsPanel } from "./official-documents-panel";
+import { PermissionProfilesPanel } from "./permission-profiles-panel";
 import { PreRegistrationsPanel } from "./pre-registrations-panel";
 import { ReportsPanel } from "./reports-panel";
 import { AssociationSettingsPanel } from "./settings/association-settings-panel";
@@ -260,6 +261,7 @@ function AdminWorkspace({
     finance: { area: "finance", financeArea: "invoices" },
     "official-documents": { area: "official-documents" },
     "pre-registrations": { area: "pre-registrations" },
+    "permission-profiles": { area: "permission-profiles" },
     "student-cards": { area: "student-cards" },
     students: { area: "students" },
     users: { area: "users" },
@@ -281,10 +283,12 @@ function AdminWorkspace({
   }, [onRequireLogin]);
 
   useEffect(() => {
-    if (!hasOperationalAccess && area !== "account") {
-      setArea("account");
+    if (!canAccessArea(area)) {
+      const fallbackArea = hasOperationalAccess ? "dashboard" : "account";
+      setArea(fallbackArea);
+      router.replace(adminAreaHref(fallbackArea));
     }
-  }, [area, hasOperationalAccess]);
+  }, [area, hasOperationalAccess, router]);
 
   useEffect(() => {
     function applyUrlNavigationContext() {
@@ -318,11 +322,12 @@ function AdminWorkspace({
   }, []);
 
   function handleAreaChange(nextArea: AdminArea) {
-    if (nextArea !== "account" && !hasOperationalAccess) {
+    if (!canAccessArea(nextArea)) {
+      const fallbackArea = hasOperationalAccess ? "dashboard" : "account";
       setDashboardTarget(null);
       setMobileNavigationOpen(false);
-      setArea("account");
-      router.push(adminAreaHref("account"));
+      setArea(fallbackArea);
+      router.push(adminAreaHref(fallbackArea));
       return;
     }
     setDashboardTarget(null);
@@ -379,10 +384,12 @@ function AdminWorkspace({
   }, [router]);
 
   function applyNavigationTarget(target: DashboardNavigationTarget) {
-    if (target.area !== "account" && !hasOperationalAccess) {
+    if (!canAccessArea(target.area)) {
+      const fallbackArea = hasOperationalAccess ? "dashboard" : "account";
       setDashboardTarget(null);
       setMobileNavigationOpen(false);
-      setArea("account");
+      setArea(fallbackArea);
+      router.replace(adminAreaHref(fallbackArea));
       return;
     }
     setDashboardTarget(target);
@@ -394,6 +401,17 @@ function AdminWorkspace({
     }
     setMobileNavigationOpen(false);
     setArea(target.area);
+  }
+
+  function canAccessArea(nextArea: AdminArea) {
+    if (nextArea === "account") {
+      return true;
+    }
+    if (!hasOperationalAccess) {
+      return false;
+    }
+    const navItem = ADMIN_NAV_ITEMS.find((item) => item.key === nextArea);
+    return !navItem || !("restricted" in navItem) || canAccessRestrictedAdmin(user);
   }
 
   return (
@@ -507,6 +525,7 @@ function AdminWorkspace({
           {area === "jobs" ? <JobsMonitorPanel /> : null}
           {area === "legacy-import" ? <LegacyImportPanel /> : null}
           {area === "users" ? <UsersPanel /> : null}
+          {area === "permission-profiles" ? <PermissionProfilesPanel /> : null}
           {area === "account" ? (
             <AccountPanel
               onRequireLogin={onRequireLogin}
