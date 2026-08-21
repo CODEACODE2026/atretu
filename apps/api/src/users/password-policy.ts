@@ -1,6 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
 
-const MIN_PASSWORD_LENGTH = 12;
+const MIN_PASSWORD_LENGTH = 8;
 
 const OBVIOUS_PASSWORDS = new Set([
   "123456",
@@ -21,7 +21,7 @@ export function assertPasswordPolicy(input: {
 }): void {
   const password = input.password;
   if (password.length < MIN_PASSWORD_LENGTH) {
-    throw new BadRequestException("A senha deve ter pelo menos 12 caracteres");
+    throw new BadRequestException("A senha deve ter pelo menos 8 caracteres");
   }
   if (!/[A-Z]/.test(password)) {
     throw new BadRequestException("A senha deve conter letra maiuscula");

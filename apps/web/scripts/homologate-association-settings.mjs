@@ -16,7 +16,7 @@ const storageDir =
   process.env.DOCUMENT_STORAGE_DIR ??
   "/tmp/atretu-sprint12-association-settings/storage";
 const runId = `s12-${Date.now()}`;
-const password = "SenhaForte123";
+const password = "SenhaForte9!";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required");

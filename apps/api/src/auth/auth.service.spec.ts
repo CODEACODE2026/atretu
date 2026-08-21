@@ -36,15 +36,15 @@ const authService = new AuthService(
   usersService as never,
 );
 
-const hash = await authService.hashPassword("SenhaForte123");
-assert.equal(await bcrypt.compare("SenhaForte123", hash), true);
-assert.equal(await authService.verifyPassword("SenhaForte123", hash), true);
+const hash = await authService.hashPassword("SenhaForte#123");
+assert.equal(await bcrypt.compare("SenhaForte#123", hash), true);
+assert.equal(await authService.verifyPassword("SenhaForte#123", hash), true);
 assert.equal(await authService.verifyPassword("SenhaErrada", hash), false);
 
 const user = await authService.createFirstSuperAdmin({
   name: "Admin",
   email: "admin@example.com",
-  password: "SenhaForte123",
+  password: "SenhaForte#123",
 });
 const token = await authService.signToken(user);
 const payload = await authService.verifyToken(token);

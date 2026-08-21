@@ -1,10 +1,10 @@
 const apiUrl = process.env.API_URL ?? "http://localhost:3333";
 const setupToken = process.env.ADMIN_SETUP_TOKEN;
 const adminEmail = process.env.SMOKE_ADMIN_EMAIL ?? "admin@atretu.local";
-const adminPassword = process.env.SMOKE_ADMIN_PASSWORD ?? "SenhaForte123";
+const adminPassword = process.env.SMOKE_ADMIN_PASSWORD ?? "SenhaForte9!";
 const secretaryEmail =
   process.env.SMOKE_SECRETARIA_EMAIL ?? "secretaria@atretu.local";
-const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte123";
+const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte9!";
 const runId = `smoke-${Date.now()}`;
 
 if (!setupToken) {

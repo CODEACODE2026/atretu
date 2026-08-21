@@ -521,7 +521,7 @@ export function PasswordField({
 
 export function PasswordRequirements({ password }: { password: string }) {
   const items = [
-    { label: "12 caracteres", valid: password.length >= 12 },
+    { label: "8 caracteres", valid: password.length >= 8 },
     { label: "letra maiuscula", valid: /[A-Z]/.test(password) },
     { label: "letra minuscula", valid: /[a-z]/.test(password) },
     { label: "numero", valid: /\d/.test(password) },

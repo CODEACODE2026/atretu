@@ -35,6 +35,11 @@ export class AdminUsersController {
     return this.users.listAdminUsers(query);
   }
 
+  @Get("permission-profiles")
+  listPermissionProfiles() {
+    return this.users.listActivePermissionProfiles();
+  }
+
   @Get(":id")
   getUser(@Param("id") id: string) {
     return this.users.getAdminUser(id);

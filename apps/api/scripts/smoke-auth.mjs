@@ -2,10 +2,10 @@ const apiUrl = process.env.API_URL ?? "http://localhost:3333";
 const allowedOrigin = process.env.SMOKE_ORIGIN ?? "http://localhost:3000";
 const setupToken = process.env.ADMIN_SETUP_TOKEN;
 const email = process.env.SMOKE_ADMIN_EMAIL ?? "admin@atretu.local";
-const password = process.env.SMOKE_ADMIN_PASSWORD ?? "SenhaForte123";
+const password = process.env.SMOKE_ADMIN_PASSWORD ?? "SenhaForte9!";
 const secretaryEmail =
   process.env.SMOKE_SECRETARIA_EMAIL ?? "secretaria@atretu.local";
-const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte123";
+const secretaryPassword = process.env.SMOKE_SECRETARIA_PASSWORD ?? "SenhaForte9!";
 
 if (!setupToken) {
   throw new Error("ADMIN_SETUP_TOKEN is required for auth smoke");

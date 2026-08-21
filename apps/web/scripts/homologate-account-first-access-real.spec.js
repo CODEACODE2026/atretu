@@ -142,7 +142,7 @@ test("real account page edits name, cancels edits and changes voluntary password
   });
   await page.locator("#current-password").fill(passwords.secretary);
   await page.locator("#new-password").fill("fraca");
-  await expect(page.getByText("12 caracteres")).toBeVisible();
+  await expect(page.getByText("8 caracteres")).toBeVisible();
   await page.locator("#new-password").fill(passwords.voluntaryNew);
   await page.locator("#confirm-password").fill(`${passwords.voluntaryNew}x`);
   await expect(page.getByText("A confirmacao precisa ser igual a nova senha.")).toBeVisible();

@@ -18,7 +18,7 @@ const storageDir =
   process.env.DOCUMENT_STORAGE_DIR ??
   path.join(outDir, "storage");
 const runId = `qa-s115-${Date.now()}`;
-const password = "SenhaForte123";
+const password = "SenhaForte9!";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required");

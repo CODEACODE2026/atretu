@@ -18,6 +18,9 @@ type UserRow = {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
+  position: string | null;
+  permissionProfileId: string | null;
   passwordHash: string;
   status: UserStatus;
   mustChangePassword: boolean;
@@ -31,8 +34,24 @@ type UserRow = {
 function createPrisma() {
   const roles = [
     { id: "role-super", code: RoleCode.SUPER_ADMIN, description: "Super" },
+    { id: "role-administrator", code: RoleCode.ADMINISTRATOR, description: "Admin" },
+    { id: "role-user", code: RoleCode.USER, description: "User" },
     { id: "role-secretaria", code: RoleCode.SECRETARIA, description: "Secretaria" },
     { id: "role-gestor", code: RoleCode.GESTOR, description: "Gestor" },
+  ];
+  const permissionProfiles = [
+    {
+      id: "33333333-3333-4333-8333-333333333333",
+      name: "Atendimento",
+      description: "Operacional",
+      isActive: true,
+    },
+    {
+      id: "44444444-4444-4444-8444-444444444444",
+      name: "Inativo",
+      description: null,
+      isActive: false,
+    },
   ];
   const institutions = [
     { id: "11111111-1111-4111-8111-111111111111", name: "Instituicao A", status: RecordStatus.ACTIVE },
@@ -60,6 +79,10 @@ function createPrisma() {
             (institution) => institution.id === item.institutionId,
           )!,
         })),
+      permissionProfile:
+        permissionProfiles.find(
+          (profile) => profile.id === user.permissionProfileId,
+        ) ?? null,
     };
   }
 
@@ -119,6 +142,7 @@ function createPrisma() {
     audits,
     failAudit: false,
     institutions,
+    permissionProfiles,
     roles,
     userInstitutions,
     userRoles,
@@ -167,6 +191,18 @@ function createPrisma() {
         return role;
       },
     },
+    permissionProfile: {
+      findFirst: async ({ where }: { where: { id: string; isActive?: boolean } }) =>
+        permissionProfiles.find(
+          (profile) =>
+            profile.id === where.id &&
+            (where.isActive === undefined || profile.isActive === where.isActive),
+        ) ?? null,
+      findMany: async () =>
+        permissionProfiles
+          .filter((profile) => profile.isActive)
+          .map(({ id, name, description }) => ({ id, name, description })),
+    },
     user: {
       count: async ({ where = {} }: { where?: Record<string, unknown> } = {}) =>
         users.filter((user) => matchesWhere(user, where)).length,
@@ -176,8 +212,12 @@ function createPrisma() {
           id: `user-${nextUser++}`,
           name: String(data.name),
           email: String(data.email),
+          phone: (data.phone as string | null | undefined) ?? null,
+          position: (data.position as string | null | undefined) ?? null,
+          permissionProfileId:
+            (data.permissionProfileId as string | null | undefined) ?? null,
           passwordHash: String(data.passwordHash),
-          status: UserStatus.ACTIVE,
+          status: (data.status as UserStatus | undefined) ?? UserStatus.ACTIVE,
           mustChangePassword: Boolean(data.mustChangePassword),
           passwordChangedAt: data.passwordChangedAt as Date,
           blockedAt: null,
@@ -251,21 +291,37 @@ const service = new UsersService(
 
 const created = await service.createAdminUser(
   {
-    email: " secretaria@example.com ",
+    email: " usuario@example.com ",
     institutionIds: [prisma.institutions[0]!.id, prisma.institutions[1]!.id],
-    name: " Secretaria ",
-    role: RoleCode.SECRETARIA,
+    name: " Usuario ",
+    permissionProfileId: prisma.permissionProfiles[0]!.id,
+    phone: "(44) 99999-8888",
+    position: "Atendimento",
+    role: RoleCode.USER,
   },
   "actor-1",
 );
-assert.equal(created.user.email, "secretaria@example.com");
+assert.equal(created.user.email, "usuario@example.com");
 assert.equal(created.user.mustChangePassword, true);
 assert.equal(created.user.institutionIds.length, 2);
+assert.equal(created.user.phone, "44999998888");
+assert.equal(created.user.position, "Atendimento");
+assert.equal(created.user.permissionProfileId, prisma.permissionProfiles[0]!.id);
+assert.equal(created.user.permissionProfile?.name, "Atendimento");
 assert.equal(typeof created.temporaryPassword, "string");
 assert.notEqual(prisma.users[0]?.passwordHash, created.temporaryPassword);
 assert.equal(await bcrypt.compare(created.temporaryPassword, prisma.users[0]!.passwordHash), true);
 assert.equal(JSON.stringify(prisma.audits).includes(created.temporaryPassword), false);
 assert.doesNotMatch(JSON.stringify(created.user), /passwordHash|temporaryPassword/);
+
+const activeProfiles = await service.listActivePermissionProfiles();
+assert.deepEqual(activeProfiles, [
+  {
+    id: prisma.permissionProfiles[0]!.id,
+    name: "Atendimento",
+    description: "Operacional",
+  },
+]);
 
 const auditCountAfterCreate = prisma.audits.length;
 await service.updateAdminUserInstitutions(
@@ -274,6 +330,31 @@ await service.updateAdminUserInstitutions(
   "actor-1",
 );
 assert.equal(prisma.audits.length, auditCountAfterCreate);
+
+const administrator = await service.createAdminUser(
+  {
+    email: "administrator@example.com",
+    institutionIds: [],
+    name: "Administrator",
+    permissionProfileId: prisma.permissionProfiles[0]!.id,
+    role: RoleCode.ADMINISTRATOR,
+  },
+  "actor-1",
+);
+assert.deepEqual(administrator.user.roles, [RoleCode.ADMINISTRATOR]);
+assert.equal(administrator.user.permissionProfileId, null);
+
+const superWithProfile = await service.createAdminUser(
+  {
+    email: "super-profile@example.com",
+    institutionIds: [],
+    name: "Super Profile",
+    permissionProfileId: prisma.permissionProfiles[0]!.id,
+    role: RoleCode.SUPER_ADMIN,
+  },
+  "actor-1",
+);
+assert.equal(superWithProfile.user.permissionProfileId, null);
 
 await assert.rejects(
   () =>
@@ -293,14 +374,43 @@ await assert.rejects(
   () =>
     service.createAdminUser(
       {
+        email: "user-sem-profile@example.com",
+        institutionIds: [],
+        name: "Sem profile",
+        role: RoleCode.USER,
+      },
+      "actor-1",
+    ),
+  (error) => error instanceof BadRequestException,
+);
+
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "user-profile-inativo@example.com",
+        institutionIds: [],
+        name: "Profile inativo",
+        permissionProfileId: prisma.permissionProfiles[1]!.id,
+        role: RoleCode.USER,
+      },
+      "actor-1",
+    ),
+  (error) => error instanceof BadRequestException,
+);
+
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
         email: "secretaria@example.com",
         institutionIds: [],
-        name: "Duplicado",
+        name: "Secretaria",
         role: RoleCode.SECRETARIA,
       },
       "actor-1",
     ),
-  (error) => error instanceof ConflictException,
+  (error) => error instanceof BadRequestException,
 );
 
 const admin = await service.createAdminUser(
@@ -312,12 +422,73 @@ const admin = await service.createAdminUser(
   },
   "actor-1",
 );
+assert.equal(admin.user.phone, null);
+assert.equal(admin.user.position, null);
+
+const legacySecretariaId = "legacy-secretaria";
+prisma.users.push({
+  id: legacySecretariaId,
+  name: "Secretaria Legado",
+  email: "secretaria@example.com",
+  phone: null,
+  position: null,
+  permissionProfileId: null,
+  passwordHash: await bcrypt.hash("Senha#26", 4),
+  status: UserStatus.ACTIVE,
+  mustChangePassword: false,
+  passwordChangedAt: null,
+  blockedAt: null,
+  lastLoginAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+});
+prisma.userRoles.push({ userId: legacySecretariaId, roleId: "role-secretaria" });
+
+const legacySecretaria = await service.updateAdminUser(
+  legacySecretariaId,
+  {
+    phone: "(44) 98888-7777",
+    position: "Secretaria",
+    role: RoleCode.SECRETARIA,
+  },
+  admin.user.id,
+);
+assert.deepEqual(legacySecretaria.roles, [RoleCode.SECRETARIA]);
+assert.equal(legacySecretaria.phone, "44988887777");
+assert.equal(legacySecretaria.position, "Secretaria");
+
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      admin.user.id,
+      { role: RoleCode.USER },
+      "actor-1",
+    ),
+  (error) => error instanceof BadRequestException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      created.user.id,
+      { permissionProfileId: prisma.permissionProfiles[1]!.id, role: RoleCode.USER },
+      admin.user.id,
+    ),
+  (error) => error instanceof BadRequestException,
+);
+
+const inactiveAdministrator = await service.updateAdminUser(
+  administrator.user.id,
+  { status: UserStatus.INACTIVE },
+  admin.user.id,
+);
+assert.equal(inactiveAdministrator.status, UserStatus.INACTIVE);
+
 const list = await service.listAdminUsers({
   limit: 10,
   mustChangePassword: true,
   order: SortOrder.ASC,
   page: 1,
-  search: "admin",
+  search: "admin@example.com",
   sort: AdminUserSort.NAME,
 });
 assert.equal(list.data.length, 1);
@@ -326,7 +497,7 @@ assert.doesNotMatch(JSON.stringify(list), /passwordHash|temporaryPassword/);
 
 await assert.rejects(
   () => service.updateAdminUser(admin.user.id, { role: RoleCode.SECRETARIA }, admin.user.id),
-  (error) => error instanceof ForbiddenException,
+  (error) => error instanceof BadRequestException,
 );
 await assert.rejects(
   () => service.blockAdminUser(admin.user.id, admin.user.id),
@@ -464,7 +635,7 @@ assert.equal(
   prisma.audits.some(
     (audit) => audit.eventType === AdministrativeAuditEventType.USER_STATUS_CHANGED,
   ),
-  false,
+  true,
 );
 
 const account = await service.updateOwnAccount(created.user.id, {
@@ -472,4 +643,4 @@ const account = await service.updateOwnAccount(created.user.id, {
 });
 assert.equal(account.user.name, "Novo Nome");
 assert.equal(account.user.email, created.user.email);
-assert.equal(account.user.roles.includes(RoleCode.SECRETARIA), true);
+assert.equal(account.user.roles.includes(RoleCode.USER), true);

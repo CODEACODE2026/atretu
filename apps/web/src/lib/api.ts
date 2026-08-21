@@ -76,7 +76,15 @@ export type AdminUser = {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
+  position: string | null;
   status: UserStatus;
+  permissionProfileId: string | null;
+  permissionProfile: {
+    id: string;
+    isActive: boolean;
+    name: string;
+  } | null;
   roles: RoleCode[];
   institutionIds: string[];
   institutions: Array<{ id: string; name: string; status: string }>;
@@ -90,6 +98,12 @@ export type AdminUser = {
     globalAccess: boolean;
     institutionScope: "global" | "restricted" | "none";
   };
+};
+
+export type PermissionProfileOption = {
+  id: string;
+  name: string;
+  description: string | null;
 };
 
 export type AdminUserSort =
@@ -118,12 +132,24 @@ export type CreateAdminUserBody = {
   email: string;
   institutionIds: string[];
   name: string;
-  role: Extract<RoleCode, "SUPER_ADMIN" | "SECRETARIA">;
+  permissionProfileId?: string;
+  phone?: string;
+  position?: string;
+  role: Extract<RoleCode, "SUPER_ADMIN" | "ADMINISTRATOR" | "USER">;
+  status?: UserStatus;
 };
 
 export type UpdateAdminUserBody = Partial<
-  Pick<CreateAdminUserBody, "email" | "name" | "role">
->;
+  Pick<
+    CreateAdminUserBody,
+    "email" | "name" | "permissionProfileId" | "phone" | "position" | "status"
+  >
+> & {
+  role?: Extract<
+    RoleCode,
+    "SUPER_ADMIN" | "ADMINISTRATOR" | "USER" | "SECRETARIA"
+  >;
+};
 
 export type AdminUserPasswordResponse = {
   temporaryPassword: string;
@@ -2210,6 +2236,10 @@ export const api = {
 
   getAdminUser(id: string) {
     return request<AdminUser>(`/admin/users/${id}`);
+  },
+
+  listPermissionProfiles() {
+    return request<PermissionProfileOption[]>("/admin/users/permission-profiles");
   },
 
   createAdminUser(body: CreateAdminUserBody) {

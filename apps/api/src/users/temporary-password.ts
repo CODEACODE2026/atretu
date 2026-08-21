@@ -8,8 +8,8 @@ const SYMBOLS = "!@#$%*-_+=";
 const ALL = `${UPPER}${LOWER}${DIGITS}${SYMBOLS}`;
 
 export function generateTemporaryPassword(length = 16): string {
-  if (length < 12) {
-    throw new Error("Temporary password length must be at least 12");
+  if (length < 8) {
+    throw new Error("Temporary password length must be at least 8");
   }
 
   const chars = [

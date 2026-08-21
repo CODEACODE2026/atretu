@@ -8,6 +8,7 @@ import { JwtService } from "@nestjs/jwt";
 import { RoleCode, UserStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { AppConfigService } from "../config/app-config.service.js";
+import { assertPasswordPolicy } from "../users/password-policy.js";
 import { UsersService, type AuthUser } from "../users/users.service.js";
 
 export type JwtPayload = {
@@ -65,6 +66,11 @@ export class AuthService {
     email: string;
     password: string;
   }): Promise<AuthUser> {
+    assertPasswordPolicy({
+      password: input.password,
+      email: input.email,
+      name: input.name,
+    });
     const superAdmins = await this.usersService.countSuperAdmins();
     if (superAdmins > 0) {
       throw new ConflictException("Super Admin inicial ja existe");

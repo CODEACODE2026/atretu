@@ -46,6 +46,11 @@ export type AuthUser = {
 };
 
 type UserWithAdminRelations = User & {
+  permissionProfile: {
+    id: string;
+    name: string;
+    isActive: boolean;
+  } | null;
   roles: Array<{ role: { code: RoleCode } }>;
   institutions: Array<{
     institution: {
@@ -61,7 +66,11 @@ type AdminUserResponse = {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
+  position: string | null;
   status: UserStatus;
+  permissionProfileId: string | null;
+  permissionProfile: { id: string; name: string; isActive: boolean } | null;
   roles: RoleCode[];
   institutionIds: string[];
   institutions: Array<{ id: string; name: string; status: string }>;
@@ -87,15 +96,23 @@ type AccountUserResponse = {
   mustChangePassword: boolean;
 };
 
+type PermissionProfileOption = {
+  id: string;
+  name: string;
+  description: string | null;
+};
+
 type AuditContext = {
   ip?: string;
   userAgent?: string | string[];
 };
 
-const ADMIN_ASSIGNABLE_ROLES = new Set<RoleCode>([
-  RoleCode.SECRETARIA,
+const CREATE_ADMIN_ASSIGNABLE_ROLES = new Set<RoleCode>([
+  RoleCode.ADMINISTRATOR,
   RoleCode.SUPER_ADMIN,
+  RoleCode.USER,
 ]);
+const TRANSITION_ASSIGNABLE_ROLE = RoleCode.SECRETARIA;
 const MAX_AUDIT_USER_AGENT_LENGTH = 500;
 
 @Injectable()
@@ -258,14 +275,31 @@ export class UsersService {
     return this.toAdminUser(user);
   }
 
+  async listActivePermissionProfiles(): Promise<PermissionProfileOption[]> {
+    return this.prisma.permissionProfile.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+      },
+    });
+  }
+
   async createAdminUser(
     input: CreateAdminUserDto,
     actorUserId: string,
     context: AuditContext = {},
   ) {
-    this.assertAssignableRole(input.role);
+    this.assertAssignableRoleForCreate(input.role);
     const email = input.email.trim().toLowerCase();
     const institutionIds = this.uniqueIds(input.institutionIds ?? []);
+    const normalizedProfileId = await this.resolvePermissionProfileId(
+      this.prisma,
+      input.role,
+      input.permissionProfileId,
+    );
     const temporaryPassword = generateTemporaryPassword();
     const now = new Date();
     const passwordHash = await this.hashPassword(temporaryPassword);
@@ -288,6 +322,10 @@ export class UsersService {
         data: {
           name: input.name.trim(),
           email,
+          phone: this.normalizePhone(input.phone),
+          position: this.normalizeOptionalText(input.position),
+          status: input.status ?? UserStatus.ACTIVE,
+          permissionProfileId: normalizedProfileId,
           passwordHash,
           mustChangePassword: true,
           passwordChangedAt: now,
@@ -316,7 +354,11 @@ export class UsersService {
           actorUserId,
           targetUserId: created.id,
           email,
+          phoneAfter: this.normalizePhone(input.phone),
+          positionAfter: this.normalizeOptionalText(input.position),
           roleAfter: input.role,
+          statusAfter: input.status ?? UserStatus.ACTIVE,
+          permissionProfileIdAfter: normalizedProfileId,
           institutionIdsAfter: institutionIds,
           mustChangePasswordAfter: true,
           ...this.auditRequestMetadata(context),
@@ -353,15 +395,22 @@ export class UsersService {
     context: AuditContext = {},
   ): Promise<AdminUserResponse> {
     const nextEmail = input.email?.trim().toLowerCase();
-    if (input.role) {
-      this.assertAssignableRole(input.role);
-    }
 
     return this.prisma.$transaction(
       async (tx) => {
         const current = await this.findAdminUserOrThrowTx(tx, id);
         const currentRoles = this.roleCodes(current);
+        if (input.role) {
+          this.assertAssignableRoleForUpdate(input.role, currentRoles);
+        }
         const nextRoles = input.role ? [input.role] : currentRoles;
+        const nextStatus = input.status ?? current.status;
+        const nextPermissionProfileId = await this.resolvePermissionProfileId(
+          tx,
+          nextRoles[0]!,
+          input.permissionProfileId,
+          current.permissionProfileId,
+        );
 
         if (nextEmail && nextEmail !== current.email) {
           const existing = await tx.user.findUnique({
@@ -376,10 +425,13 @@ export class UsersService {
         if (actorUserId === id && input.role && input.role !== currentRoles[0]) {
           throw new ForbiddenException("Nao e permitido alterar o proprio perfil");
         }
+        if (actorUserId === id && input.status && input.status !== current.status) {
+          throw new ForbiddenException("Nao e permitido alterar o proprio status");
+        }
 
         await this.assertActiveSuperAdminRemains(tx, id, {
           roles: nextRoles,
-          status: current.status,
+          status: nextStatus,
         });
 
         const updated = await tx.user.update({
@@ -387,6 +439,14 @@ export class UsersService {
           data: {
             ...(input.name ? { name: input.name.trim() } : {}),
             ...(nextEmail ? { email: nextEmail } : {}),
+            ...(input.phone !== undefined
+              ? { phone: this.normalizePhone(input.phone) }
+              : {}),
+            ...(input.position !== undefined
+              ? { position: this.normalizeOptionalText(input.position) }
+              : {}),
+            ...(input.status ? { status: input.status } : {}),
+            permissionProfileId: nextPermissionProfileId,
           },
           include: this.adminUserInclude(),
         });
@@ -435,9 +495,52 @@ export class UsersService {
                   ...current,
                   name: input.name?.trim() ?? current.name,
                   email: nextEmail ?? current.email,
+                  phone:
+                    input.phone !== undefined
+                      ? this.normalizePhone(input.phone)
+                      : current.phone,
+                  position:
+                    input.position !== undefined
+                      ? this.normalizeOptionalText(input.position)
+                      : current.position,
                 },
                 changedFields,
               ),
+              ...this.auditRequestMetadata(context),
+            },
+          });
+        }
+
+        if (input.status && input.status !== current.status) {
+          await this.recordAuditTx(tx, {
+            eventType: AdministrativeAuditEventType.USER_STATUS_CHANGED,
+            userId: actorUserId,
+            recordId: id,
+            metadata: {
+              origin: "admin_users",
+              actorUserId,
+              targetUserId: id,
+              statusBefore: current.status,
+              statusAfter: input.status,
+              ...this.auditRequestMetadata(context),
+            },
+          });
+        }
+
+        if (nextPermissionProfileId !== current.permissionProfileId) {
+          await this.recordAuditTx(tx, {
+            eventType: AdministrativeAuditEventType.USER_UPDATED,
+            userId: actorUserId,
+            recordId: id,
+            metadata: {
+              origin: "admin_users",
+              actorUserId,
+              targetUserId: id,
+              changedFields: ["permissionProfileId"],
+              permissionProfileIdBefore: current.permissionProfileId,
+              permissionProfileIdAfter: nextPermissionProfileId,
+              roleBefore: currentRoles[0] ?? null,
+              roleAfter: nextRoles[0] ?? null,
               ...this.auditRequestMetadata(context),
             },
           });
@@ -793,6 +896,13 @@ export class UsersService {
   private adminUserInclude() {
     return {
       roles: { include: { role: true } },
+      permissionProfile: {
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+        },
+      },
       institutions: {
         include: {
           institution: {
@@ -887,7 +997,11 @@ export class UsersService {
       id: user.id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
+      position: user.position,
       status: user.status,
+      permissionProfileId: user.permissionProfileId,
+      permissionProfile: user.permissionProfile,
       roles,
       institutionIds,
       institutions: user.institutions.map((item) => ({
@@ -929,10 +1043,52 @@ export class UsersService {
     return left.every((id, index) => id === right[index]);
   }
 
-  private assertAssignableRole(role: RoleCode): void {
-    if (!ADMIN_ASSIGNABLE_ROLES.has(role)) {
+  private assertAssignableRoleForCreate(role: RoleCode): void {
+    if (!CREATE_ADMIN_ASSIGNABLE_ROLES.has(role)) {
       throw new BadRequestException("Perfil nao permitido nesta sprint");
     }
+  }
+
+  private assertAssignableRoleForUpdate(
+    role: RoleCode,
+    currentRoles: RoleCode[],
+  ): void {
+    if (CREATE_ADMIN_ASSIGNABLE_ROLES.has(role)) {
+      return;
+    }
+    if (
+      role === TRANSITION_ASSIGNABLE_ROLE &&
+      currentRoles.includes(TRANSITION_ASSIGNABLE_ROLE)
+    ) {
+      return;
+    }
+    throw new BadRequestException("Perfil nao permitido nesta sprint");
+  }
+
+  private async resolvePermissionProfileId(
+    tx: Prisma.TransactionClient | PrismaService,
+    role: RoleCode,
+    requestedProfileId: string | null | undefined,
+    currentProfileId?: string | null,
+  ): Promise<string | null> {
+    if (role !== RoleCode.USER) {
+      return null;
+    }
+    const profileId = requestedProfileId ?? currentProfileId ?? null;
+    if (!profileId) {
+      throw new BadRequestException("Perfil de permissoes obrigatorio para USER");
+    }
+    const profile = await tx.permissionProfile.findFirst({
+      where: {
+        id: profileId,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    if (!profile) {
+      throw new BadRequestException("Perfil de permissoes ativo obrigatorio para USER");
+    }
+    return profile.id;
   }
 
   private async assertInstitutionsExist(
@@ -982,11 +1138,28 @@ export class UsersService {
     if (input.email && input.email.toLowerCase() !== current.email) {
       changed.push("email");
     }
+    if (
+      input.phone !== undefined &&
+      this.normalizePhone(input.phone) !== current.phone
+    ) {
+      changed.push("phone");
+    }
+    if (
+      input.position !== undefined &&
+      this.normalizeOptionalText(input.position) !== current.position
+    ) {
+      changed.push("position");
+    }
     return changed;
   }
 
   private basicUserSnapshot(
-    user: { name: string; email: string },
+    user: {
+      email: string;
+      name: string;
+      phone?: string | null;
+      position?: string | null;
+    },
     fields: string[],
   ): Prisma.InputJsonObject {
     const snapshot: Record<string, Prisma.InputJsonValue> = {};
@@ -996,7 +1169,30 @@ export class UsersService {
     if (fields.includes("email")) {
       snapshot.email = user.email;
     }
+    if (fields.includes("phone")) {
+      snapshot.phone = (user.phone ?? null) as unknown as Prisma.InputJsonValue;
+    }
+    if (fields.includes("position")) {
+      snapshot.position = (user.position ?? null) as unknown as Prisma.InputJsonValue;
+    }
     return snapshot as Prisma.InputJsonObject;
+  }
+
+  private normalizeOptionalText(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  private normalizePhone(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const digits = trimmed.replace(/\D/g, "");
+    if (!digits || digits.length > 30) {
+      throw new BadRequestException("Telefone invalido");
+    }
+    return digits;
   }
 
   private auditRequestMetadata(context: AuditContext): Prisma.InputJsonObject {

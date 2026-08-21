@@ -49,6 +49,24 @@ function optionalBoolean(value: unknown) {
   return value;
 }
 
+function optionalString(value: unknown) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    return value;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function optionalUuid(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  return value;
+}
+
 export class ListAdminUsersDto {
   @IsOptional()
   @Type(() => Number)
@@ -123,6 +141,27 @@ export class CreateAdminUserDto {
   role!: RoleCode;
 
   @IsOptional()
+  @IsEnum(UserStatus)
+  status?: UserStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @Transform(({ value }) => optionalString(value))
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  @Transform(({ value }) => optionalString(value))
+  position?: string;
+
+  @IsOptional()
+  @IsUUID()
+  @Transform(({ value }) => optionalUuid(value))
+  permissionProfileId?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayUnique()
   @IsUUID("4", { each: true })
@@ -148,6 +187,27 @@ export class UpdateAdminUserDto {
   @IsOptional()
   @IsEnum(RoleCode)
   role?: RoleCode;
+
+  @IsOptional()
+  @IsEnum(UserStatus)
+  status?: UserStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @Transform(({ value }) => optionalString(value))
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  @Transform(({ value }) => optionalString(value))
+  position?: string;
+
+  @IsOptional()
+  @IsUUID()
+  @Transform(({ value }) => optionalUuid(value))
+  permissionProfileId?: string;
 }
 
 export class UpdateAdminUserInstitutionsDto {

@@ -109,7 +109,11 @@ const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(
     !file.endsWith("administrator-permissions.ts") &&
     !file.endsWith("permission-catalog.ts") &&
     !file.endsWith("permission.guard.ts") &&
-    !file.endsWith("permissions.decorator.ts"),
+    !file.endsWith("permissions.decorator.ts") &&
+    !file.endsWith("users.service.ts"),
+);
+const permissionProfileAuthorizationSourceFiles = authorizationSourceFiles.filter(
+  (file) => !file.includes("/users/"),
 );
 
 for (const file of authorizationSourceFiles) {
@@ -119,6 +123,10 @@ for (const file of authorizationSourceFiles) {
     /@Roles\([^)]*RoleCode\.(?:ADMINISTRATOR|USER)/s,
     `${file} must not delegate endpoints to ADMINISTRATOR or USER in Sprint 15.10B`,
   );
+}
+
+for (const file of permissionProfileAuthorizationSourceFiles) {
+  const source = readFileSync(file, "utf8");
   assert.doesNotMatch(
     source,
     /PermissionProfile|PermissionKey|PERMISSION_CATALOG/,

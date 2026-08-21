@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Ban,
+  BriefcaseBusiness,
   Building2,
   CheckCircle2,
   Copy,
@@ -11,6 +12,7 @@ import {
   Mail,
   MoreHorizontal,
   Pencil,
+  Phone,
   Plus,
   RefreshCw,
   Search,
@@ -26,6 +28,7 @@ import {
   type BaseRecord,
   type CreateAdminUserBody,
   type ListAdminUsersParams,
+  type PermissionProfileOption,
   type RoleCode,
   type UserStatus,
 } from "../../lib/api";
@@ -40,13 +43,22 @@ import {
   AdminSummaryCard,
 } from "./components/admin-ui";
 
-type AssignableRole = Extract<RoleCode, "SUPER_ADMIN" | "SECRETARIA">;
+type CreateAssignableRole = Extract<
+  RoleCode,
+  "SUPER_ADMIN" | "ADMINISTRATOR" | "USER"
+>;
+type EditableRole = CreateAssignableRole | Extract<RoleCode, "SECRETARIA" | "GESTOR">;
+type FilterRole = RoleCode;
 type UserFormMode = "create" | "edit" | "institutions";
 type UserFormState = {
   email: string;
   institutionIds: string[];
   name: string;
-  role: AssignableRole;
+  permissionProfileId: string;
+  phone: string;
+  position: string;
+  role: EditableRole;
+  status: UserStatus;
 };
 type UserDialogState = {
   mode: UserFormMode;
@@ -62,23 +74,42 @@ type TemporaryPasswordState = {
 };
 type SummaryState = {
   active: number;
+  administrator: number;
   inactive: number;
-  secretaria: number;
   superAdmin: number;
+  user: number;
 };
 
 const DEFAULT_LIMIT = 10;
-const ASSIGNABLE_ROLES: AssignableRole[] = ["SUPER_ADMIN", "SECRETARIA"];
+const CREATE_ASSIGNABLE_ROLES: CreateAssignableRole[] = [
+  "SUPER_ADMIN",
+  "ADMINISTRATOR",
+  "USER",
+];
+const FILTER_ROLES: FilterRole[] = [
+  "SUPER_ADMIN",
+  "ADMINISTRATOR",
+  "USER",
+  "SECRETARIA",
+  "GESTOR",
+];
 const EMPTY_FORM: UserFormState = {
   email: "",
   institutionIds: [],
   name: "",
-  role: "SECRETARIA",
+  permissionProfileId: "",
+  phone: "",
+  position: "",
+  role: "ADMINISTRATOR",
+  status: "ACTIVE",
 };
 
 export function UsersPanel() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
+  const [permissionProfiles, setPermissionProfiles] = useState<
+    PermissionProfileOption[]
+  >([]);
   const [pagination, setPagination] = useState({
     limit: DEFAULT_LIMIT,
     page: 1,
@@ -87,13 +118,14 @@ export function UsersPanel() {
   });
   const [summary, setSummary] = useState<SummaryState>({
     active: 0,
+    administrator: 0,
     inactive: 0,
-    secretaria: 0,
     superAdmin: 0,
+    user: 0,
   });
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [role, setRole] = useState<"" | AssignableRole>("");
+  const [role, setRole] = useState<"" | FilterRole>("");
   const [status, setStatus] = useState<"" | UserStatus>("");
   const [institutionId, setInstitutionId] = useState("");
   const [neverLoggedIn, setNeverLoggedIn] = useState(false);
@@ -116,6 +148,7 @@ export function UsersPanel() {
 
   useEffect(() => {
     void loadInstitutions();
+    void loadPermissionProfiles();
     void loadSummary();
   }, []);
 
@@ -135,7 +168,7 @@ export function UsersPanel() {
   const activeFilters = useMemo(() => {
     return [
       search ? `Busca: ${search}` : "",
-      role ? `Perfil: ${roleLabel(role)}` : "",
+      role ? `Nível: ${roleLabel(role)}` : "",
       status ? `Status: ${statusLabel(status)}` : "",
       institutionId
         ? `Instituição: ${institutionName(institutions, institutionId)}`
@@ -174,27 +207,45 @@ export function UsersPanel() {
     }
   }
 
+  async function loadPermissionProfiles() {
+    try {
+      const profiles = await api.listPermissionProfiles();
+      setPermissionProfiles(profiles);
+    } catch (caught) {
+      setFeedback({
+        tone: "orange",
+        text:
+          caught instanceof Error
+            ? caught.message
+            : "Não foi possível carregar perfis de permissões.",
+      });
+    }
+  }
+
   async function loadSummary() {
     setSummaryLoading(true);
     try {
-      const [active, inactive, superAdmin, secretaria] = await Promise.all([
+      const [active, inactive, superAdmin, administrator, user] = await Promise.all([
         api.listAdminUsers({ limit: 1, status: "ACTIVE" }),
         api.listAdminUsers({ limit: 1, status: "INACTIVE" }),
         api.listAdminUsers({ limit: 1, role: "SUPER_ADMIN" }),
-        api.listAdminUsers({ limit: 1, role: "SECRETARIA" }),
+        api.listAdminUsers({ limit: 1, role: "ADMINISTRATOR" }),
+        api.listAdminUsers({ limit: 1, role: "USER" }),
       ]);
       setSummary({
         active: active.pagination.total,
+        administrator: administrator.pagination.total,
         inactive: inactive.pagination.total,
-        secretaria: secretaria.pagination.total,
         superAdmin: superAdmin.pagination.total,
+        user: user.pagination.total,
       });
     } catch {
       setSummary({
         active: 0,
+        administrator: 0,
         inactive: 0,
-        secretaria: 0,
         superAdmin: 0,
+        user: 0,
       });
     } finally {
       setSummaryLoading(false);
@@ -264,7 +315,11 @@ export function UsersPanel() {
       email: user.email,
       institutionIds: user.institutionIds,
       name: user.name,
-      role: assignableRoleOrDefault(user.roles[0]),
+      permissionProfileId: user.permissionProfileId ?? "",
+      phone: user.phone ?? "",
+      position: user.position ?? "",
+      role: editableRoleOrDefault(user.roles[0]),
+      status: user.status,
     });
     setInstitutionSearch("");
     setDialog({ mode: "edit", user });
@@ -275,7 +330,11 @@ export function UsersPanel() {
       email: user.email,
       institutionIds: user.institutionIds,
       name: user.name,
-      role: assignableRoleOrDefault(user.roles[0]),
+      permissionProfileId: user.permissionProfileId ?? "",
+      phone: user.phone ?? "",
+      position: user.position ?? "",
+      role: editableRoleOrDefault(user.roles[0]),
+      status: user.status,
     });
     setInstitutionSearch("");
     setDialog({ mode: "institutions", user });
@@ -291,11 +350,19 @@ export function UsersPanel() {
     setFeedback(null);
     try {
       if (dialog.mode === "create") {
+        if (form.role === "USER" && !form.permissionProfileId) {
+          throw new Error("Perfil de Permissões obrigatório para Usuário.");
+        }
         const body: CreateAdminUserBody = {
           email: form.email.trim(),
           institutionIds: sortedIds(form.institutionIds),
           name: form.name.trim(),
-          role: form.role,
+          permissionProfileId:
+            form.role === "USER" ? form.permissionProfileId : undefined,
+          phone: form.phone.trim() || undefined,
+          position: form.position.trim() || undefined,
+          role: form.role as CreateAssignableRole,
+          status: form.status,
         };
         const response = await api.createAdminUser(body);
         setTemporaryPassword({
@@ -308,12 +375,20 @@ export function UsersPanel() {
           text: "Usuário criado. A senha temporária está disponível apenas agora.",
         });
       } else if (dialog.mode === "edit" && dialog.user) {
+        if (form.role === "USER" && !form.permissionProfileId) {
+          throw new Error("Perfil de Permissões obrigatório para Usuário.");
+        }
         const nextInstitutionIds = sortedIds(form.institutionIds);
         const currentInstitutionIds = sortedIds(dialog.user.institutionIds);
         await api.updateAdminUser(dialog.user.id, {
           email: form.email.trim(),
           name: form.name.trim(),
-          role: form.role,
+          permissionProfileId:
+            form.role === "USER" ? form.permissionProfileId : undefined,
+          phone: form.phone.trim() || undefined,
+          position: form.position.trim() || undefined,
+          role: form.role === "GESTOR" ? undefined : form.role,
+          status: form.status,
         });
         if (!sameIds(nextInstitutionIds, currentInstitutionIds)) {
           await api.updateAdminUserInstitutions(
@@ -445,11 +520,18 @@ export function UsersPanel() {
           value={summaryLoading ? "..." : summary.superAdmin}
         />
         <AdminSummaryCard
-          description="Perfil operacional por instituição."
+          description="Administrador operacional futuro."
           icon={UsersRound}
-          label="SECRETARIA"
+          label="Administradores"
           tone="orange"
-          value={summaryLoading ? "..." : summary.secretaria}
+          value={summaryLoading ? "..." : summary.administrator}
+        />
+        <AdminSummaryCard
+          description="Usuários com perfil granular."
+          icon={UserCog}
+          label="Usuários"
+          tone="slate"
+          value={summaryLoading ? "..." : summary.user}
         />
       </section>
 
@@ -502,12 +584,12 @@ export function UsersPanel() {
                 className={cx(adminTheme.control, "w-full")}
                 onChange={(event) => {
                   setPage(1);
-                  setRole(event.target.value as "" | AssignableRole);
+                  setRole(event.target.value as "" | FilterRole);
                 }}
                 value={role}
               >
                 <option value="">Todos</option>
-                {ASSIGNABLE_ROLES.map((item) => (
+                {FILTER_ROLES.map((item) => (
                   <option key={item} value={item}>
                     {roleLabel(item)}
                   </option>
@@ -624,13 +706,13 @@ export function UsersPanel() {
                       <th className="w-[22%] border-b border-slate-200 px-3 py-3">
                         Usuário
                       </th>
-                      <th className="w-[11%] border-b border-slate-200 px-3 py-3">
-                        Perfil
+                      <th className="w-[15%] border-b border-slate-200 px-3 py-3">
+                        Nível
                       </th>
                       <th className="w-[11%] border-b border-slate-200 px-3 py-3">
                         Status
                       </th>
-                      <th className="w-[16%] border-b border-slate-200 px-3 py-3">
+                      <th className="w-[12%] border-b border-slate-200 px-3 py-3">
                         Instituições
                       </th>
                       <th className="w-[14%] border-b border-slate-200 px-3 py-3">
@@ -639,7 +721,7 @@ export function UsersPanel() {
                       <th className="w-[10%] border-b border-slate-200 px-3 py-3">
                         Criado
                       </th>
-                      <th className="w-[16%] border-b border-slate-200 px-3 py-3 text-right">
+                      <th className="w-[12%] border-b border-slate-200 px-3 py-3 text-right">
                         Ações
                       </th>
                     </tr>
@@ -702,6 +784,7 @@ export function UsersPanel() {
           onChange={setForm}
           onInstitutionSearch={setInstitutionSearch}
           onSubmit={submitUserDialog}
+          permissionProfiles={permissionProfiles}
           saving={saving}
         />
       ) : null}
@@ -754,10 +837,24 @@ function UserTableRow({
             <Mail aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">{user.email}</span>
           </p>
+          {user.phone ? (
+            <p className="mt-1 flex min-w-0 items-center gap-1 text-xs text-slate-500">
+              <Phone aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{formatPhone(user.phone)}</span>
+            </p>
+          ) : null}
         </div>
       </td>
-      <td className="border-b border-slate-100 px-3 py-3">
+      <td className="border-b border-slate-100 px-3 py-3 align-top">
         <RoleBadges roles={user.roles} />
+        <p className="mt-2 line-clamp-2 text-xs text-slate-500">
+          {user.position || "Sem cargo/função"}
+        </p>
+        {user.permissionProfile ? (
+          <p className="mt-1 line-clamp-2 text-xs font-semibold text-slate-600">
+            {user.permissionProfile.name}
+          </p>
+        ) : null}
       </td>
       <td className="border-b border-slate-100 px-3 py-3">
         <UserStatusBadges user={user} />
@@ -830,15 +927,25 @@ function UserMobileCard({
         <div className="min-w-0">
           <p className="break-words font-semibold text-slate-950">{user.name}</p>
           <p className="mt-1 break-all text-sm text-slate-500">{user.email}</p>
+          {user.phone ? (
+            <p className="mt-1 text-sm text-slate-500">{formatPhone(user.phone)}</p>
+          ) : null}
         </div>
         <UserStatusBadges user={user} />
       </div>
       <div className="mt-3 grid gap-3 text-sm text-slate-600">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Perfil
+            Nível
           </p>
           <RoleBadges roles={user.roles} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <InfoBlock label="Cargo/Função" value={user.position || "Sem cargo/função"} />
+          <InfoBlock
+            label="Perfil"
+            value={user.permissionProfile?.name ?? "Sem perfil"}
+          />
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -1017,6 +1124,7 @@ function UserFormDialog({
   onChange,
   onInstitutionSearch,
   onSubmit,
+  permissionProfiles,
   saving,
 }: {
   dialog: UserDialogState;
@@ -1028,9 +1136,11 @@ function UserFormDialog({
   onChange: (next: UserFormState) => void;
   onInstitutionSearch: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  permissionProfiles: PermissionProfileOption[];
   saving: boolean;
 }) {
   const institutionsOnly = dialog.mode === "institutions";
+  const roleOptions = roleOptionsForDialog(dialog);
   const title =
     dialog.mode === "create"
       ? "Novo usuário"
@@ -1043,6 +1153,14 @@ function UserFormDialog({
       ? sortedIds([...form.institutionIds, id])
       : form.institutionIds.filter((item) => item !== id);
     onChange({ ...form, institutionIds: nextIds });
+  }
+
+  function updateRole(role: EditableRole) {
+    onChange({
+      ...form,
+      permissionProfileId: role === "USER" ? form.permissionProfileId : "",
+      role,
+    });
   }
 
   return (
@@ -1076,53 +1194,162 @@ function UserFormDialog({
 
         <div className="grid max-h-[68vh] gap-4 overflow-y-auto px-5 py-4">
           {!institutionsOnly ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-1 text-sm font-semibold text-slate-700">
-                Nome
-                <input
-                  className={adminTheme.control}
-                  maxLength={120}
-                  minLength={2}
-                  onChange={(event) =>
-                    onChange({ ...form, name: event.target.value })
-                  }
-                  required
-                  value={form.name}
-                />
-              </label>
-              <label className="grid gap-1 text-sm font-semibold text-slate-700">
-                Email
-                <input
-                  className={adminTheme.control}
-                  maxLength={180}
-                  onChange={(event) =>
-                    onChange({ ...form, email: event.target.value })
-                  }
-                  required
-                  type="email"
-                  value={form.email}
-                />
-              </label>
-              <label className="grid gap-1 text-sm font-semibold text-slate-700">
-                Perfil
-                <select
-                  className={adminTheme.control}
-                  onChange={(event) =>
-                    onChange({
-                      ...form,
-                      role: event.target.value as AssignableRole,
-                    })
-                  }
-                  value={form.role}
-                >
-                  {ASSIGNABLE_ROLES.map((item) => (
-                    <option key={item} value={item}>
-                      {roleLabel(item)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            <>
+              <section className={adminTheme.softPanel}>
+                <div className="border-b border-slate-200 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">Dados</p>
+                </div>
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                    Nome completo
+                    <input
+                      className={adminTheme.control}
+                      maxLength={120}
+                      minLength={2}
+                      onChange={(event) =>
+                        onChange({ ...form, name: event.target.value })
+                      }
+                      required
+                      value={form.name}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                    E-mail/login
+                    <input
+                      className={adminTheme.control}
+                      maxLength={180}
+                      onChange={(event) =>
+                        onChange({ ...form, email: event.target.value })
+                      }
+                      required
+                      type="email"
+                      value={form.email}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                    Telefone
+                    <input
+                      className={adminTheme.control}
+                      maxLength={30}
+                      onChange={(event) =>
+                        onChange({ ...form, phone: event.target.value })
+                      }
+                      placeholder="(00) 00000-0000"
+                      value={form.phone}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                    Cargo/Função
+                    <input
+                      className={adminTheme.control}
+                      maxLength={120}
+                      onChange={(event) =>
+                        onChange({ ...form, position: event.target.value })
+                      }
+                      placeholder="Consultora administrativa"
+                      value={form.position}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                    Status
+                    <select
+                      className={adminTheme.control}
+                      onChange={(event) =>
+                        onChange({
+                          ...form,
+                          status: event.target.value as UserStatus,
+                        })
+                      }
+                      value={form.status}
+                    >
+                      <option value="ACTIVE">Ativo</option>
+                      <option value="INACTIVE">Bloqueado</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <section className={adminTheme.softPanel}>
+                <div className="border-b border-slate-200 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">Acesso</p>
+                </div>
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                    Nível
+                    <select
+                      className={adminTheme.control}
+                      disabled={form.role === "GESTOR"}
+                      onChange={(event) =>
+                        updateRole(event.target.value as EditableRole)
+                      }
+                      value={form.role}
+                    >
+                      {form.role === "GESTOR" ? (
+                        <option value="GESTOR">GESTOR</option>
+                      ) : null}
+                      {roleOptions.map((item) => (
+                        <option key={item} value={item}>
+                          {roleLabel(item)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {form.role === "USER" ? (
+                    <label className="grid gap-1 text-sm font-semibold text-slate-700">
+                      Perfil de Permissões *
+                      <select
+                        className={adminTheme.control}
+                        onChange={(event) =>
+                          onChange({
+                            ...form,
+                            permissionProfileId: event.target.value,
+                          })
+                        }
+                        required
+                        value={form.permissionProfileId}
+                      >
+                        <option value="">Selecione</option>
+                        {permissionProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
+              </section>
+
+              <section className={adminTheme.softPanel}>
+                <div className="border-b border-slate-200 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">Segurança</p>
+                </div>
+                <div className="grid gap-3 p-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Senha
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                      {dialog.mode === "create"
+                        ? "Temporária no cadastro"
+                        : "Reset disponível nas ações"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Primeiro acesso
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">
+                      {dialog.mode === "create"
+                        ? "Pendente após criação"
+                        : dialog.user?.mustChangePassword
+                          ? "Pendente"
+                          : "Concluído"}
+                    </p>
+                  </div>
+                </div>
+              </section>
+            </>
           ) : null}
 
           <section className={adminTheme.softPanel}>
@@ -1339,7 +1566,11 @@ function RoleBadges({ roles }: { roles: RoleCode[] }) {
         <AdminStatusBadge
           key={role}
           tone={
-            role === "SUPER_ADMIN" ? "blue" : role === "SECRETARIA" ? "orange" : "slate"
+            role === "SUPER_ADMIN"
+              ? "blue"
+              : role === "SECRETARIA" || role === "ADMINISTRATOR"
+                ? "orange"
+                : "slate"
           }
         >
           {roleLabel(role)}
@@ -1428,8 +1659,27 @@ function institutionName(institutions: BaseRecord[], id: string) {
   return institutions.find((institution) => institution.id === id)?.name ?? "Selecionada";
 }
 
-function assignableRoleOrDefault(role?: RoleCode): AssignableRole {
-  return role === "SUPER_ADMIN" || role === "SECRETARIA" ? role : "SECRETARIA";
+function editableRoleOrDefault(role?: RoleCode): EditableRole {
+  if (
+    role === "SUPER_ADMIN" ||
+    role === "ADMINISTRATOR" ||
+    role === "USER" ||
+    role === "SECRETARIA" ||
+    role === "GESTOR"
+  ) {
+    return role;
+  }
+  return "ADMINISTRATOR";
+}
+
+function roleOptionsForDialog(dialog: UserDialogState): EditableRole[] {
+  if (dialog.mode === "create") {
+    return CREATE_ASSIGNABLE_ROLES;
+  }
+  const currentRole = dialog.user?.roles[0];
+  return currentRole === "SECRETARIA"
+    ? [...CREATE_ASSIGNABLE_ROLES, "SECRETARIA"]
+    : CREATE_ASSIGNABLE_ROLES;
 }
 
 function sortedIds(ids: string[]) {
@@ -1461,6 +1711,17 @@ function formatDateTime(value: string) {
     month: "2-digit",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function formatPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return value;
 }
 
 function pendingActionTitle(type: NonNullable<PendingAction>["type"]) {

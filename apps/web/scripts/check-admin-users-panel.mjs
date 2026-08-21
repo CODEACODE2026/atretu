@@ -37,7 +37,9 @@ includesAll(api, [
   "blockAdminUser",
   "unblockAdminUser",
   "resetAdminUserPassword",
+  "listPermissionProfiles",
   "/admin/users",
+  "/admin/users/permission-profiles",
   "/reset-password",
 ]);
 
@@ -50,6 +52,9 @@ includesAll(panel, [
   "AdminFeedback",
   "AdminConfirmDialog",
   "Novo usuário",
+  "Cargo/Função",
+  "Perfil de Permissões",
+  "Segurança",
   "Esta senha será exibida apenas uma vez.",
   "Nunca logou",
   "Primeiro acesso pendente",
@@ -73,8 +78,9 @@ for (const forbidden of [
   );
 }
 
-assert.equal(
-  panel.includes('value="GESTOR"'),
-  false,
-  "GESTOR must not be selectable in the Sprint 10 UI",
+assert.ok(
+  panel.includes('form.role === "GESTOR"') &&
+    panel.includes("<option value=\"GESTOR\">GESTOR</option>") &&
+    !panel.includes('"GESTOR",]'),
+  "GESTOR may only appear as a preserved existing value, not as an assignable role",
 );

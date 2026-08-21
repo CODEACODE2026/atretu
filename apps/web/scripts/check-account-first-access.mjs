@@ -69,6 +69,7 @@ includesAll(accountPanel, [
   "AdminStatusBadge",
   "AdminFeedback",
   "Alterar senha",
+  "8 caracteres",
   "autoComplete",
   "current-password",
   "new-password",

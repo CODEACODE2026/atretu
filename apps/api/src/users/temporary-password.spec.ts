@@ -12,11 +12,12 @@ assert.match(password, /\d/);
 assert.match(password, /[!@#$%*\-_+=]/);
 assert.notEqual(password, generateTemporaryPassword());
 
-assert.throws(() => generateTemporaryPassword(8));
+assert.throws(() => generateTemporaryPassword(7));
+assert.doesNotThrow(() => generateTemporaryPassword(8));
 
 assert.doesNotThrow(() =>
   assertPasswordPolicy({
-    password: "SenhaForte#2026",
+    password: "Senha#26",
     currentPassword: "SenhaAntiga#2025",
     email: "usuario@example.com",
     name: "Usuario Teste",
@@ -27,10 +28,14 @@ assert.throws(
   (error) => error instanceof BadRequestException,
 );
 assert.throws(
+  () => assertPasswordPolicy({ password: "Aa1!aaa" }),
+  (error) => error instanceof BadRequestException,
+);
+assert.throws(
   () =>
     assertPasswordPolicy({
-      password: "SenhaForte#2026",
-      currentPassword: "SenhaForte#2026",
+      password: "Senha#26",
+      currentPassword: "Senha#26",
     }),
   (error) => error instanceof BadRequestException,
 );
