@@ -8,6 +8,7 @@ import { UsersModule } from "../users/users.module.js";
 import { AuthController } from "./auth.controller.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
+import { PermissionGuard } from "./permission.guard.js";
 import { RolesGuard } from "./roles.guard.js";
 
 @Module({
@@ -25,7 +26,7 @@ import { RolesGuard } from "./roles.guard.js";
     }),
   ],
   controllers: [AuthController, AccountController, AdminUsersController],
-  providers: [AuthService, AuthGuard, RolesGuard],
-  exports: [AuthService, AuthGuard, RolesGuard],
+  providers: [AuthService, AuthGuard, PermissionGuard, RolesGuard],
+  exports: [AuthService, AuthGuard, PermissionGuard, RolesGuard],
 })
 export class AuthModule {}

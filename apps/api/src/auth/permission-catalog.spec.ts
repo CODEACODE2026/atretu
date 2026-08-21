@@ -104,7 +104,12 @@ assert.equal(isPermissionKey("sicredi.technical"), false);
 assert.equal(isPermissionKey("students.delete"), false);
 
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(
-  (file) => !file.endsWith(".spec.ts") && !file.endsWith("permission-catalog.ts"),
+  (file) =>
+    !file.endsWith(".spec.ts") &&
+    !file.endsWith("administrator-permissions.ts") &&
+    !file.endsWith("permission-catalog.ts") &&
+    !file.endsWith("permission.guard.ts") &&
+    !file.endsWith("permissions.decorator.ts"),
 );
 
 for (const file of authorizationSourceFiles) {
@@ -116,8 +121,26 @@ for (const file of authorizationSourceFiles) {
   );
   assert.doesNotMatch(
     source,
-    /PermissionProfile|permissionProfile|PermissionKey|PERMISSION_CATALOG/,
-    `${file} must not use permission profiles for authorization in Sprint 15.10B`,
+    /PermissionProfile|PermissionKey|PERMISSION_CATALOG/,
+    `${file} must not use permission profiles for authorization outside Sprint 15.10C infrastructure`,
+  );
+}
+
+const controllerSourceFiles = authorizationSourceFiles.filter((file) =>
+  file.endsWith(".controller.ts"),
+);
+
+for (const file of controllerSourceFiles) {
+  const source = readFileSync(file, "utf8");
+  assert.doesNotMatch(
+    source,
+    /@Permissions\(/,
+    `${file} must not apply PermissionGuard metadata in Sprint 15.10C`,
+  );
+  assert.doesNotMatch(
+    source,
+    /\bPermissionGuard\b/,
+    `${file} must not attach PermissionGuard to operational controllers in Sprint 15.10C`,
   );
 }
 

@@ -39,6 +39,7 @@ export type AuthUser = {
   status: UserStatus;
   mustChangePassword?: boolean;
   passwordChangedAt?: Date | null;
+  permissionProfileId?: string | null;
   roles: RoleCode[];
   institutionId?: string | null;
   institutionIds?: string[];
@@ -756,6 +757,7 @@ export class UsersService {
     status: UserStatus;
     mustChangePassword?: boolean;
     passwordChangedAt?: Date | null;
+    permissionProfileId?: string | null;
     roles: Array<{ role: { code: RoleCode } }>;
     institutions?: Array<{ institutionId: string }>;
   }): AuthUser {
@@ -769,6 +771,7 @@ export class UsersService {
       status: user.status,
       mustChangePassword: user.mustChangePassword,
       passwordChangedAt: user.passwordChangedAt,
+      permissionProfileId: user.permissionProfileId ?? null,
       roles: user.roles.map((userRole) => userRole.role.code),
       institutionId: institutionIds.length === 1 ? institutionIds[0] : null,
       institutionIds,
