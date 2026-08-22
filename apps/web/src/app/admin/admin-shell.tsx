@@ -28,6 +28,7 @@ import {
   type ListRecordsParams,
 } from "../../lib/api";
 import {
+  canAccessMigratedArea,
   canAccessOperationalAdmin,
   canAccessRestrictedAdmin,
 } from "../../lib/auth";
@@ -241,17 +242,17 @@ function AdminWorkspace({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [tabletViewport, setTabletViewport] = useState(false);
   const effectiveSidebarCollapsed = sidebarCollapsed || tabletViewport;
-  const hasOperationalAccess = canAccessOperationalAdmin(user);
-  const visibleTabs = hasOperationalAccess
-    ? ADMIN_NAV_ITEMS.filter(
-        (tab) => !("restricted" in tab) || canAccessRestrictedAdmin(user),
-      )
-    : [];
+  const visibleTabs = ADMIN_NAV_ITEMS.filter((tab) => canAccessArea(tab.key));
+  const fallbackArea = visibleTabs[0]?.key ?? "account";
+  const hasOperationalAccess = visibleTabs.length > 0;
+  const effectiveArea = canAccessArea(area) ? area : fallbackArea;
   const currentItem =
-    area === "account"
+    effectiveArea === "account"
       ? ACCOUNT_NAV_ITEM
-      : (visibleTabs.find((tab) => tab.key === area) ??
-        (hasOperationalAccess ? ADMIN_NAV_ITEMS[0] : ACCOUNT_NAV_ITEM));
+      : (visibleTabs.find((tab) => tab.key === effectiveArea) ??
+        (hasOperationalAccess
+          ? visibleTabs[0] ?? ACCOUNT_NAV_ITEM
+          : ACCOUNT_NAV_ITEM));
   const shortcutTargets: Record<
     string,
     { area: AdminArea; baseDomain?: DomainKey; financeArea?: FinanceArea }
@@ -284,11 +285,10 @@ function AdminWorkspace({
 
   useEffect(() => {
     if (!canAccessArea(area)) {
-      const fallbackArea = hasOperationalAccess ? "dashboard" : "account";
       setArea(fallbackArea);
       router.replace(adminAreaHref(fallbackArea));
     }
-  }, [area, hasOperationalAccess, router]);
+  }, [area, fallbackArea, router]);
 
   useEffect(() => {
     function applyUrlNavigationContext() {
@@ -323,7 +323,6 @@ function AdminWorkspace({
 
   function handleAreaChange(nextArea: AdminArea) {
     if (!canAccessArea(nextArea)) {
-      const fallbackArea = hasOperationalAccess ? "dashboard" : "account";
       setDashboardTarget(null);
       setMobileNavigationOpen(false);
       setArea(fallbackArea);
@@ -385,7 +384,6 @@ function AdminWorkspace({
 
   function applyNavigationTarget(target: DashboardNavigationTarget) {
     if (!canAccessArea(target.area)) {
-      const fallbackArea = hasOperationalAccess ? "dashboard" : "account";
       setDashboardTarget(null);
       setMobileNavigationOpen(false);
       setArea(fallbackArea);
@@ -407,7 +405,16 @@ function AdminWorkspace({
     if (nextArea === "account") {
       return true;
     }
-    if (!hasOperationalAccess) {
+    if (
+      nextArea === "dashboard" ||
+      nextArea === "students" ||
+      nextArea === "reenrollments" ||
+      nextArea === "pre-registrations"
+    ) {
+      return canAccessMigratedArea(user, nextArea);
+    }
+    const hasLegacyOperationalAccess = canAccessOperationalAdmin(user);
+    if (!hasLegacyOperationalAccess) {
       return false;
     }
     const navItem = ADMIN_NAV_ITEMS.find((item) => item.key === nextArea);
@@ -417,7 +424,7 @@ function AdminWorkspace({
   return (
     <main className={`min-h-screen text-slate-950 ${adminTheme.appBackground}`}>
       <AdminSidebar
-        activeArea={area}
+        activeArea={effectiveArea}
         collapsed={effectiveSidebarCollapsed}
         items={visibleTabs}
         onAccount={() => handleAreaChange("account")}
@@ -427,7 +434,7 @@ function AdminWorkspace({
         user={user}
       />
       <MobileNavigation
-        activeArea={area}
+        activeArea={effectiveArea}
         items={visibleTabs}
         onAccount={() => handleAreaChange("account")}
         onClose={() => setMobileNavigationOpen(false)}
@@ -487,7 +494,7 @@ function AdminWorkspace({
             </div>
           ) : null}
 
-          {area === "dashboard" ? (
+          {effectiveArea === "dashboard" ? (
             <DashboardPanel
               isShortcutAvailable={(shortcut) =>
                 Boolean(shortcut.href || shortcutTargets[shortcut.key])
@@ -496,7 +503,7 @@ function AdminWorkspace({
               onShortcut={handleDashboardShortcut}
             />
           ) : null}
-          {area === "students" ? (
+          {effectiveArea === "students" ? (
             <StudentsPanel
               initialAcademicYearId={dashboardTarget?.academicYearId}
               initialAction={dashboardTarget?.studentAction}
@@ -509,9 +516,9 @@ function AdminWorkspace({
               user={user}
             />
           ) : null}
-          {area === "reenrollments" ? <ReenrollmentsPanel /> : null}
-          {area === "student-cards" ? <StudentCardsPanel user={user} /> : null}
-          {area === "finance" ? (
+          {effectiveArea === "reenrollments" ? <ReenrollmentsPanel /> : null}
+          {effectiveArea === "student-cards" ? <StudentCardsPanel user={user} /> : null}
+          {effectiveArea === "finance" ? (
             <FinancePanel
               initialArea={financeInitialArea}
               initialCollectionFilters={dashboardTarget?.collectionFilters}
@@ -519,20 +526,20 @@ function AdminWorkspace({
               user={user}
             />
           ) : null}
-          {area === "official-documents" ? <OfficialDocumentsPanel user={user} /> : null}
-          {area === "reports" ? <ReportsPanel user={user} /> : null}
-          {area === "settings" ? <AssociationSettingsPanel /> : null}
-          {area === "jobs" ? <JobsMonitorPanel /> : null}
-          {area === "legacy-import" ? <LegacyImportPanel /> : null}
-          {area === "users" ? <UsersPanel /> : null}
-          {area === "permission-profiles" ? <PermissionProfilesPanel /> : null}
-          {area === "account" ? (
+          {effectiveArea === "official-documents" ? <OfficialDocumentsPanel user={user} /> : null}
+          {effectiveArea === "reports" ? <ReportsPanel user={user} /> : null}
+          {effectiveArea === "settings" ? <AssociationSettingsPanel /> : null}
+          {effectiveArea === "jobs" ? <JobsMonitorPanel /> : null}
+          {effectiveArea === "legacy-import" ? <LegacyImportPanel /> : null}
+          {effectiveArea === "users" ? <UsersPanel /> : null}
+          {effectiveArea === "permission-profiles" ? <PermissionProfilesPanel /> : null}
+          {effectiveArea === "account" ? (
             <AccountPanel
               onRequireLogin={onRequireLogin}
               onUserChange={onUserChange}
             />
           ) : null}
-          {area === "pre-registrations" ? (
+          {effectiveArea === "pre-registrations" ? (
             <PreRegistrationsPanel
               initialAcademicYearId={dashboardTarget?.academicYearId}
               initialInstitutionId={dashboardTarget?.institutionId}
@@ -540,10 +547,11 @@ function AdminWorkspace({
               onClearNavigationContext={() =>
                 handleClearDashboardContext("pre-registrations")
               }
+              user={user}
             />
           ) : null}
-          {area === "years" ? <AcademicYearsPanel user={user} /> : null}
-          {area === "base" ? (
+          {effectiveArea === "years" ? <AcademicYearsPanel user={user} /> : null}
+          {effectiveArea === "base" ? (
             <BaseRecordsPanel
               initialAcademicYearId={dashboardTarget?.academicYearId}
               initialDomain={baseInitialDomain}

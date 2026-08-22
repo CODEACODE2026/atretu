@@ -4,6 +4,7 @@ import { RoleCode, UserStatus } from "@prisma/client";
 import {
   assertInstitutionInScope,
   getInstitutionScope,
+  OPERATIONAL_INSTITUTION_SCOPE,
   scopedInstitutionFilter,
   scopedInstitutionIds,
 } from "./institution-scope.js";
@@ -45,6 +46,36 @@ assert.doesNotThrow(() => assertInstitutionInScope(secretary, "institution-1"));
 assert.throws(
   () => assertInstitutionInScope(secretary, "institution-3"),
   ForbiddenException,
+);
+
+const scopedUser = {
+  ...secretary,
+  roles: [RoleCode.USER],
+};
+assert.deepEqual(getInstitutionScope(scopedUser), { type: "denied" });
+assert.deepEqual(
+  getInstitutionScope(scopedUser, OPERATIONAL_INSTITUTION_SCOPE),
+  { type: "restricted", institutionIds: ["institution-1", "institution-2"] },
+);
+assert.deepEqual(
+  scopedInstitutionFilter(scopedUser, undefined, OPERATIONAL_INSTITUTION_SCOPE),
+  { in: ["institution-1", "institution-2"] },
+);
+assert.deepEqual(
+  scopedInstitutionFilter(
+    { ...scopedUser, institutionIds: [] },
+    undefined,
+    OPERATIONAL_INSTITUTION_SCOPE,
+  ),
+  { in: [] },
+);
+assert.equal(
+  scopedInstitutionFilter(
+    { ...secretary, roles: [RoleCode.ADMINISTRATOR] },
+    "institution-3",
+    OPERATIONAL_INSTITUTION_SCOPE,
+  ),
+  "institution-3",
 );
 
 console.log("Institution scope guard OK");

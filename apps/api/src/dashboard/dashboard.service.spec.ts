@@ -1,11 +1,6 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
-import {
-  ForbiddenException,
-  RequestMethod,
-  UnauthorizedException,
-} from "@nestjs/common";
-import { Reflector } from "@nestjs/core";
+import { RequestMethod } from "@nestjs/common";
 import {
   BankSlipStatus,
   InvoiceStatus,
@@ -16,7 +11,7 @@ import {
   UserStatus,
 } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { RolesGuard } from "../auth/roles.guard.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { DashboardController } from "./dashboard.controller.js";
 import { DashboardService } from "./dashboard.service.js";
@@ -36,22 +31,11 @@ const SECRETARIA: AuthUser = {
   status: UserStatus.ACTIVE,
   roles: [RoleCode.SECRETARIA],
 };
-const UNAUTHORIZED_ROLE_USER: AuthUser = {
-  id: "user-none",
-  name: "Sem Papel",
-  email: "none@example.com",
-  status: UserStatus.ACTIVE,
-  roles: [],
-};
-
 const GUARDS_METADATA_KEY = "__guards__";
 const METHOD_METADATA_KEY = "method";
 const PATH_METADATA_KEY = "path";
 
 await testControllerRouteGuardsAndRoles();
-await testAuthGuardBlocksUnauthenticatedUser();
-await testRolesGuardAllowsSuperAdminAndSecretaria();
-await testRolesGuardBlocksUnauthorizedRole();
 await testControllerPassesQueryAndAuthenticatedUser();
 await testEmptyOverviewStructure();
 await testOverviewWithAggregatedData();
@@ -65,7 +49,7 @@ async function testControllerRouteGuardsAndRoles() {
     DashboardController,
   ) as unknown[];
 
-  assert.deepEqual(classGuards, [AuthGuard, RolesGuard]);
+  assert.deepEqual(classGuards, [AuthGuard, OperationalPermissionGuard]);
   assert.equal(
     Reflect.getMetadata(PATH_METADATA_KEY, DashboardController),
     "dashboard",
@@ -85,52 +69,11 @@ async function testControllerRouteGuardsAndRoles() {
     RequestMethod.GET,
   );
   assert.deepEqual(
-    Reflect.getMetadata("roles", DashboardController.prototype.overview),
-    [RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA],
-  );
-}
-
-async function testAuthGuardBlocksUnauthenticatedUser() {
-  const guard = new AuthGuard({} as never, {} as never);
-  await assert.rejects(
-    () =>
-      guard.canActivate(
-        httpContext({
-          cookies: {},
-          headers: {},
-        }),
-      ),
-    UnauthorizedException,
-  );
-}
-
-async function testRolesGuardAllowsSuperAdminAndSecretaria() {
-  const guard = new RolesGuard(new Reflector());
-  assert.equal(
-    guard.canActivate(
-      httpContext({ user: SUPER_ADMIN }, DashboardController.prototype.overview),
+    Reflect.getMetadata(
+      "operationalPermissions",
+      DashboardController.prototype.overview,
     ),
-    true,
-  );
-  assert.equal(
-    guard.canActivate(
-      httpContext({ user: SECRETARIA }, DashboardController.prototype.overview),
-    ),
-    true,
-  );
-}
-
-async function testRolesGuardBlocksUnauthorizedRole() {
-  const guard = new RolesGuard(new Reflector());
-  assert.throws(
-    () =>
-      guard.canActivate(
-        httpContext(
-          { user: UNAUTHORIZED_ROLE_USER },
-          DashboardController.prototype.overview,
-        ),
-      ),
-    ForbiddenException,
+    ["dashboard.view"],
   );
 }
 

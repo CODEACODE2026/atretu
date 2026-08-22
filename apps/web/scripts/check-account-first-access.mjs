@@ -29,7 +29,7 @@ includesAll(shell, [
   "onRequireLogin",
   "canAccessOperationalAdmin",
   "Minha Conta permanece disponivel",
-  'area === "account"',
+  'effectiveArea === "account"',
 ]);
 
 includesAll(login, [

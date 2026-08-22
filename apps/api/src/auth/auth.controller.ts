@@ -16,7 +16,7 @@ import type { Request, Response } from "express";
 import { AppConfigService } from "../config/app-config.service.js";
 import { RateLimitService } from "../security/rate-limit.service.js";
 import { SecurityAuditService } from "../security/security-audit.service.js";
-import type { AuthUser } from "../users/users.service.js";
+import { UsersService, type AuthUser } from "../users/users.service.js";
 import { AllowDuringPasswordChange } from "./allow-during-password-change.decorator.js";
 import { AUTH_COOKIE_NAME } from "./auth.constants.js";
 import { AuthGuard } from "./auth.guard.js";
@@ -39,6 +39,8 @@ export class AuthController {
     private readonly config: AppConfigService,
     @Inject(RateLimitService)
     private readonly rateLimit: RateLimitService,
+    @Inject(UsersService)
+    private readonly usersService: UsersService,
   ) {}
 
   @Post("login")
@@ -58,6 +60,8 @@ export class AuthController {
         body.password,
       );
       const token = await this.authService.signToken(user);
+      const userWithCapabilities =
+        await this.usersService.withOperationalCapabilities(user);
       this.setAuthCookie(response, token);
       this.rateLimit.reset(rateLimitKey);
       await this.audit.record({
@@ -68,7 +72,7 @@ export class AuthController {
         userAgent: request.headers["user-agent"],
       });
 
-      return { user };
+      return { user: userWithCapabilities };
     } catch (error) {
       await this.audit.record({
         eventType: AuditEventType.LOGIN_FAILURE,
@@ -109,8 +113,8 @@ export class AuthController {
   @Get("me")
   @UseGuards(AuthGuard)
   @AllowDuringPasswordChange()
-  me(@CurrentUser() user: AuthUser) {
-    return { user };
+  async me(@CurrentUser() user: AuthUser) {
+    return { user: await this.usersService.withOperationalCapabilities(user) };
   }
 
   @Post("bootstrap/super-admin")

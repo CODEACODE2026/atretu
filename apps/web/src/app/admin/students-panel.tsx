@@ -44,6 +44,7 @@ import {
   onlyDigits,
   promptOption,
 } from "../../lib/formatters";
+import { hasCapability } from "../../lib/auth";
 import { StudentInvoicesForStudent } from "./finance-panel";
 import { adminTheme, cx } from "./admin-theme";
 import { StudentCardsForStudent } from "./student-cards-panel";
@@ -151,6 +152,7 @@ export function StudentsPanel({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const canCreateStudent = hasCapability(user, "students.create");
 
   useEffect(() => {
     void loadReferences();
@@ -163,7 +165,7 @@ export function StudentsPanel({
     setStatusFilter(initialStatusFilter ?? "active");
     setBoardMembershipFilter(initialBoardMembershipFilter ?? "all");
     setPage(1);
-    if (initialAction === "new") {
+    if (initialAction === "new" && canCreateStudent) {
       setView("create");
     }
   }, [
@@ -173,6 +175,7 @@ export function StudentsPanel({
     initialInstitutionId,
     initialShiftId,
     initialStatusFilter,
+    canCreateStudent,
   ]);
 
   useEffect(() => {
@@ -841,7 +844,7 @@ export function StudentsPanel({
     await loadStudents();
   }
 
-  if (view === "create") {
+  if (view === "create" && canCreateStudent) {
     return (
       <StudentCreateView
         institutions={institutions}
@@ -905,18 +908,20 @@ export function StudentsPanel({
               documentos e informações financeiras.
             </p>
           </div>
-          <button
-            className={adminTheme.primaryButton}
-            onClick={() => {
-              setMessage("");
-              setError("");
-              setView("create");
-            }}
-            type="button"
-          >
-            <Plus size={17} strokeWidth={2.2} />
-            Novo academico
-          </button>
+          {canCreateStudent ? (
+            <button
+              className={adminTheme.primaryButton}
+              onClick={() => {
+                setMessage("");
+                setError("");
+                setView("create");
+              }}
+              type="button"
+            >
+              <Plus size={17} strokeWidth={2.2} />
+              Novo academico
+            </button>
+          ) : null}
         </div>
       </section>
 

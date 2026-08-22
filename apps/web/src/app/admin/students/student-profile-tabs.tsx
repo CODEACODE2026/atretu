@@ -41,15 +41,17 @@ export function StudentProfileTabs({
   activeTab,
   loadedTabs,
   onChange,
+  tabs = studentProfileTabs.map((tab) => tab.key),
 }: {
   activeTab: StudentProfileTab;
   loadedTabs: Set<StudentProfileTab>;
   onChange: (tab: StudentProfileTab) => void;
+  tabs?: StudentProfileTab[];
 }) {
   return (
     <nav aria-label="Navegacao do perfil" className={cx(adminTheme.card, "p-2")}>
       <div className="flex flex-wrap gap-1">
-        {studentProfileTabs.map((tab) => {
+        {studentProfileTabs.filter((tab) => tabs.includes(tab.key)).map((tab) => {
           const Icon = tab.icon;
           const active = tab.key === activeTab;
           return (

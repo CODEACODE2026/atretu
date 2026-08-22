@@ -12,7 +12,10 @@ import {
   StudentStatus,
 } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service.js";
-import { scopedInstitutionFilter } from "../auth/institution-scope.js";
+import {
+  OPERATIONAL_INSTITUTION_SCOPE,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { DOCUMENT_TYPES } from "../documents/document-file.js";
 import { CollectionsService } from "../finance/collections.service.js";
 import {
@@ -1091,6 +1094,7 @@ export class DashboardService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     if (!institutionFilter) {
       return undefined;

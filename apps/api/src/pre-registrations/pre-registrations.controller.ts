@@ -14,12 +14,11 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
-import { RoleCode } from "@prisma/client";
 import type { Request, Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
 import { DownloadStudentDocumentDto } from "../documents/dto/documents.dto.js";
 import { publicPreRegistrationUploadOptions } from "../documents/multipart-upload.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -74,8 +73,8 @@ export class PreRegistrationsController {
     });
   }
 
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @UseGuards(AuthGuard, OperationalPermissionGuard)
+  @OperationalPermission("preRegistrations.view")
   @Get("pre-registrations")
   listPreRegistrations(
     @Query() query: ListPreRegistrationsDto,
@@ -84,8 +83,8 @@ export class PreRegistrationsController {
     return this.preRegistrations.listPreRegistrations(query, user);
   }
 
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @UseGuards(AuthGuard, OperationalPermissionGuard)
+  @OperationalPermission("preRegistrations.view")
   @Get("pre-registrations/:id")
   getPreRegistration(
     @Param("id", ParseUUIDPipe) id: string,
@@ -94,8 +93,8 @@ export class PreRegistrationsController {
     return this.preRegistrations.getPreRegistration(id, user);
   }
 
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @UseGuards(AuthGuard, OperationalPermissionGuard)
+  @OperationalPermission("preRegistrations.documents.view")
   @Get("pre-registrations/:id/documents/:documentId/file")
   async getPreRegistrationDocumentFile(
     @Param("id", ParseUUIDPipe) id: string,
@@ -125,8 +124,8 @@ export class PreRegistrationsController {
     return response.send(file.buffer);
   }
 
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @UseGuards(AuthGuard, OperationalPermissionGuard)
+  @OperationalPermission("preRegistrations.review")
   @Post("pre-registrations/:id/approve")
   approvePreRegistration(
     @Param("id", ParseUUIDPipe) id: string,
@@ -136,8 +135,8 @@ export class PreRegistrationsController {
     return this.preRegistrations.approvePreRegistration(id, body, user.id, user);
   }
 
-  @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @UseGuards(AuthGuard, OperationalPermissionGuard)
+  @OperationalPermission("preRegistrations.review")
   @Post("pre-registrations/:id/reject")
   rejectPreRegistration(
     @Param("id", ParseUUIDPipe) id: string,

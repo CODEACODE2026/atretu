@@ -165,12 +165,14 @@ export function StudentAddressFields({
 }
 
 export function StudentAcademicFields({
+  disabled = false,
   enrollment,
   institutions,
   setEnrollment,
   shifts,
   years,
 }: {
+  disabled?: boolean;
   enrollment: StudentPayload["enrollment"];
   institutions: BaseRecord[];
   setEnrollment: (enrollment: StudentPayload["enrollment"]) => void;
@@ -186,6 +188,7 @@ export function StudentAcademicFields({
       <div className="grid gap-3 md:grid-cols-2">
         <LabeledSelect
           label="Ano letivo"
+          disabled={disabled}
           onChange={(value) => update("academicYearId", value)}
           options={years.map((year) => ({
             label: year.isCurrent ? `${year.year} atual` : String(year.year),
@@ -196,6 +199,7 @@ export function StudentAcademicFields({
         />
         <LabeledSelect
           label="Instituicao"
+          disabled={disabled}
           onChange={(value) => update("institutionId", value)}
           options={institutions.map((item) => ({
             label: item.name,
@@ -208,18 +212,21 @@ export function StudentAcademicFields({
       <div className="grid gap-3 md:grid-cols-3">
         <Field
           label="Curso"
+          disabled={disabled}
           onChange={(value) => update("course", value)}
           required
           value={enrollment.course}
         />
         <Field
           label="Serie"
+          disabled={disabled}
           onChange={(value) => update("grade", value)}
           required
           value={enrollment.grade}
         />
         <LabeledSelect
           label="Turno"
+          disabled={disabled}
           onChange={(value) => update("shiftId", value)}
           options={shifts.map((item) => ({ label: item.name, value: item.id }))}
           required
@@ -331,6 +338,7 @@ export function StudentTransportFields({
 }
 
 export function Field({
+  disabled = false,
   label,
   maxLength,
   onChange,
@@ -339,6 +347,7 @@ export function Field({
   type = "text",
   value,
 }: {
+  disabled?: boolean;
   label: string;
   maxLength?: number;
   onChange: (value: string) => void;
@@ -353,6 +362,7 @@ export function Field({
       {required ? <span className="text-red-600"> *</span> : null}
       <input
         className={cx(adminTheme.control, "mt-1 w-full")}
+        disabled={disabled}
         maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

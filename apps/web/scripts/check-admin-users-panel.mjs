@@ -26,7 +26,10 @@ includesAll(navigation, [
   "restricted: true",
 ]);
 
-includesAll(shell, ['import { UsersPanel } from "./users-panel";', 'area === "users"']);
+includesAll(shell, [
+  'import { UsersPanel } from "./users-panel";',
+  'effectiveArea === "users"',
+]);
 
 includesAll(api, [
   "export type AdminUser",

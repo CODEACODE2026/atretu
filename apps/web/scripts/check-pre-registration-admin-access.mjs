@@ -38,13 +38,20 @@ assert.ok(
 );
 
 includesAll(shell, [
-  "canAccessOperationalAdmin(user)",
-  'tab) => !("restricted" in tab) || canAccessRestrictedAdmin(user)',
+  "canAccessMigratedArea(user, nextArea)",
+  "const visibleTabs = ADMIN_NAV_ITEMS.filter((tab) => canAccessArea(tab.key))",
+  "const effectiveArea = canAccessArea(area) ? area : fallbackArea",
+  'activeArea={effectiveArea}',
+  'nextArea === "pre-registrations"',
   '"pre-registrations": { area: "pre-registrations" }',
-  'area === "pre-registrations"',
+  'effectiveArea === "pre-registrations"',
   "PreRegistrationsPanel",
+  "user={user}",
 ]);
 includesAll(auth, [
+  "user.capabilities?.includes(capability)",
+  '"pre-registrations" | "reenrollments"',
+  '"preRegistrations.view"',
   'user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA")',
   'user.roles.includes("GESTOR")',
 ]);
@@ -61,6 +68,9 @@ includesAll(mobileNavigation, [
 ]);
 
 includesAll(panel, [
+  'hasCapability(user, "preRegistrations.review")',
+  'hasCapability(',
+  '"preRegistrations.documents.view"',
   "copyPublicPreRegistrationLink",
   'navigator.clipboard.writeText(`${window.location.origin}/pre-cadastro`)',
   "Link copiado",

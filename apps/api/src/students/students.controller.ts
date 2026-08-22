@@ -13,6 +13,8 @@ import {
 import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
 import { Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -39,7 +41,7 @@ import {
 } from "./dto/students.dto.js";
 import { StudentsService } from "./students.service.js";
 
-@UseGuards(AuthGuard, RolesGuard)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller()
 export class StudentsController {
   constructor(
@@ -47,12 +49,13 @@ export class StudentsController {
   ) {}
 
   @Get("academic-years")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.view")
   listAcademicYears(@Query() query: ListAcademicYearsDto) {
     return this.students.listAcademicYears(query);
   }
 
   @Post("academic-years")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   createAcademicYear(
     @Body() body: CreateAcademicYearDto,
@@ -62,6 +65,7 @@ export class StudentsController {
   }
 
   @Patch("academic-years/:id")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   updateAcademicYear(
     @Param("id") id: string,
@@ -72,6 +76,7 @@ export class StudentsController {
   }
 
   @Patch("academic-years/:id/set-current")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   setCurrentAcademicYear(
     @Param("id") id: string,
@@ -81,6 +86,7 @@ export class StudentsController {
   }
 
   @Patch("academic-years/:id/archive")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   archiveAcademicYear(
     @Param("id") id: string,
@@ -90,6 +96,7 @@ export class StudentsController {
   }
 
   @Patch("academic-years/:id/reactivate")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   reactivateAcademicYear(
     @Param("id") id: string,
@@ -99,6 +106,7 @@ export class StudentsController {
   }
 
   @Delete("academic-years/:id")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   deleteAcademicYear(
     @Param("id") id: string,
@@ -108,19 +116,19 @@ export class StudentsController {
   }
 
   @Get("students")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.view")
   listStudents(@Query() query: ListStudentsDto, @CurrentUser() user: AuthUser) {
     return this.students.listStudents(query, user);
   }
 
   @Post("students")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.create")
   createStudent(@Body() body: CreateStudentDto, @CurrentUser() user: AuthUser) {
     return this.students.createStudent(body, user.id, user);
   }
 
   @Get("students/reenrollment-candidates")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.reenroll")
   listReenrollmentCandidates(
     @Query() query: ListStudentsDto,
     @CurrentUser() user: AuthUser,
@@ -129,7 +137,7 @@ export class StudentsController {
   }
 
   @Get("students/documentation-status")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.view")
   listStudentDocumentationStatus(
     @Query() query: ListStudentDocumentationStatusDto,
     @CurrentUser() user: AuthUser,
@@ -138,12 +146,13 @@ export class StudentsController {
   }
 
   @Get("students/:id")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.view")
   getStudent(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.students.getStudent(id, user);
   }
 
   @Get("students/:id/legacy-financial-history")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
   listStudentLegacyFinancialHistory(
     @Param("id") id: string,
@@ -154,7 +163,7 @@ export class StudentsController {
   }
 
   @Get("students/:id/reenrollment-preview")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.reenroll")
   previewReenrollment(
     @Param("id") id: string,
     @CurrentUser() user: AuthUser,
@@ -164,7 +173,7 @@ export class StudentsController {
   }
 
   @Patch("students/:id/person")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.update")
   updatePerson(
     @Param("id") id: string,
     @Body() body: UpdatePersonDto,
@@ -174,7 +183,7 @@ export class StudentsController {
   }
 
   @Patch("students/:id/guardian")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.update")
   updateGuardian(
     @Param("id") id: string,
     @Body() body: UpdateGuardianDto,
@@ -184,7 +193,7 @@ export class StudentsController {
   }
 
   @Post("students/:id/enrollments")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.create")
   createEnrollment(
     @Param("id") id: string,
     @Body() body: CreateEnrollmentDto,
@@ -194,7 +203,7 @@ export class StudentsController {
   }
 
   @Patch("students/:id/enrollments/:enrollmentId")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.update")
   updateEnrollment(
     @Param("id") id: string,
     @Param("enrollmentId") enrollmentId: string,
@@ -205,7 +214,7 @@ export class StudentsController {
   }
 
   @Post("students/:id/reenroll")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.reenroll")
   reenrollStudent(
     @Param("id") id: string,
     @Body() body: ReenrollStudentDto,
@@ -215,7 +224,7 @@ export class StudentsController {
   }
 
   @Post("students/:id/suspend")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.changeStatus")
   suspendStudent(
     @Param("id") id: string,
     @Body() body: SuspendStudentDto,
@@ -225,7 +234,7 @@ export class StudentsController {
   }
 
   @Post("students/:id/reactivate")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.changeStatus")
   reactivateStudent(
     @Param("id") id: string,
     @Body() body: ReactivateStudentDto,
@@ -235,7 +244,7 @@ export class StudentsController {
   }
 
   @Post("students/:id/reinstate")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.changeStatus")
   reinstateStudent(
     @Param("id") id: string,
     @Body() body: ReinstateStudentDto,
@@ -245,7 +254,7 @@ export class StudentsController {
   }
 
   @Post("students/:id/terminate")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.changeStatus")
   terminateStudent(
     @Param("id") id: string,
     @Body() body: TerminateStudentDto,
@@ -255,19 +264,19 @@ export class StudentsController {
   }
 
   @Get("students/:id/history")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.view")
   listStudentHistory(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.students.listStudentHistory(id, user);
   }
 
   @Get("students/:id/board-memberships")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.board.view")
   listBoardMemberships(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.students.listBoardMemberships(id, user);
   }
 
   @Post("students/:id/board-memberships")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.board.manage")
   startBoardMembership(
     @Param("id") id: string,
     @Body() body: StartBoardMembershipDto,
@@ -277,6 +286,7 @@ export class StudentsController {
   }
 
   @Patch("students/:id/board-memberships/:membershipId/role")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   updateBoardMembershipRole(
     @Param("id") id: string,
@@ -288,7 +298,7 @@ export class StudentsController {
   }
 
   @Post("students/:id/board-memberships/:membershipId/end")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("students.board.manage")
   endBoardMembership(
     @Param("id") id: string,
     @Param("membershipId") membershipId: string,

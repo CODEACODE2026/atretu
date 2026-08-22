@@ -20,6 +20,7 @@ import {
 import {
   api,
   type AcademicYear,
+  type ApiUser,
   type BaseRecord,
   type BusRecord,
   type PreRegistrationDetail,
@@ -28,6 +29,7 @@ import {
   type PreRegistrationSummary,
   type StudentDocumentType,
 } from "../../lib/api";
+import { hasCapability } from "../../lib/auth";
 import { maskCpf, maskPhone } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import {
@@ -75,11 +77,13 @@ export function PreRegistrationsPanel({
   initialInstitutionId,
   initialStatus,
   onClearNavigationContext,
+  user,
 }: {
   initialAcademicYearId?: string;
   initialInstitutionId?: string;
   initialStatus?: PreRegistrationStatus;
   onClearNavigationContext?: () => void;
+  user: ApiUser;
 }) {
   const [items, setItems] = useState<PreRegistrationSummary[]>([]);
   const [selected, setSelected] = useState<PreRegistrationDetail | null>(null);
@@ -105,6 +109,11 @@ export function PreRegistrationsPanel({
   const [copyMessage, setCopyMessage] = useState("");
   const [error, setError] = useState("");
   const [documentPreview, setDocumentPreview] = useState<DocumentPreviewState | null>(null);
+  const canReview = hasCapability(user, "preRegistrations.review");
+  const canViewDocuments = hasCapability(
+    user,
+    "preRegistrations.documents.view",
+  );
   const initialFilterValues = useMemo(
     () => ({
       academicYearId: initialAcademicYearId ?? "",
@@ -321,6 +330,9 @@ export function PreRegistrationsPanel({
   }
 
   async function approveSelected() {
+    if (!canReview) {
+      return;
+    }
     if (!selected) {
       return;
     }
@@ -350,6 +362,9 @@ export function PreRegistrationsPanel({
 
   async function rejectSelected(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canReview) {
+      return;
+    }
     if (!selected) {
       return;
     }
@@ -379,6 +394,9 @@ export function PreRegistrationsPanel({
   }
 
   async function handlePreviewDocument(item: PreRegistrationDocumentRecord) {
+    if (!canViewDocuments) {
+      return;
+    }
     if (!selected) {
       return;
     }
@@ -404,6 +422,9 @@ export function PreRegistrationsPanel({
   }
 
   async function handleDownloadDocument(item: PreRegistrationDocumentRecord) {
+    if (!canViewDocuments) {
+      return;
+    }
     if (!selected) {
       return;
     }
@@ -621,6 +642,7 @@ export function PreRegistrationsPanel({
             ) : (
               items.map((item) => (
                 <PreRegistrationMobileCard
+                  canReview={canReview}
                   item={item}
                   key={item.id}
                   onOpen={() => void openItem(item.id)}
@@ -793,6 +815,7 @@ export function PreRegistrationsPanel({
                 title="Responsável"
               />
               <DocumentSection
+                canViewDocuments={canViewDocuments}
                 documents={selected.documents}
                 onDownload={(document) => void handleDownloadDocument(document)}
                 onPreview={(document) => void handlePreviewDocument(document)}
@@ -811,7 +834,7 @@ export function PreRegistrationsPanel({
                 title="Observações"
               />
 
-              {selected.status === "PENDING" ? (
+              {selected.status === "PENDING" && canReview ? (
                 <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-white p-4">
                   <SectionTitle icon={ShieldCheck} title="Ações" />
                   <label className="block text-sm font-medium text-slate-700">
@@ -937,10 +960,12 @@ function InfoGroup({
 }
 
 function PreRegistrationMobileCard({
+  canReview,
   item,
   onOpen,
   selected,
 }: {
+  canReview: boolean;
   item: PreRegistrationSummary;
   onOpen: () => void;
   selected: boolean;
@@ -990,7 +1015,7 @@ function PreRegistrationMobileCard({
         onClick={onOpen}
         type="button"
       >
-        Revisar
+        {canReview ? "Revisar" : "Detalhes"}
       </button>
     </article>
   );
@@ -1024,10 +1049,12 @@ function SectionTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }
 }
 
 function DocumentSection({
+  canViewDocuments,
   documents,
   onDownload,
   onPreview,
 }: {
+  canViewDocuments: boolean;
   documents: PreRegistrationDocumentRecord[];
   onDownload: (document: PreRegistrationDocumentRecord) => void;
   onPreview: (document: PreRegistrationDocumentRecord) => void;
@@ -1043,6 +1070,7 @@ function DocumentSection({
               document={document}
               documentType={documentType}
               key={documentType}
+              canViewDocuments={canViewDocuments}
               onDownload={onDownload}
               onPreview={onPreview}
             />
@@ -1054,11 +1082,13 @@ function DocumentSection({
 }
 
 function DocumentRow({
+  canViewDocuments,
   document,
   documentType,
   onDownload,
   onPreview,
 }: {
+  canViewDocuments: boolean;
   document?: PreRegistrationDocumentRecord;
   documentType: StudentDocumentType;
   onDownload: (document: PreRegistrationDocumentRecord) => void;
@@ -1086,7 +1116,7 @@ function DocumentRow({
       <div className="flex flex-wrap gap-2 sm:justify-end">
         <button
           className={cx(adminTheme.secondaryButton, "h-9 px-2.5 text-xs")}
-          disabled={!document || unavailable}
+          disabled={!canViewDocuments || !document || unavailable}
           onClick={() => document && onPreview(document)}
           type="button"
         >
@@ -1095,7 +1125,7 @@ function DocumentRow({
         </button>
         <button
           className={cx(adminTheme.secondaryButton, "h-9 px-2.5 text-xs")}
-          disabled={!document || unavailable}
+          disabled={!canViewDocuments || !document || unavailable}
           onClick={() => document && onDownload(document)}
           type="button"
         >

@@ -20,6 +20,7 @@ import { BusAssignmentsService } from "../bus-assignments/bus-assignments.servic
 import { resolvePagination } from "../common/pagination.js";
 import {
   assertInstitutionInScope,
+  OPERATIONAL_INSTITUTION_SCOPE,
   scopedInstitutionFilter,
 } from "../auth/institution-scope.js";
 import { AppConfigService } from "../config/app-config.service.js";
@@ -248,7 +249,11 @@ export class PreRegistrationsService {
   }
 
   async getPreRegistration(id: string, currentUser?: AuthUser) {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const record = await this.prisma.publicPreRegistration.findFirst({
       where: {
         id,
@@ -677,6 +682,7 @@ export class PreRegistrationsService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     const where: Prisma.PublicPreRegistrationWhereInput = {
       ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
@@ -706,7 +712,11 @@ export class PreRegistrationsService {
     if (!record) {
       throw new NotFoundException("Pre-cadastro nao encontrado");
     }
-    assertInstitutionInScope(currentUser, record.institutionId);
+    assertInstitutionInScope(
+      currentUser,
+      record.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
   }
 
   private buildListOrderBy(

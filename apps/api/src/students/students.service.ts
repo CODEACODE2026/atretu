@@ -29,6 +29,7 @@ import {
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import {
   getInstitutionScope,
+  OPERATIONAL_INSTITUTION_SCOPE,
   scopedInstitutionFilter,
   type InstitutionScopeFilter,
 } from "../auth/institution-scope.js";
@@ -325,7 +326,11 @@ export class StudentsService {
     userId: string,
     currentUser?: AuthUser,
   ) {
-    scopedInstitutionFilter(currentUser, body.enrollment.institutionId);
+    scopedInstitutionFilter(
+      currentUser,
+      body.enrollment.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const personData = this.preparePerson(body.person);
     const guardianData = body.guardian
       ? this.prepareGuardian(body.guardian)
@@ -715,7 +720,11 @@ export class StudentsService {
     currentUser?: AuthUser,
   ) {
     await this.ensureStudent(studentId, currentUser);
-    scopedInstitutionFilter(currentUser, body.institutionId);
+    scopedInstitutionFilter(
+      currentUser,
+      body.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     try {
       const enrollment = await this.prisma.$transaction(async (tx) => {
         await this.ensureEnrollmentReferences(tx, body);
@@ -758,7 +767,11 @@ export class StudentsService {
       data.academicYearId = body.academicYearId;
     }
     if (body.institutionId) {
-      scopedInstitutionFilter(currentUser, body.institutionId);
+      scopedInstitutionFilter(
+        currentUser,
+        body.institutionId,
+        OPERATIONAL_INSTITUTION_SCOPE,
+      );
       await this.ensureActiveInstitution(body.institutionId);
       data.institutionId = body.institutionId;
     }
@@ -807,7 +820,11 @@ export class StudentsService {
     currentUser?: AuthUser,
   ) {
     await this.ensureStudent(id, currentUser);
-    scopedInstitutionFilter(currentUser, body.institutionId);
+    scopedInstitutionFilter(
+      currentUser,
+      body.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     try {
       const enrollment = await this.prisma.$transaction(async (tx) => {
         const student = await this.lockStudent(tx, id);
@@ -1637,6 +1654,7 @@ export class StudentsService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     if (institutionFilter) {
       enrollmentFilters.institutionId = institutionFilter;
@@ -1666,6 +1684,7 @@ export class StudentsService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     if (institutionFilter) {
       enrollmentFilters.institutionId = institutionFilter;
@@ -1802,7 +1821,10 @@ export class StudentsService {
         Prisma.sql`e.academic_year_id = ${query.academicYearId}::uuid`,
       );
     }
-    const institutionScope = getInstitutionScope(currentUser);
+    const institutionScope = getInstitutionScope(
+      currentUser,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     if (query.institutionId) {
       if (
         institutionScope.type === "denied" ||
@@ -1848,7 +1870,11 @@ export class StudentsService {
   }
 
   private studentScopeWhere(currentUser?: AuthUser): Prisma.StudentWhereInput {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     return institutionFilter
       ? { enrollments: { some: { institutionId: institutionFilter } } }
       : {};

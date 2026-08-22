@@ -14,12 +14,14 @@ import { StudentAcademicFields } from "./student-form-fields";
 import { toEnrollmentPayload } from "./student-profile-utils";
 
 export function StudentAcademicTab({
+  canUpdate,
   institutions,
   onChanged,
   shifts,
   student,
   years,
 }: {
+  canUpdate: boolean;
   institutions: BaseRecord[];
   onChanged: () => Promise<void>;
   shifts: BaseRecord[];
@@ -49,6 +51,9 @@ export function StudentAcademicTab({
   }, [currentEnrollment?.id]);
 
   async function saveEnrollment() {
+    if (!canUpdate) {
+      return;
+    }
     if (!currentEnrollment) {
       setError("Matricula atual obrigatoria para edicao.");
       return;
@@ -89,17 +94,20 @@ export function StudentAcademicTab({
               Edicao dos dados academicos ja existentes, sem criar contratos novos.
             </p>
           </div>
-          <button
-            className={adminTheme.primaryButton}
-            disabled={saving || !currentEnrollment}
-            onClick={() => void saveEnrollment()}
-            type="button"
-          >
-            {saving ? "Salvando..." : "Salvar matricula"}
-          </button>
+          {canUpdate ? (
+            <button
+              className={adminTheme.primaryButton}
+              disabled={saving || !currentEnrollment}
+              onClick={() => void saveEnrollment()}
+              type="button"
+            >
+              {saving ? "Salvando..." : "Salvar matricula"}
+            </button>
+          ) : null}
         </div>
         {currentEnrollment ? (
           <StudentAcademicFields
+            disabled={!canUpdate}
             enrollment={enrollment}
             institutions={institutions}
             setEnrollment={setEnrollment}

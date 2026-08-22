@@ -130,6 +130,8 @@ const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(
   (file) =>
     !file.endsWith(".spec.ts") &&
     !file.endsWith("administrator-permissions.ts") &&
+    !file.endsWith("operational-permission.guard.ts") &&
+    !file.endsWith("operational-permissions.ts") &&
     !file.endsWith("permission-catalog.ts") &&
     !file.endsWith("permission.guard.ts") &&
     !file.endsWith("permissions.decorator.ts") &&

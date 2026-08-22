@@ -1,14 +1,13 @@
 import { Controller, Get, Inject, Query, UseGuards } from "@nestjs/common";
-import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
 import type { AuthUser } from "../users/users.service.js";
 import { DashboardService } from "./dashboard.service.js";
 import { DashboardOverviewQueryDto } from "./dto/dashboard.dto.js";
 
-@UseGuards(AuthGuard, RolesGuard)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller("dashboard")
 export class DashboardController {
   constructor(
@@ -16,7 +15,7 @@ export class DashboardController {
   ) {}
 
   @Get("overview")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @OperationalPermission("dashboard.view")
   overview(
     @Query() query: DashboardOverviewQueryDto,
     @CurrentUser() user: AuthUser,

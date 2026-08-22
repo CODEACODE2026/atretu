@@ -28,6 +28,10 @@ export type StudentProfileAction =
 
 export function StudentProfileHeader({
   activeCard,
+  canBoardManage,
+  canChangeStatus,
+  canUpdate,
+  canUpdateBoardRole,
   menuOpen,
   onAction,
   onBack,
@@ -36,6 +40,10 @@ export function StudentProfileHeader({
   student,
 }: {
   activeCard?: StudentCardRecord | null;
+  canBoardManage: boolean;
+  canChangeStatus: boolean;
+  canUpdate: boolean;
+  canUpdateBoardRole: boolean;
   menuOpen: boolean;
   onAction: (action: StudentProfileAction) => void;
   onBack: () => void;
@@ -112,15 +120,17 @@ export function StudentProfileHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <button
-            className={adminTheme.secondaryButton}
-            onClick={() => onAction("edit")}
-            type="button"
-          >
-            <Edit3 size={16} strokeWidth={2.2} />
-            Editar
-          </button>
-          {canSuspend ? (
+          {canUpdate ? (
+            <button
+              className={adminTheme.secondaryButton}
+              onClick={() => onAction("edit")}
+              type="button"
+            >
+              <Edit3 size={16} strokeWidth={2.2} />
+              Editar
+            </button>
+          ) : null}
+          {canChangeStatus && canSuspend ? (
             <button
               className={adminTheme.secondaryButton}
               onClick={() => onAction("suspend")}
@@ -130,7 +140,7 @@ export function StudentProfileHeader({
               Suspender
             </button>
           ) : null}
-          {canReactivate ? (
+          {canChangeStatus && canReactivate ? (
             <button
               className={adminTheme.secondaryButton}
               onClick={() => onAction("reactivate")}
@@ -140,6 +150,7 @@ export function StudentProfileHeader({
               Reativar
             </button>
           ) : null}
+          {canChangeStatus || canBoardManage || canUpdateBoardRole ? (
           <div className="relative">
             <button
               className={adminTheme.secondaryButton}
@@ -151,28 +162,37 @@ export function StudentProfileHeader({
             </button>
             {menuOpen ? (
               <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-2 shadow-lg">
-                <MenuButton label="Desligar" onClick={() => onAction("terminate")} />
-                <MenuButton label="Religar" onClick={() => onAction("reinstate")} />
+                {canChangeStatus ? (
+                  <>
+                    <MenuButton label="Desligar" onClick={() => onAction("terminate")} />
+                    <MenuButton label="Religar" onClick={() => onAction("reinstate")} />
+                  </>
+                ) : null}
                 {student.activeBoardMembership ? (
                   <>
-                    <MenuButton
-                      label="Alterar cargo da diretoria"
-                      onClick={() => onAction("update-board-role")}
-                    />
-                    <MenuButton
-                      label="Remover da diretoria"
-                      onClick={() => onAction("end-board")}
-                    />
+                    {canUpdateBoardRole ? (
+                      <MenuButton
+                        label="Alterar cargo da diretoria"
+                        onClick={() => onAction("update-board-role")}
+                      />
+                    ) : null}
+                    {canBoardManage ? (
+                      <MenuButton
+                        label="Remover da diretoria"
+                        onClick={() => onAction("end-board")}
+                      />
+                    ) : null}
                   </>
-                ) : (
+                ) : canBoardManage ? (
                   <MenuButton
                     label="Adicionar a diretoria"
                     onClick={() => onAction("start-board")}
                   />
-                )}
+                ) : null}
               </div>
             ) : null}
           </div>
+          ) : null}
         </div>
       </div>
     </section>

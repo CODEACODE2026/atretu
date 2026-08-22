@@ -9,6 +9,10 @@ import type {
   StudentDetail,
 } from "../../../lib/api";
 import { api } from "../../../lib/api";
+import {
+  canAccessOperationalAdmin,
+  hasCapability,
+} from "../../../lib/auth";
 import { StudentInvoicesForStudent } from "../finance-panel";
 import { StudentCardsForStudent } from "../student-cards-panel";
 import { adminTheme, cx } from "../admin-theme";
@@ -69,6 +73,28 @@ export function StudentProfileView({
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const canUseLegacyProfileTabs = canAccessOperationalAdmin(user);
+  const canUpdateStudent = hasCapability(user, "students.update");
+  const canChangeStudentStatus = hasCapability(user, "students.changeStatus");
+  const canManageBoard = hasCapability(user, "students.board.manage");
+  const canUpdateBoardRole = user.roles.includes("SUPER_ADMIN");
+  const visibleTabs: StudentProfileTab[] = canUseLegacyProfileTabs
+    ? [
+        "overview",
+        "academic",
+        "finance",
+        "documents",
+        "transport",
+        "cards",
+        "history",
+        "personal",
+      ]
+    : [
+        "overview",
+        "academic",
+        "history",
+        ...(canUpdateStudent ? (["personal"] as const) : []),
+      ];
 
   useEffect(() => {
     void loadStudent();
@@ -134,6 +160,9 @@ export function StudentProfileView({
   }
 
   function changeTab(tab: StudentProfileTab) {
+    if (!visibleTabs.includes(tab)) {
+      return;
+    }
     setActiveTab(tab);
     setMessage("");
     setError("");
@@ -142,7 +171,28 @@ export function StudentProfileView({
   function handleAction(nextAction: StudentProfileAction) {
     setMenuOpen(false);
     if (nextAction === "edit") {
+      if (!canUpdateStudent) {
+        return;
+      }
       changeTab("personal");
+      return;
+    }
+    if (
+      (nextAction === "suspend" ||
+        nextAction === "reactivate" ||
+        nextAction === "terminate" ||
+        nextAction === "reinstate") &&
+      !canChangeStudentStatus
+    ) {
+      return;
+    }
+    if (
+      (nextAction === "start-board" || nextAction === "end-board") &&
+      !canManageBoard
+    ) {
+      return;
+    }
+    if (nextAction === "update-board-role" && !canUpdateBoardRole) {
       return;
     }
     setAction(nextAction);
@@ -159,8 +209,8 @@ export function StudentProfileView({
       "history",
       "personal",
     ];
-    return tabs.filter((tab) => loadedTabs.has(tab));
-  }, [loadedTabs]);
+    return tabs.filter((tab) => loadedTabs.has(tab) && visibleTabs.includes(tab));
+  }, [loadedTabs, visibleTabs]);
 
   if (loading && !student) {
     return (
@@ -187,6 +237,10 @@ export function StudentProfileView({
     <div className="grid min-w-0 gap-5">
       <StudentProfileHeader
         activeCard={cardSummary.activeCard}
+        canBoardManage={canManageBoard}
+        canChangeStatus={canChangeStudentStatus}
+        canUpdate={canUpdateStudent}
+        canUpdateBoardRole={canUpdateBoardRole}
         menuOpen={menuOpen}
         onAction={handleAction}
         onBack={onBack}
@@ -214,6 +268,7 @@ export function StudentProfileView({
         activeTab={activeTab}
         loadedTabs={loadedTabs}
         onChange={changeTab}
+        tabs={visibleTabs}
       />
       <div className="grid min-w-0 gap-4">
         {hiddenTabs.map((tab) => (
@@ -223,6 +278,7 @@ export function StudentProfileView({
             ) : null}
             {tab === "academic" ? (
               <StudentAcademicTab
+                canUpdate={canUpdateStudent}
                 institutions={institutions}
                 onChanged={() => refreshStudent("Dados academicos atualizados.")}
                 shifts={shifts}

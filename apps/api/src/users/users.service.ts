@@ -18,6 +18,11 @@ import {
   AdministrativeAuditService,
   sanitizeAdministrativeAuditMetadata,
 } from "../administrative-audit/administrative-audit.service.js";
+import {
+  operationalCapabilitiesForRoles,
+  SPRINT_OPERATIONAL_PERMISSION_KEYS,
+  type SprintOperationalPermissionKey,
+} from "../auth/operational-permissions.js";
 import { resolvePagination } from "../common/pagination.js";
 import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -43,6 +48,10 @@ export type AuthUser = {
   roles: RoleCode[];
   institutionId?: string | null;
   institutionIds?: string[];
+};
+
+export type AuthUserWithCapabilities = AuthUser & {
+  capabilities: SprintOperationalPermissionKey[];
 };
 
 type UserWithAdminRelations = User & {
@@ -171,6 +180,43 @@ export class UsersService {
     }
 
     return this.toAuthUser(user);
+  }
+
+  async withOperationalCapabilities(
+    user: AuthUser,
+  ): Promise<AuthUserWithCapabilities> {
+    const roleCapabilities = operationalCapabilitiesForRoles(user.roles);
+    if (roleCapabilities.length > 0) {
+      return { ...user, capabilities: roleCapabilities };
+    }
+
+    if (!user.roles.includes(RoleCode.USER) || !user.permissionProfileId) {
+      return { ...user, capabilities: [] };
+    }
+
+    const profile = await this.prisma.permissionProfile.findFirst({
+      where: {
+        id: user.permissionProfileId,
+        isActive: true,
+      },
+      select: {
+        permissions: {
+          where: {
+            permissionKey: { in: [...SPRINT_OPERATIONAL_PERMISSION_KEYS] },
+          },
+          select: { permissionKey: true },
+        },
+      },
+    });
+
+    return {
+      ...user,
+      capabilities:
+        profile?.permissions.map(
+          (permission) =>
+            permission.permissionKey as SprintOperationalPermissionKey,
+        ) ?? [],
+    };
   }
 
   async countSuperAdmins(): Promise<number> {

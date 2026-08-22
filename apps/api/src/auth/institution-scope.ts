@@ -9,14 +9,40 @@ export type InstitutionScope =
 
 export type InstitutionScopeFilter = string | { in: string[] } | undefined;
 
-export function getInstitutionScope(currentUser?: AuthUser | null): InstitutionScope {
+export type InstitutionScopeOptions = {
+  restrictedRoles?: readonly RoleCode[];
+  unrestrictedRoles?: readonly RoleCode[];
+};
+
+export const OPERATIONAL_INSTITUTION_SCOPE = {
+  restrictedRoles: [RoleCode.SECRETARIA, RoleCode.USER],
+  unrestrictedRoles: [RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR],
+} as const satisfies InstitutionScopeOptions;
+
+const DEFAULT_INSTITUTION_SCOPE = {
+  restrictedRoles: [RoleCode.SECRETARIA],
+  unrestrictedRoles: [RoleCode.SUPER_ADMIN],
+} as const satisfies InstitutionScopeOptions;
+
+export function getInstitutionScope(
+  currentUser?: AuthUser | null,
+  options: InstitutionScopeOptions = DEFAULT_INSTITUTION_SCOPE,
+): InstitutionScope {
   if (!currentUser) {
     return { type: "unrestricted" };
   }
-  if (currentUser.roles.includes(RoleCode.SUPER_ADMIN)) {
+  if (
+    (options.unrestrictedRoles ?? []).some((role) =>
+      currentUser.roles.includes(role),
+    )
+  ) {
     return { type: "unrestricted" };
   }
-  if (!currentUser.roles.includes(RoleCode.SECRETARIA)) {
+  if (
+    !(options.restrictedRoles ?? []).some((role) =>
+      currentUser.roles.includes(role),
+    )
+  ) {
     return { type: "denied" };
   }
 
@@ -34,8 +60,9 @@ export function getInstitutionScope(currentUser?: AuthUser | null): InstitutionS
 export function scopedInstitutionFilter(
   currentUser: AuthUser | undefined,
   requestedInstitutionId?: string,
+  options?: InstitutionScopeOptions,
 ): InstitutionScopeFilter {
-  const scope = getInstitutionScope(currentUser);
+  const scope = getInstitutionScope(currentUser, options);
   if (scope.type === "unrestricted") {
     return requestedInstitutionId;
   }
@@ -60,8 +87,9 @@ export function scopedInstitutionFilter(
 export function assertInstitutionInScope(
   currentUser: AuthUser | undefined,
   institutionId: string | null | undefined,
+  options?: InstitutionScopeOptions,
 ) {
-  const scope = getInstitutionScope(currentUser);
+  const scope = getInstitutionScope(currentUser, options);
   if (scope.type === "unrestricted") {
     return;
   }
@@ -74,8 +102,11 @@ export function assertInstitutionInScope(
   }
 }
 
-export function scopedInstitutionIds(currentUser: AuthUser | undefined) {
-  const scope = getInstitutionScope(currentUser);
+export function scopedInstitutionIds(
+  currentUser: AuthUser | undefined,
+  options?: InstitutionScopeOptions,
+) {
+  const scope = getInstitutionScope(currentUser, options);
   if (scope.type === "unrestricted") {
     return null;
   }
