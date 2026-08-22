@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
   canAccessMigratedArea,
@@ -70,5 +71,22 @@ assert.equal(
   canAccessOperationalAdmin({ ...baseUser, capabilities: [], roles: ["GESTOR"] }),
   false,
 );
+
+const adminShellSource = readFileSync(
+  new URL("../src/app/admin/admin-shell.tsx", import.meta.url),
+  "utf8",
+);
+assert.doesNotMatch(
+  adminShellSource,
+  /Seu perfil possui acesso operacional\. Areas restritas do Super\s+Admin permanecem bloqueadas\./,
+);
+
+const financePanelSource = readFileSync(
+  new URL("../src/app/admin/finance-panel.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(financePanelSource, /const canViewCollections = canAccessOperationalAdmin\(user\);/);
+assert.match(financePanelSource, /const canRetryIssueBatches = canAccessRestrictedAdmin\(user\);/);
+assert.match(financePanelSource, /return canAccessRestrictedAdmin\(user\);/);
 
 console.log("Administrator web access policy OK");

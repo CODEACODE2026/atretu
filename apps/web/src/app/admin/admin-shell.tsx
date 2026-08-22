@@ -481,11 +481,6 @@ function AdminWorkspace({
                 </span>
               </div>
             </div>
-          ) : !canAccessRestrictedAdmin(user) ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-800 shadow-sm">
-              Seu perfil possui acesso operacional. Areas restritas do Super
-              Admin permanecem bloqueadas.
-            </div>
           ) : null}
 
           {authError ? (

@@ -16,6 +16,7 @@ import {
 } from "@prisma/client";
 import { resolvePagination } from "../common/pagination.js";
 import {
+  OPERATIONAL_INSTITUTION_SCOPE,
   assertInstitutionInScope,
   scopedInstitutionFilter,
 } from "../auth/institution-scope.js";
@@ -270,7 +271,11 @@ export class InvoicesService {
     const note = this.optional(body.note);
     const updated = await this.prisma.$transaction(async (tx) => {
       const invoice = await this.lockInvoice(tx, id);
-      assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
+      assertInstitutionInScope(
+        currentUser,
+        invoice.enrollment.institutionId,
+        OPERATIONAL_INSTITUTION_SCOPE,
+      );
       if (invoice.status !== InvoiceStatus.OPEN) {
         throw new BadRequestException("Somente fatura aberta pode ser cancelada");
       }
@@ -372,7 +377,11 @@ export class InvoicesService {
     if (!enrollment) {
       throw new BadRequestException("Matricula nao encontrada para o academico");
     }
-    assertInstitutionInScope(currentUser, enrollment.institutionId);
+    assertInstitutionInScope(
+      currentUser,
+      enrollment.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
 
     return {
       student,
@@ -445,6 +454,7 @@ export class InvoicesService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     if (institutionFilter) {
       where.enrollment = {
@@ -553,6 +563,7 @@ export class InvoicesService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
 
     if (query.status) {
@@ -621,7 +632,11 @@ export class InvoicesService {
   }
 
   private invoiceScopeWhere(currentUser?: AuthUser): Prisma.InvoiceWhereInput {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     return institutionFilter
       ? { enrollment: { institutionId: institutionFilter } }
       : {};
@@ -788,7 +803,11 @@ export class InvoicesService {
       }
       return student;
     }
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const student = await this.prisma.student.findFirst({
       where: {
         id: studentId,

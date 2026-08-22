@@ -4,9 +4,12 @@ import {
   BankSlipStatus,
   EnrollmentStatus,
   InvoiceStatus,
+  RoleCode,
   StudentStatus,
+  UserStatus,
 } from "@prisma/client";
 import { InvoicesService } from "./invoices.service.js";
+import type { AuthUser } from "../users/users.service.js";
 
 async function testListInvoicesIncludesBankSlipSummaryWithoutNPlusOne() {
   const prisma = new FakePrisma([
@@ -125,6 +128,44 @@ async function testStudentInvoicesReuseAggregatedBankSlipSummary() {
   assert.equal(prisma.invoice.findManyCalls.length, 1);
   assert.equal(prisma.bankSlip.findUniqueCalls.length, 0);
   assert.equal(result.data[0]?.bankSlipSummary?.id, "bank-slip-invoice-1");
+}
+
+async function testAdministratorListsInvoicesWithoutInstitutionProfile() {
+  const prisma = new FakePrisma([
+    invoiceRecord({ id: "invoice-1", institutionId: "institution-1" }),
+    invoiceRecord({ id: "invoice-2", institutionId: "institution-2" }),
+  ], { applyQuery: true });
+  const service = new InvoicesService(prisma as never);
+  const administrator: AuthUser = {
+    email: "administrator@example.com",
+    id: "administrator-1",
+    institutionIds: [],
+    name: "Administrator",
+    permissionProfileId: null,
+    roles: [RoleCode.ADMINISTRATOR],
+    status: UserStatus.ACTIVE,
+  };
+
+  const result = await service.listInvoices(
+    {
+      overdue: "all",
+      page: 1,
+      limit: 10,
+      sort: "createdAt",
+      order: "asc",
+    } as never,
+    administrator,
+  );
+
+  assert.equal(result.pagination.total, 2);
+  assert.deepEqual(
+    result.data.map((invoice) => invoice.id),
+    ["invoice-1", "invoice-2"],
+  );
+  assert.doesNotMatch(
+    JSON.stringify(prisma.invoice.findManyCalls[0]?.where),
+    /institutionId/,
+  );
 }
 
 async function testListInvoicesSummaryUsesAllFilteredInvoices() {
@@ -927,6 +968,7 @@ function bankSlipRecord({
 
 await testListInvoicesIncludesBankSlipSummaryWithoutNPlusOne();
 await testStudentInvoicesReuseAggregatedBankSlipSummary();
+await testAdministratorListsInvoicesWithoutInstitutionProfile();
 await testListInvoicesSummaryUsesAllFilteredInvoices();
 await testListInvoicesFiltersPaidInvoicesByPaymentDate();
 await testListInvoicesUsesOperationalOrderBeforePagination();

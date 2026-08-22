@@ -59,6 +59,53 @@ for (const role of [RoleCode.USER, RoleCode.GESTOR]) {
   );
 }
 
+const administratorOperationalEndpoints = [
+  [BaseRecordsController, undefined],
+  [BusAssignmentsController, undefined],
+  [DocumentsController, undefined],
+  [StudentPhotosController, undefined],
+  [OfficialDocumentsController, undefined],
+  [OfficialDocumentIssuesController, undefined],
+  [OfficialDocumentModelsController, undefined],
+  [InstitutionalOfficialDocumentsController, undefined],
+  [StudentCardsController, "listStudentCards"],
+  [InvoicesController, "listInvoices"],
+  [InvoicesController, "getInvoice"],
+  [InvoicesController, "listStudentInvoices"],
+  [InvoicesController, "previewInvoice"],
+  [InvoicesController, "createInvoice"],
+  [InvoicesController, "cancelInvoice"],
+  [BankSlipsController, "issueForInvoice"],
+  [BankSlipsController, "getByInvoice"],
+  [BankSlipsController, "syncByInvoice"],
+  [BankSlipsController, "createIssueBatch"],
+  [BankSlipsController, "previewIssueBatch"],
+  [BankSlipsController, "listIssueBatches"],
+  [BankSlipsController, "getIssueBatch"],
+  [BankSlipsController, "listIssueBatchItems"],
+  [BankSlipsController, "downloadIssueBatchPdfs"],
+  [BankSlipsController, "cancelIssueBatch"],
+  [BankSlipsController, "requestCancellation"],
+  [BankSlipsController, "getPdf"],
+  [CollectionsController, "getSummary"],
+  [CollectionsController, "listCases"],
+  [CollectionsController, "getCaseByInvoiceId"],
+  [CollectionsController, "listActions"],
+  [CollectionsController, "createAction"],
+  [CollectionsController, "listFollowUps"],
+  [FinancialReportsController, "monthly"],
+  [ManualFinancialMovementsController, "list"],
+  [ManualFinancialMovementsController, "get"],
+  [ManualFinancialMovementsController, "create"],
+  [ManualFinancialMovementsController, "update"],
+  [ManualFinancialMovementsController, "markPaid"],
+  [ManualFinancialMovementsController, "cancel"],
+  [ManualFinancialMovementsController, "attach"],
+  [ManualFinancialMovementsController, "viewAttachment"],
+  [ManualFinancialMovementsController, "downloadAttachment"],
+  [StudentsController, "listStudentLegacyFinancialHistory"],
+] as const;
+
 assert.equal(
   rolesGuard.canActivate(
     controllerExecutionContext(
@@ -70,39 +117,25 @@ assert.equal(
   true,
   "ADMINISTRATOR must reach an actual operational endpoint without PermissionProfile",
 );
-assert.throws(
-  () =>
-    rolesGuard.canActivate(
-      controllerExecutionContext(JobsController, "status", [RoleCode.ADMINISTRATOR]),
-    ),
-  (error) => error instanceof ForbiddenException,
-  "ADMINISTRATOR must receive 403 on an actual technical endpoint",
-);
 
-for (const item of [
-  [BaseRecordsController, undefined],
-  [BusAssignmentsController, undefined],
-  [DocumentsController, undefined],
-  [StudentPhotosController, undefined],
-  [OfficialDocumentsController, undefined],
-  [OfficialDocumentIssuesController, undefined],
-  [OfficialDocumentModelsController, undefined],
-  [InstitutionalOfficialDocumentsController, undefined],
-  [StudentCardsController, "listStudentCards"],
-  [InvoicesController, "listInvoices"],
-  [CollectionsController, "getSummary"],
-  [FinancialReportsController, "monthly"],
-  [ManualFinancialMovementsController, "list"],
-  [StudentsController, "listStudentLegacyFinancialHistory"],
-] as const) {
+for (const item of administratorOperationalEndpoints) {
   assert.deepEqual(
     rolesMetadata(item[0], item[1]),
     [...OPERATIONAL_ADMIN_ROLES],
     `${item[0].name}${item[1] ? `.${item[1]}` : ""} must allow fixed operational admin roles`,
   );
+  if (item[1]) {
+    assert.equal(
+      rolesGuard.canActivate(
+        controllerExecutionContext(item[0], item[1], [RoleCode.ADMINISTRATOR]),
+      ),
+      true,
+      `${item[0].name}.${item[1]} must allow ADMINISTRATOR without PermissionProfile or UserInstitution`,
+    );
+  }
 }
 
-for (const item of [
+const superAdminOnlyEndpoints = [
   [LegacyImportController, undefined],
   [JobsController, undefined],
   [AdminUsersController, undefined],
@@ -125,12 +158,33 @@ for (const item of [
   [BankSlipsController, "getSyncRun"],
   [BankSlipsController, "listSyncRunItems"],
   [BankSlipsController, "retryFailedIssueBatch"],
-] as const) {
+] as const;
+
+assert.throws(
+  () =>
+    rolesGuard.canActivate(
+      controllerExecutionContext(JobsController, "status", [RoleCode.ADMINISTRATOR]),
+    ),
+  (error) => error instanceof ForbiddenException,
+  "ADMINISTRATOR must receive 403 on an actual technical endpoint",
+);
+
+for (const item of superAdminOnlyEndpoints) {
   assert.deepEqual(
     rolesMetadata(item[0], item[1]),
     [RoleCode.SUPER_ADMIN],
     `${item[0].name}${item[1] ? `.${item[1]}` : ""} must remain SUPER_ADMIN-only`,
   );
+  if (item[1]) {
+    assert.throws(
+      () =>
+        rolesGuard.canActivate(
+          controllerExecutionContext(item[0], item[1], [RoleCode.ADMINISTRATOR]),
+        ),
+      (error) => error instanceof ForbiddenException,
+      `${item[0].name}.${item[1]} must return 403 for ADMINISTRATOR`,
+    );
+  }
 }
 
 function rolesMetadata(
