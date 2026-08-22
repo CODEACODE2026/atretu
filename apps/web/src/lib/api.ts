@@ -111,9 +111,11 @@ export type PermissionKey = string;
 
 export type PermissionCatalogItem = {
   dependencies: PermissionKey[];
+  isOperational?: boolean;
   key: PermissionKey;
   label: string;
   module: string;
+  status?: "active" | "comingSoon";
 };
 
 export type PermissionProfile = {

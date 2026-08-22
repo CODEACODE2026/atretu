@@ -1,22 +1,15 @@
 import { SetMetadata } from "@nestjs/common";
 import { RoleCode } from "@prisma/client";
-import { isPermissionKey, type PermissionKey } from "./permission-catalog.js";
+import {
+  ACTIVE_DELEGATABLE_PERMISSION_KEYS,
+  isPermissionKey,
+  type PermissionKey,
+} from "./permission-catalog.js";
 
 export const OPERATIONAL_PERMISSIONS_KEY = "operationalPermissions";
 
-export const SPRINT_OPERATIONAL_PERMISSION_KEYS = [
-  "dashboard.view",
-  "students.view",
-  "students.create",
-  "students.update",
-  "students.changeStatus",
-  "students.reenroll",
-  "students.board.view",
-  "students.board.manage",
-  "preRegistrations.view",
-  "preRegistrations.review",
-  "preRegistrations.documents.view",
-] as const satisfies readonly PermissionKey[];
+export const SPRINT_OPERATIONAL_PERMISSION_KEYS =
+  ACTIVE_DELEGATABLE_PERMISSION_KEYS;
 
 export type SprintOperationalPermissionKey =
   (typeof SPRINT_OPERATIONAL_PERMISSION_KEYS)[number];

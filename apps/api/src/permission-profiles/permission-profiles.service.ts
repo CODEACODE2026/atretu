@@ -8,7 +8,9 @@ import {
 import { AdministrativeAuditEventType, Prisma } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import {
+  ACTIVE_DELEGATABLE_PERMISSION_KEYS,
   DELEGATABLE_PERMISSION_CATALOG,
+  isActiveDelegatablePermissionKey,
   isDelegatablePermissionKey,
   PERMISSION_DEPENDENCIES,
   type PermissionKey,
@@ -41,7 +43,12 @@ export class PermissionProfilesService {
   ) {}
 
   catalog() {
-    return DELEGATABLE_PERMISSION_CATALOG;
+    const activeKeys = new Set<string>(ACTIVE_DELEGATABLE_PERMISSION_KEYS);
+    return DELEGATABLE_PERMISSION_CATALOG.map((permission) => ({
+      ...permission,
+      isOperational: activeKeys.has(permission.key),
+      status: activeKeys.has(permission.key) ? "active" : "comingSoon",
+    }));
   }
 
   async list(query: ListPermissionProfilesDto) {
@@ -237,6 +244,14 @@ export class PermissionProfilesService {
     const invalid = values.filter((value) => !isDelegatablePermissionKey(value));
     if (invalid.length > 0) {
       throw new BadRequestException("Permissao nao delegavel no perfil");
+    }
+    const notOperational = values.filter(
+      (value) => !isActiveDelegatablePermissionKey(value),
+    );
+    if (notOperational.length > 0) {
+      throw new BadRequestException(
+        "Permissao ainda nao disponivel para perfis de usuario",
+      );
     }
     const expanded = new Set<PermissionKey>();
     for (const value of values as PermissionKey[]) {

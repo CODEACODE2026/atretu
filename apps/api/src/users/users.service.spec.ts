@@ -374,8 +374,23 @@ await assert.rejects(
   () =>
     service.createAdminUser(
       {
-        email: "user-sem-profile@example.com",
+        email: "user-sem-instituicao@example.com",
         institutionIds: [],
+        name: "Sem instituicao",
+        permissionProfileId: prisma.permissionProfiles[0]!.id,
+        role: RoleCode.USER,
+      },
+      "actor-1",
+    ),
+  (error) => error instanceof BadRequestException,
+);
+
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "user-sem-profile@example.com",
+        institutionIds: [prisma.institutions[0]!.id],
         name: "Sem profile",
         role: RoleCode.USER,
       },
@@ -389,7 +404,7 @@ await assert.rejects(
     service.createAdminUser(
       {
         email: "user-profile-inativo@example.com",
-        institutionIds: [],
+        institutionIds: [prisma.institutions[0]!.id],
         name: "Profile inativo",
         permissionProfileId: prisma.permissionProfiles[1]!.id,
         role: RoleCode.USER,
@@ -510,6 +525,10 @@ await assert.rejects(
 await assert.rejects(
   () => service.updateAdminUserInstitutions(admin.user.id, [], admin.user.id),
   (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.updateAdminUserInstitutions(created.user.id, [], admin.user.id),
+  (error) => error instanceof BadRequestException,
 );
 await assert.rejects(
   () => service.resetAdminUserTemporaryPassword(admin.user.id, admin.user.id),

@@ -168,6 +168,20 @@ export const PERMISSION_CATALOG = [
 
 export type PermissionKey = (typeof PERMISSION_CATALOG)[number]["key"];
 
+export const ACTIVE_DELEGATABLE_PERMISSION_KEYS = [
+  "dashboard.view",
+  "students.view",
+  "students.create",
+  "students.update",
+  "students.changeStatus",
+  "students.reenroll",
+  "students.board.view",
+  "students.board.manage",
+  "preRegistrations.view",
+  "preRegistrations.review",
+  "preRegistrations.documents.view",
+] as const satisfies readonly PermissionKey[];
+
 export const RESERVED_PERMISSION_KEYS = [
   "settings.view",
   "settings.manage",
@@ -212,6 +226,9 @@ const PERMISSION_KEYS = new Set<string>(
 const DELEGATABLE_PERMISSION_KEYS = new Set<string>(
   DELEGATABLE_PERMISSION_CATALOG.map((permission) => permission.key),
 );
+const ACTIVE_DELEGATABLE_PERMISSIONS = new Set<string>(
+  ACTIVE_DELEGATABLE_PERMISSION_KEYS,
+);
 
 export function isPermissionKey(value: string): value is PermissionKey {
   return PERMISSION_KEYS.has(value);
@@ -221,4 +238,10 @@ export function isDelegatablePermissionKey(
   value: string,
 ): value is DelegatablePermissionKey {
   return DELEGATABLE_PERMISSION_KEYS.has(value);
+}
+
+export function isActiveDelegatablePermissionKey(
+  value: string,
+): value is (typeof ACTIVE_DELEGATABLE_PERMISSION_KEYS)[number] {
+  return ACTIVE_DELEGATABLE_PERMISSIONS.has(value);
 }

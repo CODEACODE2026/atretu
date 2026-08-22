@@ -88,7 +88,16 @@ export function PermissionProfilesPanel() {
 
   const groupedCatalog = useMemo(() => {
     const grouped = new Map<string, PermissionCatalogItem[]>();
-    for (const permission of visiblePermissionCatalog(catalog)) {
+    for (const permission of activePermissionCatalog(catalog)) {
+      const current = grouped.get(permission.module) ?? [];
+      current.push(permission);
+      grouped.set(permission.module, current);
+    }
+    return Array.from(grouped.entries());
+  }, [catalog]);
+  const comingSoonCatalog = useMemo(() => {
+    const grouped = new Map<string, PermissionCatalogItem[]>();
+    for (const permission of comingSoonPermissionCatalog(catalog)) {
       const current = grouped.get(permission.module) ?? [];
       current.push(permission);
       grouped.set(permission.module, current);
@@ -512,6 +521,7 @@ export function PermissionProfilesPanel() {
       {dialog ? (
         <ProfileDialog
           catalogGroups={groupedCatalog}
+          comingSoonGroups={comingSoonCatalog}
           form={form}
           notice={formNotice}
           onClose={() => setDialog(null)}
@@ -557,6 +567,7 @@ function permissionProfileStatusActionDescription(pendingAction: PendingAction) 
 
 function ProfileDialog({
   catalogGroups,
+  comingSoonGroups,
   form,
   notice,
   onClose,
@@ -568,6 +579,7 @@ function ProfileDialog({
   title,
 }: {
   catalogGroups: Array<[string, PermissionCatalogItem[]]>;
+  comingSoonGroups: Array<[string, PermissionCatalogItem[]]>;
   form: ProfileFormState;
   notice: string;
   onClose: () => void;
@@ -643,6 +655,16 @@ function ProfileDialog({
                 {notice}
               </p>
             ) : null}
+            <section className="grid gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-950">
+                  Permissões disponíveis
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Estas permissões já produzem efeito para perfis de usuário.
+                </p>
+              </div>
+            </section>
             {catalogGroups.map(([module, permissions]) => (
               <section
                 className="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
@@ -687,6 +709,42 @@ function ProfileDialog({
                 </div>
               </section>
             ))}
+            {comingSoonGroups.length > 0 ? (
+              <section className="grid gap-3 pt-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-950">
+                    Em breve
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Esta permissão ainda não está disponível para perfis de usuário.
+                  </p>
+                </div>
+                {comingSoonGroups.map(([module, permissions]) => (
+                  <section
+                    className="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+                    key={module}
+                  >
+                    <h4 className="text-xs font-semibold uppercase text-slate-500">
+                      {permissionModuleLabel(module)}
+                    </h4>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {permissions.map((permission) => (
+                        <div
+                          className="flex min-w-0 items-start gap-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-sm text-slate-400"
+                          key={permission.key}
+                        >
+                          <CircleSlash
+                            aria-hidden="true"
+                            className="mt-0.5 h-4 w-4 shrink-0"
+                          />
+                          <span>{permissionLabel(permission.key)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </section>
+            ) : null}
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
@@ -704,6 +762,18 @@ function ProfileDialog({
         </div>
       </form>
     </div>
+  );
+}
+
+function activePermissionCatalog(catalog: PermissionCatalogItem[]) {
+  return visiblePermissionCatalog(catalog).filter(
+    (permission) => permission.status === "active" || permission.isOperational === true,
+  );
+}
+
+function comingSoonPermissionCatalog(catalog: PermissionCatalogItem[]) {
+  return visiblePermissionCatalog(catalog).filter(
+    (permission) => permission.status === "comingSoon" || permission.isOperational === false,
   );
 }
 

@@ -31,6 +31,7 @@ assert.match(controller, /@Patch\(":id\/reactivate"\)/);
 assert.match(controller, /@Get\("catalog"\)/);
 assert.match(controller, /@CurrentUser\(\) user: AuthUser/);
 assert.match(serviceSource, /isDelegatablePermissionKey/);
+assert.match(serviceSource, /isActiveDelegatablePermissionKey/);
 assert.match(serviceSource, /PermissionProfileStatusFilter\.INACTIVE/);
 assert.match(serviceSource, /PERMISSION_DEPENDENCIES/);
 assert.match(serviceSource, /domain: "permission_profiles"/);
@@ -57,11 +58,19 @@ assert.deepEqual(
   ]),
   ["students.update", "students.view"],
 );
-assert.deepEqual(
-  Reflect.apply(service["normalizePermissions"], service, [
-    ["finance.invoices.manage"],
-  ]),
-  ["finance.invoices.manage", "finance.invoices.view"],
+assert.throws(
+  () =>
+    Reflect.apply(service["normalizePermissions"], service, [
+      ["finance.invoices.manage"],
+    ]),
+  BadRequestException,
+);
+assert.throws(
+  () =>
+    Reflect.apply(service["normalizePermissions"], service, [
+      ["academicYears.manage"],
+    ]),
+  BadRequestException,
 );
 
 type MemoryProfile = {
@@ -243,22 +252,19 @@ const created = await auditedService.create(
   {
     description: "Novo",
     isActive: true,
-    name: "Financeiro",
-    permissions: ["finance.invoices.manage"],
+    name: "Academico",
+    permissions: ["students.update"],
   },
   currentUser as never,
 );
-assert.deepEqual(created.permissions, [
-  "finance.invoices.manage",
-  "finance.invoices.view",
-]);
+assert.deepEqual(created.permissions, ["students.update", "students.view"]);
 
 const edited = await auditedService.update(
   "profile-created",
-  { permissions: ["students.update"] },
+  { permissions: ["students.create"] },
   currentUser as never,
 );
-assert.deepEqual(edited.permissions, ["students.update", "students.view"]);
+assert.deepEqual(edited.permissions, ["students.create"]);
 
 const inactivated = await auditedService.setActive(
   "profile-created",
@@ -285,7 +291,7 @@ await assert.rejects(
   () =>
     auditedService.update(
       "profile-created",
-      { name: "Falha", permissions: ["reports.export"] },
+      { name: "Falha", permissions: ["students.create"] },
       currentUser as never,
     ),
   /simulated permission write failure/,

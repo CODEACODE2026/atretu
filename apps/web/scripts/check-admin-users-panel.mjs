@@ -57,6 +57,8 @@ includesAll(panel, [
   "Novo usuário",
   "Cargo/Função",
   "Perfil de Permissões",
+  "O acesso do usuário é limitado às instituições selecionadas.",
+  "Usuário deve possuir ao menos uma instituição vinculada.",
   "Segurança",
   "Esta senha será exibida apenas uma vez.",
   "Nunca logou",

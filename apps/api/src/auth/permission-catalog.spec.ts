@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
+  ACTIVE_DELEGATABLE_PERMISSION_KEYS,
   DELEGATABLE_PERMISSION_CATALOG,
+  isActiveDelegatablePermissionKey,
   isDelegatablePermissionKey,
   isPermissionKey,
   PERMISSION_CATALOG,
@@ -125,6 +127,27 @@ for (const key of RESERVED_PERMISSION_KEYS) {
 for (const permission of DELEGATABLE_PERMISSION_CATALOG) {
   assert.doesNotMatch(permission.key, /^(settings|users)\./);
 }
+assert.deepEqual(ACTIVE_DELEGATABLE_PERMISSION_KEYS, [
+  "dashboard.view",
+  "students.view",
+  "students.create",
+  "students.update",
+  "students.changeStatus",
+  "students.reenroll",
+  "students.board.view",
+  "students.board.manage",
+  "preRegistrations.view",
+  "preRegistrations.review",
+  "preRegistrations.documents.view",
+]);
+assert.equal(isActiveDelegatablePermissionKey("students.view"), true);
+assert.equal(isActiveDelegatablePermissionKey("finance.invoices.view"), false);
+assert.equal(isActiveDelegatablePermissionKey("academicYears.manage"), false);
+assert.equal(
+  DELEGATABLE_PERMISSION_CATALOG.length -
+    ACTIVE_DELEGATABLE_PERMISSION_KEYS.length,
+  18,
+);
 
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(
   (file) =>

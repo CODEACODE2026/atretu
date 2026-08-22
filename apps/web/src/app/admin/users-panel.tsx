@@ -353,6 +353,9 @@ export function UsersPanel() {
         if (form.role === "USER" && !form.permissionProfileId) {
           throw new Error("Perfil de Permissões obrigatório para Usuário.");
         }
+        if (form.role === "USER" && form.institutionIds.length === 0) {
+          throw new Error("Usuário deve possuir ao menos uma instituição vinculada.");
+        }
         const body: CreateAdminUserBody = {
           email: form.email.trim(),
           institutionIds: sortedIds(form.institutionIds),
@@ -378,6 +381,9 @@ export function UsersPanel() {
         if (form.role === "USER" && !form.permissionProfileId) {
           throw new Error("Perfil de Permissões obrigatório para Usuário.");
         }
+        if (form.role === "USER" && form.institutionIds.length === 0) {
+          throw new Error("Usuário deve possuir ao menos uma instituição vinculada.");
+        }
         const nextInstitutionIds = sortedIds(form.institutionIds);
         const currentInstitutionIds = sortedIds(dialog.user.institutionIds);
         await api.updateAdminUser(dialog.user.id, {
@@ -399,6 +405,12 @@ export function UsersPanel() {
         setDialog(null);
         setFeedback({ tone: "green", text: "Usuário atualizado." });
       } else if (dialog.mode === "institutions" && dialog.user) {
+        if (
+          dialog.user.roles.includes("USER") &&
+          form.institutionIds.length === 0
+        ) {
+          throw new Error("Usuário deve possuir ao menos uma instituição vinculada.");
+        }
         await api.updateAdminUserInstitutions(
           dialog.user.id,
           sortedIds(form.institutionIds),
@@ -1141,6 +1153,9 @@ function UserFormDialog({
 }) {
   const institutionsOnly = dialog.mode === "institutions";
   const roleOptions = roleOptionsForDialog(dialog);
+  const userNeedsInstitution =
+    (institutionsOnly ? dialog.user?.roles.includes("USER") : form.role === "USER") &&
+    form.institutionIds.length === 0;
   const title =
     dialog.mode === "create"
       ? "Novo usuário"
@@ -1355,10 +1370,12 @@ function UserFormDialog({
           <section className={adminTheme.softPanel}>
             <div className="border-b border-slate-200 px-4 py-3">
               <p className="text-sm font-semibold text-slate-950">
-                Instituições
+                Instituições{form.role === "USER" || dialog.user?.roles.includes("USER") ? " *" : ""}
               </p>
               <p className="mt-1 text-sm text-slate-500">
-                Selecione por nome. IDs nunca são editados manualmente.
+                {form.role === "USER" || dialog.user?.roles.includes("USER")
+                  ? "O acesso do usuário é limitado às instituições selecionadas."
+                  : "Selecione por nome. IDs nunca são editados manualmente."}
               </p>
             </div>
             <div className="grid gap-3 p-4">
@@ -1382,6 +1399,11 @@ function UserFormDialog({
                   ))
                 )}
               </div>
+              {userNeedsInstitution ? (
+                <p className="text-sm font-medium text-red-600">
+                  Usuário deve possuir ao menos uma instituição vinculada.
+                </p>
+              ) : null}
               <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
                 {filteredInstitutions.length === 0 ? (
                   <p className="text-sm text-slate-500">
@@ -1422,7 +1444,7 @@ function UserFormDialog({
           </button>
           <button
             className={adminTheme.primaryButton}
-            disabled={saving}
+            disabled={saving || userNeedsInstitution}
             type="submit"
           >
             {saving ? "Salvando..." : "Salvar"}

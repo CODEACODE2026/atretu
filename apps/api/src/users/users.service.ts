@@ -341,6 +341,7 @@ export class UsersService {
     this.assertAssignableRoleForCreate(input.role);
     const email = input.email.trim().toLowerCase();
     const institutionIds = this.uniqueIds(input.institutionIds ?? []);
+    this.assertUserInstitutionRequirement(input.role, institutionIds);
     const normalizedProfileId = await this.resolvePermissionProfileId(
       this.prisma,
       input.role,
@@ -451,6 +452,10 @@ export class UsersService {
         }
         const nextRoles = input.role ? [input.role] : currentRoles;
         const nextStatus = input.status ?? current.status;
+        this.assertUserInstitutionRequirement(
+          nextRoles[0]!,
+          this.institutionIds(current),
+        );
         const nextPermissionProfileId = await this.resolvePermissionProfileId(
           tx,
           nextRoles[0]!,
@@ -612,6 +617,10 @@ export class UsersService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const current = await this.findAdminUserOrThrowTx(tx, userId);
       const beforeInstitutionIds = this.institutionIds(current);
+      this.assertUserInstitutionRequirement(
+        this.roleCodes(current)[0]!,
+        uniqueInstitutionIds,
+      );
       await this.assertInstitutionsExist(tx, uniqueInstitutionIds);
 
       if (this.sameIds(beforeInstitutionIds, uniqueInstitutionIds)) {
@@ -1135,6 +1144,17 @@ export class UsersService {
       throw new BadRequestException("Perfil de permissoes ativo obrigatorio para USER");
     }
     return profile.id;
+  }
+
+  private assertUserInstitutionRequirement(
+    role: RoleCode,
+    institutionIds: string[],
+  ) {
+    if (role === RoleCode.USER && institutionIds.length === 0) {
+      throw new BadRequestException(
+        "Usuario deve possuir ao menos uma instituicao vinculada.",
+      );
+    }
   }
 
   private async assertInstitutionsExist(
