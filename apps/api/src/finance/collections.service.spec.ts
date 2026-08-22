@@ -528,6 +528,16 @@ async function testCreateActionRollsBackWhenActionCreateFails() {
 async function testPermissionsFollowExistingRoles() {
   const prisma = new FakePrisma([invoiceRecord()]);
   const service = newService(prisma);
+  const administrator: AuthUser = {
+    ...USER,
+    id: "administrator-1",
+    permissionProfileId: null,
+    roles: [RoleCode.ADMINISTRATOR],
+  };
+
+  await service.listCases({}, { page: 1, limit: 10 }, administrator);
+  await service.getSummary({}, administrator);
+  await service.listFollowUps({}, administrator);
 
   await assert.rejects(
     () =>

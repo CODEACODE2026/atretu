@@ -27,6 +27,7 @@ import {
   type StudentDetail,
   type StudentSummary,
 } from "../../lib/api";
+import { canAccessOperationalAdmin } from "../../lib/auth";
 import { mapApiErrorMessage } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import {
@@ -99,7 +100,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [invalidationNote, setInvalidationNote] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const canUseAdministrativeIssue = user.roles.includes("SUPER_ADMIN");
+  const canUseAdministrativeIssue = canAccessOperationalAdmin(user);
   const canShowAdministrativeIssue =
     canUseAdministrativeIssue && cards.length === 0;
 
@@ -1037,7 +1038,7 @@ export function StudentCardsForStudent({
   const [pdfBusyId, setPdfBusyId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const canUseAdministrativeIssue = user.roles.includes("SUPER_ADMIN");
+  const canUseAdministrativeIssue = canAccessOperationalAdmin(user);
   const canShowAdministrativeIssue =
     canUseAdministrativeIssue && cards.length === 0;
 

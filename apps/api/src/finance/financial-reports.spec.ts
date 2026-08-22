@@ -7,7 +7,7 @@ const controller = readFileSync(new URL("./financial-reports.controller.ts", imp
 
 assert.match(controller, /@Controller\("finance\/reports"\)/);
 assert.match(controller, /@Get\("monthly"\)/);
-assert.match(controller, /@Roles\(RoleCode\.SUPER_ADMIN, RoleCode\.SECRETARIA\)/);
+assert.match(controller, /@Roles\(\.\.\.OPERATIONAL_ADMIN_ROLES\)/);
 assert.doesNotMatch(controller, /RoleCode\.GESTOR/);
 
 assert.match(service, /JOIN bank_slips bs ON bs\.invoice_id = i\.id/);

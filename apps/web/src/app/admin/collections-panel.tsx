@@ -12,6 +12,7 @@ import {
   type CollectionCaseDetail,
   type CollectionSummary,
 } from "../../lib/api";
+import { canAccessOperationalAdmin } from "../../lib/auth";
 import { mapApiErrorMessage } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import { CollectionDetails } from "./finance/collections/collection-details";
@@ -31,8 +32,7 @@ export function CollectionsPanel({
   initialFilters?: Partial<CollectionFilters>;
   user: ApiUser;
 }) {
-  const canUseCollections =
-    user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
+  const canUseCollections = canAccessOperationalAdmin(user);
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
   const [cases, setCases] = useState<CollectionCase[]>([]);
   const [followUps, setFollowUps] = useState<CollectionCase[]>([]);

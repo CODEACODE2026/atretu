@@ -15,7 +15,7 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
@@ -153,7 +153,7 @@ export class StudentsController {
 
   @Get("students/:id/legacy-financial-history")
   @UseGuards(RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listStudentLegacyFinancialHistory(
     @Param("id") id: string,
     @Query() query: ListStudentLegacyFinancialHistoryDto,

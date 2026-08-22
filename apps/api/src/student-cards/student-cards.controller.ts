@@ -10,11 +10,10 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
-import { RoleCode } from "@prisma/client";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
@@ -40,7 +39,7 @@ export class StudentCardsController {
   ) {}
 
   @Get("student-cards")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listStudentCards(
     @Query() query: ListStudentCardsDto,
     @CurrentUser() user: AuthUser,
@@ -49,7 +48,7 @@ export class StudentCardsController {
   }
 
   @Get("students/:studentId/cards")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listStudentCardsForStudent(
     @Param("studentId") studentId: string,
     @CurrentUser() user: AuthUser,
@@ -58,7 +57,7 @@ export class StudentCardsController {
   }
 
   @Get("student-cards/pending")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listPendingStudentCards(
     @Query() query: ListPendingStudentCardsDto,
     @CurrentUser() user: AuthUser,
@@ -67,7 +66,7 @@ export class StudentCardsController {
   }
 
   @Get("student-cards/:cardId/pdf")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   async getStudentCardPdf(
     @Param("cardId") cardId: string,
     @Query() query: StudentCardPdfDto,
@@ -93,7 +92,7 @@ export class StudentCardsController {
   }
 
   @Post("student-cards/print-batch")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   async printStudentCardsBatch(
     @Body() body: PrintStudentCardsBatchDto,
     @CurrentUser() user: AuthUser,
@@ -114,7 +113,7 @@ export class StudentCardsController {
   }
 
   @Get("students/:studentId/card-preview")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   previewStudentCard(
     @Param("studentId") studentId: string,
     @Query() query: StudentCardPreviewDto,
@@ -124,7 +123,7 @@ export class StudentCardsController {
   }
 
   @Post("students/:studentId/cards")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   issueStudentCard(
     @Param("studentId") studentId: string,
     @Body() body: IssueStudentCardDto,
@@ -134,7 +133,7 @@ export class StudentCardsController {
   }
 
   @Post("students/:studentId/cards/:cardId/invalidate")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   invalidateStudentCard(
     @Param("studentId") studentId: string,
     @Param("cardId") cardId: string,

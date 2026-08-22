@@ -9,10 +9,9 @@ import {
   UseGuards,
   ValidationPipe,
 } from "@nestjs/common";
-import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { CollectionsService } from "./collections.service.js";
@@ -31,19 +30,19 @@ export class CollectionsController {
   ) {}
 
   @Get("finance/collections/summary")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   getSummary(@Query() query: CollectionFiltersDto, @CurrentUser() user: AuthUser) {
     return this.collections.getSummary(query, user);
   }
 
   @Get("finance/collections/cases")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listCases(@Query() query: ListCollectionCasesDto, @CurrentUser() user: AuthUser) {
     return this.collections.listCases(query, query, user);
   }
 
   @Get("finance/collections/cases/:invoiceId")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   getCaseByInvoiceId(
     @Param() params: CollectionInvoiceParamsDto,
     @CurrentUser() user: AuthUser,
@@ -52,7 +51,7 @@ export class CollectionsController {
   }
 
   @Get("finance/collections/cases/:invoiceId/actions")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listActions(
     @Param() params: CollectionInvoiceParamsDto,
     @CurrentUser() user: AuthUser,
@@ -61,7 +60,7 @@ export class CollectionsController {
   }
 
   @Post("finance/collections/cases/:invoiceId/actions")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   createAction(
     @Param() params: CollectionInvoiceParamsDto,
     @Body(
@@ -79,7 +78,7 @@ export class CollectionsController {
   }
 
   @Get("finance/collections/follow-ups")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listFollowUps(
     @Query() query: CollectionFiltersDto,
     @CurrentUser() user: AuthUser,

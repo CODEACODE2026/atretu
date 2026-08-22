@@ -8,10 +8,9 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
-import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { BusAssignmentsService } from "./bus-assignments.service.js";
@@ -23,7 +22,7 @@ import {
 } from "./dto/bus-assignments.dto.js";
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Roles(...OPERATIONAL_ADMIN_ROLES)
 @Controller()
 export class BusAssignmentsController {
   constructor(

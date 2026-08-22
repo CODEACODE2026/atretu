@@ -44,7 +44,7 @@ const bankSlipBatchDownloadRoles =
 
 assert.deepEqual(
   bankSlipBatchDownloadRoles,
-  [RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA],
+  [RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR, RoleCode.SECRETARIA],
   "downloadIssueBatchPdfs must require finance admin roles",
 );
 

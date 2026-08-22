@@ -36,7 +36,10 @@ import {
   type StudentDetail,
   type StudentSummary,
 } from "../../lib/api";
-import { canAccessRestrictedAdmin } from "../../lib/auth";
+import {
+  canAccessOperationalAdmin,
+  canAccessRestrictedAdmin,
+} from "../../lib/auth";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage, maskCpf } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
@@ -131,8 +134,7 @@ export function FinancePanel({
   user: ApiUser;
 }) {
   const [financeArea, setFinanceArea] = useState<FinanceArea>(initialArea);
-  const canViewCollections =
-    user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
+  const canViewCollections = canAccessOperationalAdmin(user);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<

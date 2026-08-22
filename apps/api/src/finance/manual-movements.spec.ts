@@ -19,7 +19,7 @@ assert.match(schema, /manualFinancialMovementId\s+String\?/);
 assert.match(schema, /MANUAL_FINANCIAL_INCOME_RECORDED/);
 
 assert.match(controller, /@Controller\("finance\/manual-movements"\)/);
-assert.match(controller, /@Roles\(RoleCode\.SUPER_ADMIN, RoleCode\.SECRETARIA\)/);
+assert.match(controller, /@Roles\(\.\.\.OPERATIONAL_ADMIN_ROLES\)/);
 assert.match(controller, /manualFinancialMovementUploadOptions/);
 assert.match(controller, /attachmentUploadInterceptor[\s\S]*singleDocumentUploadOptions/);
 assert.match(controller, /mark-paid/);

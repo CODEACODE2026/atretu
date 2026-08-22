@@ -24,7 +24,7 @@ import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./current-user.decorator.js";
 import { BootstrapAdminDto } from "./dto/bootstrap-admin.dto.js";
 import { LoginDto } from "./dto/login.dto.js";
-import { Roles } from "./roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "./roles.decorator.js";
 import { RolesGuard } from "./roles.guard.js";
 import { timingSafeStringEqual } from "./timing-safe-token.js";
 
@@ -157,7 +157,7 @@ export class AuthController {
 
   @Get("operational-check")
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   operationalCheck() {
     return { ok: true };
   }

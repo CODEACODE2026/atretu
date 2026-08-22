@@ -8,10 +8,9 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
-import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
@@ -30,19 +29,19 @@ export class InvoicesController {
   ) {}
 
   @Get("finance/invoices")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listInvoices(@Query() query: ListInvoicesDto, @CurrentUser() user: AuthUser) {
     return this.invoices.listInvoices(query, user);
   }
 
   @Get("finance/invoices/:id")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   getInvoice(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.invoices.getInvoice(id, user);
   }
 
   @Get("students/:studentId/invoices")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listStudentInvoices(
     @Param("studentId") studentId: string,
     @CurrentUser() user: AuthUser,
@@ -51,7 +50,7 @@ export class InvoicesController {
   }
 
   @Get("students/:studentId/invoice-preview")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   previewInvoice(
     @Param("studentId") studentId: string,
     @Query() query: InvoicePreviewDto,
@@ -61,7 +60,7 @@ export class InvoicesController {
   }
 
   @Post("students/:studentId/invoices")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   createInvoice(
     @Param("studentId") studentId: string,
     @Body() body: CreateInvoiceDto,
@@ -71,7 +70,7 @@ export class InvoicesController {
   }
 
   @Post("finance/invoices/:id/cancel")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   cancelInvoice(
     @Param("id") id: string,
     @Body() body: CancelInvoiceDto,

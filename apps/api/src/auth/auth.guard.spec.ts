@@ -4,7 +4,7 @@ import { Reflector } from "@nestjs/core";
 import { RoleCode, UserStatus } from "@prisma/client";
 import { AllowDuringPasswordChange } from "./allow-during-password-change.decorator.js";
 import { AuthGuard } from "./auth.guard.js";
-import { Roles } from "./roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "./roles.decorator.js";
 import { RolesGuard } from "./roles.guard.js";
 
 function context(token = "token") {
@@ -136,6 +136,13 @@ class AdminOnlyController {
   }
 }
 
+class OperationalAdminController {
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  handler() {
+    return true;
+  }
+}
+
 const rolesGuard = new RolesGuard(new Reflector());
 const handler = Object.getOwnPropertyDescriptor(
   AdminOnlyController.prototype,
@@ -155,3 +162,42 @@ const rolesContext = {
   }),
 };
 assert.throws(() => rolesGuard.canActivate(rolesContext as never));
+
+const operationalHandler = Object.getOwnPropertyDescriptor(
+  OperationalAdminController.prototype,
+  "handler",
+)?.value as () => boolean;
+
+for (const role of OPERATIONAL_ADMIN_ROLES) {
+  const operationalContext = {
+    getClass: () => OperationalAdminController,
+    getHandler: () => operationalHandler,
+    switchToHttp: () => ({
+      getRequest: () => ({
+        user: {
+          ...activeUser,
+          permissionProfileId: null,
+          roles: [role],
+        },
+      }),
+    }),
+  };
+  assert.equal(rolesGuard.canActivate(operationalContext as never), true);
+}
+
+for (const role of [RoleCode.USER, RoleCode.GESTOR]) {
+  const blockedOperationalContext = {
+    getClass: () => OperationalAdminController,
+    getHandler: () => operationalHandler,
+    switchToHttp: () => ({
+      getRequest: () => ({
+        user: {
+          ...activeUser,
+          permissionProfileId: null,
+          roles: [role],
+        },
+      }),
+    }),
+  };
+  assert.throws(() => rolesGuard.canActivate(blockedOperationalContext as never));
+}

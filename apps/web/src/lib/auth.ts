@@ -21,7 +21,11 @@ export function canAccessRestrictedAdmin(user: ApiUser): boolean {
 }
 
 export function canAccessOperationalAdmin(user: ApiUser): boolean {
-  return user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA");
+  return (
+    user.roles.includes("SUPER_ADMIN") ||
+    user.roles.includes("ADMINISTRATOR") ||
+    user.roles.includes("SECRETARIA")
+  );
 }
 
 export function hasCapability(
@@ -61,6 +65,10 @@ export function getPrimaryRoleLabel(user: ApiUser): string {
 
   if (user.roles.includes("SECRETARIA")) {
     return "Secretaria";
+  }
+
+  if (user.roles.includes("ADMINISTRATOR")) {
+    return "Administrador";
   }
 
   if (user.roles.includes("GESTOR")) {

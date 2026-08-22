@@ -903,6 +903,7 @@ export class CollectionsService {
   private ensureAllowedUser(currentUser: AuthUser) {
     if (
       !currentUser.roles.includes(RoleCode.SUPER_ADMIN) &&
+      !currentUser.roles.includes(RoleCode.ADMINISTRATOR) &&
       !currentUser.roles.includes(RoleCode.SECRETARIA)
     ) {
       throw new ForbiddenException("Acesso negado");

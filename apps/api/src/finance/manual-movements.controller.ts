@@ -14,11 +14,10 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { RoleCode } from "@prisma/client";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import {
   manualFinancialMovementUploadOptions,
@@ -54,19 +53,19 @@ export class ManualFinancialMovementsController {
   ) {}
 
   @Get()
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   list(@Query() query: ListManualFinancialMovementsDto) {
     return this.movements.list(query);
   }
 
   @Get(":movementId")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   get(@Param() params: ManualFinancialMovementParamsDto) {
     return this.movements.get(params.movementId);
   }
 
   @Post()
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   @UseInterceptors(uploadInterceptor)
   create(
     @Body() body: CreateManualFinancialMovementDto,
@@ -77,7 +76,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Patch(":movementId")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   update(
     @Param() params: ManualFinancialMovementParamsDto,
     @Body() body: UpdateManualFinancialMovementDto,
@@ -87,7 +86,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/mark-paid")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   markPaid(
     @Param() params: ManualFinancialMovementParamsDto,
     @Body() body: MarkManualFinancialMovementPaidDto,
@@ -97,7 +96,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/cancel")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   cancel(
     @Param() params: ManualFinancialMovementParamsDto,
     @Body() body: CancelManualFinancialMovementDto,
@@ -107,7 +106,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/attachments")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   @UseInterceptors(attachmentUploadInterceptor)
   attach(
     @Param() params: ManualFinancialMovementParamsDto,
@@ -118,7 +117,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Get(":movementId/attachments/:attachmentId/view")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async viewAttachment(
@@ -142,7 +141,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Get(":movementId/attachments/:attachmentId/download")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async downloadAttachment(

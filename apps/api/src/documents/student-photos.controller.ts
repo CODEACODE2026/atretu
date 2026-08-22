@@ -12,11 +12,10 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { RoleCode } from "@prisma/client";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { DocumentsService } from "./documents.service.js";
@@ -26,7 +25,7 @@ import { singleDocumentUploadOptions } from "./multipart-upload.js";
 const uploadInterceptor = FileInterceptor("file", singleDocumentUploadOptions);
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Roles(...OPERATIONAL_ADMIN_ROLES)
 @Controller("students/:studentId/photo")
 export class StudentPhotosController {
   constructor(

@@ -10,6 +10,7 @@ import {
   UserStatus,
 } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
+import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { CollectionsController } from "./collections.controller.js";
@@ -63,7 +64,7 @@ async function testControllerRoutesGuardsAndRoles() {
   ] as const) {
     assert.deepEqual(
       Reflect.getMetadata("roles", CollectionsController.prototype[method]),
-      [RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA],
+      [...OPERATIONAL_ADMIN_ROLES],
     );
   }
 

@@ -1,7 +1,6 @@
 import { Controller, Get, Inject, Query, UseGuards } from "@nestjs/common";
-import { RoleCode } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { FinancialMonthlyReportDto } from "./dto/financial-reports.dto.js";
 import { FinancialReportsService } from "./financial-reports.service.js";
@@ -15,7 +14,7 @@ export class FinancialReportsController {
   ) {}
 
   @Get("monthly")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   monthly(@Query() query: FinancialMonthlyReportDto) {
     return this.reports.monthly(query);
   }

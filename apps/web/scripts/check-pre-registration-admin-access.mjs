@@ -52,7 +52,7 @@ includesAll(auth, [
   "user.capabilities?.includes(capability)",
   '"pre-registrations" | "reenrollments"',
   '"preRegistrations.view"',
-  'user.roles.includes("SUPER_ADMIN") || user.roles.includes("SECRETARIA")',
+  'user.roles.includes("ADMINISTRATOR")',
   'user.roles.includes("GESTOR")',
 ]);
 

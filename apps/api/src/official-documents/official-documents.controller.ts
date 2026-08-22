@@ -14,7 +14,7 @@ import { OfficialDocumentModelStatus, OfficialDocumentType, RoleCode } from "@pr
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
@@ -31,7 +31,7 @@ import {
 import { OfficialDocumentsService } from "./official-documents.service.js";
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Roles(...OPERATIONAL_ADMIN_ROLES)
 @Controller("students/:studentId/official-documents")
 export class OfficialDocumentsController {
   constructor(
@@ -160,7 +160,7 @@ export class OfficialDocumentsController {
 }
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Roles(...OPERATIONAL_ADMIN_ROLES)
 @Controller("official-documents/issues")
 export class OfficialDocumentIssuesController {
   constructor(
@@ -175,7 +175,7 @@ export class OfficialDocumentIssuesController {
 }
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Roles(...OPERATIONAL_ADMIN_ROLES)
 @Controller("official-documents/models")
 export class OfficialDocumentModelsController {
   constructor(
@@ -239,7 +239,7 @@ export class OfficialDocumentModelsController {
 }
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+@Roles(...OPERATIONAL_ADMIN_ROLES)
 @Controller("official-documents/institutional")
 export class InstitutionalOfficialDocumentsController {
   constructor(

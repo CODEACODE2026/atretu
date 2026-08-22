@@ -14,7 +14,7 @@ import { RoleCode } from "@prisma/client";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { Roles } from "../auth/roles.decorator.js";
+import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { BankSlipsService } from "./bank-slips.service.js";
@@ -44,7 +44,7 @@ export class BankSlipsController {
   ) {}
 
   @Post("finance/invoices/:invoiceId/bank-slip/issue")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   issueForInvoice(
     @Param() params: InvoiceBankSlipParamsDto,
     @CurrentUser() user: AuthUser,
@@ -53,7 +53,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/invoices/:invoiceId/bank-slip")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   getByInvoice(
     @Param() params: InvoiceBankSlipParamsDto,
     @CurrentUser() user: AuthUser,
@@ -62,7 +62,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/sync")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   syncByInvoice(@Param() params: InvoiceBankSlipParamsDto, @CurrentUser() user: AuthUser) {
     return this.bankSlips.syncByInvoice(params.invoiceId, user.id, user);
   }
@@ -125,7 +125,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   createIssueBatch(
     @Body() body: CreateBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
@@ -141,7 +141,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches/preview")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   previewIssueBatch(
     @Body() body: PreviewBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
@@ -150,7 +150,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listIssueBatches(
     @Query() query: ListBankSlipIssueBatchesDto,
     @CurrentUser() user: AuthUser,
@@ -159,7 +159,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   getIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
     @CurrentUser() user: AuthUser,
@@ -168,7 +168,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/items")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   listIssueBatchItems(
     @Param() params: BankSlipIssueBatchParamsDto,
     @Query() query: ListBankSlipIssueBatchItemsDto,
@@ -178,7 +178,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/download")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async downloadIssueBatchPdfs(
@@ -209,7 +209,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches/:batchId/cancel")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   cancelIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
     @Body() body: CancelBankSlipIssueBatchDto,
@@ -229,7 +229,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/cancel")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   requestCancellation(
     @Param() params: InvoiceBankSlipParamsDto,
     @Body() body: RequestBankSlipCancellationDto,
@@ -244,7 +244,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/invoices/:invoiceId/bank-slip/pdf")
-  @Roles(RoleCode.SUPER_ADMIN, RoleCode.SECRETARIA)
+  @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async getPdf(
