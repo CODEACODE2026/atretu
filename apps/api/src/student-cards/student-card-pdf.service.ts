@@ -21,7 +21,10 @@ import {
 } from "../association-settings/association-settings.service.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
-import { scopedInstitutionFilter } from "../auth/institution-scope.js";
+import {
+  OPERATIONAL_INSTITUTION_SCOPE,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
@@ -91,7 +94,11 @@ export class StudentCardPdfService {
     disposition: FileDisposition,
     currentUser?: AuthUser,
   ) {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const card = await this.prisma.studentCard.findFirst({
       where: {
         id: cardId,
@@ -674,6 +681,7 @@ export class StudentCardPdfService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       body.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     const where: Prisma.StudentCardWhereInput = {
       academicYearId: body.academicYearId,

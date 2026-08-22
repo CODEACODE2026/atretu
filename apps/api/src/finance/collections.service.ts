@@ -18,6 +18,7 @@ import {
 } from "@prisma/client";
 import { resolvePagination } from "../common/pagination.js";
 import {
+  OPERATIONAL_INSTITUTION_SCOPE,
   assertInstitutionInScope,
   scopedInstitutionFilter,
 } from "../auth/institution-scope.js";
@@ -355,6 +356,7 @@ export class CollectionsService {
       const institutionId = scopedInstitutionFilter(
         options.currentUser,
         filters.institutionId,
+        OPERATIONAL_INSTITUTION_SCOPE,
       );
       if (institutionId) {
         where.enrollment = {
@@ -363,7 +365,11 @@ export class CollectionsService {
         };
       }
     } else {
-      const institutionId = scopedInstitutionFilter(options.currentUser);
+      const institutionId = scopedInstitutionFilter(
+        options.currentUser,
+        undefined,
+        OPERATIONAL_INSTITUTION_SCOPE,
+      );
       if (institutionId) {
         where.enrollment = {
           ...(where.enrollment as Prisma.EnrollmentWhereInput | undefined),
@@ -914,14 +920,22 @@ export class CollectionsService {
     filters: CollectionFiltersDto,
     currentUser: AuthUser,
   ) {
-    scopedInstitutionFilter(currentUser, filters.institutionId);
+    scopedInstitutionFilter(
+      currentUser,
+      filters.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
   }
 
   private ensureInvoiceAccessible(
     invoice: { enrollment: { institutionId: string } },
     currentUser: AuthUser,
   ) {
-    assertInstitutionInScope(currentUser, invoice.enrollment.institutionId);
+    assertInstitutionInScope(
+      currentUser,
+      invoice.enrollment.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
   }
 
   private invoiceListInclude() {

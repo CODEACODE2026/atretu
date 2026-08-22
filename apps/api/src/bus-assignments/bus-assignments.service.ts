@@ -15,6 +15,7 @@ import {
 } from "@prisma/client";
 import { resolvePagination } from "../common/pagination.js";
 import {
+  OPERATIONAL_INSTITUTION_SCOPE,
   assertInstitutionInScope,
   scopedInstitutionFilter,
 } from "../auth/institution-scope.js";
@@ -243,7 +244,11 @@ export class BusAssignmentsService {
     if (academicYearId) {
       enrollmentWhere.academicYearId = academicYearId;
     }
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     if (institutionFilter) {
       enrollmentWhere.institutionId = institutionFilter;
     }
@@ -323,7 +328,11 @@ export class BusAssignmentsService {
     currentUser?: AuthUser,
   ) {
     const bus = await this.ensureBus(busId);
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const occupiedSeats = await this.prisma.busAssignment.count({
       where: {
         busId,
@@ -403,7 +412,11 @@ export class BusAssignmentsService {
     tx: Prisma.TransactionClient | PrismaService = this.prisma,
   ) {
     const enrollment = await this.ensureEnrollment(id, tx);
-    assertInstitutionInScope(currentUser, enrollment.institutionId);
+    assertInstitutionInScope(
+      currentUser,
+      enrollment.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     return enrollment;
   }
 

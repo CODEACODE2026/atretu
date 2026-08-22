@@ -21,6 +21,7 @@ import {
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { AssociationSettingsService } from "../association-settings/association-settings.service.js";
 import {
+  OPERATIONAL_INSTITUTION_SCOPE,
   assertInstitutionInScope,
   scopedInstitutionFilter,
 } from "../auth/institution-scope.js";
@@ -140,6 +141,7 @@ export class StudentCardsService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     const enrollmentWhere: Prisma.EnrollmentWhereInput = {
       ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
@@ -303,7 +305,11 @@ export class StudentCardsService {
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.lockStudent(tx, studentId);
       const card = await this.lockStudentCard(tx, cardId);
-      assertInstitutionInScope(currentUser, card.enrollment.institutionId);
+      assertInstitutionInScope(
+        currentUser,
+        card.enrollment.institutionId,
+        OPERATIONAL_INSTITUTION_SCOPE,
+      );
       if (card.studentId !== studentId) {
         throw new NotFoundException("Carteirinha nao encontrada");
       }
@@ -356,7 +362,11 @@ export class StudentCardsService {
     if (!enrollment) {
       throw new BadRequestException("Matricula nao encontrada para o academico");
     }
-    assertInstitutionInScope(currentUser, enrollment.institutionId);
+    assertInstitutionInScope(
+      currentUser,
+      enrollment.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
 
     const activeCard = await tx.studentCard.findFirst({
       where: {
@@ -579,6 +589,7 @@ export class StudentCardsService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     if (institutionFilter || query.shiftId) {
       where.enrollment = {
@@ -624,7 +635,11 @@ export class StudentCardsService {
   }
 
   private cardScopeWhere(currentUser?: AuthUser): Prisma.StudentCardWhereInput {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     return institutionFilter
       ? { enrollment: { institutionId: institutionFilter } }
       : {};
@@ -743,7 +758,11 @@ export class StudentCardsService {
   }
 
   private async ensureStudent(studentId: string, currentUser?: AuthUser) {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const student = await this.prisma.student.findFirst({
       where: {
         id: studentId,

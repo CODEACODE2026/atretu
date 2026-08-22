@@ -14,7 +14,10 @@ import {
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
-import { scopedInstitutionFilter } from "../auth/institution-scope.js";
+import {
+  OPERATIONAL_INSTITUTION_SCOPE,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { AppConfigService } from "../config/app-config.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -388,7 +391,11 @@ export class DocumentsService {
   }
 
   private async ensureStudent(studentId: string, currentUser?: AuthUser) {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const student = await this.prisma.student.findFirst({
       where: {
         id: studentId,

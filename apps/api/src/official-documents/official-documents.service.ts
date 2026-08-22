@@ -26,7 +26,10 @@ import {
   AssociationSettingsService,
   type AssociationSnapshot,
 } from "../association-settings/association-settings.service.js";
-import { scopedInstitutionFilter } from "../auth/institution-scope.js";
+import {
+  OPERATIONAL_INSTITUTION_SCOPE,
+  scopedInstitutionFilter,
+} from "../auth/institution-scope.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import { FileDisposition } from "../documents/dto/documents.dto.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -1334,7 +1337,11 @@ export class OfficialDocumentsService {
   }
 
   private async getStudent(studentId: string, currentUser: AuthUser) {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const student = await this.prisma.student.findFirst({
       where: {
         id: studentId,

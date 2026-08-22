@@ -13,6 +13,7 @@ import {
 } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import {
+  OPERATIONAL_INSTITUTION_SCOPE,
   assertInstitutionInScope,
   scopedInstitutionFilter,
 } from "../auth/institution-scope.js";
@@ -228,6 +229,7 @@ export class BaseRecordsService {
     const institutionFilter = scopedInstitutionFilter(
       currentUser,
       query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
     );
     const hasAvailabilityFilter =
       query.availability && query.availability !== BusAvailabilityFilter.ALL;
