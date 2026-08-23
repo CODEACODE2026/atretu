@@ -142,17 +142,21 @@ assert.deepEqual(ACTIVE_DELEGATABLE_PERMISSION_KEYS, [
   "studentCards.view",
   "studentCards.issue",
   "studentCards.invalidate",
+  "reports.view",
+  "reports.export",
 ]);
 assert.equal(isActiveDelegatablePermissionKey("students.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("studentCards.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("studentCards.issue"), true);
 assert.equal(isActiveDelegatablePermissionKey("studentCards.invalidate"), true);
+assert.equal(isActiveDelegatablePermissionKey("reports.view"), true);
+assert.equal(isActiveDelegatablePermissionKey("reports.export"), true);
 assert.equal(isActiveDelegatablePermissionKey("finance.invoices.view"), false);
 assert.equal(isActiveDelegatablePermissionKey("academicYears.manage"), false);
 assert.equal(
   DELEGATABLE_PERMISSION_CATALOG.length -
     ACTIVE_DELEGATABLE_PERMISSION_KEYS.length,
-  15,
+  13,
 );
 
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(

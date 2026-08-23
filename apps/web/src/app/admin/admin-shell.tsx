@@ -231,7 +231,12 @@ function AdminWorkspace({
   user: ApiUser;
 }) {
   const router = useRouter();
-  const [area, setArea] = useState<AdminArea>("dashboard");
+  const [area, setArea] = useState<AdminArea>(() => {
+    if (typeof window === "undefined") {
+      return "dashboard";
+    }
+    return parseDashboardHref(window.location.href)?.area ?? "dashboard";
+  });
   const [financeInitialArea, setFinanceInitialArea] =
     useState<FinanceArea>("invoices");
   const [baseInitialDomain, setBaseInitialDomain] =
@@ -409,6 +414,7 @@ function AdminWorkspace({
       nextArea === "dashboard" ||
       nextArea === "students" ||
       nextArea === "reenrollments" ||
+      nextArea === "reports" ||
       nextArea === "student-cards" ||
       nextArea === "pre-registrations"
     ) {

@@ -163,15 +163,15 @@ for (const item of studentAuxiliaryReferenceEndpoints) {
   );
   assert.deepEqual(
     operationalPermissionMetadata(item[0], item[1]),
-    ["students.view"],
-    `${item[0].name}.${item[1]} must be available as a students.view auxiliary reference`,
+    ["students.view", "reports.view"],
+    `${item[0].name}.${item[1]} must be available as a students.view or reports.view auxiliary reference`,
   );
 }
 
 const studentCardOperationalEndpoints = [
-  [StudentCardsController, "listStudentCards", ["studentCards.view"]],
+  [StudentCardsController, "listStudentCards", ["studentCards.view", "reports.view"]],
   [StudentCardsController, "listStudentCardsForStudent", ["studentCards.view"]],
-  [StudentCardsController, "listPendingStudentCards", ["studentCards.view"]],
+  [StudentCardsController, "listPendingStudentCards", ["studentCards.view", "reports.view"]],
   [StudentCardsController, "getStudentCardPdf", ["studentCards.view"]],
   [StudentCardsController, "printStudentCardsBatch", ["studentCards.issue"]],
   [StudentCardsController, "previewStudentCard", ["studentCards.view"]],

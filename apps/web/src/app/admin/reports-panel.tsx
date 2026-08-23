@@ -23,6 +23,7 @@ import {
   type StudentDocumentType,
   type StudentStatus,
 } from "../../lib/api";
+import { canAccessOperationalAdmin, hasCapability } from "../../lib/auth";
 import { adminTheme, cx } from "./admin-theme";
 import {
   AdminEmptyState,
@@ -180,6 +181,23 @@ const REPORTS: ReportDefinition[] = [
 ];
 
 export function ReportsPanel({ user }: { user: ApiUser }) {
+  const canExportReports = hasCapability(user, "reports.export");
+  const canViewOperationalFinanceReports = canAccessOperationalAdmin(user);
+  const availableReportCatalog = useMemo(
+    () =>
+      REPORTS.filter(
+        (report) =>
+          report.category !== "Financeiro" || canViewOperationalFinanceReports,
+      ),
+    [canViewOperationalFinanceReports],
+  );
+  const reportCategories = useMemo(
+    () =>
+      REPORT_CATEGORIES.filter((category) =>
+        availableReportCatalog.some((report) => report.category === category),
+      ),
+    [availableReportCatalog],
+  );
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
   const [buses, setBuses] = useState<BusRecord[]>([]);
@@ -227,18 +245,27 @@ export function ReportsPanel({ user }: { user: ApiUser }) {
   }, []);
 
   const visibleReports = useMemo(
-    () => REPORTS.filter((report) => report.category === selectedCategory),
-    [selectedCategory],
+    () =>
+      availableReportCatalog.filter(
+        (report) => report.category === selectedCategory,
+      ),
+    [availableReportCatalog, selectedCategory],
   );
   const selectedReport =
-    REPORTS.find((report) => report.id === selectedReportId) ?? visibleReports[0] ?? REPORTS[0]!;
+    availableReportCatalog.find((report) => report.id === selectedReportId) ??
+    visibleReports[0] ??
+    availableReportCatalog[0] ??
+    REPORTS[0]!;
 
   function setFilter(key: ReportFilterKey, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
   function changeCategory(category: ReportCategory) {
-    const firstReport = REPORTS.find((report) => report.category === category) ?? REPORTS[0]!;
+    const firstReport =
+      availableReportCatalog.find((report) => report.category === category) ??
+      availableReportCatalog[0] ??
+      REPORTS[0]!;
     setSelectedCategory(category);
     setSelectedReportId(firstReport.id);
     setGeneratedReport(null);
@@ -316,7 +343,7 @@ export function ReportsPanel({ user }: { user: ApiUser }) {
             title="Relatórios"
           />
           <div className="grid gap-2 p-3">
-            {REPORT_CATEGORIES.map((category) => (
+            {reportCategories.map((category) => (
               <button
                 aria-current={selectedCategory === category ? "page" : undefined}
                 className={cx(
@@ -331,7 +358,7 @@ export function ReportsPanel({ user }: { user: ApiUser }) {
               >
                 <span className="block font-semibold">{category}</span>
                 <span className={cx("mt-1 block text-xs", selectedCategory === category ? "text-slate-300" : "text-slate-500")}>
-                  {REPORTS.filter((report) => report.category === category).length} modelos
+                  {availableReportCatalog.filter((report) => report.category === category).length} modelos
                 </span>
               </button>
             ))}
@@ -408,10 +435,12 @@ export function ReportsPanel({ user }: { user: ApiUser }) {
                 <div className="flex flex-wrap gap-2">
                   <button
                     className={adminTheme.secondaryButton}
-                    disabled={!generatedReport || !isReportAvailable(selectedReport)}
+                    disabled={!generatedReport || !isReportAvailable(selectedReport) || !canExportReports}
                     onClick={() => {
                       if (generatedReport) {
-                        void downloadReportPdf(generatedReport, user);
+                        if (canExportReports) {
+                          void downloadReportPdf(generatedReport, user);
+                        }
                       }
                     }}
                     type="button"
@@ -421,8 +450,8 @@ export function ReportsPanel({ user }: { user: ApiUser }) {
                   </button>
                   <button
                     className={adminTheme.secondaryButton}
-                    disabled={!generatedReport || !isReportAvailable(selectedReport)}
-                    onClick={() => generatedReport ? downloadReportXlsx(generatedReport, user) : undefined}
+                    disabled={!generatedReport || !isReportAvailable(selectedReport) || !canExportReports}
+                    onClick={() => generatedReport && canExportReports ? downloadReportXlsx(generatedReport, user) : undefined}
                     type="button"
                   >
                     <FileSpreadsheet className="h-4 w-4" />
@@ -430,8 +459,8 @@ export function ReportsPanel({ user }: { user: ApiUser }) {
                   </button>
                   <button
                     className={adminTheme.secondaryButton}
-                    disabled={!generatedReport || !isReportAvailable(selectedReport)}
-                    onClick={() => generatedReport ? printReport(generatedReport, user) : undefined}
+                    disabled={!generatedReport || !isReportAvailable(selectedReport) || !canExportReports}
+                    onClick={() => generatedReport && canExportReports ? printReport(generatedReport, user) : undefined}
                     type="button"
                   >
                     <Printer className="h-4 w-4" />

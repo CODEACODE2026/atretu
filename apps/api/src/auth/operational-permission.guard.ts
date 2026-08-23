@@ -77,7 +77,7 @@ export class OperationalPermissionGuard implements CanActivate {
     const granted = new Set(
       profile.permissions.map((permission) => permission.permissionKey),
     );
-    const allowed = requiredPermissions.every((permission) =>
+    const allowed = requiredPermissions.some((permission) =>
       granted.has(permission),
     );
     if (!allowed) {

@@ -49,7 +49,7 @@ export class StudentsController {
   ) {}
 
   @Get("academic-years")
-  @OperationalPermission("students.view")
+  @OperationalPermission("students.view", "reports.view")
   listAcademicYears(@Query() query: ListAcademicYearsDto) {
     return this.students.listAcademicYears(query);
   }
@@ -116,7 +116,7 @@ export class StudentsController {
   }
 
   @Get("students")
-  @OperationalPermission("students.view")
+  @OperationalPermission("students.view", "reports.view")
   listStudents(@Query() query: ListStudentsDto, @CurrentUser() user: AuthUser) {
     return this.students.listStudents(query, user);
   }
@@ -128,7 +128,7 @@ export class StudentsController {
   }
 
   @Get("students/reenrollment-candidates")
-  @OperationalPermission("students.reenroll")
+  @OperationalPermission("students.reenroll", "reports.view")
   listReenrollmentCandidates(
     @Query() query: ListStudentsDto,
     @CurrentUser() user: AuthUser,
@@ -137,7 +137,7 @@ export class StudentsController {
   }
 
   @Get("students/documentation-status")
-  @OperationalPermission("students.view")
+  @OperationalPermission("students.view", "reports.view")
   listStudentDocumentationStatus(
     @Query() query: ListStudentDocumentationStatusDto,
     @CurrentUser() user: AuthUser,

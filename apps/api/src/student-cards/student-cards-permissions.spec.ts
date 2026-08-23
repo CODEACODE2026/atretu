@@ -12,9 +12,9 @@ import { StudentCardsController } from "./student-cards.controller.js";
 const GUARDS_METADATA_KEY = "__guards__";
 
 const endpointPermissions = [
-  ["listStudentCards", ["studentCards.view"]],
+  ["listStudentCards", ["studentCards.view", "reports.view"]],
   ["listStudentCardsForStudent", ["studentCards.view"]],
-  ["listPendingStudentCards", ["studentCards.view"]],
+  ["listPendingStudentCards", ["studentCards.view", "reports.view"]],
   ["getStudentCardPdf", ["studentCards.view"]],
   ["previewStudentCard", ["studentCards.view"]],
   ["issueStudentCard", ["studentCards.issue"]],
@@ -26,6 +26,7 @@ const endpointPermissions = [
 
 await testControllerUsesOperationalGuard();
 await testUserViewPermissions();
+await testUserReportsViewPermissions();
 await testUserIssuePermissions();
 await testUserInvalidatePermissions();
 await testUserWithoutPermissionIsDenied();
@@ -44,6 +45,30 @@ async function testControllerUsesOperationalGuard() {
       ),
       permissions,
       `${String(method)} must use its approved StudentCards permission`,
+    );
+  }
+}
+
+async function testUserReportsViewPermissions() {
+  const guard = guardWithProfile(["reports.view"]);
+  for (const method of ["listStudentCards", "listPendingStudentCards"] as const) {
+    assert.equal(
+      await guard.canActivate(context(method, operationalUser())),
+      true,
+      `${method} must allow USER with reports.view for Reports module data`,
+    );
+  }
+  for (const method of [
+    "getStudentCardPdf",
+    "previewStudentCard",
+    "issueStudentCard",
+    "printStudentCardsBatch",
+    "invalidateStudentCard",
+  ] as const) {
+    await assert.rejects(
+      () => guard.canActivate(context(method, operationalUser())),
+      (error) => error instanceof ForbiddenException,
+      `reports.view must not allow ${method}`,
     );
   }
 }

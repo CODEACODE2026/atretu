@@ -39,7 +39,7 @@ export class StudentCardsController {
   ) {}
 
   @Get("student-cards")
-  @OperationalPermission("studentCards.view")
+  @OperationalPermission("studentCards.view", "reports.view")
   listStudentCards(
     @Query() query: ListStudentCardsDto,
     @CurrentUser() user: AuthUser,
@@ -57,7 +57,7 @@ export class StudentCardsController {
   }
 
   @Get("student-cards/pending")
-  @OperationalPermission("studentCards.view")
+  @OperationalPermission("studentCards.view", "reports.view")
   listPendingStudentCards(
     @Query() query: ListPendingStudentCardsDto,
     @CurrentUser() user: AuthUser,

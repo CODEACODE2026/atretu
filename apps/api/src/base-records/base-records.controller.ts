@@ -35,7 +35,7 @@ export class BaseRecordsController {
 
   @Get("institutions")
   @UseGuards(OperationalPermissionGuard)
-  @OperationalPermission("students.view")
+  @OperationalPermission("students.view", "reports.view")
   listInstitutions(
     @Query() query: ListBaseRecordsDto,
     @CurrentUser() user: AuthUser,
@@ -87,7 +87,7 @@ export class BaseRecordsController {
 
   @Get("shifts")
   @UseGuards(OperationalPermissionGuard)
-  @OperationalPermission("students.view")
+  @OperationalPermission("students.view", "reports.view")
   listShifts(@Query() query: ListBaseRecordsDto) {
     return this.baseRecords.listShifts(query);
   }
@@ -136,7 +136,7 @@ export class BaseRecordsController {
 
   @Get("buses")
   @UseGuards(OperationalPermissionGuard)
-  @OperationalPermission("students.view")
+  @OperationalPermission("students.view", "reports.view")
   listBuses(@Query() query: ListBaseRecordsDto, @CurrentUser() user: AuthUser) {
     return this.baseRecords.listBuses(query, user);
   }
