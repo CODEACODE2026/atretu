@@ -56,7 +56,11 @@ export class BaseRecordsService {
   ) {}
 
   async listInstitutions(query: ListBaseRecordsDto, currentUser?: AuthUser) {
-    const institutionFilter = scopedInstitutionFilter(currentUser);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const where = {
       ...this.buildWhere(query),
       ...(institutionFilter ? { id: institutionFilter } : {}),

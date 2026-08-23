@@ -22,12 +22,30 @@ type Row = {
   capacity?: number;
 };
 
+type RowWhere = Omit<Partial<Row>, "id" | "name"> & {
+  id?: string | { in: string[] };
+  name?: unknown;
+};
+
 function createDelegate() {
   const rows: Row[] = [];
   let lastFindManyArgs: Record<string, unknown> | undefined;
   let nextId = 1;
-  const filterRows = (where: Partial<Row> & { name?: unknown }) =>
+  const filterRows = (where: RowWhere) =>
     rows.filter((row) => {
+      if (typeof where.id === "string" && row.id !== where.id) {
+        return false;
+      }
+
+      if (
+        where.id &&
+        typeof where.id === "object" &&
+        "in" in where.id &&
+        !where.id.in.includes(row.id)
+      ) {
+        return false;
+      }
+
       if (where.status && row.status !== where.status) {
         return false;
       }
@@ -51,7 +69,7 @@ function createDelegate() {
     },
     delegate: {
       async findMany(args: {
-        where: Partial<Row> & { name?: unknown };
+        where: RowWhere;
         skip?: number;
         take?: number;
       }) {
@@ -59,7 +77,7 @@ function createDelegate() {
         const { where } = args;
         return filterRows(where);
       },
-      async count({ where }: { where: Partial<Row> }) {
+      async count({ where }: { where: RowWhere }) {
         return filterRows(where).length;
       },
       async findUnique({ where }: { where: { id: string } }) {
@@ -168,6 +186,34 @@ const allList = await service.listInstitutions({
   order: SortOrder.ASC,
 });
 assert.equal(allList.data.length, 1);
+
+const institutionA = await service.createInstitution(
+  { name: "Instituicao A" },
+  "user-id",
+);
+await service.createInstitution({ name: "Instituicao B" }, "user-id");
+
+const userInstitutionList = await service.listInstitutions(
+  {
+    page: 1,
+    limit: 20,
+    status: RecordStatusFilter.ACTIVE,
+    sort: BaseRecordSort.NAME,
+    order: SortOrder.ASC,
+  },
+  {
+    id: "limited-user",
+    name: "Limited User",
+    email: "limited@example.com",
+    status: UserStatus.ACTIVE,
+    roles: [RoleCode.USER],
+    institutionIds: [institutionA.id],
+  },
+);
+assert.deepEqual(
+  userInstitutionList.data.map((institution) => institution.id),
+  [institutionA.id],
+);
 
 const stringPaginationList = await service.listInstitutions({
   page: "2",

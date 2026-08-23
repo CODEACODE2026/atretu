@@ -25,6 +25,7 @@ import { PermissionProfilesController } from "../permission-profiles/permission-
 import { StudentCardsController } from "../student-cards/student-cards.controller.js";
 import { StudentsController } from "../students/students.controller.js";
 import { AdminUsersController } from "../users/admin-users.controller.js";
+import { OPERATIONAL_PERMISSIONS_KEY } from "./operational-permissions.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "./roles.decorator.js";
 import { RolesGuard } from "./roles.guard.js";
 
@@ -60,7 +61,21 @@ for (const role of [RoleCode.USER, RoleCode.GESTOR]) {
 }
 
 const administratorOperationalEndpoints = [
-  [BaseRecordsController, undefined],
+  [BaseRecordsController, "createInstitution"],
+  [BaseRecordsController, "getInstitution"],
+  [BaseRecordsController, "updateInstitution"],
+  [BaseRecordsController, "inactivateInstitution"],
+  [BaseRecordsController, "reactivateInstitution"],
+  [BaseRecordsController, "createShift"],
+  [BaseRecordsController, "getShift"],
+  [BaseRecordsController, "updateShift"],
+  [BaseRecordsController, "inactivateShift"],
+  [BaseRecordsController, "reactivateShift"],
+  [BaseRecordsController, "createBus"],
+  [BaseRecordsController, "getBus"],
+  [BaseRecordsController, "updateBus"],
+  [BaseRecordsController, "inactivateBus"],
+  [BaseRecordsController, "reactivateBus"],
   [BusAssignmentsController, undefined],
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
@@ -106,6 +121,12 @@ const administratorOperationalEndpoints = [
   [StudentsController, "listStudentLegacyFinancialHistory"],
 ] as const;
 
+const studentAuxiliaryReferenceEndpoints = [
+  [BaseRecordsController, "listInstitutions"],
+  [BaseRecordsController, "listShifts"],
+  [BaseRecordsController, "listBuses"],
+] as const;
+
 assert.equal(
   rolesGuard.canActivate(
     controllerExecutionContext(
@@ -133,6 +154,19 @@ for (const item of administratorOperationalEndpoints) {
       `${item[0].name}.${item[1]} must allow ADMINISTRATOR without PermissionProfile or UserInstitution`,
     );
   }
+}
+
+for (const item of studentAuxiliaryReferenceEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require base records admin roles`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["students.view"],
+    `${item[0].name}.${item[1]} must be available as a students.view auxiliary reference`,
+  );
 }
 
 const superAdminOnlyEndpoints = [
@@ -204,6 +238,17 @@ function rolesMetadata(
       handler,
     ) ?? []
   );
+}
+
+function operationalPermissionMetadata(
+  controller: Function,
+  method: string,
+): string[] {
+  const handler = Object.getOwnPropertyDescriptor(
+    controller.prototype,
+    method,
+  )?.value as object;
+  return Reflect.getMetadata(OPERATIONAL_PERMISSIONS_KEY, handler) ?? [];
 }
 
 function executionContext(
