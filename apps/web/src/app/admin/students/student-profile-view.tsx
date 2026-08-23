@@ -74,6 +74,7 @@ export function StudentProfileView({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const canUseLegacyProfileTabs = canAccessOperationalAdmin(user);
+  const canViewStudentCards = hasCapability(user, "studentCards.view");
   const canUpdateStudent = hasCapability(user, "students.update");
   const canChangeStudentStatus = hasCapability(user, "students.changeStatus");
   const canManageBoard = hasCapability(user, "students.board.manage");
@@ -93,6 +94,7 @@ export function StudentProfileView({
         "overview",
         "academic",
         "history",
+        ...(canViewStudentCards ? (["cards"] as const) : []),
         ...(canUpdateStudent ? (["personal"] as const) : []),
       ];
 
@@ -129,6 +131,16 @@ export function StudentProfileView({
 
   async function loadCardSummary(detail: StudentDetail) {
     setCardSummary((current) => ({ ...current, loading: true }));
+    if (!canViewStudentCards) {
+      setCardSummary({
+        activeCard: null,
+        historyCount: 0,
+        loading: false,
+        pendingRequirement: null,
+        totalCards: 0,
+      });
+      return;
+    }
     try {
       const response = await api.listStudentCardsForStudent(detail.id);
       setCardSummary(buildStudentCardProfileSummary(detail, response.data));

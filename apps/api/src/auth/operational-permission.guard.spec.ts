@@ -76,6 +76,16 @@ assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.SECRETARIA]), [
   ...SPRINT_OPERATIONAL_PERMISSION_KEYS,
 ]);
 assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.GESTOR]), []);
+assert.equal(
+  SPRINT_OPERATIONAL_PERMISSION_KEYS.length,
+  14,
+  "Sprint 15.10F.2B must expose exactly 14 operational capabilities",
+);
+assert.deepEqual(SPRINT_OPERATIONAL_PERMISSION_KEYS.slice(-3), [
+  "studentCards.view",
+  "studentCards.issue",
+  "studentCards.invalidate",
+]);
 
 assert.equal(
   await guardWithProfile(null).guard.canActivate(

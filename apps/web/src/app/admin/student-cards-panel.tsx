@@ -27,7 +27,7 @@ import {
   type StudentDetail,
   type StudentSummary,
 } from "../../lib/api";
-import { canAccessOperationalAdmin } from "../../lib/auth";
+import { hasCapability } from "../../lib/auth";
 import { mapApiErrorMessage } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import {
@@ -100,9 +100,13 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   const [invalidationNote, setInvalidationNote] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const canUseAdministrativeIssue = canAccessOperationalAdmin(user);
+  const canIssueStudentCards = hasCapability(user, "studentCards.issue");
+  const canInvalidateStudentCards = hasCapability(
+    user,
+    "studentCards.invalidate",
+  );
   const canShowAdministrativeIssue =
-    canUseAdministrativeIssue && cards.length === 0;
+    canIssueStudentCards && cards.length === 0;
 
   const summary = useMemo(
     () => ({
@@ -267,6 +271,10 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
       setError("Selecione acadêmico e matrícula");
       return;
     }
+    if (!canIssueStudentCards) {
+      setError("Seu perfil nao possui permissao para emitir carteirinhas.");
+      return;
+    }
     setSaving(true);
     setMessage("");
     setError("");
@@ -288,6 +296,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   }
 
   function requestInvalidation(card: StudentCardRecord) {
+    if (!canInvalidateStudentCards) {
+      return;
+    }
     setOpenActionsCardId("");
     setPendingInvalidation({ card });
     setInvalidationReason("MANUAL_CORRECTION");
@@ -298,6 +309,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
 
   async function confirmInvalidation() {
     if (!pendingInvalidation) {
+      return;
+    }
+    if (!canInvalidateStudentCards) {
       return;
     }
     setSaving(true);
@@ -368,6 +382,9 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   }
 
   function openBatchDialog() {
+    if (!canIssueStudentCards) {
+      return;
+    }
     setBatchDialogOpen(true);
     setMessage("");
     setError("");
@@ -382,6 +399,10 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
   async function generateBatchPdf() {
     if (!batchYearId) {
       setError("Selecione o ano letivo para imprimir.");
+      return;
+    }
+    if (!canIssueStudentCards) {
+      setError("Seu perfil nao possui permissao para imprimir em lote.");
       return;
     }
     if (batchTotal === 0) {
@@ -558,17 +579,19 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 <option value="notUsable">Não utilizáveis</option>
               </select>
             </label>
-            <button
-              className={cx(
-                adminTheme.secondaryButton,
-                "h-10 w-full xl:w-auto",
-              )}
-              onClick={openBatchDialog}
-              type="button"
-            >
-              <Printer aria-hidden="true" className="h-4 w-4" />
-              Imprimir em lote
-            </button>
+            {canIssueStudentCards ? (
+              <button
+                className={cx(
+                  adminTheme.secondaryButton,
+                  "h-10 w-full xl:w-auto",
+                )}
+                onClick={openBatchDialog}
+                type="button"
+              >
+                <Printer aria-hidden="true" className="h-4 w-4" />
+                Imprimir em lote
+              </button>
+            ) : null}
           </form>
         </div>
 
@@ -649,6 +672,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                     <td className="px-1.5 py-2.5">
                       <StudentCardListActions
                         card={card}
+                        canInvalidate={canInvalidateStudentCards}
                         onInvalidate={requestInvalidation}
                         onPdf={(nextCard, action) =>
                           void handlePdf(nextCard, action)
@@ -709,6 +733,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
                 </div>
                 <StudentCardListActions
                   card={card}
+                  canInvalidate={canInvalidateStudentCards}
                   mobile
                   onInvalidate={requestInvalidation}
                   onPdf={(nextCard, action) => void handlePdf(nextCard, action)}
@@ -750,7 +775,7 @@ export function StudentCardsPanel({ user }: { user: ApiUser }) {
         </div>
       </section>
 
-      {canUseAdministrativeIssue ? (
+      {canIssueStudentCards ? (
         <details className="rounded-xl border border-amber-200 bg-amber-50 p-4">
           <summary className="cursor-pointer text-sm font-semibold text-amber-950">
             Emissão administrativa excepcional
@@ -1038,9 +1063,9 @@ export function StudentCardsForStudent({
   const [pdfBusyId, setPdfBusyId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const canUseAdministrativeIssue = canAccessOperationalAdmin(user);
+  const canIssueStudentCards = hasCapability(user, "studentCards.issue");
   const canShowAdministrativeIssue =
-    canUseAdministrativeIssue && cards.length === 0;
+    canIssueStudentCards && cards.length === 0;
 
   useEffect(() => {
     void loadCards();
@@ -1095,6 +1120,10 @@ export function StudentCardsForStudent({
   async function handleIssue() {
     if (!enrollmentId) {
       setError("Selecione uma matrícula");
+      return;
+    }
+    if (!canIssueStudentCards) {
+      setError("Seu perfil nao possui permissao para emitir carteirinhas.");
       return;
     }
     setSaving(true);
@@ -1181,7 +1210,12 @@ export function StudentCardsForStudent({
         />
       ) : (
         <StudentCardNoActiveState
-          onIssue={pendingRequirement ? () => void handleIssue() : undefined}
+          onIssue={
+            pendingRequirement && canIssueStudentCards
+              ? () => void handleIssue()
+              : undefined
+          }
+          onPreview={pendingRequirement ? () => void handlePreview() : undefined}
           pendingRequirement={pendingRequirement}
           saving={saving}
           totalCards={cards.length}
@@ -1299,6 +1333,7 @@ function StudentCardPreviewBox({ preview }: { preview: StudentCardPreview }) {
 }
 
 function StudentCardListActions({
+  canInvalidate,
   card,
   mobile = false,
   onInvalidate,
@@ -1308,6 +1343,7 @@ function StudentCardListActions({
   pdfBusyId,
   saving,
 }: {
+  canInvalidate: boolean;
   card: StudentCardRecord;
   mobile?: boolean;
   onInvalidate: (card: StudentCardRecord) => void;
@@ -1393,17 +1429,19 @@ function StudentCardListActions({
                 <Printer aria-hidden="true" className="h-4 w-4" />
                 {pdfBusyId === `${card.id}:print` ? "Abrindo..." : "Imprimir"}
               </button>
-              <button
-                className="flex items-center gap-2 px-3 py-2 text-left text-red-700 transition hover:bg-red-50 focus:bg-red-50 focus:outline-none disabled:opacity-60"
-                disabled={saving}
-                onClick={() => onInvalidate(card)}
-                role="menuitem"
-                title="Invalidar carteirinha"
-                type="button"
-              >
-                <XCircle aria-hidden="true" className="h-4 w-4" />
-                Invalidar
-              </button>
+              {canInvalidate ? (
+                <button
+                  className="flex items-center gap-2 px-3 py-2 text-left text-red-700 transition hover:bg-red-50 focus:bg-red-50 focus:outline-none disabled:opacity-60"
+                  disabled={saving}
+                  onClick={() => onInvalidate(card)}
+                  role="menuitem"
+                  title="Invalidar carteirinha"
+                  type="button"
+                >
+                  <XCircle aria-hidden="true" className="h-4 w-4" />
+                  Invalidar
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>

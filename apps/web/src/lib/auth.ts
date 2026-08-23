@@ -12,6 +12,9 @@ const SPRINT_CAPABILITY_KEYS = [
   "preRegistrations.view",
   "preRegistrations.review",
   "preRegistrations.documents.view",
+  "studentCards.view",
+  "studentCards.issue",
+  "studentCards.invalidate",
 ] as const satisfies readonly PermissionKey[];
 
 export type SprintCapability = (typeof SPRINT_CAPABILITY_KEYS)[number];
@@ -44,7 +47,12 @@ export function hasAnyCapability(
 
 export function canAccessMigratedArea(
   user: ApiUser,
-  area: "dashboard" | "pre-registrations" | "reenrollments" | "students",
+  area:
+    | "dashboard"
+    | "pre-registrations"
+    | "reenrollments"
+    | "student-cards"
+    | "students",
 ): boolean {
   if (area === "dashboard") {
     return hasCapability(user, "dashboard.view");
@@ -54,6 +62,9 @@ export function canAccessMigratedArea(
   }
   if (area === "reenrollments") {
     return hasCapability(user, "students.reenroll");
+  }
+  if (area === "student-cards") {
+    return hasCapability(user, "studentCards.view");
   }
   return hasCapability(user, "preRegistrations.view");
 }

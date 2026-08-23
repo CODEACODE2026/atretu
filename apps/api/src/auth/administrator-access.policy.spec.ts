@@ -83,7 +83,6 @@ const administratorOperationalEndpoints = [
   [OfficialDocumentIssuesController, undefined],
   [OfficialDocumentModelsController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
-  [StudentCardsController, "listStudentCards"],
   [InvoicesController, "listInvoices"],
   [InvoicesController, "getInvoice"],
   [InvoicesController, "listStudentInvoices"],
@@ -166,6 +165,34 @@ for (const item of studentAuxiliaryReferenceEndpoints) {
     operationalPermissionMetadata(item[0], item[1]),
     ["students.view"],
     `${item[0].name}.${item[1]} must be available as a students.view auxiliary reference`,
+  );
+}
+
+const studentCardOperationalEndpoints = [
+  [StudentCardsController, "listStudentCards", ["studentCards.view"]],
+  [StudentCardsController, "listStudentCardsForStudent", ["studentCards.view"]],
+  [StudentCardsController, "listPendingStudentCards", ["studentCards.view"]],
+  [StudentCardsController, "getStudentCardPdf", ["studentCards.view"]],
+  [StudentCardsController, "printStudentCardsBatch", ["studentCards.issue"]],
+  [StudentCardsController, "previewStudentCard", ["studentCards.view"]],
+  [StudentCardsController, "issueStudentCard", ["studentCards.issue"]],
+  [
+    StudentCardsController,
+    "invalidateStudentCard",
+    ["studentCards.invalidate"],
+  ],
+] as const;
+
+for (const item of studentCardOperationalEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not keep legacy role metadata after StudentCards migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    item[2],
+    `${item[0].name}.${item[1]} must use the approved StudentCards operational permission`,
   );
 }
 

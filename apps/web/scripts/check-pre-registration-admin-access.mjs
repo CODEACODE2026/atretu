@@ -50,8 +50,9 @@ includesAll(shell, [
 ]);
 includesAll(auth, [
   "user.capabilities?.includes(capability)",
-  '"pre-registrations" | "reenrollments"',
+  '"student-cards"',
   '"preRegistrations.view"',
+  '"studentCards.view"',
   'user.roles.includes("ADMINISTRATOR")',
   'user.roles.includes("GESTOR")',
 ]);

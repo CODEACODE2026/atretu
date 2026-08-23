@@ -31,6 +31,9 @@ const administrator: ApiUser = {
     "preRegistrations.view",
     "preRegistrations.review",
     "preRegistrations.documents.view",
+    "studentCards.view",
+    "studentCards.issue",
+    "studentCards.invalidate",
   ],
   roles: ["ADMINISTRATOR"],
 };
@@ -43,6 +46,7 @@ for (const area of [
   "students",
   "reenrollments",
   "pre-registrations",
+  "student-cards",
 ] as const) {
   assert.equal(canAccessMigratedArea(administrator, area), true);
 }
@@ -59,6 +63,16 @@ assert.equal(canAccessMigratedArea(userOnlyStudentsView, "students"), true);
 assert.equal(canAccessMigratedArea(userOnlyStudentsView, "dashboard"), false);
 assert.equal(canAccessMigratedArea(userOnlyStudentsView, "reenrollments"), false);
 assert.equal(canAccessMigratedArea(userOnlyStudentsView, "pre-registrations"), false);
+assert.equal(canAccessMigratedArea(userOnlyStudentsView, "student-cards"), false);
+
+const userOnlyStudentCardsView: ApiUser = {
+  ...baseUser,
+  capabilities: ["studentCards.view"],
+  roles: ["USER"],
+};
+
+assert.equal(canAccessMigratedArea(userOnlyStudentCardsView, "student-cards"), true);
+assert.equal(canAccessMigratedArea(userOnlyStudentCardsView, "students"), false);
 
 for (const role of ["SECRETARIA", "SUPER_ADMIN"] as const) {
   assert.equal(
@@ -76,6 +90,7 @@ const adminShellSource = readFileSync(
   new URL("../src/app/admin/admin-shell.tsx", import.meta.url),
   "utf8",
 );
+assert.match(adminShellSource, /nextArea === "student-cards"/);
 assert.doesNotMatch(
   adminShellSource,
   /Seu perfil possui acesso operacional\. Areas restritas do Super\s+Admin permanecem bloqueadas\./,

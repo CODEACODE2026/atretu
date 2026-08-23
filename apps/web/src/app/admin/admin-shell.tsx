@@ -409,6 +409,7 @@ function AdminWorkspace({
       nextArea === "dashboard" ||
       nextArea === "students" ||
       nextArea === "reenrollments" ||
+      nextArea === "student-cards" ||
       nextArea === "pre-registrations"
     ) {
       return canAccessMigratedArea(user, nextArea);

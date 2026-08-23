@@ -13,8 +13,8 @@ import {
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   InvalidateStudentCardDto,
@@ -28,7 +28,7 @@ import {
 import { StudentCardPdfService } from "./student-card-pdf.service.js";
 import { StudentCardsService } from "./student-cards.service.js";
 
-@UseGuards(AuthGuard, RolesGuard)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller()
 export class StudentCardsController {
   constructor(
@@ -39,7 +39,7 @@ export class StudentCardsController {
   ) {}
 
   @Get("student-cards")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.view")
   listStudentCards(
     @Query() query: ListStudentCardsDto,
     @CurrentUser() user: AuthUser,
@@ -48,7 +48,7 @@ export class StudentCardsController {
   }
 
   @Get("students/:studentId/cards")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.view")
   listStudentCardsForStudent(
     @Param("studentId") studentId: string,
     @CurrentUser() user: AuthUser,
@@ -57,7 +57,7 @@ export class StudentCardsController {
   }
 
   @Get("student-cards/pending")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.view")
   listPendingStudentCards(
     @Query() query: ListPendingStudentCardsDto,
     @CurrentUser() user: AuthUser,
@@ -66,7 +66,7 @@ export class StudentCardsController {
   }
 
   @Get("student-cards/:cardId/pdf")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.view")
   async getStudentCardPdf(
     @Param("cardId") cardId: string,
     @Query() query: StudentCardPdfDto,
@@ -92,7 +92,7 @@ export class StudentCardsController {
   }
 
   @Post("student-cards/print-batch")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.issue")
   async printStudentCardsBatch(
     @Body() body: PrintStudentCardsBatchDto,
     @CurrentUser() user: AuthUser,
@@ -113,7 +113,7 @@ export class StudentCardsController {
   }
 
   @Get("students/:studentId/card-preview")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.view")
   previewStudentCard(
     @Param("studentId") studentId: string,
     @Query() query: StudentCardPreviewDto,
@@ -123,7 +123,7 @@ export class StudentCardsController {
   }
 
   @Post("students/:studentId/cards")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.issue")
   issueStudentCard(
     @Param("studentId") studentId: string,
     @Body() body: IssueStudentCardDto,
@@ -133,7 +133,7 @@ export class StudentCardsController {
   }
 
   @Post("students/:studentId/cards/:cardId/invalidate")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("studentCards.invalidate")
   invalidateStudentCard(
     @Param("studentId") studentId: string,
     @Param("cardId") cardId: string,

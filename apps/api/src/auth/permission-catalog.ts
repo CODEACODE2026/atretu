@@ -180,6 +180,9 @@ export const ACTIVE_DELEGATABLE_PERMISSION_KEYS = [
   "preRegistrations.view",
   "preRegistrations.review",
   "preRegistrations.documents.view",
+  "studentCards.view",
+  "studentCards.issue",
+  "studentCards.invalidate",
 ] as const satisfies readonly PermissionKey[];
 
 export const RESERVED_PERMISSION_KEYS = [

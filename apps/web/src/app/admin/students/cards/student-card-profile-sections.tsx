@@ -282,11 +282,13 @@ export function StudentCardHistory({
 
 export function StudentCardNoActiveState({
   onIssue,
+  onPreview,
   pendingRequirement,
   saving,
   totalCards,
 }: {
   onIssue?: () => void;
+  onPreview?: () => void;
   pendingRequirement?: StudentCardRequirement | null;
   saving?: boolean;
   totalCards: number;
@@ -316,16 +318,30 @@ export function StudentCardNoActiveState({
               : "A carteirinha será exibida aqui quando for gerada pelo fluxo atual."}
         </p>
       </div>
-      {pendingRequirement && onIssue ? (
-        <button
-          className={cx(adminTheme.primaryButton, "w-fit")}
-          disabled={saving}
-          onClick={onIssue}
-          type="button"
-        >
-          <IdCard className="h-4 w-4" aria-hidden="true" />
-          {saving ? "Emitindo..." : "Emitir carteirinha"}
-        </button>
+      {pendingRequirement && (onPreview || onIssue) ? (
+        <div className="flex flex-wrap gap-2">
+          {onPreview ? (
+            <button
+              className={cx(adminTheme.secondaryButton, "w-fit")}
+              disabled={saving}
+              onClick={onPreview}
+              type="button"
+            >
+              Visualizar prévia
+            </button>
+          ) : null}
+          {onIssue ? (
+            <button
+              className={cx(adminTheme.primaryButton, "w-fit")}
+              disabled={saving}
+              onClick={onIssue}
+              type="button"
+            >
+              <IdCard className="h-4 w-4" aria-hidden="true" />
+              {saving ? "Emitindo..." : "Emitir carteirinha"}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
