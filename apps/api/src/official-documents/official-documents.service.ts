@@ -309,13 +309,21 @@ export class OfficialDocumentsService {
     return { data: issues.map((issue) => this.toIssueResponse(issue)) };
   }
 
-  async listIssues(query: ListOfficialDocumentIssuesDto) {
+  async listIssues(query: ListOfficialDocumentIssuesDto, currentUser: AuthUser) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
     const search = query.search?.trim();
     const status = this.normalizeIssueStatusFilter(query.status);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
     const where: Prisma.OfficialDocumentIssueWhereInput = {
       ...(status ? { status } : {}),
+      ...(institutionFilter
+        ? { student: { enrollments: { some: { institutionId: institutionFilter } } } }
+        : {}),
       ...(search
         ? {
             OR: [

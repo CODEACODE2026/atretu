@@ -15,6 +15,8 @@ const SPRINT_CAPABILITY_KEYS = [
   "studentCards.view",
   "studentCards.issue",
   "studentCards.invalidate",
+  "officialDocuments.view",
+  "officialDocuments.issue",
   "reports.view",
   "reports.export",
 ] as const satisfies readonly PermissionKey[];
@@ -53,6 +55,7 @@ export function canAccessMigratedArea(
     | "dashboard"
     | "pre-registrations"
     | "reenrollments"
+    | "official-documents"
     | "reports"
     | "student-cards"
     | "students",
@@ -68,6 +71,9 @@ export function canAccessMigratedArea(
   }
   if (area === "student-cards") {
     return hasCapability(user, "studentCards.view");
+  }
+  if (area === "official-documents") {
+    return hasCapability(user, "officialDocuments.view");
   }
   if (area === "reports") {
     return hasCapability(user, "reports.view");

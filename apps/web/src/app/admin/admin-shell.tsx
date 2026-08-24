@@ -414,6 +414,7 @@ function AdminWorkspace({
       nextArea === "dashboard" ||
       nextArea === "students" ||
       nextArea === "reenrollments" ||
+      nextArea === "official-documents" ||
       nextArea === "reports" ||
       nextArea === "student-cards" ||
       nextArea === "pre-registrations"

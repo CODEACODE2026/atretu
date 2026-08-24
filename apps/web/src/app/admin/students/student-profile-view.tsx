@@ -74,6 +74,7 @@ export function StudentProfileView({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const canUseLegacyProfileTabs = canAccessOperationalAdmin(user);
+  const canViewOfficialDocuments = hasCapability(user, "officialDocuments.view");
   const canViewStudentCards = hasCapability(user, "studentCards.view");
   const canUpdateStudent = hasCapability(user, "students.update");
   const canChangeStudentStatus = hasCapability(user, "students.changeStatus");
@@ -94,6 +95,7 @@ export function StudentProfileView({
         "overview",
         "academic",
         "history",
+        ...(canViewOfficialDocuments ? (["documents"] as const) : []),
         ...(canViewStudentCards ? (["cards"] as const) : []),
         ...(canUpdateStudent ? (["personal"] as const) : []),
       ];
@@ -311,6 +313,8 @@ export function StudentProfileView({
               <StudentDocumentsTab
                 onChanged={() => refreshStudent("Documentos atualizados.")}
                 onSummary={setDocumentSummary}
+                showLegacyDocuments={canUseLegacyProfileTabs}
+                showOfficialDocuments={canViewOfficialDocuments}
                 studentId={student.id}
                 studentName={student.person.fullName}
                 user={user}

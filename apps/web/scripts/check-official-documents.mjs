@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const api = readFileSync("src/lib/api.ts", "utf8");
+const auth = readFileSync("src/lib/auth.ts", "utf8");
+const shell = readFileSync("src/app/admin/admin-shell.tsx", "utf8");
 const tab = readFileSync("src/app/admin/students/student-documents.tsx", "utf8");
+const profile = readFileSync(
+  "src/app/admin/students/student-profile-view.tsx",
+  "utf8",
+);
 const official = readFileSync(
   "src/app/admin/students/student-official-documents.tsx",
   "utf8",
@@ -93,10 +99,39 @@ for (const fragment of [
   assert.ok(api.includes(fragment), `api client must include ${fragment}`);
 }
 
+for (const fragment of [
+  '"officialDocuments.view"',
+  '"officialDocuments.issue"',
+  'area === "official-documents"',
+  'return hasCapability(user, "officialDocuments.view")',
+]) {
+  assert.ok(auth.includes(fragment), `auth helpers must include ${fragment}`);
+}
+
+for (const fragment of [
+  'nextArea === "official-documents"',
+  "canAccessMigratedArea(user, nextArea)",
+  "const effectiveArea = canAccessArea(area) ? area : fallbackArea",
+]) {
+  assert.ok(shell.includes(fragment), `admin shell must include ${fragment}`);
+}
+
 assert.ok(
   tab.includes("studentName={studentName}"),
   "Student documents tab must render official documents",
 );
+assert.ok(
+  tab.includes("showOfficialDocuments ? ("),
+  "Student documents tab must gate official documents separately",
+);
+
+for (const fragment of [
+  'const canViewOfficialDocuments = hasCapability(user, "officialDocuments.view")',
+  '...(canViewOfficialDocuments ? (["documents"] as const) : [])',
+  "showOfficialDocuments={canViewOfficialDocuments}",
+]) {
+  assert.ok(profile.includes(fragment), `student profile must include ${fragment}`);
+}
 
 for (const fragment of [
   "Documentos Oficiais",
@@ -159,6 +194,8 @@ for (const fragment of [
   "Data de aprovação",
   "Observações",
   "signerPreview",
+  'hasCapability(user, "officialDocuments.issue")',
+  "canManageModels",
 ]) {
   assert.ok(
     institutional.includes(fragment),
@@ -196,6 +233,9 @@ for (const fragment of [
   "Data do vencimento",
   "Data da notificacao",
   "Inadimplência",
+  'hasCapability(user, "officialDocuments.issue")',
+  "canUseDynamicModels",
+  "canIssue={canIssueOfficialDocuments}",
 ]) {
   assert.ok(official.includes(fragment), `official documents UI must include ${fragment}`);
 }

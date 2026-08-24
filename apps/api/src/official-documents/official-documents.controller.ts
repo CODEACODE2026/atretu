@@ -14,6 +14,8 @@ import { OfficialDocumentModelStatus, OfficialDocumentType, RoleCode } from "@pr
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -30,8 +32,7 @@ import {
 } from "./dto/official-documents.dto.js";
 import { OfficialDocumentsService } from "./official-documents.service.js";
 
-@UseGuards(AuthGuard, RolesGuard)
-@Roles(...OPERATIONAL_ADMIN_ROLES)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller("students/:studentId/official-documents")
 export class OfficialDocumentsController {
   constructor(
@@ -40,6 +41,7 @@ export class OfficialDocumentsController {
   ) {}
 
   @Get()
+  @OperationalPermission("officialDocuments.view")
   listOfficialDocuments(
     @Param("studentId") studentId: string,
     @CurrentUser() user: AuthUser,
@@ -48,6 +50,7 @@ export class OfficialDocumentsController {
   }
 
   @Get("model-issues")
+  @OperationalPermission("officialDocuments.view")
   listStudentModelIssues(
     @Param("studentId") studentId: string,
     @CurrentUser() user: AuthUser,
@@ -56,6 +59,7 @@ export class OfficialDocumentsController {
   }
 
   @Post("models/:modelId/preview")
+  @OperationalPermission("officialDocuments.issue")
   previewDynamicDocument(
     @Param("studentId") studentId: string,
     @Param("modelId") modelId: string,
@@ -71,6 +75,7 @@ export class OfficialDocumentsController {
   }
 
   @Post("models/:modelId/issue")
+  @OperationalPermission("officialDocuments.issue")
   issueDynamicDocument(
     @Param("studentId") studentId: string,
     @Param("modelId") modelId: string,
@@ -86,6 +91,7 @@ export class OfficialDocumentsController {
   }
 
   @Post(":type/issue")
+  @OperationalPermission("officialDocuments.issue")
   issueOfficialDocument(
     @Param("studentId") studentId: string,
     @Param("type", new ParseEnumPipe(OfficialDocumentType))
@@ -97,6 +103,7 @@ export class OfficialDocumentsController {
   }
 
   @Post(":issueId/reissue")
+  @OperationalPermission("officialDocuments.issue")
   reissueOfficialDocument(
     @Param("studentId") studentId: string,
     @Param("issueId") issueId: string,
@@ -106,6 +113,7 @@ export class OfficialDocumentsController {
   }
 
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(RolesGuard)
   @Post(":issueId/invalidate")
   invalidateOfficialDocument(
     @Param("studentId") studentId: string,
@@ -122,6 +130,7 @@ export class OfficialDocumentsController {
   }
 
   @Get(":issueId")
+  @OperationalPermission("officialDocuments.view")
   getOfficialDocumentIssue(
     @Param("studentId") studentId: string,
     @Param("issueId") issueId: string,
@@ -131,6 +140,7 @@ export class OfficialDocumentsController {
   }
 
   @Get(":issueId/file")
+  @OperationalPermission("officialDocuments.view")
   async getOfficialDocumentFile(
     @Param("studentId") studentId: string,
     @Param("issueId") issueId: string,
@@ -159,8 +169,7 @@ export class OfficialDocumentsController {
   }
 }
 
-@UseGuards(AuthGuard, RolesGuard)
-@Roles(...OPERATIONAL_ADMIN_ROLES)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller("official-documents/issues")
 export class OfficialDocumentIssuesController {
   constructor(
@@ -169,8 +178,12 @@ export class OfficialDocumentIssuesController {
   ) {}
 
   @Get()
-  listIssues(@Query() query: ListOfficialDocumentIssuesDto) {
-    return this.officialDocuments.listIssues(query);
+  @OperationalPermission("officialDocuments.view")
+  listIssues(
+    @Query() query: ListOfficialDocumentIssuesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.officialDocuments.listIssues(query, user);
   }
 }
 
@@ -253,6 +266,7 @@ export class InstitutionalOfficialDocumentsController {
   }
 
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(RolesGuard)
   @Post(":type/issue")
   issueInstitutionalOfficialDocument(
     @Param("type", new ParseEnumPipe(OfficialDocumentType))
@@ -264,6 +278,7 @@ export class InstitutionalOfficialDocumentsController {
   }
 
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(RolesGuard)
   @Post(":issueId/reissue")
   reissueInstitutionalOfficialDocument(
     @Param("issueId") issueId: string,

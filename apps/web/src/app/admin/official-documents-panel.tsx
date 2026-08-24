@@ -29,6 +29,7 @@ import {
   type OfficialDocumentCatalogItem,
   type OfficialDocumentIssue,
 } from "../../lib/api";
+import { canAccessOperationalAdmin, hasCapability } from "../../lib/auth";
 import { adminTheme, cx } from "./admin-theme";
 import {
   AdminEmptyState,
@@ -64,34 +65,56 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
     useState<OfficialDocumentCatalogItem | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const canManageModels = canAccessOperationalAdmin(user);
+  const canAccessInstitutionalDocuments = canAccessOperationalAdmin(user);
+  const canIssueOfficialDocuments = hasCapability(user, "officialDocuments.issue");
   const canReadInvalidatedPdf = user.roles.includes("SUPER_ADMIN");
 
   useEffect(() => {
     void loadDocuments();
   }, [issueSearch, issueStatus, issuesPage]);
 
+  useEffect(() => {
+    if (activeTab === "models" && !canManageModels) {
+      setActiveTab("issued");
+    }
+    if (activeTab === "institutional" && !canAccessInstitutionalDocuments) {
+      setActiveTab("issued");
+    }
+  }, [activeTab, canAccessInstitutionalDocuments, canManageModels]);
+
   async function loadDocuments() {
     setLoading(true);
     setError("");
     try {
-      const [response, modelsResponse, issuesResponse, variablesResponse] =
-        await Promise.all([
-          api.listInstitutionalOfficialDocuments(),
-          api.listOfficialDocumentModels(),
-          api.listOfficialDocumentIssues({
-            limit: 20,
-            page: issuesPage,
-            search: issueSearch || undefined,
-            status: issueStatus,
-          }),
-          api.listOfficialDocumentVariables(),
-        ]);
-      setDocuments(response.data);
-      setModels(modelsResponse.data);
+      const issuesResponse = await api.listOfficialDocumentIssues({
+        limit: 20,
+        page: issuesPage,
+        search: issueSearch || undefined,
+        status: issueStatus,
+      });
       setModelIssues(issuesResponse.data);
       setIssuesTotal(issuesResponse.pagination.total);
       setIssuesTotalPages(issuesResponse.pagination.totalPages);
-      setVariables(variablesResponse.data);
+
+      if (canAccessInstitutionalDocuments) {
+        const response = await api.listInstitutionalOfficialDocuments();
+        setDocuments(response.data);
+      } else {
+        setDocuments([]);
+      }
+
+      if (canManageModels) {
+        const [modelsResponse, variablesResponse] = await Promise.all([
+          api.listOfficialDocumentModels(),
+          api.listOfficialDocumentVariables(),
+        ]);
+        setModels(modelsResponse.data);
+        setVariables(variablesResponse.data);
+      } else {
+        setModels([]);
+        setVariables([]);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao carregar documentos oficiais.");
     } finally {
@@ -274,15 +297,19 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
       />
 
       <div className="flex gap-2 overflow-x-auto border-b border-slate-200 pb-2">
-        <DocumentsTabButton active={activeTab === "models"} onClick={() => setActiveTab("models")}>
-          Modelos
-        </DocumentsTabButton>
+        {canManageModels ? (
+          <DocumentsTabButton active={activeTab === "models"} onClick={() => setActiveTab("models")}>
+            Modelos
+          </DocumentsTabButton>
+        ) : null}
         <DocumentsTabButton active={activeTab === "issued"} onClick={() => setActiveTab("issued")}>
           Documentos emitidos
         </DocumentsTabButton>
-        <DocumentsTabButton active={activeTab === "institutional"} onClick={() => setActiveTab("institutional")}>
-          Institucionais
-        </DocumentsTabButton>
+        {canAccessInstitutionalDocuments ? (
+          <DocumentsTabButton active={activeTab === "institutional"} onClick={() => setActiveTab("institutional")}>
+            Institucionais
+          </DocumentsTabButton>
+        ) : null}
       </div>
 
       {error ? <AdminFeedback tone="red">{error}</AdminFeedback> : null}
@@ -415,6 +442,7 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
                   busy={busy}
                   item={item}
                   key={item.type}
+                  canIssue={user.roles.includes("SUPER_ADMIN")}
                   onDownload={(issue) => openIssue(issue, "attachment")}
                   onHistory={() => setHistoryDialog(item)}
                   onIssue={() => setIssueDialog(item)}
@@ -459,6 +487,7 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
       {modelIssueDialog ? (
         <ModelIssueDialog
           busy={busy === `model-issue-${modelIssueDialog.id}`}
+          canIssue={canIssueOfficialDocuments}
           model={modelIssueDialog}
           onCancel={() => setModelIssueDialog(null)}
           onSubmit={(student, inputs) =>
@@ -590,6 +619,7 @@ function documentTypeLabel(type: OfficialDocumentIssue["type"]) {
 
 function InstitutionalDocumentCard({
   busy,
+  canIssue,
   item,
   onDownload,
   onHistory,
@@ -598,6 +628,7 @@ function InstitutionalDocumentCard({
   onView,
 }: {
   busy: string;
+  canIssue: boolean;
   item: OfficialDocumentCatalogItem;
   onDownload: (issue: OfficialDocumentIssue) => void;
   onHistory: () => void;
@@ -674,15 +705,17 @@ function InstitutionalDocumentCard({
               <Download size={16} />
               Baixar
             </button>
-            <button
-              className={cx(adminTheme.secondaryButton, "min-h-10")}
-              disabled={Boolean(busy)}
-              onClick={() => onReissue(item.latestIssue!)}
-              type="button"
-            >
-              <RefreshCw size={16} />
-              Reemitir
-            </button>
+            {canIssue ? (
+              <button
+                className={cx(adminTheme.secondaryButton, "min-h-10")}
+                disabled={Boolean(busy)}
+                onClick={() => onReissue(item.latestIssue!)}
+                type="button"
+              >
+                <RefreshCw size={16} />
+                Reemitir
+              </button>
+            ) : null}
             <button
               className={cx(adminTheme.secondaryButton, "min-h-10")}
               disabled={Boolean(busy)}
@@ -694,15 +727,17 @@ function InstitutionalDocumentCard({
             </button>
           </>
         ) : null}
-        <button
-          className={cx(adminTheme.primaryButton, "min-h-10")}
-          disabled={Boolean(busy)}
-          onClick={onIssue}
-          type="button"
-        >
-          <Send size={16} />
-          Emitir
-        </button>
+        {canIssue ? (
+          <button
+            className={cx(adminTheme.primaryButton, "min-h-10")}
+            disabled={Boolean(busy)}
+            onClick={onIssue}
+            type="button"
+          >
+            <Send size={16} />
+            Emitir
+          </button>
+        ) : null}
       </div>
     </article>
   );
@@ -775,11 +810,13 @@ function ModelCard({
 
 function ModelIssueDialog({
   busy,
+  canIssue,
   model,
   onCancel,
   onSubmit,
 }: {
   busy: boolean;
+  canIssue: boolean;
   model: OfficialDocumentModel;
   onCancel: () => void;
   onSubmit: (student: StudentSummary, inputs: Record<string, string>) => void;
@@ -1042,7 +1079,9 @@ function ModelIssueDialog({
           </button>
           <button
             className={cx(adminTheme.primaryButton, "justify-center")}
-            disabled={busy || !selectedStudent || !manualFieldsComplete || !preview}
+            disabled={
+              busy || !canIssue || !selectedStudent || !manualFieldsComplete || !preview
+            }
             type="submit"
           >
             <Send size={16} />

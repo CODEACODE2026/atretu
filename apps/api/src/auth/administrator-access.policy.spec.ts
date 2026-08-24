@@ -79,8 +79,6 @@ const administratorOperationalEndpoints = [
   [BusAssignmentsController, undefined],
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
-  [OfficialDocumentsController, undefined],
-  [OfficialDocumentIssuesController, undefined],
   [OfficialDocumentModelsController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
   [InvoicesController, "listInvoices"],
@@ -183,6 +181,18 @@ const studentCardOperationalEndpoints = [
   ],
 ] as const;
 
+const officialDocumentOperationalEndpoints = [
+  [OfficialDocumentsController, "listOfficialDocuments", ["officialDocuments.view"]],
+  [OfficialDocumentsController, "listStudentModelIssues", ["officialDocuments.view"]],
+  [OfficialDocumentsController, "previewDynamicDocument", ["officialDocuments.issue"]],
+  [OfficialDocumentsController, "issueDynamicDocument", ["officialDocuments.issue"]],
+  [OfficialDocumentsController, "issueOfficialDocument", ["officialDocuments.issue"]],
+  [OfficialDocumentsController, "reissueOfficialDocument", ["officialDocuments.issue"]],
+  [OfficialDocumentsController, "getOfficialDocumentIssue", ["officialDocuments.view"]],
+  [OfficialDocumentsController, "getOfficialDocumentFile", ["officialDocuments.view"]],
+  [OfficialDocumentIssuesController, "listIssues", ["officialDocuments.view"]],
+] as const;
+
 for (const item of studentCardOperationalEndpoints) {
   assert.deepEqual(
     rolesMetadata(item[0], item[1]),
@@ -193,6 +203,19 @@ for (const item of studentCardOperationalEndpoints) {
     operationalPermissionMetadata(item[0], item[1]),
     item[2],
     `${item[0].name}.${item[1]} must use the approved StudentCards operational permission`,
+  );
+}
+
+for (const item of officialDocumentOperationalEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not keep legacy role metadata after OfficialDocuments migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    item[2],
+    `${item[0].name}.${item[1]} must use the approved OfficialDocuments operational permission`,
   );
 }
 

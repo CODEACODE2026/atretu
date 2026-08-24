@@ -183,6 +183,8 @@ export const ACTIVE_DELEGATABLE_PERMISSION_KEYS = [
   "studentCards.view",
   "studentCards.issue",
   "studentCards.invalidate",
+  "officialDocuments.view",
+  "officialDocuments.issue",
   "reports.view",
   "reports.export",
 ] as const satisfies readonly PermissionKey[];

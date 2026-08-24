@@ -47,21 +47,35 @@ function isDocumentFile(file: File) {
 export function StudentDocumentsTab({
   onChanged,
   onSummary,
+  showLegacyDocuments,
+  showOfficialDocuments,
   studentId,
   studentName,
   user,
 }: {
   onChanged: () => Promise<void>;
   onSummary: (summary: { active: number; missing: number }) => void;
+  showLegacyDocuments: boolean;
+  showOfficialDocuments: boolean;
   studentId: string;
   studentName: string;
   user: ApiUser;
 }) {
   return (
     <div className="grid gap-4">
-      <StudentOfficialDocuments studentId={studentId} studentName={studentName} user={user} />
-      <StudentPhoto onChanged={onChanged} studentId={studentId} />
-      <StudentDocuments onChanged={onChanged} onSummary={onSummary} studentId={studentId} />
+      {showOfficialDocuments ? (
+        <StudentOfficialDocuments studentId={studentId} studentName={studentName} user={user} />
+      ) : null}
+      {showLegacyDocuments ? (
+        <>
+          <StudentPhoto onChanged={onChanged} studentId={studentId} />
+          <StudentDocuments
+            onChanged={onChanged}
+            onSummary={onSummary}
+            studentId={studentId}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

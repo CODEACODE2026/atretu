@@ -21,6 +21,7 @@ import type {
   OfficialDocumentModel,
 } from "../../../lib/api";
 import { api } from "../../../lib/api";
+import { canAccessOperationalAdmin, hasCapability } from "../../../lib/auth";
 import { onlyDigits } from "../../../lib/formatters";
 import {
   AdminEmptyState,
@@ -69,6 +70,8 @@ export function StudentOfficialDocuments({
     useState<OfficialDocumentCatalogItem | null>(null);
   const [invalidateDialog, setInvalidateDialog] =
     useState<OfficialDocumentIssue | null>(null);
+  const canIssueOfficialDocuments = hasCapability(user, "officialDocuments.issue");
+  const canUseDynamicModels = canAccessOperationalAdmin(user);
   const canInvalidate = user.roles.includes("SUPER_ADMIN");
 
   useEffect(() => {
@@ -79,14 +82,18 @@ export function StudentOfficialDocuments({
     setLoading(true);
     setError("");
     try {
-      const [response, modelsResponse, modelIssuesResponse] = await Promise.all([
+      const [response, modelIssuesResponse] = await Promise.all([
         api.listStudentOfficialDocuments(studentId),
-        api.listOfficialDocumentModels("ACTIVE"),
         api.listStudentOfficialDocumentModelIssues(studentId),
       ]);
       setDocuments(response.data);
-      setModels(modelsResponse.data);
       setModelIssues(modelIssuesResponse.data);
+      if (canUseDynamicModels) {
+        const modelsResponse = await api.listOfficialDocumentModels("ACTIVE");
+        setModels(modelsResponse.data);
+      } else {
+        setModels([]);
+      }
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -283,15 +290,17 @@ export function StudentOfficialDocuments({
       <AdminSectionHeader
         action={
           <div className="flex flex-wrap gap-2">
-            <button
-              className={adminTheme.primaryButton}
-              disabled={loading || busy !== "" || models.length === 0}
-              onClick={() => setModelDialog(true)}
-              type="button"
-            >
-              <Send aria-hidden="true" size={16} />
-              Emitir documento
-            </button>
+            {canIssueOfficialDocuments && canUseDynamicModels ? (
+              <button
+                className={adminTheme.primaryButton}
+                disabled={loading || busy !== "" || models.length === 0}
+                onClick={() => setModelDialog(true)}
+                type="button"
+              >
+                <Send aria-hidden="true" size={16} />
+                Emitir documento
+              </button>
+            ) : null}
             <button
               className={adminTheme.secondaryButton}
               disabled={loading || busy !== ""}
@@ -329,6 +338,7 @@ export function StudentOfficialDocuments({
               busy={busy}
               item={item}
               key={item.type}
+              canIssue={canIssueOfficialDocuments}
               onDetails={(issue) => setDetailsDialog({ issue, item })}
               onDownload={(issue) => void openIssue(issue, "attachment")}
               onHistory={() => setHistoryDialog(item)}
@@ -388,6 +398,7 @@ export function StudentOfficialDocuments({
       {modelDialog ? (
         <DynamicModelIssueDialog
           busy={busy !== ""}
+          canIssue={canIssueOfficialDocuments}
           models={models}
           onCancel={() => setModelDialog(false)}
           onSubmit={(model, inputs) => void issueModelDocument(model, inputs)}
@@ -441,7 +452,11 @@ export function StudentOfficialDocuments({
           item={historyDialog}
           onClose={() => setHistoryDialog(null)}
           onDownload={(issue) => void openIssue(issue, "attachment")}
-          onReissue={() => void reissueDocument(historyDialog)}
+          onReissue={
+            canIssueOfficialDocuments
+              ? () => void reissueDocument(historyDialog)
+              : undefined
+          }
           onView={(issue) => void openIssue(issue, "inline")}
         />
       ) : null}
@@ -466,6 +481,7 @@ export function StudentOfficialDocuments({
 
 function DynamicModelIssueDialog({
   busy,
+  canIssue,
   models,
   onCancel,
   onSubmit,
@@ -473,6 +489,7 @@ function DynamicModelIssueDialog({
   studentName,
 }: {
   busy: boolean;
+  canIssue: boolean;
   models: OfficialDocumentModel[];
   onCancel: () => void;
   onSubmit: (model: OfficialDocumentModel, inputs: Record<string, string>) => void;
@@ -517,7 +534,7 @@ function DynamicModelIssueDialog({
         className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-3xl sm:rounded-2xl"
         onSubmit={(event) => {
           event.preventDefault();
-          if (selected) onSubmit(selected, inputs);
+          if (selected && canIssue) onSubmit(selected, inputs);
         }}
         role="dialog"
       >
@@ -588,7 +605,11 @@ function DynamicModelIssueDialog({
           <button className={cx(adminTheme.secondaryButton, "justify-center")} disabled={busy} onClick={onCancel} type="button">
             Cancelar
           </button>
-          <button className={cx(adminTheme.primaryButton, "justify-center")} disabled={busy || !selected} type="submit">
+          <button
+            className={cx(adminTheme.primaryButton, "justify-center")}
+            disabled={busy || !canIssue || !selected}
+            type="submit"
+          >
             <Send size={16} />
             Gerar PDF
           </button>
@@ -616,6 +637,7 @@ function SignaturePreviewBlock({
 
 function OfficialDocumentCard({
   busy,
+  canIssue,
   item,
   onDetails,
   onDownload,
@@ -625,6 +647,7 @@ function OfficialDocumentCard({
   onView,
 }: {
   busy: string;
+  canIssue: boolean;
   item: OfficialDocumentCatalogItem;
   onDetails: (issue: OfficialDocumentIssue) => void;
   onDownload: (issue: OfficialDocumentIssue) => void;
@@ -714,7 +737,7 @@ function OfficialDocumentCard({
                 Baixar PDF
               </button>
             </>
-          ) : (
+          ) : canIssue ? (
             <button
               className={adminTheme.primaryButton}
               disabled={!item.canIssue || isBusy}
@@ -724,7 +747,7 @@ function OfficialDocumentCard({
               <Send aria-hidden="true" size={16} />
               Emitir
             </button>
-          )}
+          ) : null}
           <div className="relative" ref={actionsRef}>
             <button
               aria-expanded={actionsOpen}
@@ -743,7 +766,7 @@ function OfficialDocumentCard({
                 role="menu"
               >
                 <MenuAction
-                  disabled={!item.canIssue}
+                  disabled={!canIssue || !item.canIssue}
                   icon={Send}
                   label={latest ? "Emitir nova via" : "Emitir"}
                   onClick={() => {
@@ -752,7 +775,7 @@ function OfficialDocumentCard({
                   }}
                 />
                 <MenuAction
-                  disabled={!latest}
+                  disabled={!canIssue || !latest}
                   icon={RefreshCcw}
                   label="Reemitir última emissão"
                   onClick={() => {
@@ -833,7 +856,7 @@ function OfficialDocumentHistoryDialog({
   item: OfficialDocumentCatalogItem;
   onClose: () => void;
   onDownload: (issue: OfficialDocumentIssue) => void;
-  onReissue: () => void;
+  onReissue?: () => void;
   onView: (issue: OfficialDocumentIssue) => void;
 }) {
   return (
@@ -922,7 +945,7 @@ function OfficialDocumentHistoryDialog({
                         <Download aria-hidden="true" size={16} />
                         Baixar
                       </button>
-                      {index === 0 ? (
+                      {index === 0 && onReissue ? (
                         <button
                           className={adminTheme.secondaryButton}
                           disabled={isBusy}
