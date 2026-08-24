@@ -75,6 +75,7 @@ export function StudentProfileView({
   const [error, setError] = useState("");
   const canUseLegacyProfileTabs = canAccessOperationalAdmin(user);
   const canViewOfficialDocuments = hasCapability(user, "officialDocuments.view");
+  const canViewFinanceInvoices = hasCapability(user, "finance.invoices.view");
   const canViewStudentCards = hasCapability(user, "studentCards.view");
   const canUpdateStudent = hasCapability(user, "students.update");
   const canChangeStudentStatus = hasCapability(user, "students.changeStatus");
@@ -95,6 +96,7 @@ export function StudentProfileView({
         "overview",
         "academic",
         "history",
+        ...(canViewFinanceInvoices ? (["finance"] as const) : []),
         ...(canViewOfficialDocuments ? (["documents"] as const) : []),
         ...(canViewStudentCards ? (["cards"] as const) : []),
         ...(canUpdateStudent ? (["personal"] as const) : []),

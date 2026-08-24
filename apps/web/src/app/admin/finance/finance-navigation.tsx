@@ -44,14 +44,28 @@ const items: Array<{
 
 export function FinanceNavigation({
   activeArea,
+  canManageFinance,
   canViewCollections,
   onChange,
 }: {
   activeArea: FinanceArea;
+  canManageFinance: boolean;
   canViewCollections: boolean;
   onChange: (area: FinanceArea) => void;
 }) {
-  const visibleItems = items.filter((item) => canViewCollections || item.area !== "collections");
+  const visibleItems = items.filter((item) => {
+    if (item.area === "collections") {
+      return canViewCollections;
+    }
+    if (
+      item.area === "batches" ||
+      item.area === "movements" ||
+      item.area === "reports"
+    ) {
+      return canManageFinance;
+    }
+    return true;
+  });
 
   return (
     <nav aria-label="Áreas do Financeiro" className="min-w-0 overflow-x-auto overscroll-x-contain rounded-lg border border-slate-200 bg-white p-1 shadow-sm">

@@ -49,7 +49,7 @@ export class StudentsController {
   ) {}
 
   @Get("academic-years")
-  @OperationalPermission("students.view", "reports.view")
+  @OperationalPermission("students.view", "reports.view", "finance.invoices.view")
   listAcademicYears(@Query() query: ListAcademicYearsDto) {
     return this.students.listAcademicYears(query);
   }

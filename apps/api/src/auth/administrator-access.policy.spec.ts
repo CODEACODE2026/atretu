@@ -78,14 +78,10 @@ const administratorOperationalEndpoints = [
   [StudentPhotosController, undefined],
   [OfficialDocumentModelsController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
-  [InvoicesController, "listInvoices"],
-  [InvoicesController, "getInvoice"],
-  [InvoicesController, "listStudentInvoices"],
   [InvoicesController, "previewInvoice"],
   [InvoicesController, "createInvoice"],
   [InvoicesController, "cancelInvoice"],
   [BankSlipsController, "issueForInvoice"],
-  [BankSlipsController, "getByInvoice"],
   [BankSlipsController, "syncByInvoice"],
   [BankSlipsController, "createIssueBatch"],
   [BankSlipsController, "previewIssueBatch"],
@@ -113,6 +109,13 @@ const administratorOperationalEndpoints = [
   [ManualFinancialMovementsController, "viewAttachment"],
   [ManualFinancialMovementsController, "downloadAttachment"],
   [StudentsController, "listStudentLegacyFinancialHistory"],
+] as const;
+
+const financeInvoiceViewEndpoints = [
+  [InvoicesController, "listInvoices"],
+  [InvoicesController, "getInvoice"],
+  [InvoicesController, "listStudentInvoices"],
+  [BankSlipsController, "getByInvoice"],
 ] as const;
 
 const studentAuxiliaryReferenceEndpoints = [
@@ -156,6 +159,19 @@ for (const item of administratorOperationalEndpoints) {
   }
 }
 
+for (const item of financeInvoiceViewEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after finance view migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["finance.invoices.view"],
+    `${item[0].name}.${item[1]} must require finance.invoices.view`,
+  );
+}
+
 for (const item of studentAuxiliaryReferenceEndpoints) {
   assert.deepEqual(
     rolesMetadata(item[0], item[1]),
@@ -164,7 +180,14 @@ for (const item of studentAuxiliaryReferenceEndpoints) {
   );
   assert.deepEqual(
     operationalPermissionMetadata(item[0], item[1]),
-    ["students.view", "reports.view", "baseRecords.view"],
+    item[1] === "listInstitutions"
+      ? [
+          "students.view",
+          "reports.view",
+          "baseRecords.view",
+          "finance.invoices.view",
+        ]
+      : ["students.view", "reports.view", "baseRecords.view"],
     `${item[0].name}.${item[1]} must preserve auxiliary permissions and allow baseRecords.view`,
   );
 }

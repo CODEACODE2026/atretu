@@ -43,11 +43,17 @@ const adminWriteEndpoints = [
 
 for (const endpoint of auxiliaryReadEndpoints) {
   assert.deepEqual(rolesMetadata(BaseRecordsController, endpoint), []);
-  assert.deepEqual(operationalPermissions(BaseRecordsController, endpoint), [
-    "students.view",
-    "reports.view",
-    "baseRecords.view",
-  ]);
+  assert.deepEqual(
+    operationalPermissions(BaseRecordsController, endpoint),
+    endpoint === "listInstitutions"
+      ? [
+          "students.view",
+          "reports.view",
+          "baseRecords.view",
+          "finance.invoices.view",
+        ]
+      : ["students.view", "reports.view", "baseRecords.view"],
+  );
 }
 
 for (const endpoint of baseRecordsViewEndpoints) {
@@ -80,6 +86,7 @@ assert.deepEqual(
 
 const rolesGuard = new RolesGuard(new Reflector());
 const baseViewGuard = guardWithPermissions(["baseRecords.view"]);
+const financeInvoicesViewGuard = guardWithPermissions(["finance.invoices.view"]);
 const studentsViewGuard = guardWithPermissions(["students.view"]);
 const reportsViewGuard = guardWithPermissions(["reports.view"]);
 
@@ -104,6 +111,24 @@ for (const endpoint of auxiliaryReadEndpoints) {
     ),
     true,
     `${endpoint} must allow baseRecords.view module access`,
+  );
+}
+
+assert.equal(
+  await financeInvoicesViewGuard.canActivate(
+    executionContext(BaseRecordsController, "listInstitutions", user([RoleCode.USER])),
+  ),
+  true,
+  "listInstitutions must allow finance.invoices.view as a finance filter reference",
+);
+for (const endpoint of ["listShifts", "listBuses"] as const) {
+  await assert.rejects(
+    () =>
+      financeInvoicesViewGuard.canActivate(
+        executionContext(BaseRecordsController, endpoint, user([RoleCode.USER])),
+      ),
+    (error) => error instanceof ForbiddenException,
+    `${endpoint} must not be unlocked by finance.invoices.view`,
   );
 }
 

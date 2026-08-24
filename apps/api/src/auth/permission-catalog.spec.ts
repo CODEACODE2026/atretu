@@ -142,6 +142,7 @@ assert.deepEqual(ACTIVE_DELEGATABLE_PERMISSION_KEYS, [
   "studentCards.view",
   "studentCards.issue",
   "studentCards.invalidate",
+  "finance.invoices.view",
   "officialDocuments.view",
   "officialDocuments.issue",
   "baseRecords.view",
@@ -154,6 +155,7 @@ assert.equal(isActiveDelegatablePermissionKey("studentCards.issue"), true);
 assert.equal(isActiveDelegatablePermissionKey("studentCards.invalidate"), true);
 assert.equal(isActiveDelegatablePermissionKey("reports.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("reports.export"), true);
+assert.equal(isActiveDelegatablePermissionKey("finance.invoices.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("officialDocuments.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("officialDocuments.issue"), true);
 assert.equal(isActiveDelegatablePermissionKey("baseRecords.view"), true);
@@ -162,12 +164,17 @@ assert.equal(
   isActiveDelegatablePermissionKey("officialDocuments.models.manage"),
   false,
 );
-assert.equal(isActiveDelegatablePermissionKey("finance.invoices.view"), false);
+assert.equal(isActiveDelegatablePermissionKey("finance.invoices.manage"), false);
+assert.equal(isActiveDelegatablePermissionKey("finance.bankSlips.manage"), false);
+assert.equal(isActiveDelegatablePermissionKey("collections.view"), false);
+assert.equal(isActiveDelegatablePermissionKey("collections.manage"), false);
+assert.equal(isActiveDelegatablePermissionKey("manualMovements.view"), false);
+assert.equal(isActiveDelegatablePermissionKey("manualMovements.manage"), false);
 assert.equal(isActiveDelegatablePermissionKey("academicYears.manage"), false);
 assert.equal(
   DELEGATABLE_PERMISSION_CATALOG.length -
     ACTIVE_DELEGATABLE_PERMISSION_KEYS.length,
-  10,
+  9,
 );
 
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(

@@ -34,6 +34,7 @@ const administrator: ApiUser = {
     "studentCards.view",
     "studentCards.issue",
     "studentCards.invalidate",
+    "finance.invoices.view",
     "officialDocuments.view",
     "officialDocuments.issue",
     "baseRecords.view",
@@ -52,6 +53,7 @@ for (const area of [
   "reenrollments",
   "pre-registrations",
   "student-cards",
+  "finance",
   "official-documents",
   "base",
   "reports",
@@ -82,6 +84,16 @@ const userOnlyStudentCardsView: ApiUser = {
 assert.equal(canAccessMigratedArea(userOnlyStudentCardsView, "student-cards"), true);
 assert.equal(canAccessMigratedArea(userOnlyStudentCardsView, "students"), false);
 
+const userOnlyFinanceInvoicesView: ApiUser = {
+  ...baseUser,
+  capabilities: ["finance.invoices.view"],
+  roles: ["USER"],
+};
+
+assert.equal(canAccessMigratedArea(userOnlyFinanceInvoicesView, "finance"), true);
+assert.equal(canAccessMigratedArea(userOnlyFinanceInvoicesView, "students"), false);
+assert.equal(canAccessMigratedArea(userOnlyFinanceInvoicesView, "reports"), false);
+
 const userOnlyBaseRecordsView: ApiUser = {
   ...baseUser,
   capabilities: ["baseRecords.view"],
@@ -110,6 +122,7 @@ const adminShellSource = readFileSync(
   "utf8",
 );
 assert.match(adminShellSource, /nextArea === "student-cards"/);
+assert.match(adminShellSource, /nextArea === "finance"/);
 assert.match(adminShellSource, /nextArea === "base"/);
 assert.match(adminShellSource, /canManageBaseRecords/);
 assert.match(adminShellSource, /accessibleDomains/);
@@ -122,7 +135,8 @@ const financePanelSource = readFileSync(
   new URL("../src/app/admin/finance-panel.tsx", import.meta.url),
   "utf8",
 );
-assert.match(financePanelSource, /const canViewCollections = canAccessOperationalAdmin\(user\);/);
+assert.match(financePanelSource, /const canManageFinance = canAccessOperationalAdmin\(user\);/);
+assert.match(financePanelSource, /const canViewCollections = canManageFinance;/);
 assert.match(financePanelSource, /const canRetryIssueBatches = canAccessRestrictedAdmin\(user\);/);
 assert.match(financePanelSource, /return canAccessRestrictedAdmin\(user\);/);
 

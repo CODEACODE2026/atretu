@@ -11,6 +11,7 @@ export function InvoiceList({
   canCancelSlip,
   canDownloadPdf,
   canIssue,
+  canManageActions,
   expandedInvoiceId,
   hasActiveFilters,
   invoices,
@@ -33,6 +34,7 @@ export function InvoiceList({
   canCancelSlip: (invoice: InvoiceRecord, bankSlip: BankSlipListRecord | null | undefined) => boolean;
   canDownloadPdf: (bankSlip: BankSlipListRecord | null | undefined) => boolean;
   canIssue: (invoice: InvoiceRecord, bankSlip: BankSlipListRecord | null | undefined) => boolean;
+  canManageActions: boolean;
   expandedInvoiceId: string;
   hasActiveFilters: boolean;
   invoices: InvoiceRecord[];
@@ -96,6 +98,7 @@ export function InvoiceList({
             canCancelSlip={canCancelSlip(invoice, bankSlip)}
             canDownloadPdf={canDownloadPdf(bankSlip)}
             canIssue={canIssue(invoice, bankSlip)}
+            canManageActions={canManageActions}
             checked={selectedInvoiceIds.includes(invoice.id)}
             expanded={expandedInvoiceId === invoice.id}
             invoice={invoice}

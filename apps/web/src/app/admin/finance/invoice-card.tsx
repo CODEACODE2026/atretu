@@ -20,6 +20,7 @@ export function InvoiceCard({
   canCancelSlip,
   canDownloadPdf,
   canIssue,
+  canManageActions,
   checked,
   expanded,
   invoice,
@@ -40,6 +41,7 @@ export function InvoiceCard({
   canCancelSlip: boolean;
   canDownloadPdf: boolean;
   canIssue: boolean;
+  canManageActions: boolean;
   checked: boolean;
   expanded: boolean;
   invoice: InvoiceRecord;
@@ -63,24 +65,27 @@ export function InvoiceCard({
       busy={busy}
       expanded={expanded}
       expandedActions={
-        <SecondaryActions
-          bankSlip={bankSlip}
-          busy={busy}
-          canCancelInvoice={canCancelInvoice}
-          canCancelSlip={canCancelSlip}
-          onCancelInvoice={onCancelInvoice}
-          onCancelSlip={onCancelSlip}
-          onCopy={onCopy}
-          onIssue={onIssue}
-          onPdf={onPdf}
-          onSync={onSync}
-          onViewError={onViewError}
-          primaryAction={primaryAction}
-        />
+        canManageActions ? (
+          <SecondaryActions
+            bankSlip={bankSlip}
+            busy={busy}
+            canCancelInvoice={canCancelInvoice}
+            canCancelSlip={canCancelSlip}
+            onCancelInvoice={onCancelInvoice}
+            onCancelSlip={onCancelSlip}
+            onCopy={onCopy}
+            onIssue={onIssue}
+            onPdf={onPdf}
+            onSync={onSync}
+            onViewError={onViewError}
+            primaryAction={primaryAction}
+          />
+        ) : null
       }
       expandedChildren={<InvoiceDetails bankSlip={bankSlip} invoice={invoice} />}
       invoice={invoice}
       leadingAction={
+        canManageActions ? (
           <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">
             <input
               checked={checked}
@@ -91,6 +96,7 @@ export function InvoiceCard({
             />
             Selecionar
           </label>
+        ) : null
       }
       onToggleDetails={onToggleDetails}
     />

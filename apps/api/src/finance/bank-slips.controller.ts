@@ -14,6 +14,8 @@ import { RoleCode } from "@prisma/client";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -36,7 +38,7 @@ import {
   SyncPaidBankSlipsDayDto,
 } from "./dto/bank-slips.dto.js";
 
-@UseGuards(AuthGuard, RolesGuard)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller()
 export class BankSlipsController {
   constructor(
@@ -44,6 +46,7 @@ export class BankSlipsController {
   ) {}
 
   @Post("finance/invoices/:invoiceId/bank-slip/issue")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   issueForInvoice(
     @Param() params: InvoiceBankSlipParamsDto,
@@ -53,7 +56,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/invoices/:invoiceId/bank-slip")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.invoices.view")
   getByInvoice(
     @Param() params: InvoiceBankSlipParamsDto,
     @CurrentUser() user: AuthUser,
@@ -62,12 +65,14 @@ export class BankSlipsController {
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/sync")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   syncByInvoice(@Param() params: InvoiceBankSlipParamsDto, @CurrentUser() user: AuthUser) {
     return this.bankSlips.syncByInvoice(params.invoiceId, user.id, user);
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/recover-issued")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   recoverIssuedFromProviderResponse(
     @Param() params: InvoiceBankSlipParamsDto,
@@ -83,6 +88,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slips/sync-paid-day")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   syncPaidByDay(
     @Body() body: SyncPaidBankSlipsDayDto,
@@ -92,30 +98,35 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slips/sync-open-issued")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   syncOpenIssued(@CurrentUser() user: AuthUser) {
     return this.bankSlips.syncOpenIssued(user.id);
   }
 
   @Post("finance/bank-slips/recover-pdfs")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   recoverBankSlipPdfs(@Body() body: RecoverBankSlipPdfsDto) {
     return this.bankSlips.recoverMissingPdfs(body.limit);
   }
 
   @Get("finance/bank-slip-sync-runs")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   listSyncRuns(@Query() query: ListBankSlipSyncRunsDto) {
     return this.bankSlips.listSyncRuns(query);
   }
 
   @Get("finance/bank-slip-sync-runs/:runId")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   getSyncRun(@Param() params: BankSlipSyncRunParamsDto) {
     return this.bankSlips.getSyncRun(params.runId);
   }
 
   @Get("finance/bank-slip-sync-runs/:runId/items")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   listSyncRunItems(
     @Param() params: BankSlipSyncRunParamsDto,
@@ -125,6 +136,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   createIssueBatch(
     @Body() body: CreateBankSlipIssueBatchDto,
@@ -141,6 +153,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches/preview")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   previewIssueBatch(
     @Body() body: PreviewBankSlipIssueBatchDto,
@@ -150,6 +163,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   listIssueBatches(
     @Query() query: ListBankSlipIssueBatchesDto,
@@ -159,6 +173,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   getIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
@@ -168,6 +183,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/items")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   listIssueBatchItems(
     @Param() params: BankSlipIssueBatchParamsDto,
@@ -178,6 +194,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/download")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
@@ -209,6 +226,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches/:batchId/cancel")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   cancelIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
@@ -219,6 +237,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches/:batchId/retry-failed")
+  @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
   retryFailedIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
@@ -229,6 +248,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/cancel")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   requestCancellation(
     @Param() params: InvoiceBankSlipParamsDto,
@@ -244,6 +264,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/invoices/:invoiceId/bank-slip/pdf")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")

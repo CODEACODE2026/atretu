@@ -88,7 +88,7 @@ import {
 import { FinancialReportsPanel } from "./finance/financial-reports-panel";
 import { ManualMovementsPanel } from "./finance/manual-movements-panel";
 
-type FinanceInitialArea = Extract<FinanceArea, "invoices" | "collections">;
+type FinanceInitialArea = FinanceArea;
 type InvoiceInitialFilters = {
   academicYearId?: string;
   institutionId?: string;
@@ -134,7 +134,8 @@ export function FinancePanel({
   user: ApiUser;
 }) {
   const [financeArea, setFinanceArea] = useState<FinanceArea>(initialArea);
-  const canViewCollections = canAccessOperationalAdmin(user);
+  const canManageFinance = canAccessOperationalAdmin(user);
+  const canViewCollections = canManageFinance;
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<
@@ -319,8 +320,10 @@ export function FinancePanel({
 
   useEffect(() => {
     void loadReferences();
-    void loadIssueBatches();
-  }, []);
+    if (canManageFinance) {
+      void loadIssueBatches();
+    }
+  }, [canManageFinance]);
 
   useEffect(() => {
     if (financeArea === "overview") {
@@ -330,9 +333,15 @@ export function FinancePanel({
 
   useEffect(() => {
     setFinanceArea(
-      initialArea === "collections" && !canViewCollections ? "invoices" : initialArea,
+      !canManageFinance &&
+        (initialArea === "collections" ||
+          initialArea === "batches" ||
+          initialArea === "movements" ||
+          initialArea === "reports")
+        ? "invoices"
+        : initialArea,
     );
-  }, [canViewCollections, initialArea]);
+  }, [canManageFinance, initialArea]);
 
   useEffect(() => {
     if (!initialInvoiceFilters) {
@@ -379,14 +388,14 @@ export function FinancePanel({
   }, [createInvoiceDialogOpen, saving]);
 
   useEffect(() => {
-    if (!issueBatch || !isIssueBatchRunning(issueBatch)) {
+    if (!canManageFinance || !issueBatch || !isIssueBatchRunning(issueBatch)) {
       return;
     }
     const interval = window.setInterval(() => {
       void refreshIssueBatch(issueBatch.id);
     }, 3000);
     return () => window.clearInterval(interval);
-  }, [issueBatch?.id, issueBatch?.status]);
+  }, [canManageFinance, issueBatch?.id, issueBatch?.status]);
 
   async function loadReferences() {
     setError("");
@@ -1417,6 +1426,16 @@ export function FinancePanel({
   }
 
   function changeFinanceArea(area: FinanceArea) {
+    if (
+      !canManageFinance &&
+      (area === "batches" ||
+        area === "collections" ||
+        area === "movements" ||
+        area === "reports")
+    ) {
+      setFinanceArea("invoices");
+      return;
+    }
     setFinanceArea(area);
     if (area === "batches") {
       window.setTimeout(() => {
@@ -1435,15 +1454,17 @@ export function FinancePanel({
 
   const invoiceActions = (
     <div className="flex flex-wrap gap-2 sm:justify-end">
-      <button
-        className={adminTheme.primaryButton}
-        onClick={openCreateInvoiceDialog}
-        ref={createInvoiceButtonRef}
-        type="button"
-      >
-        <Plus aria-hidden="true" className="h-4 w-4" />
-        Nova fatura
-      </button>
+      {canManageFinance ? (
+        <button
+          className={adminTheme.primaryButton}
+          onClick={openCreateInvoiceDialog}
+          ref={createInvoiceButtonRef}
+          type="button"
+        >
+          <Plus aria-hidden="true" className="h-4 w-4" />
+          Nova fatura
+        </button>
+      ) : null}
       {canSyncPaidDay(user) ? (
         <button
           className={adminTheme.secondaryButton}
@@ -1482,6 +1503,7 @@ export function FinancePanel({
       </section>
       <FinanceNavigation
         activeArea={financeArea}
+        canManageFinance={canManageFinance}
         canViewCollections={canViewCollections}
         onChange={changeFinanceArea}
       />
@@ -1675,7 +1697,7 @@ export function FinancePanel({
     );
   }
 
-  if (financeArea === "movements") {
+  if (financeArea === "movements" && canManageFinance) {
     return (
       <div className="grid min-w-0 gap-5">
         {financeHeader}
@@ -1684,7 +1706,7 @@ export function FinancePanel({
     );
   }
 
-  if (financeArea === "reports") {
+  if (financeArea === "reports" && canManageFinance) {
     return (
       <div className="grid min-w-0 gap-5">
         {financeHeader}
@@ -2200,24 +2222,33 @@ export function FinancePanel({
               </div>
             ) : null}
 
-            <div className="mt-4 px-4">
-              <InvoiceBulkActionBar
-                disabled={saving || loading}
-                onClear={() => setSelectedInvoiceIds([])}
-                onCreateBatch={() => void handleCreateIssueBatch()}
-                onSelectEligible={selectAllEligibleInvoices}
-                selectedCount={selectedInvoiceIds.length}
-              />
-            </div>
+            {canManageFinance ? (
+              <div className="mt-4 px-4">
+                <InvoiceBulkActionBar
+                  disabled={saving || loading}
+                  onClear={() => setSelectedInvoiceIds([])}
+                  onCreateBatch={() => void handleCreateIssueBatch()}
+                  onSelectEligible={selectAllEligibleInvoices}
+                  selectedCount={selectedInvoiceIds.length}
+                />
+              </div>
+            ) : null}
 
             <div className="mt-3 px-4">
               <InvoiceList
                 bankSlipAction={bankSlipAction}
                 bankSlips={bankSlips}
-                canCancelInvoice={canCancelInvoiceDirectly}
-                canCancelSlip={canRequestBankSlipCancellation}
-                canDownloadPdf={canDownloadBankSlipPdf}
-                canIssue={canIssueBankSlip}
+                canCancelInvoice={
+                  canManageFinance ? canCancelInvoiceDirectly : () => false
+                }
+                canCancelSlip={
+                  canManageFinance ? canRequestBankSlipCancellation : () => false
+                }
+                canDownloadPdf={
+                  canManageFinance ? canDownloadBankSlipPdf : () => false
+                }
+                canIssue={canManageFinance ? canIssueBankSlip : () => false}
+                canManageActions={canManageFinance}
                 expandedInvoiceId={expandedInvoiceId}
                 hasActiveFilters={hasActiveFilters}
                 invoices={visibleInvoices}
@@ -2241,7 +2272,7 @@ export function FinancePanel({
           </section>
         </>
       ) : null}
-      {financeArea === "batches" ? batchManagementSection : null}
+      {financeArea === "batches" && canManageFinance ? batchManagementSection : null}
 
       {issueBatchDownloadPanelOpen ? (
         <div className="fixed inset-0 z-50 bg-slate-950/40">
@@ -2321,6 +2352,7 @@ export function StudentInvoicesForStudent({
   user: ApiUser;
   onChanged: () => Promise<void>;
 }) {
+  const canManageFinance = canAccessOperationalAdmin(user);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [bankSlips, setBankSlips] = useState<
     Record<string, BankSlipListRecord | null | undefined>
@@ -2663,17 +2695,19 @@ export function StudentInvoicesForStudent({
             Faturas, boletos e situação financeira vinculados às matrículas.
           </p>
         </div>
-        <button
-          className={adminTheme.primaryButton}
-          onClick={() => {
-            setCreateFormOpen((current) => !current);
-            setPreview(null);
-          }}
-          type="button"
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          {createFormOpen ? "Fechar formulário" : "Nova fatura"}
-        </button>
+        {canManageFinance ? (
+          <button
+            className={adminTheme.primaryButton}
+            onClick={() => {
+              setCreateFormOpen((current) => !current);
+              setPreview(null);
+            }}
+            type="button"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {createFormOpen ? "Fechar formulário" : "Nova fatura"}
+          </button>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -2704,7 +2738,7 @@ export function StudentInvoicesForStudent({
         />
       </div>
 
-      {createFormOpen ? (
+      {createFormOpen && canManageFinance ? (
         <div className={cx(adminTheme.card, "p-4")}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -2856,17 +2890,19 @@ export function StudentInvoicesForStudent({
             <div>
               <p className="font-semibold text-slate-950">Nenhuma fatura criada</p>
               <p className="mt-1 text-slate-500">
-                Crie a primeira fatura quando houver uma matrícula elegível.
+                Nenhuma fatura operacional encontrada para este acadêmico.
               </p>
             </div>
-            <button
-              className={adminTheme.primaryButton}
-              onClick={() => setCreateFormOpen(true)}
-              type="button"
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Criar primeira fatura
-            </button>
+            {canManageFinance ? (
+              <button
+                className={adminTheme.primaryButton}
+                onClick={() => setCreateFormOpen(true)}
+                type="button"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Criar primeira fatura
+              </button>
+            ) : null}
           </div>
         ) : (
           invoices.map((invoice) => {
@@ -2885,6 +2921,7 @@ export function StudentInvoicesForStudent({
                 onSync={() => void handleSyncBankSlip(invoice)}
                 onToggleDetails={() => void toggleBankSlipDetails(invoice)}
                 key={invoice.id}
+                canManageActions={canManageFinance}
               />
             );
           })
@@ -3242,6 +3279,7 @@ function emptyLegacyFinancialSummary(): LegacyFinancialHistoryResponse["summary"
 function StudentInvoiceCard({
   bankSlip,
   busy,
+  canManageActions,
   expanded,
   invoice,
   onCancelInvoice,
@@ -3254,6 +3292,7 @@ function StudentInvoiceCard({
 }: {
   bankSlip: BankSlipListRecord | null | undefined;
   busy: boolean;
+  canManageActions: boolean;
   expanded: boolean;
   invoice: InvoiceRecord;
   onCancelInvoice: () => void;
@@ -3271,6 +3310,7 @@ function StudentInvoiceCard({
       busy={busy}
       expanded={expanded}
       expandedActions={
+        canManageActions ? (
         <>
           {primaryAction === "issue" ? (
             <button
@@ -3360,6 +3400,7 @@ function StudentInvoiceCard({
             </button>
           ) : null}
         </>
+        ) : null
       }
       expandedChildren={<InvoiceDetails bankSlip={bankSlip} invoice={invoice} />}
       invoice={invoice}

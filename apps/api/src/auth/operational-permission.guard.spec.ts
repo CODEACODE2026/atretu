@@ -18,6 +18,13 @@ class DashboardController {
   }
 }
 
+class FinanceInvoicesController {
+  @OperationalPermission("finance.invoices.view")
+  handler() {
+    return true;
+  }
+}
+
 class PublicController {
   handler() {
     return true;
@@ -78,14 +85,15 @@ assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.SECRETARIA]), [
 assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.GESTOR]), []);
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.length,
-  19,
-  "Sprint 15.10F.2E.1 must expose exactly 19 operational capabilities",
+  20,
+  "Sprint 15.10F.2F must expose exactly 20 operational capabilities",
 );
 assert.deepEqual(SPRINT_OPERATIONAL_PERMISSION_KEYS.slice(-3), [
   "baseRecords.view",
   "reports.view",
   "reports.export",
 ]);
+assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.invoices.view"));
 
 assert.equal(
   await guardWithProfile(null).guard.canActivate(
@@ -114,6 +122,18 @@ assert.equal(
   await activeUserGuard.guard.canActivate(
     executionContext(
       DashboardController,
+      user({ permissionProfileId: "profile-1", roles: [RoleCode.USER] }),
+    ) as never,
+  ),
+  true,
+);
+
+assert.equal(
+  await guardWithProfile({
+    permissions: [{ permissionKey: "finance.invoices.view" }],
+  }).guard.canActivate(
+    executionContext(
+      FinanceInvoicesController,
       user({ permissionProfileId: "profile-1", roles: [RoleCode.USER] }),
     ) as never,
   ),
@@ -164,9 +184,18 @@ await assert.rejects(
   (error) => error instanceof ForbiddenException,
 );
 
-assert.throws(
-  () => OperationalPermission("finance.invoices.view" as never),
-  /PermissionKey operacional invalida/,
-);
+for (const inactiveFinancePermission of [
+  "finance.invoices.manage",
+  "finance.bankSlips.manage",
+  "collections.view",
+  "collections.manage",
+  "manualMovements.view",
+  "manualMovements.manage",
+] as const) {
+  assert.throws(
+    () => OperationalPermission(inactiveFinancePermission as never),
+    /PermissionKey operacional invalida/,
+  );
+}
 
 console.log("Operational permission guard OK");

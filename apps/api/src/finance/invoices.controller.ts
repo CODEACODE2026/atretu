@@ -10,6 +10,8 @@ import {
 } from "@nestjs/common";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -21,7 +23,7 @@ import {
 } from "./dto/invoices.dto.js";
 import { InvoicesService } from "./invoices.service.js";
 
-@UseGuards(AuthGuard, RolesGuard)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller()
 export class InvoicesController {
   constructor(
@@ -29,19 +31,19 @@ export class InvoicesController {
   ) {}
 
   @Get("finance/invoices")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.invoices.view")
   listInvoices(@Query() query: ListInvoicesDto, @CurrentUser() user: AuthUser) {
     return this.invoices.listInvoices(query, user);
   }
 
   @Get("finance/invoices/:id")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.invoices.view")
   getInvoice(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.invoices.getInvoice(id, user);
   }
 
   @Get("students/:studentId/invoices")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.invoices.view")
   listStudentInvoices(
     @Param("studentId") studentId: string,
     @CurrentUser() user: AuthUser,
@@ -50,6 +52,7 @@ export class InvoicesController {
   }
 
   @Get("students/:studentId/invoice-preview")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   previewInvoice(
     @Param("studentId") studentId: string,
@@ -60,6 +63,7 @@ export class InvoicesController {
   }
 
   @Post("students/:studentId/invoices")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   createInvoice(
     @Param("studentId") studentId: string,
@@ -70,6 +74,7 @@ export class InvoicesController {
   }
 
   @Post("finance/invoices/:id/cancel")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   cancelInvoice(
     @Param("id") id: string,

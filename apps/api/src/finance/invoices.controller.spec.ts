@@ -1,0 +1,56 @@
+import "reflect-metadata";
+import assert from "node:assert/strict";
+import { AuthGuard } from "../auth/auth.guard.js";
+import {
+  OPERATIONAL_PERMISSIONS_KEY,
+} from "../auth/operational-permissions.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
+import { RolesGuard } from "../auth/roles.guard.js";
+import { InvoicesController } from "./invoices.controller.js";
+
+const GUARDS_METADATA_KEY = "__guards__";
+
+assert.deepEqual(
+  Reflect.getMetadata(GUARDS_METADATA_KEY, InvoicesController),
+  [AuthGuard, OperationalPermissionGuard],
+);
+
+for (const method of [
+  "listInvoices",
+  "getInvoice",
+  "listStudentInvoices",
+] as const) {
+  assert.deepEqual(
+    Reflect.getMetadata(
+      OPERATIONAL_PERMISSIONS_KEY,
+      InvoicesController.prototype[method],
+    ),
+    ["finance.invoices.view"],
+    `${method} must be USER-readable through finance.invoices.view`,
+  );
+  assert.equal(
+    Reflect.getMetadata("roles", InvoicesController.prototype[method]),
+    undefined,
+    `${method} must not keep RolesGuard-only authorization`,
+  );
+}
+
+for (const method of [
+  "previewInvoice",
+  "createInvoice",
+  "cancelInvoice",
+] as const) {
+  assert.deepEqual(
+    Reflect.getMetadata(GUARDS_METADATA_KEY, InvoicesController.prototype[method]),
+    [RolesGuard],
+    `${method} must keep operational role guard`,
+  );
+  assert.deepEqual(
+    Reflect.getMetadata("roles", InvoicesController.prototype[method]),
+    [...OPERATIONAL_ADMIN_ROLES],
+    `${method} must stay restricted to operational admin roles`,
+  );
+}
+
+console.log("Invoices controller permissions OK");

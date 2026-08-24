@@ -183,6 +183,7 @@ export const ACTIVE_DELEGATABLE_PERMISSION_KEYS = [
   "studentCards.view",
   "studentCards.issue",
   "studentCards.invalidate",
+  "finance.invoices.view",
   "officialDocuments.view",
   "officialDocuments.issue",
   "baseRecords.view",

@@ -35,7 +35,12 @@ export class BaseRecordsController {
 
   @Get("institutions")
   @UseGuards(OperationalPermissionGuard)
-  @OperationalPermission("students.view", "reports.view", "baseRecords.view")
+  @OperationalPermission(
+    "students.view",
+    "reports.view",
+    "baseRecords.view",
+    "finance.invoices.view",
+  )
   listInstitutions(
     @Query() query: ListBaseRecordsDto,
     @CurrentUser() user: AuthUser,
