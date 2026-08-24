@@ -21,7 +21,7 @@ import type {
   OfficialDocumentModel,
 } from "../../../lib/api";
 import { api } from "../../../lib/api";
-import { canAccessOperationalAdmin, hasCapability } from "../../../lib/auth";
+import { hasCapability } from "../../../lib/auth";
 import { onlyDigits } from "../../../lib/formatters";
 import {
   AdminEmptyState,
@@ -71,7 +71,7 @@ export function StudentOfficialDocuments({
   const [invalidateDialog, setInvalidateDialog] =
     useState<OfficialDocumentIssue | null>(null);
   const canIssueOfficialDocuments = hasCapability(user, "officialDocuments.issue");
-  const canUseDynamicModels = canAccessOperationalAdmin(user);
+  const canUseDynamicModels = canIssueOfficialDocuments;
   const canInvalidate = user.roles.includes("SUPER_ADMIN");
 
   useEffect(() => {

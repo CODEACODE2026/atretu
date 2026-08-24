@@ -164,6 +164,8 @@ for (const fragment of [
 for (const fragment of [
   "Institucionais",
   "Modelos",
+  "Emissão",
+  "Emissão estudantil",
   "Documentos emitidos",
   "Todos",
   "Válidos",
@@ -196,6 +198,7 @@ for (const fragment of [
   "signerPreview",
   'hasCapability(user, "officialDocuments.issue")',
   "canManageModels",
+  "StudentOfficialDocuments",
 ]) {
   assert.ok(
     institutional.includes(fragment),
@@ -234,7 +237,7 @@ for (const fragment of [
   "Data da notificacao",
   "Inadimplência",
   'hasCapability(user, "officialDocuments.issue")',
-  "canUseDynamicModels",
+  "const canUseDynamicModels = canIssueOfficialDocuments",
   "canIssue={canIssueOfficialDocuments}",
 ]) {
   assert.ok(official.includes(fragment), `official documents UI must include ${fragment}`);

@@ -2,7 +2,7 @@ import "reflect-metadata";
 import assert from "node:assert/strict";
 import { ForbiddenException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { RoleCode, UserStatus } from "@prisma/client";
+import { OfficialDocumentModelStatus, RoleCode, UserStatus } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import type { SprintOperationalPermissionKey } from "../auth/operational-permissions.js";
@@ -53,6 +53,7 @@ await testUserIssuePermissions();
 await testUserWithoutPermissionIsDenied();
 await testFixedRolesAndGestorPolicy();
 await testModelsManageRemainsRoleGuarded();
+await testIssueUsersMayOnlyListActiveModelsForIssuing();
 await testIssueListingInstitutionScope();
 
 async function testControllerUsesOperationalGuard() {
@@ -199,6 +200,65 @@ async function testModelsManageRemainsRoleGuarded() {
     ),
     undefined,
   );
+}
+
+async function testIssueUsersMayOnlyListActiveModelsForIssuing() {
+  assert.deepEqual(
+    Reflect.getMetadata("roles", OfficialDocumentModelsController.prototype.listModels),
+    [],
+    "listModels must override the class role gate for issuing users",
+  );
+  assert.deepEqual(
+    Reflect.getMetadata(
+      "operationalPermissions",
+      OfficialDocumentModelsController.prototype.listModels,
+    ),
+    ["officialDocuments.issue"],
+  );
+
+  const rolesGuard = new RolesGuard(new Reflector());
+  assert.equal(
+    rolesGuard.canActivate(
+      modelContext("listModels", operationalUser({ roles: [RoleCode.USER] })),
+    ),
+    true,
+    "USER with issue must pass the read-only model list role override",
+  );
+
+  const guard = guardWithProfile([
+    "officialDocuments.view",
+    "officialDocuments.issue",
+  ]);
+  assert.equal(
+    await guard.canActivate(modelContext("listModels", operationalUser())),
+    true,
+  );
+
+  const controller = new OfficialDocumentModelsController({
+    listModels: (status: unknown) => ({ status }),
+  } as never);
+  assert.deepEqual(
+    controller.listModels(OfficialDocumentModelStatus.ACTIVE, operationalUser()),
+    { status: OfficialDocumentModelStatus.ACTIVE },
+  );
+  assert.throws(
+    () => controller.listModels(undefined, operationalUser()),
+    (error) => error instanceof ForbiddenException,
+    "USER issue must not list every model status",
+  );
+}
+
+function modelContext(
+  method: keyof OfficialDocumentModelsController,
+  user: AuthUser,
+) {
+  return {
+    getClass: () => OfficialDocumentModelsController,
+    getHandler: () => OfficialDocumentModelsController.prototype[method],
+    switchToHttp: () => ({
+      getRequest: () => ({ user }),
+    }),
+  } as never;
 }
 
 async function testIssueListingInstitutionScope() {

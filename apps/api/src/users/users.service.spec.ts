@@ -45,12 +45,17 @@ function createPrisma() {
       name: "Atendimento",
       description: "Operacional",
       isActive: true,
+      permissions: [
+        { permissionKey: "officialDocuments.view" },
+        { permissionKey: "officialDocuments.issue" },
+      ],
     },
     {
       id: "44444444-4444-4444-8444-444444444444",
       name: "Inativo",
       description: null,
       isActive: false,
+      permissions: [],
     },
   ];
   const institutions = [
@@ -306,6 +311,18 @@ assert.equal(created.user.mustChangePassword, true);
 assert.equal(created.user.institutionIds.length, 2);
 assert.equal(created.user.phone, "44999998888");
 assert.equal(created.user.position, "Atendimento");
+const authMeUser = await service.withOperationalCapabilities({
+  email: created.user.email,
+  id: created.user.id,
+  name: created.user.name,
+  permissionProfileId: created.user.permissionProfileId,
+  roles: [RoleCode.USER],
+  status: UserStatus.ACTIVE,
+});
+assert.deepEqual(authMeUser.capabilities, [
+  "officialDocuments.view",
+  "officialDocuments.issue",
+]);
 assert.equal(created.user.permissionProfileId, prisma.permissionProfiles[0]!.id);
 assert.equal(created.user.permissionProfile?.name, "Atendimento");
 assert.equal(typeof created.temporaryPassword, "string");

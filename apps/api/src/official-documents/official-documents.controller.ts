@@ -1,6 +1,7 @@
 import {
   Controller,
   Body,
+  ForbiddenException,
   Get,
   Inject,
   Param,
@@ -31,6 +32,10 @@ import {
   UpdateOfficialDocumentModelStatusDto,
 } from "./dto/official-documents.dto.js";
 import { OfficialDocumentsService } from "./official-documents.service.js";
+
+function isOperationalAdmin(user: AuthUser) {
+  return OPERATIONAL_ADMIN_ROLES.some((role) => user.roles.includes(role));
+}
 
 @UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller("students/:studentId/official-documents")
@@ -202,7 +207,16 @@ export class OfficialDocumentModelsController {
   }
 
   @Get()
-  listModels(@Query("status") status?: OfficialDocumentModelStatus) {
+  @Roles()
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("officialDocuments.issue")
+  listModels(
+    @Query("status") status: OfficialDocumentModelStatus | undefined,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!isOperationalAdmin(user) && status !== OfficialDocumentModelStatus.ACTIVE) {
+      throw new ForbiddenException("Acesso negado");
+    }
     return this.officialDocuments.listModels(status);
   }
 

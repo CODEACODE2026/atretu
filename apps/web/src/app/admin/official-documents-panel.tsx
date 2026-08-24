@@ -38,9 +38,10 @@ import {
   AdminSectionHeader,
   AdminStatusBadge,
 } from "./components/admin-ui";
+import { StudentOfficialDocuments } from "./students/student-official-documents";
 import { formatDateTime } from "./students/student-profile-utils";
 
-type OfficialDocumentsTab = "models" | "issued" | "institutional";
+type OfficialDocumentsTab = "models" | "issue" | "issued" | "institutional";
 
 export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
   const [documents, setDocuments] = useState<OfficialDocumentCatalogItem[]>([]);
@@ -48,6 +49,10 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
   const [modelIssues, setModelIssues] = useState<OfficialDocumentIssue[]>([]);
   const [variables, setVariables] = useState<OfficialDocumentVariable[]>([]);
   const [activeTab, setActiveTab] = useState<OfficialDocumentsTab>("models");
+  const [studentSearch, setStudentSearch] = useState("");
+  const [students, setStudents] = useState<StudentSummary[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<StudentSummary | null>(null);
+  const [searchingStudents, setSearchingStudents] = useState(false);
   const [issueSearch, setIssueSearch] = useState("");
   const [issueStatus, setIssueStatus] =
     useState<OfficialDocumentIssueStatusFilter>("all");
@@ -76,12 +81,20 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
 
   useEffect(() => {
     if (activeTab === "models" && !canManageModels) {
-      setActiveTab("issued");
+      setActiveTab(canIssueOfficialDocuments ? "issue" : "issued");
     }
     if (activeTab === "institutional" && !canAccessInstitutionalDocuments) {
       setActiveTab("issued");
     }
-  }, [activeTab, canAccessInstitutionalDocuments, canManageModels]);
+    if (activeTab === "issue" && !canIssueOfficialDocuments) {
+      setActiveTab("issued");
+    }
+  }, [
+    activeTab,
+    canAccessInstitutionalDocuments,
+    canIssueOfficialDocuments,
+    canManageModels,
+  ]);
 
   async function loadDocuments() {
     setLoading(true);
@@ -287,6 +300,36 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
     }
   }
 
+  async function searchStudentsForIssue() {
+    const search = studentSearch.trim();
+    if (!search) {
+      setError("Informe nome, CPF ou carteirinha para buscar.");
+      return;
+    }
+    setSearchingStudents(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await api.listStudents({
+        limit: 8,
+        search,
+        sort: "name",
+        status: "all",
+      });
+      setStudents(response.data);
+      if (response.data.length === 0) {
+        setSelectedStudent(null);
+        setError("Nenhum acadêmico encontrado.");
+      }
+    } catch (caught) {
+      setStudents([]);
+      setSelectedStudent(null);
+      setError(caught instanceof Error ? caught.message : "Erro ao buscar acadêmico.");
+    } finally {
+      setSearchingStudents(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <AdminModuleHeader
@@ -300,6 +343,11 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
         {canManageModels ? (
           <DocumentsTabButton active={activeTab === "models"} onClick={() => setActiveTab("models")}>
             Modelos
+          </DocumentsTabButton>
+        ) : null}
+        {canIssueOfficialDocuments ? (
+          <DocumentsTabButton active={activeTab === "issue"} onClick={() => setActiveTab("issue")}>
+            Emissão
           </DocumentsTabButton>
         ) : null}
         <DocumentsTabButton active={activeTab === "issued"} onClick={() => setActiveTab("issued")}>
@@ -349,6 +397,83 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
                 onToggle={() => void toggleModel(model)}
               />
             ))
+          )}
+        </div>
+      </section>
+      ) : null}
+
+      {activeTab === "issue" ? (
+      <section className={adminTheme.card}>
+        <AdminSectionHeader
+          description="Selecione um acadêmico permitido para emitir ou reemitir documentos oficiais estudantis."
+          title="Emissão estudantil"
+        />
+        <div className="grid gap-4 p-4">
+          <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <h2 className="text-sm font-semibold text-slate-950">Acadêmico</h2>
+            <div className="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row">
+              <input
+                className={cx(adminTheme.control, "min-w-0 flex-1")}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void searchStudentsForIssue();
+                  }
+                }}
+                placeholder="Nome, CPF ou carteirinha"
+                type="search"
+                value={studentSearch}
+              />
+              <button
+                className={cx(adminTheme.primaryButton, "justify-center")}
+                disabled={searchingStudents || Boolean(busy)}
+                onClick={() => void searchStudentsForIssue()}
+                type="button"
+              >
+                <Search size={16} />
+                {searchingStudents ? "Buscando..." : "Buscar"}
+              </button>
+            </div>
+            {students.length > 0 ? (
+              <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                {students.map((student) => {
+                  const selected = selectedStudent?.id === student.id;
+                  return (
+                    <button
+                      className={cx(
+                        "min-w-0 rounded-lg border p-3 text-left text-sm transition",
+                        selected
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-white",
+                      )}
+                      key={student.id}
+                      onClick={() => setSelectedStudent(student)}
+                      type="button"
+                    >
+                      <span className="block break-words font-semibold text-slate-950">
+                        {student.person.fullName}
+                      </span>
+                      <span className="mt-1 block break-words text-xs text-slate-600">
+                        {student.person.cpfMasked} ·{" "}
+                        {student.currentStudentCard?.cardNumber ?? "sem carteirinha ativa"} ·{" "}
+                        {student.currentEnrollment?.academicYear.year ?? "sem matrícula ativa"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+
+          {selectedStudent ? (
+            <StudentOfficialDocuments
+              studentId={selectedStudent.id}
+              studentName={selectedStudent.person.fullName}
+              user={user}
+            />
+          ) : (
+            <AdminEmptyState title="Selecione um acadêmico para iniciar a emissão" />
           )}
         </div>
       </section>
