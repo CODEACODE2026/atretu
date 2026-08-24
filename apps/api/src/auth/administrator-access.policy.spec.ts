@@ -62,17 +62,14 @@ for (const role of [RoleCode.USER, RoleCode.GESTOR]) {
 
 const administratorOperationalEndpoints = [
   [BaseRecordsController, "createInstitution"],
-  [BaseRecordsController, "getInstitution"],
   [BaseRecordsController, "updateInstitution"],
   [BaseRecordsController, "inactivateInstitution"],
   [BaseRecordsController, "reactivateInstitution"],
   [BaseRecordsController, "createShift"],
-  [BaseRecordsController, "getShift"],
   [BaseRecordsController, "updateShift"],
   [BaseRecordsController, "inactivateShift"],
   [BaseRecordsController, "reactivateShift"],
   [BaseRecordsController, "createBus"],
-  [BaseRecordsController, "getBus"],
   [BaseRecordsController, "updateBus"],
   [BaseRecordsController, "inactivateBus"],
   [BaseRecordsController, "reactivateBus"],
@@ -124,6 +121,12 @@ const studentAuxiliaryReferenceEndpoints = [
   [BaseRecordsController, "listBuses"],
 ] as const;
 
+const baseRecordsViewEndpoints = [
+  [BaseRecordsController, "getInstitution"],
+  [BaseRecordsController, "getShift"],
+  [BaseRecordsController, "getBus"],
+] as const;
+
 assert.equal(
   rolesGuard.canActivate(
     controllerExecutionContext(
@@ -161,8 +164,21 @@ for (const item of studentAuxiliaryReferenceEndpoints) {
   );
   assert.deepEqual(
     operationalPermissionMetadata(item[0], item[1]),
-    ["students.view", "reports.view"],
-    `${item[0].name}.${item[1]} must be available as a students.view or reports.view auxiliary reference`,
+    ["students.view", "reports.view", "baseRecords.view"],
+    `${item[0].name}.${item[1]} must preserve auxiliary permissions and allow baseRecords.view`,
+  );
+}
+
+for (const item of baseRecordsViewEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require base records admin roles after view migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["baseRecords.view"],
+    `${item[0].name}.${item[1]} must require only baseRecords.view for detail access`,
   );
 }
 

@@ -35,7 +35,7 @@ export class BaseRecordsController {
 
   @Get("institutions")
   @UseGuards(OperationalPermissionGuard)
-  @OperationalPermission("students.view", "reports.view")
+  @OperationalPermission("students.view", "reports.view", "baseRecords.view")
   listInstitutions(
     @Query() query: ListBaseRecordsDto,
     @CurrentUser() user: AuthUser,
@@ -54,8 +54,8 @@ export class BaseRecordsController {
   }
 
   @Get("institutions/:id")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("baseRecords.view")
   getInstitution(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.baseRecords.getInstitution(id, user);
   }
@@ -87,7 +87,7 @@ export class BaseRecordsController {
 
   @Get("shifts")
   @UseGuards(OperationalPermissionGuard)
-  @OperationalPermission("students.view", "reports.view")
+  @OperationalPermission("students.view", "reports.view", "baseRecords.view")
   listShifts(@Query() query: ListBaseRecordsDto) {
     return this.baseRecords.listShifts(query);
   }
@@ -103,8 +103,8 @@ export class BaseRecordsController {
   }
 
   @Get("shifts/:id")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("baseRecords.view")
   getShift(@Param("id") id: string) {
     return this.baseRecords.getShift(id);
   }
@@ -136,7 +136,7 @@ export class BaseRecordsController {
 
   @Get("buses")
   @UseGuards(OperationalPermissionGuard)
-  @OperationalPermission("students.view", "reports.view")
+  @OperationalPermission("students.view", "reports.view", "baseRecords.view")
   listBuses(@Query() query: ListBaseRecordsDto, @CurrentUser() user: AuthUser) {
     return this.baseRecords.listBuses(query, user);
   }
@@ -149,10 +149,10 @@ export class BaseRecordsController {
   }
 
   @Get("buses/:id")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
-  getBus(@Param("id") id: string) {
-    return this.baseRecords.getBus(id);
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("baseRecords.view")
+  getBus(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.baseRecords.getBus(id, user);
   }
 
   @Patch("buses/:id")

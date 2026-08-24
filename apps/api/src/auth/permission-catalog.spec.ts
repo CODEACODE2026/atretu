@@ -144,6 +144,7 @@ assert.deepEqual(ACTIVE_DELEGATABLE_PERMISSION_KEYS, [
   "studentCards.invalidate",
   "officialDocuments.view",
   "officialDocuments.issue",
+  "baseRecords.view",
   "reports.view",
   "reports.export",
 ]);
@@ -155,6 +156,8 @@ assert.equal(isActiveDelegatablePermissionKey("reports.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("reports.export"), true);
 assert.equal(isActiveDelegatablePermissionKey("officialDocuments.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("officialDocuments.issue"), true);
+assert.equal(isActiveDelegatablePermissionKey("baseRecords.view"), true);
+assert.equal(isActiveDelegatablePermissionKey("baseRecords.manage"), false);
 assert.equal(
   isActiveDelegatablePermissionKey("officialDocuments.models.manage"),
   false,
@@ -164,7 +167,7 @@ assert.equal(isActiveDelegatablePermissionKey("academicYears.manage"), false);
 assert.equal(
   DELEGATABLE_PERMISSION_CATALOG.length -
     ACTIVE_DELEGATABLE_PERMISSION_KEYS.length,
-  11,
+  10,
 );
 
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(

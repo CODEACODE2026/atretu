@@ -78,11 +78,11 @@ assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.SECRETARIA]), [
 assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.GESTOR]), []);
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.length,
-  18,
-  "Sprint 15.10F.2D must expose exactly 18 operational capabilities",
+  19,
+  "Sprint 15.10F.2E.1 must expose exactly 19 operational capabilities",
 );
 assert.deepEqual(SPRINT_OPERATIONAL_PERMISSION_KEYS.slice(-3), [
-  "officialDocuments.issue",
+  "baseRecords.view",
   "reports.view",
   "reports.export",
 ]);

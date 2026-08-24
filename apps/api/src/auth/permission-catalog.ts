@@ -185,6 +185,7 @@ export const ACTIVE_DELEGATABLE_PERMISSION_KEYS = [
   "studentCards.invalidate",
   "officialDocuments.view",
   "officialDocuments.issue",
+  "baseRecords.view",
   "reports.view",
   "reports.export",
 ] as const satisfies readonly PermissionKey[];

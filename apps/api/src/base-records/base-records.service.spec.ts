@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import {
   AdministrativeAuditEventType,
   RecordStatus,
@@ -191,7 +191,10 @@ const institutionA = await service.createInstitution(
   { name: "Instituicao A" },
   "user-id",
 );
-await service.createInstitution({ name: "Instituicao B" }, "user-id");
+const institutionB = await service.createInstitution(
+  { name: "Instituicao B" },
+  "user-id",
+);
 
 const userInstitutionList = await service.listInstitutions(
   {
@@ -213,6 +216,32 @@ const userInstitutionList = await service.listInstitutions(
 assert.deepEqual(
   userInstitutionList.data.map((institution) => institution.id),
   [institutionA.id],
+);
+
+assert.equal(
+  (await service.getInstitution(institutionB.id, superAdminUser)).id,
+  institutionB.id,
+);
+assert.equal(
+  (
+    await service.getInstitution(institutionB.id, {
+      ...superAdminUser,
+      roles: [RoleCode.ADMINISTRATOR],
+    })
+  ).id,
+  institutionB.id,
+);
+await assert.rejects(
+  () =>
+    service.getInstitution(institutionB.id, {
+      id: "limited-user",
+      name: "Limited User",
+      email: "limited@example.com",
+      status: UserStatus.ACTIVE,
+      roles: [RoleCode.USER],
+      institutionIds: [institutionA.id],
+    }),
+  (error) => error instanceof ForbiddenException,
 );
 
 const stringPaginationList = await service.listInstitutions({

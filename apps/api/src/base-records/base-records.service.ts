@@ -93,17 +93,17 @@ export class BaseRecordsService {
   }
 
   async getInstitution(id: string, currentUser?: AuthUser) {
-    assertInstitutionInScope(currentUser, id);
+    assertInstitutionInScope(currentUser, id, OPERATIONAL_INSTITUTION_SCOPE);
     return this.get(this.prisma.institution, "institutions", id);
   }
 
   updateInstitution(id: string, data: { name?: string }, user: AuthUser) {
-    assertInstitutionInScope(user, id);
+    assertInstitutionInScope(user, id, OPERATIONAL_INSTITUTION_SCOPE);
     return this.update(this.prisma.institution, "institutions", id, data, user.id);
   }
 
   inactivateInstitution(id: string, user: AuthUser) {
-    assertInstitutionInScope(user, id);
+    assertInstitutionInScope(user, id, OPERATIONAL_INSTITUTION_SCOPE);
     return this.setStatus(
       this.prisma.institution,
       "institutions",
@@ -114,7 +114,7 @@ export class BaseRecordsService {
   }
 
   reactivateInstitution(id: string, user: AuthUser) {
-    assertInstitutionInScope(user, id);
+    assertInstitutionInScope(user, id, OPERATIONAL_INSTITUTION_SCOPE);
     return this.setStatus(
       this.prisma.institution,
       "institutions",
@@ -168,8 +168,8 @@ export class BaseRecordsService {
     return this.create(this.prisma.bus, "buses", data, userId);
   }
 
-  getBus(id: string) {
-    return this.getBusWithOccupancy(id);
+  getBus(id: string, currentUser?: AuthUser) {
+    return this.getBusWithOccupancy(id, currentUser);
   }
 
   updateBus(id: string, data: { name?: string; capacity?: number }, userId: string) {
@@ -286,10 +286,19 @@ export class BaseRecordsService {
     };
   }
 
-  private async getBusWithOccupancy(id: string) {
+  private async getBusWithOccupancy(id: string, currentUser?: AuthUser) {
     const bus = await this.get(this.prisma.bus, "buses", id);
     const academicYearId = await this.resolveAcademicYearId();
-    const occupancy = await this.countActiveAssignmentsByBus([id], academicYearId);
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      undefined,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
+    const occupancy = await this.countActiveAssignmentsByBus(
+      [id],
+      academicYearId,
+      institutionFilter,
+    );
     return {
       ...this.withOccupancy(bus, occupancy.get(id) ?? 0),
       academicYearId,
