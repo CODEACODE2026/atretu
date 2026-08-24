@@ -12,7 +12,7 @@ import {
   type CollectionCaseDetail,
   type CollectionSummary,
 } from "../../lib/api";
-import { canAccessOperationalAdmin } from "../../lib/auth";
+import { canAccessOperationalAdmin, hasCapability } from "../../lib/auth";
 import { mapApiErrorMessage } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import { CollectionDetails } from "./finance/collections/collection-details";
@@ -32,7 +32,9 @@ export function CollectionsPanel({
   initialFilters?: Partial<CollectionFilters>;
   user: ApiUser;
 }) {
-  const canUseCollections = canAccessOperationalAdmin(user);
+  const canManageCollections = canAccessOperationalAdmin(user);
+  const canUseCollections =
+    canManageCollections || hasCapability(user, "collections.view");
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
   const [cases, setCases] = useState<CollectionCase[]>([]);
   const [followUps, setFollowUps] = useState<CollectionCase[]>([]);
@@ -212,7 +214,8 @@ export function CollectionsPanel({
 
       {detailInvoiceId ? (
         <CollectionCaseDetailModal
-          canRegisterActions={canUseCollections}
+          canUseBankSlipActions={canManageCollections}
+          canRegisterActions={canManageCollections}
           invoiceId={detailInvoiceId}
           onClose={() => setDetailInvoiceId("")}
           onCollectionsChanged={() => void loadCollections()}
@@ -224,12 +227,14 @@ export function CollectionsPanel({
 }
 
 function CollectionCaseDetailModal({
+  canUseBankSlipActions,
   canRegisterActions,
   invoiceId,
   onClose,
   onCollectionsChanged,
   onMessage,
 }: {
+  canUseBankSlipActions: boolean;
   canRegisterActions: boolean;
   invoiceId: string;
   onClose: () => void;
@@ -271,7 +276,7 @@ function CollectionCaseDetailModal({
       }
       setDetail(caseResponse);
       setActions(actionsResponse.data);
-      if (caseResponse.bankSlip) {
+      if (caseResponse.bankSlip && canUseBankSlipActions) {
         const bankSlipResponse = await api.getInvoiceBankSlip(invoiceId).catch(() => null);
         if (detailRequestSeq.current !== seq) {
           return;
@@ -363,6 +368,7 @@ function CollectionCaseDetailModal({
               actions={actions}
               bankSlip={bankSlip}
               busy={busy}
+              canUseBankSlipActions={canUseBankSlipActions}
               canRegisterActions={canRegisterActions}
               caseDetail={detail}
               onActionCreated={handleActionCreated}

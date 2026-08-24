@@ -11,6 +11,8 @@ import {
 } from "@nestjs/common";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -22,7 +24,7 @@ import {
   ListCollectionCasesDto,
 } from "./dto/collections.dto.js";
 
-@UseGuards(AuthGuard, RolesGuard)
+@UseGuards(AuthGuard)
 @Controller()
 export class CollectionsController {
   constructor(
@@ -30,19 +32,22 @@ export class CollectionsController {
   ) {}
 
   @Get("finance/collections/summary")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("collections.view")
   getSummary(@Query() query: CollectionFiltersDto, @CurrentUser() user: AuthUser) {
     return this.collections.getSummary(query, user);
   }
 
   @Get("finance/collections/cases")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("collections.view")
   listCases(@Query() query: ListCollectionCasesDto, @CurrentUser() user: AuthUser) {
     return this.collections.listCases(query, query, user);
   }
 
   @Get("finance/collections/cases/:invoiceId")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("collections.view")
   getCaseByInvoiceId(
     @Param() params: CollectionInvoiceParamsDto,
     @CurrentUser() user: AuthUser,
@@ -51,7 +56,8 @@ export class CollectionsController {
   }
 
   @Get("finance/collections/cases/:invoiceId/actions")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("collections.view")
   listActions(
     @Param() params: CollectionInvoiceParamsDto,
     @CurrentUser() user: AuthUser,
@@ -60,6 +66,7 @@ export class CollectionsController {
   }
 
   @Post("finance/collections/cases/:invoiceId/actions")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   createAction(
     @Param() params: CollectionInvoiceParamsDto,
@@ -78,7 +85,8 @@ export class CollectionsController {
   }
 
   @Get("finance/collections/follow-ups")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("collections.view")
   listFollowUps(
     @Query() query: CollectionFiltersDto,
     @CurrentUser() user: AuthUser,

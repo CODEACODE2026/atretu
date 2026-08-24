@@ -40,6 +40,7 @@ export class BaseRecordsController {
     "reports.view",
     "baseRecords.view",
     "finance.invoices.view",
+    "collections.view",
   )
   listInstitutions(
     @Query() query: ListBaseRecordsDto,

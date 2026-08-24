@@ -64,6 +64,12 @@ assert.deepEqual(
   ]),
   ["finance.invoices.manage", "finance.invoices.view"],
 );
+assert.deepEqual(
+  Reflect.apply(service["normalizePermissions"], service, [
+    ["collections.view"],
+  ]),
+  ["collections.view"],
+);
 assert.throws(
   () =>
     Reflect.apply(service["normalizePermissions"], service, [

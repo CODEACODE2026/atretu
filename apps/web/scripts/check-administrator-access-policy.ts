@@ -35,6 +35,7 @@ const administrator: ApiUser = {
     "studentCards.issue",
     "studentCards.invalidate",
     "finance.invoices.view",
+    "collections.view",
     "officialDocuments.view",
     "officialDocuments.issue",
     "baseRecords.view",
@@ -94,6 +95,16 @@ assert.equal(canAccessMigratedArea(userOnlyFinanceInvoicesView, "finance"), true
 assert.equal(canAccessMigratedArea(userOnlyFinanceInvoicesView, "students"), false);
 assert.equal(canAccessMigratedArea(userOnlyFinanceInvoicesView, "reports"), false);
 
+const userOnlyCollectionsView: ApiUser = {
+  ...baseUser,
+  capabilities: ["collections.view"],
+  roles: ["USER"],
+};
+
+assert.equal(canAccessMigratedArea(userOnlyCollectionsView, "finance"), true);
+assert.equal(canAccessMigratedArea(userOnlyCollectionsView, "students"), false);
+assert.equal(canAccessMigratedArea(userOnlyCollectionsView, "reports"), false);
+
 const userOnlyBaseRecordsView: ApiUser = {
   ...baseUser,
   capabilities: ["baseRecords.view"],
@@ -136,7 +147,8 @@ const financePanelSource = readFileSync(
   "utf8",
 );
 assert.match(financePanelSource, /const canManageFinance = canAccessOperationalAdmin\(user\);/);
-assert.match(financePanelSource, /const canViewCollections = canManageFinance;/);
+assert.match(financePanelSource, /hasCapability\(user, "collections\.view"\)/);
+assert.match(financePanelSource, /const canViewInvoices = canManageFinance \|\| hasCapability\(user, "finance\.invoices\.view"\);/);
 assert.match(financePanelSource, /const canRetryIssueBatches = canAccessRestrictedAdmin\(user\);/);
 assert.match(financePanelSource, /return canAccessRestrictedAdmin\(user\);/);
 

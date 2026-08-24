@@ -51,6 +51,7 @@ for (const endpoint of auxiliaryReadEndpoints) {
           "reports.view",
           "baseRecords.view",
           "finance.invoices.view",
+          "collections.view",
         ]
       : ["students.view", "reports.view", "baseRecords.view"],
   );
@@ -87,6 +88,7 @@ assert.deepEqual(
 const rolesGuard = new RolesGuard(new Reflector());
 const baseViewGuard = guardWithPermissions(["baseRecords.view"]);
 const financeInvoicesViewGuard = guardWithPermissions(["finance.invoices.view"]);
+const collectionsViewGuard = guardWithPermissions(["collections.view"]);
 const studentsViewGuard = guardWithPermissions(["students.view"]);
 const reportsViewGuard = guardWithPermissions(["reports.view"]);
 
@@ -120,6 +122,13 @@ assert.equal(
   ),
   true,
   "listInstitutions must allow finance.invoices.view as a finance filter reference",
+);
+assert.equal(
+  await collectionsViewGuard.canActivate(
+    executionContext(BaseRecordsController, "listInstitutions", user([RoleCode.USER])),
+  ),
+  true,
+  "listInstitutions must allow collections.view as a collections filter reference",
 );
 for (const endpoint of ["listShifts", "listBuses"] as const) {
   await assert.rejects(

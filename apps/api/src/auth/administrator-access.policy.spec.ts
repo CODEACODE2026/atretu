@@ -89,12 +89,7 @@ const administratorOperationalEndpoints = [
   [BankSlipsController, "cancelIssueBatch"],
   [BankSlipsController, "requestCancellation"],
   [BankSlipsController, "getPdf"],
-  [CollectionsController, "getSummary"],
-  [CollectionsController, "listCases"],
-  [CollectionsController, "getCaseByInvoiceId"],
-  [CollectionsController, "listActions"],
   [CollectionsController, "createAction"],
-  [CollectionsController, "listFollowUps"],
   [FinancialReportsController, "monthly"],
   [ManualFinancialMovementsController, "list"],
   [ManualFinancialMovementsController, "get"],
@@ -119,6 +114,14 @@ const financeInvoiceManageEndpoints = [
   [InvoicesController, "previewInvoice"],
   [InvoicesController, "createInvoice"],
   [InvoicesController, "cancelInvoice"],
+] as const;
+
+const collectionsViewEndpoints = [
+  [CollectionsController, "getSummary"],
+  [CollectionsController, "listCases"],
+  [CollectionsController, "getCaseByInvoiceId"],
+  [CollectionsController, "listActions"],
+  [CollectionsController, "listFollowUps"],
 ] as const;
 
 const studentAuxiliaryReferenceEndpoints = [
@@ -188,6 +191,19 @@ for (const item of financeInvoiceManageEndpoints) {
   );
 }
 
+for (const item of collectionsViewEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after collections view migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["collections.view"],
+    `${item[0].name}.${item[1]} must require collections.view`,
+  );
+}
+
 for (const item of studentAuxiliaryReferenceEndpoints) {
   assert.deepEqual(
     rolesMetadata(item[0], item[1]),
@@ -202,6 +218,7 @@ for (const item of studentAuxiliaryReferenceEndpoints) {
           "reports.view",
           "baseRecords.view",
           "finance.invoices.view",
+          "collections.view",
         ]
       : ["students.view", "reports.view", "baseRecords.view"],
     `${item[0].name}.${item[1]} must preserve auxiliary permissions and allow baseRecords.view`,

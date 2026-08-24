@@ -15,6 +15,7 @@ export function CollectionDetails({
   actions,
   bankSlip,
   busy,
+  canUseBankSlipActions,
   canRegisterActions,
   caseDetail,
   onActionCreated,
@@ -27,6 +28,7 @@ export function CollectionDetails({
   actions: CollectionAction[];
   bankSlip: BankSlipRecord | null | undefined;
   busy: boolean;
+  canUseBankSlipActions: boolean;
   canRegisterActions: boolean;
   caseDetail: CollectionCaseDetail;
   onActionCreated: () => Promise<void> | void;
@@ -50,6 +52,7 @@ export function CollectionDetails({
       <CollectionBankSlipSection
         bankSlip={bankSlip}
         busy={busy}
+        canUseBankSlipActions={canUseBankSlipActions}
         caseDetail={caseDetail}
         onCopyLine={onCopyLine}
         onDownloadPdf={onDownloadPdf}

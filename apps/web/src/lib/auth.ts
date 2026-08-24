@@ -17,6 +17,7 @@ const SPRINT_CAPABILITY_KEYS = [
   "studentCards.invalidate",
   "finance.invoices.view",
   "finance.invoices.manage",
+  "collections.view",
   "officialDocuments.view",
   "officialDocuments.issue",
   "baseRecords.view",
@@ -78,7 +79,7 @@ export function canAccessMigratedArea(
     return hasCapability(user, "studentCards.view");
   }
   if (area === "finance") {
-    return hasCapability(user, "finance.invoices.view");
+    return hasAnyCapability(user, ["finance.invoices.view", "collections.view"]);
   }
   if (area === "official-documents") {
     return hasCapability(user, "officialDocuments.view");

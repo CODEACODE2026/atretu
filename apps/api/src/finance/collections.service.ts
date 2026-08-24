@@ -142,7 +142,7 @@ export class CollectionsService {
   ) {}
 
   async getSummary(filters: CollectionFiltersDto, currentUser: AuthUser) {
-    this.ensureAllowedUser(currentUser);
+    this.ensureReadAllowedUser(currentUser);
     this.ensureRequestedInstitutionAllowed(filters, currentUser);
     const cases = await this.findDerivedCases(filters, {
       activeOnly: true,
@@ -180,7 +180,7 @@ export class CollectionsService {
     paginationInput: PaginationInput,
     currentUser: AuthUser,
   ) {
-    this.ensureAllowedUser(currentUser);
+    this.ensureReadAllowedUser(currentUser);
     this.ensureRequestedInstitutionAllowed(filters, currentUser);
     const pagination = resolvePagination(paginationInput);
     const cases = await this.findDerivedCases(filters, {
@@ -201,7 +201,7 @@ export class CollectionsService {
   }
 
   async getCaseByInvoiceId(invoiceId: string, currentUser: AuthUser) {
-    this.ensureAllowedUser(currentUser);
+    this.ensureReadAllowedUser(currentUser);
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: this.invoiceInclude(),
@@ -214,7 +214,7 @@ export class CollectionsService {
   }
 
   async listActions(invoiceId: string, currentUser: AuthUser) {
-    this.ensureAllowedUser(currentUser);
+    this.ensureReadAllowedUser(currentUser);
     await this.ensureInvoice(invoiceId, currentUser);
     const actions = await this.prisma.collectionAction.findMany({
       where: { invoiceId },
@@ -229,7 +229,7 @@ export class CollectionsService {
     body: CreateCollectionActionDto,
     currentUser: AuthUser,
   ) {
-    this.ensureAllowedUser(currentUser);
+    this.ensureMutationAllowedUser(currentUser);
     const normalized = this.normalizeActionBody(body);
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -295,7 +295,7 @@ export class CollectionsService {
   }
 
   async listFollowUps(filters: CollectionFiltersDto, currentUser: AuthUser) {
-    this.ensureAllowedUser(currentUser);
+    this.ensureReadAllowedUser(currentUser);
     this.ensureRequestedInstitutionAllowed(filters, currentUser);
     const cases = await this.findDerivedCases(filters, {
       activeOnly: true,
@@ -906,7 +906,18 @@ export class CollectionsService {
     this.ensureInvoiceAccessible(invoice, currentUser);
   }
 
-  private ensureAllowedUser(currentUser: AuthUser) {
+  private ensureReadAllowedUser(currentUser: AuthUser) {
+    if (
+      !currentUser.roles.includes(RoleCode.SUPER_ADMIN) &&
+      !currentUser.roles.includes(RoleCode.ADMINISTRATOR) &&
+      !currentUser.roles.includes(RoleCode.SECRETARIA) &&
+      !currentUser.roles.includes(RoleCode.USER)
+    ) {
+      throw new ForbiddenException("Acesso negado");
+    }
+  }
+
+  private ensureMutationAllowedUser(currentUser: AuthUser) {
     if (
       !currentUser.roles.includes(RoleCode.SUPER_ADMIN) &&
       !currentUser.roles.includes(RoleCode.ADMINISTRATOR) &&

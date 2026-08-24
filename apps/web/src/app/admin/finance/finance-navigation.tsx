@@ -45,17 +45,25 @@ const items: Array<{
 export function FinanceNavigation({
   activeArea,
   canManageFinance,
+  canViewInvoices,
   canViewCollections,
   onChange,
 }: {
   activeArea: FinanceArea;
   canManageFinance: boolean;
+  canViewInvoices: boolean;
   canViewCollections: boolean;
   onChange: (area: FinanceArea) => void;
 }) {
   const visibleItems = items.filter((item) => {
     if (item.area === "collections") {
       return canViewCollections;
+    }
+    if (item.area === "overview") {
+      return canViewInvoices;
+    }
+    if (item.area === "invoices") {
+      return canViewInvoices;
     }
     if (
       item.area === "batches" ||

@@ -34,6 +34,16 @@ const INSTITUTION_USER: AuthUser = {
   institutionId: "institution-1",
   institutionIds: ["institution-1"],
 };
+const COLLECTIONS_VIEW_USER: AuthUser = {
+  id: "collections-user-1",
+  name: "Usuario cobranca",
+  email: "collections-user@test",
+  status: UserStatus.ACTIVE,
+  roles: [RoleCode.USER],
+  permissionProfileId: "profile-collections-view",
+  institutionId: "institution-1",
+  institutionIds: ["institution-1"],
+};
 const UNLINKED_SECRETARY: AuthUser = {
   ...INSTITUTION_USER,
   id: "secretaria-unlinked",
@@ -594,6 +604,100 @@ async function testInstitutionScopedUserCannotEscapeInstitution() {
     /Acesso negado/,
   );
   assert.equal(prisma.actions.length, 1);
+  assert.equal(prisma.auditLogs.length, 0);
+}
+
+async function testUserWithCollectionsViewCanReadOnlyInstitutionScope() {
+  const prisma = new FakePrisma([
+    invoiceRecord({
+      id: "local",
+      institutionId: "institution-1",
+      actions: [
+        actionRecord({
+          invoiceId: "local",
+          actionType: CollectionActionType.PROMISE_TO_PAY,
+          promiseDueDate: "2026-07-25",
+        }),
+        actionRecord({
+          invoiceId: "local",
+          actionType: CollectionActionType.FOLLOW_UP_SCHEDULED,
+          nextFollowUpAt: "2026-07-22T09:00:00.000Z",
+        }),
+      ],
+    }),
+    invoiceRecord({
+      id: "foreign",
+      institutionId: "institution-2",
+      actions: [actionRecord({ invoiceId: "foreign" })],
+    }),
+  ]);
+  const service = newService(prisma);
+
+  const listed = await service.listCases(
+    {},
+    { page: 1, limit: 10 },
+    COLLECTIONS_VIEW_USER,
+  );
+  const summary = await service.getSummary({}, COLLECTIONS_VIEW_USER);
+  const detail = await service.getCaseByInvoiceId("local", COLLECTIONS_VIEW_USER);
+  const history = await service.listActions("local", COLLECTIONS_VIEW_USER);
+  const followUps = await service.listFollowUps({}, COLLECTIONS_VIEW_USER);
+
+  assert.deepEqual(listed.data.map((item) => item.invoiceId), ["local"]);
+  assert.equal(summary.invoiceCount, 1);
+  assert.equal(detail.invoiceId, "local");
+  assert.equal(history.data.length, 2);
+  assert.deepEqual(followUps.data.map((item) => item.invoiceId), ["local"]);
+  await assert.rejects(
+    () => service.getCaseByInvoiceId("foreign", COLLECTIONS_VIEW_USER),
+    /Acesso negado/,
+  );
+  await assert.rejects(
+    () => service.listActions("foreign", COLLECTIONS_VIEW_USER),
+    /Acesso negado/,
+  );
+  await assert.rejects(
+    () =>
+      service.listCases(
+        { institutionId: "institution-2" },
+        { page: 1, limit: 10 },
+        COLLECTIONS_VIEW_USER,
+      ),
+    /Acesso negado/,
+  );
+}
+
+async function testUserWithCollectionsViewCannotCreateAnyCollectionAction() {
+  const prisma = new FakePrisma([invoiceRecord({ id: "invoice-1" })]);
+  const service = newService(prisma);
+
+  for (const actionType of [
+    CollectionActionType.CONTACT_ATTEMPT,
+    CollectionActionType.CONTACT_MADE,
+    CollectionActionType.PROMISE_TO_PAY,
+    CollectionActionType.FOLLOW_UP_SCHEDULED,
+    CollectionActionType.INTERNAL_NOTE,
+  ]) {
+    await assert.rejects(
+      () =>
+        service.createAction(
+          "invoice-1",
+          {
+            actionType,
+            channel: CollectionChannel.WHATSAPP,
+            nextFollowUpAt: "2026-07-22T09:00:00.000Z",
+            note: `Tentativa ${actionType}`,
+            promisedAmountCents: 10_000,
+            promiseDueDate: "2026-07-25",
+          },
+          COLLECTIONS_VIEW_USER,
+        ),
+      /Acesso negado/,
+      `${actionType} must remain blocked for USER with collections.view`,
+    );
+  }
+
+  assert.equal(prisma.actions.length, 0);
   assert.equal(prisma.auditLogs.length, 0);
 }
 
@@ -1655,6 +1759,8 @@ await testCreateActionRollsBackWhenAuditFails();
 await testCreateActionRollsBackWhenActionCreateFails();
 await testPermissionsFollowExistingRoles();
 await testInstitutionScopedUserCannotEscapeInstitution();
+await testUserWithCollectionsViewCanReadOnlyInstitutionScope();
+await testUserWithCollectionsViewCannotCreateAnyCollectionAction();
 await testUnlinkedSecretaryDoesNotReceiveGlobalCollections();
 await testFiltersAndFollowUps();
 await testDerivedFiltersPaginateAfterFilteringAndUseStableOrder();

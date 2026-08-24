@@ -6,12 +6,14 @@ import { Info, SectionTitle } from "./collection-financial-summary";
 export function CollectionBankSlipSection({
   bankSlip,
   busy,
+  canUseBankSlipActions,
   caseDetail,
   onCopyLine,
   onDownloadPdf,
 }: {
   bankSlip: BankSlipRecord | null | undefined;
   busy: boolean;
+  canUseBankSlipActions: boolean;
   caseDetail: CollectionCaseDetail;
   onCopyLine: () => void;
   onDownloadPdf: () => void;
@@ -25,26 +27,28 @@ export function CollectionBankSlipSection({
           subtitle="Dados do boleto vinculado a esta fatura."
           title="Boleto"
         />
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-            disabled={!bankSlip?.linhaDigitavel || busy}
-            onClick={onCopyLine}
-            type="button"
-          >
-            <Copy className="h-4 w-4" />
-            Copiar linha digitavel
-          </button>
-          <button
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-            disabled={!summary?.pdfStoredAt || busy}
-            onClick={onDownloadPdf}
-            type="button"
-          >
-            <Download className="h-4 w-4" />
-            Baixar PDF
-          </button>
-        </div>
+        {canUseBankSlipActions ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+              disabled={!bankSlip?.linhaDigitavel || busy}
+              onClick={onCopyLine}
+              type="button"
+            >
+              <Copy className="h-4 w-4" />
+              Copiar linha digitavel
+            </button>
+            <button
+              className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
+              disabled={!summary?.pdfStoredAt || busy}
+              onClick={onDownloadPdf}
+              type="button"
+            >
+              <Download className="h-4 w-4" />
+              Baixar PDF
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {!summary ? (
@@ -66,7 +70,11 @@ export function CollectionBankSlipSection({
             />
             <Info
               label="Linha digitavel"
-              value={bankSlip?.linhaDigitavel ?? "Nao disponivel"}
+              value={
+                canUseBankSlipActions
+                  ? bankSlip?.linhaDigitavel ?? "Nao disponivel"
+                  : "Nao exibida neste modo"
+              }
             />
             <Info
               label="PDF arquivado"

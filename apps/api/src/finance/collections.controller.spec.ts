@@ -10,6 +10,8 @@ import {
   UserStatus,
 } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OPERATIONAL_PERMISSIONS_KEY } from "../auth/operational-permissions.js";
 import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -42,7 +44,7 @@ async function testControllerRoutesGuardsAndRoles() {
     CollectionsController,
   ) as unknown[];
 
-  assert.deepEqual(classGuards, [AuthGuard, RolesGuard]);
+  assert.deepEqual(classGuards, [AuthGuard]);
   assertRoute("getSummary", "finance/collections/summary");
   assertRoute("listCases", "finance/collections/cases");
   assertRoute("getCaseByInvoiceId", "finance/collections/cases/:invoiceId");
@@ -59,14 +61,32 @@ async function testControllerRoutesGuardsAndRoles() {
     "listCases",
     "getCaseByInvoiceId",
     "listActions",
-    "createAction",
     "listFollowUps",
   ] as const) {
     assert.deepEqual(
       Reflect.getMetadata("roles", CollectionsController.prototype[method]),
-      [...OPERATIONAL_ADMIN_ROLES],
+      undefined,
+    );
+    assert.deepEqual(
+      Reflect.getMetadata(GUARDS_METADATA_KEY, CollectionsController.prototype[method]),
+      [OperationalPermissionGuard],
+    );
+    assert.deepEqual(
+      Reflect.getMetadata(
+        OPERATIONAL_PERMISSIONS_KEY,
+        CollectionsController.prototype[method],
+      ),
+      ["collections.view"],
     );
   }
+  assert.deepEqual(
+    Reflect.getMetadata("roles", CollectionsController.prototype.createAction),
+    [...OPERATIONAL_ADMIN_ROLES],
+  );
+  assert.deepEqual(
+    Reflect.getMetadata(GUARDS_METADATA_KEY, CollectionsController.prototype.createAction),
+    [RolesGuard],
+  );
 
   assert.ok(controller);
 

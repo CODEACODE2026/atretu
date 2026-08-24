@@ -138,7 +138,9 @@ export function FinancePanel({
   const canManageFinance = canAccessOperationalAdmin(user);
   const canManageInvoices =
     canManageFinance || hasCapability(user, "finance.invoices.manage");
-  const canViewCollections = canManageFinance;
+  const canViewInvoices = canManageFinance || hasCapability(user, "finance.invoices.view");
+  const canViewCollections =
+    canManageFinance || hasCapability(user, "collections.view");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<
@@ -336,15 +338,21 @@ export function FinancePanel({
 
   useEffect(() => {
     setFinanceArea(
-      !canManageFinance &&
-        (initialArea === "collections" ||
-          initialArea === "batches" ||
-          initialArea === "movements" ||
-          initialArea === "reports")
-        ? "invoices"
+      initialArea === "collections" && canViewCollections
+        ? "collections"
+        : !canManageFinance &&
+            (initialArea === "collections" ||
+              initialArea === "batches" ||
+              initialArea === "movements" ||
+              initialArea === "reports")
+          ? canViewInvoices
+            ? "invoices"
+            : "overview"
+          : initialArea === "invoices" && !canViewInvoices && canViewCollections
+            ? "collections"
         : initialArea,
     );
-  }, [canManageFinance, initialArea]);
+  }, [canManageFinance, canViewCollections, canViewInvoices, initialArea]);
 
   useEffect(() => {
     if (!initialInvoiceFilters) {
@@ -363,8 +371,17 @@ export function FinancePanel({
   }, [initialInvoiceFilters]);
 
   useEffect(() => {
+    if (!canViewInvoices) {
+      setInvoices([]);
+      setBankSlips({});
+      setSelectedInvoiceIds([]);
+      setTotalPages(1);
+      setLoading(false);
+      return;
+    }
     void loadInvoices();
   }, [
+    canViewInvoices,
     page,
     academicYearId,
     institutionId,
@@ -1432,11 +1449,22 @@ export function FinancePanel({
     if (
       !canManageFinance &&
       (area === "batches" ||
-        area === "collections" ||
         area === "movements" ||
         area === "reports")
     ) {
-      setFinanceArea("invoices");
+      setFinanceArea(canViewInvoices ? "invoices" : "overview");
+      return;
+    }
+    if (area === "collections" && !canViewCollections) {
+      setFinanceArea(canViewInvoices ? "invoices" : "overview");
+      return;
+    }
+    if (area === "invoices" && !canViewInvoices) {
+      setFinanceArea(canViewCollections ? "collections" : "overview");
+      return;
+    }
+    if (area === "overview" && !canViewInvoices) {
+      setFinanceArea(canViewCollections ? "collections" : "invoices");
       return;
     }
     setFinanceArea(area);
@@ -1507,6 +1535,7 @@ export function FinancePanel({
       <FinanceNavigation
         activeArea={financeArea}
         canManageFinance={canManageFinance}
+        canViewInvoices={canViewInvoices}
         canViewCollections={canViewCollections}
         onChange={changeFinanceArea}
       />
@@ -2060,7 +2089,7 @@ export function FinancePanel({
           </form>
         </div>
       ) : null}
-      {financeArea === "overview" ? (
+      {financeArea === "overview" && canViewInvoices ? (
         <>
           <FinanceAreaHeader
             description="Resumo operacional de faturas, boletos e cobrança com base em dados persistidos."
@@ -2088,7 +2117,7 @@ export function FinancePanel({
           />
         </>
       ) : null}
-      {financeArea === "invoices" ? (
+      {financeArea === "invoices" && canViewInvoices ? (
         <>
           <FinanceAreaHeader
             actions={invoiceActions}
