@@ -5,8 +5,6 @@ import {
   OPERATIONAL_PERMISSIONS_KEY,
 } from "../auth/operational-permissions.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
-import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
 import { InvoicesController } from "./invoices.controller.js";
 
 const GUARDS_METADATA_KEY = "__guards__";
@@ -42,14 +40,17 @@ for (const method of [
   "cancelInvoice",
 ] as const) {
   assert.deepEqual(
-    Reflect.getMetadata(GUARDS_METADATA_KEY, InvoicesController.prototype[method]),
-    [RolesGuard],
-    `${method} must keep operational role guard`,
+    Reflect.getMetadata(
+      OPERATIONAL_PERMISSIONS_KEY,
+      InvoicesController.prototype[method],
+    ),
+    ["finance.invoices.manage"],
+    `${method} must be USER-manageable through finance.invoices.manage`,
   );
-  assert.deepEqual(
+  assert.equal(
     Reflect.getMetadata("roles", InvoicesController.prototype[method]),
-    [...OPERATIONAL_ADMIN_ROLES],
-    `${method} must stay restricted to operational admin roles`,
+    undefined,
+    `${method} must not keep RolesGuard-only authorization`,
   );
 }
 

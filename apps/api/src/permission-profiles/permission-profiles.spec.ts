@@ -58,12 +58,11 @@ assert.deepEqual(
   ]),
   ["students.update", "students.view"],
 );
-assert.throws(
-  () =>
-    Reflect.apply(service["normalizePermissions"], service, [
-      ["finance.invoices.manage"],
-    ]),
-  BadRequestException,
+assert.deepEqual(
+  Reflect.apply(service["normalizePermissions"], service, [
+    ["finance.invoices.manage"],
+  ]),
+  ["finance.invoices.manage", "finance.invoices.view"],
 );
 assert.throws(
   () =>

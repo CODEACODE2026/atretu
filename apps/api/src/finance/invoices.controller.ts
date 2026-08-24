@@ -12,8 +12,6 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
-import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   CancelInvoiceDto,
@@ -52,8 +50,7 @@ export class InvoicesController {
   }
 
   @Get("students/:studentId/invoice-preview")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.invoices.manage")
   previewInvoice(
     @Param("studentId") studentId: string,
     @Query() query: InvoicePreviewDto,
@@ -63,8 +60,7 @@ export class InvoicesController {
   }
 
   @Post("students/:studentId/invoices")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.invoices.manage")
   createInvoice(
     @Param("studentId") studentId: string,
     @Body() body: CreateInvoiceDto,
@@ -74,8 +70,7 @@ export class InvoicesController {
   }
 
   @Post("finance/invoices/:id/cancel")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.invoices.manage")
   cancelInvoice(
     @Param("id") id: string,
     @Body() body: CancelInvoiceDto,

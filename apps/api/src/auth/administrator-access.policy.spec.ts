@@ -78,9 +78,6 @@ const administratorOperationalEndpoints = [
   [StudentPhotosController, undefined],
   [OfficialDocumentModelsController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
-  [InvoicesController, "previewInvoice"],
-  [InvoicesController, "createInvoice"],
-  [InvoicesController, "cancelInvoice"],
   [BankSlipsController, "issueForInvoice"],
   [BankSlipsController, "syncByInvoice"],
   [BankSlipsController, "createIssueBatch"],
@@ -116,6 +113,12 @@ const financeInvoiceViewEndpoints = [
   [InvoicesController, "getInvoice"],
   [InvoicesController, "listStudentInvoices"],
   [BankSlipsController, "getByInvoice"],
+] as const;
+
+const financeInvoiceManageEndpoints = [
+  [InvoicesController, "previewInvoice"],
+  [InvoicesController, "createInvoice"],
+  [InvoicesController, "cancelInvoice"],
 ] as const;
 
 const studentAuxiliaryReferenceEndpoints = [
@@ -169,6 +172,19 @@ for (const item of financeInvoiceViewEndpoints) {
     operationalPermissionMetadata(item[0], item[1]),
     ["finance.invoices.view"],
     `${item[0].name}.${item[1]} must require finance.invoices.view`,
+  );
+}
+
+for (const item of financeInvoiceManageEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after invoice manage migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["finance.invoices.manage"],
+    `${item[0].name}.${item[1]} must require finance.invoices.manage`,
   );
 }
 

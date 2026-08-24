@@ -25,6 +25,13 @@ class FinanceInvoicesController {
   }
 }
 
+class FinanceInvoicesManageController {
+  @OperationalPermission("finance.invoices.manage")
+  handler() {
+    return true;
+  }
+}
+
 class PublicController {
   handler() {
     return true;
@@ -85,15 +92,15 @@ assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.SECRETARIA]), [
 assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.GESTOR]), []);
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.length,
-  20,
-  "Sprint 15.10F.2F must expose exactly 20 operational capabilities",
+  21,
+  "Sprint 15.10F.2G.1 must expose exactly 21 operational capabilities",
 );
-assert.deepEqual(SPRINT_OPERATIONAL_PERMISSION_KEYS.slice(-3), [
-  "baseRecords.view",
-  "reports.view",
-  "reports.export",
-]);
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.invoices.view"));
+assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.invoices.manage"));
+assert.equal(
+  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.manage"),
+  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.view") + 1,
+);
 
 assert.equal(
   await guardWithProfile(null).guard.canActivate(
@@ -134,6 +141,17 @@ assert.equal(
   }).guard.canActivate(
     executionContext(
       FinanceInvoicesController,
+      user({ permissionProfileId: "profile-1", roles: [RoleCode.USER] }),
+    ) as never,
+  ),
+  true,
+);
+assert.equal(
+  await guardWithProfile({
+    permissions: [{ permissionKey: "finance.invoices.manage" }],
+  }).guard.canActivate(
+    executionContext(
+      FinanceInvoicesManageController,
       user({ permissionProfileId: "profile-1", roles: [RoleCode.USER] }),
     ) as never,
   ),
@@ -185,7 +203,6 @@ await assert.rejects(
 );
 
 for (const inactiveFinancePermission of [
-  "finance.invoices.manage",
   "finance.bankSlips.manage",
   "collections.view",
   "collections.manage",

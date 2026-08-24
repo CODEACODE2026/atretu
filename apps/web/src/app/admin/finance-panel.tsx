@@ -39,6 +39,7 @@ import {
 import {
   canAccessOperationalAdmin,
   canAccessRestrictedAdmin,
+  hasCapability,
 } from "../../lib/auth";
 import { formatDate, formatDateTime } from "../../lib/formatters/date";
 import { mapApiErrorMessage, maskCpf } from "../../lib/formatters";
@@ -135,6 +136,8 @@ export function FinancePanel({
 }) {
   const [financeArea, setFinanceArea] = useState<FinanceArea>(initialArea);
   const canManageFinance = canAccessOperationalAdmin(user);
+  const canManageInvoices =
+    canManageFinance || hasCapability(user, "finance.invoices.manage");
   const canViewCollections = canManageFinance;
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const invoiceRequestIdRef = useRef(0);
@@ -1454,7 +1457,7 @@ export function FinancePanel({
 
   const invoiceActions = (
     <div className="flex flex-wrap gap-2 sm:justify-end">
-      {canManageFinance ? (
+      {canManageInvoices ? (
         <button
           className={adminTheme.primaryButton}
           onClick={openCreateInvoiceDialog}
@@ -2239,7 +2242,7 @@ export function FinancePanel({
                 bankSlipAction={bankSlipAction}
                 bankSlips={bankSlips}
                 canCancelInvoice={
-                  canManageFinance ? canCancelInvoiceDirectly : () => false
+                  canManageInvoices ? canCancelInvoiceDirectly : () => false
                 }
                 canCancelSlip={
                   canManageFinance ? canRequestBankSlipCancellation : () => false
@@ -2248,7 +2251,8 @@ export function FinancePanel({
                   canManageFinance ? canDownloadBankSlipPdf : () => false
                 }
                 canIssue={canManageFinance ? canIssueBankSlip : () => false}
-                canManageActions={canManageFinance}
+                canManageBankSlipActions={canManageFinance}
+                canManageInvoiceActions={canManageInvoices}
                 expandedInvoiceId={expandedInvoiceId}
                 hasActiveFilters={hasActiveFilters}
                 invoices={visibleInvoices}
@@ -2377,6 +2381,8 @@ export function StudentInvoicesForStudent({
   );
   const [expandedLegacyFinancialId, setExpandedLegacyFinancialId] = useState("");
   const [saving, setSaving] = useState(false);
+  const canManageInvoices =
+    canManageFinance || hasCapability(user, "finance.invoices.manage");
   const issueBankSlipInFlightRef = useRef("");
   const [dialog, setDialog] = useState<{
     invoice: InvoiceRecord;
@@ -2695,7 +2701,7 @@ export function StudentInvoicesForStudent({
             Faturas, boletos e situação financeira vinculados às matrículas.
           </p>
         </div>
-        {canManageFinance ? (
+        {canManageInvoices ? (
           <button
             className={adminTheme.primaryButton}
             onClick={() => {
@@ -2738,7 +2744,7 @@ export function StudentInvoicesForStudent({
         />
       </div>
 
-      {createFormOpen && canManageFinance ? (
+      {createFormOpen && canManageInvoices ? (
         <div className={cx(adminTheme.card, "p-4")}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -2893,7 +2899,7 @@ export function StudentInvoicesForStudent({
                 Nenhuma fatura operacional encontrada para este acadêmico.
               </p>
             </div>
-            {canManageFinance ? (
+            {canManageInvoices ? (
               <button
                 className={adminTheme.primaryButton}
                 onClick={() => setCreateFormOpen(true)}
@@ -2921,7 +2927,8 @@ export function StudentInvoicesForStudent({
                 onSync={() => void handleSyncBankSlip(invoice)}
                 onToggleDetails={() => void toggleBankSlipDetails(invoice)}
                 key={invoice.id}
-                canManageActions={canManageFinance}
+                canManageBankSlipActions={canManageFinance}
+                canManageInvoiceActions={canManageInvoices}
               />
             );
           })
@@ -3279,7 +3286,8 @@ function emptyLegacyFinancialSummary(): LegacyFinancialHistoryResponse["summary"
 function StudentInvoiceCard({
   bankSlip,
   busy,
-  canManageActions,
+  canManageBankSlipActions,
+  canManageInvoiceActions,
   expanded,
   invoice,
   onCancelInvoice,
@@ -3292,7 +3300,8 @@ function StudentInvoiceCard({
 }: {
   bankSlip: BankSlipListRecord | null | undefined;
   busy: boolean;
-  canManageActions: boolean;
+  canManageBankSlipActions: boolean;
+  canManageInvoiceActions: boolean;
   expanded: boolean;
   invoice: InvoiceRecord;
   onCancelInvoice: () => void;
@@ -3310,9 +3319,9 @@ function StudentInvoiceCard({
       busy={busy}
       expanded={expanded}
       expandedActions={
-        canManageActions ? (
+        canManageBankSlipActions || canManageInvoiceActions ? (
         <>
-          {primaryAction === "issue" ? (
+          {canManageBankSlipActions && primaryAction === "issue" ? (
             <button
               className={adminTheme.primaryButton}
               disabled={busy}
@@ -3323,7 +3332,7 @@ function StudentInvoiceCard({
               {busy ? "Emitindo..." : issueBankSlipButtonLabel(bankSlip)}
             </button>
           ) : null}
-          {primaryAction === "download" ? (
+          {canManageBankSlipActions && primaryAction === "download" ? (
             <button
               className={adminTheme.primaryButton}
               disabled={busy}
@@ -3334,7 +3343,7 @@ function StudentInvoiceCard({
               Baixar boleto
             </button>
           ) : null}
-          {primaryAction === "sync" ? (
+          {canManageBankSlipActions && primaryAction === "sync" ? (
             <button
               className={adminTheme.primaryButton}
               disabled={busy}
@@ -3346,7 +3355,7 @@ function StudentInvoiceCard({
             </button>
           ) : null}
 
-          {bankSlip && primaryAction !== "sync" ? (
+          {canManageBankSlipActions && bankSlip && primaryAction !== "sync" ? (
             <button
               className={adminTheme.secondaryButton}
               disabled={busy}
@@ -3357,7 +3366,7 @@ function StudentInvoiceCard({
               Consultar boleto
             </button>
           ) : null}
-          {isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
+          {canManageBankSlipActions && isFullBankSlip(bankSlip) && bankSlip.linhaDigitavel ? (
             <button
               className={adminTheme.secondaryButton}
               disabled={busy}
@@ -3367,7 +3376,7 @@ function StudentInvoiceCard({
               Copiar linha
             </button>
           ) : null}
-          {canDownloadBankSlipPdf(bankSlip) && primaryAction !== "download" ? (
+          {canManageBankSlipActions && canDownloadBankSlipPdf(bankSlip) && primaryAction !== "download" ? (
             <button
               className={adminTheme.secondaryButton}
               disabled={busy}
@@ -3378,7 +3387,7 @@ function StudentInvoiceCard({
               Baixar boleto
             </button>
           ) : null}
-          {canRequestBankSlipCancellation(invoice, bankSlip) ? (
+          {canManageBankSlipActions && canRequestBankSlipCancellation(invoice, bankSlip) ? (
             <button
               className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-3 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
               disabled={busy}
@@ -3388,7 +3397,7 @@ function StudentInvoiceCard({
               Solicitar baixa
             </button>
           ) : null}
-          {canCancelInvoiceDirectly(invoice, bankSlip) ? (
+          {canManageInvoiceActions && canCancelInvoiceDirectly(invoice, bankSlip) ? (
             <button
               className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
               disabled={busy}

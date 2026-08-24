@@ -20,7 +20,8 @@ export function InvoiceCard({
   canCancelSlip,
   canDownloadPdf,
   canIssue,
-  canManageActions,
+  canManageBankSlipActions,
+  canManageInvoiceActions,
   checked,
   expanded,
   invoice,
@@ -41,7 +42,8 @@ export function InvoiceCard({
   canCancelSlip: boolean;
   canDownloadPdf: boolean;
   canIssue: boolean;
-  canManageActions: boolean;
+  canManageBankSlipActions: boolean;
+  canManageInvoiceActions: boolean;
   checked: boolean;
   expanded: boolean;
   invoice: InvoiceRecord;
@@ -65,10 +67,11 @@ export function InvoiceCard({
       busy={busy}
       expanded={expanded}
       expandedActions={
-        canManageActions ? (
+        canManageBankSlipActions || canManageInvoiceActions ? (
           <SecondaryActions
             bankSlip={bankSlip}
             busy={busy}
+            canManageBankSlipActions={canManageBankSlipActions}
             canCancelInvoice={canCancelInvoice}
             canCancelSlip={canCancelSlip}
             onCancelInvoice={onCancelInvoice}
@@ -85,7 +88,7 @@ export function InvoiceCard({
       expandedChildren={<InvoiceDetails bankSlip={bankSlip} invoice={invoice} />}
       invoice={invoice}
       leadingAction={
-        canManageActions ? (
+        canManageBankSlipActions ? (
           <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">
             <input
               checked={checked}
@@ -106,6 +109,7 @@ export function InvoiceCard({
 function SecondaryActions({
   bankSlip,
   busy,
+  canManageBankSlipActions,
   canCancelInvoice,
   canCancelSlip,
   onCancelInvoice,
@@ -119,6 +123,7 @@ function SecondaryActions({
 }: {
   bankSlip: BankSlipListRecord | null | undefined;
   busy: boolean;
+  canManageBankSlipActions: boolean;
   canCancelInvoice: boolean;
   canCancelSlip: boolean;
   onCancelInvoice: () => void;
@@ -130,11 +135,11 @@ function SecondaryActions({
   onViewError: () => void;
   primaryAction: BankSlipPrimaryAction;
 }) {
-  const hasCopy = isFullBankSlipRecord(bankSlip) && Boolean(bankSlip.linhaDigitavel);
-  const hasSync = Boolean(bankSlip) && primaryAction !== "sync";
-  const hasError = primaryAction !== "error" && hasBankSlipProviderProblem(bankSlip);
-  const hasIssue = primaryAction === "issue";
-  const hasPrimarySync = primaryAction === "sync";
+  const hasCopy = canManageBankSlipActions && isFullBankSlipRecord(bankSlip) && Boolean(bankSlip.linhaDigitavel);
+  const hasSync = canManageBankSlipActions && Boolean(bankSlip) && primaryAction !== "sync";
+  const hasError = canManageBankSlipActions && primaryAction !== "error" && hasBankSlipProviderProblem(bankSlip);
+  const hasIssue = canManageBankSlipActions && primaryAction === "issue";
+  const hasPrimarySync = canManageBankSlipActions && primaryAction === "sync";
   const hasActions = hasIssue || hasPrimarySync || hasSync || hasCopy || hasError || canCancelSlip || canCancelInvoice;
 
   if (!hasActions) {
