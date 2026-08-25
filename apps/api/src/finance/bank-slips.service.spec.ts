@@ -5,6 +5,7 @@ import type { Readable } from "node:stream";
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -22,6 +23,7 @@ import {
   InvoiceCancellationReason,
   InvoiceStatus,
   RecordStatus,
+  RoleCode,
   StudentHistoryEventType,
 } from "@prisma/client";
 import { BankSlipsService } from "./bank-slips.service.js";
@@ -1141,6 +1143,57 @@ async function testCancellationReasonRequired() {
     service.requestCancellation("invoice-1", "user-1", {} as never),
   );
   assert.equal(prisma.bankSlips[0]?.status, BankSlipStatus.ISSUED);
+}
+
+async function testDelegatedBankSlipOperationsValidateInstitutionBeforeExternalCalls() {
+  const prisma = new FakePrisma();
+  prisma.addInstitution("institution-2");
+  const foreignEnrollment = createEnrollment("enrollment-2", "student-2", {
+    institutionId: "institution-2",
+  });
+  prisma.enrollments.set("enrollment-2", foreignEnrollment);
+  prisma.addInvoice("invoice-2", {
+    studentId: "student-2",
+    enrollmentId: "enrollment-2",
+    enrollment: foreignEnrollment,
+    student: foreignEnrollment.student,
+  });
+  const foreignSlip = prisma.addBankSlip({
+    id: "bank-slip-2",
+    invoiceId: "invoice-2",
+    nossoNumero: "251006143",
+    seuNumero: "A000000002",
+  });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const userA = bankSlipScopedUser(["institution-1"]);
+
+  await assert.rejects(
+    () => service.issueForInvoice("invoice-2", "user-a", userA),
+    (error) => error instanceof ForbiddenException,
+  );
+  await assert.rejects(
+    () => service.requestCancellation("invoice-2", "user-a", {
+      reason: InvoiceCancellationReason.OTHER,
+      note: "Escopo cruzado",
+    }, userA),
+    (error) => error instanceof ForbiddenException,
+  );
+  await assert.rejects(
+    () => service.syncByInvoice("invoice-2", "user-a", userA),
+    (error) => error instanceof ForbiddenException,
+  );
+  await assert.rejects(
+    () => service.getPdfByInvoiceId("invoice-2", userA),
+    (error) => error instanceof ForbiddenException,
+  );
+
+  assert.equal(sicredi.issueCalls.length, 0);
+  assert.equal(sicredi.cancelCalls.length, 0);
+  assert.equal(sicredi.getCalls.length, 0);
+  assert.equal(sicredi.pdfCalls.length, 0);
+  assert.equal(foreignSlip.status, BankSlipStatus.ISSUED);
+  assert.equal(foreignSlip.cancellationRequestedAt, null);
 }
 
 async function testCancellationTimeoutStaysPending() {
@@ -2365,6 +2418,7 @@ async function testIssueBatchCancelAndRetrySafeFailure() {
 class FakeSicrediClient {
   issueCalls: Array<Record<string, unknown>> = [];
   getCalls: string[] = [];
+  cancelCalls: string[] = [];
   issueError?: SicrediClientError;
   getError?: SicrediClientError;
   getErrorsByNossoNumero = new Map<string, SicrediClientError>();
@@ -2434,7 +2488,8 @@ class FakeSicrediClient {
     };
   }
 
-  async requestCancellation() {
+  async requestCancellation(nossoNumero = "251006142") {
+    this.cancelCalls.push(nossoNumero);
     if (this.cancelError) {
       throw this.cancelError;
     }
@@ -3299,6 +3354,19 @@ function createPerson(studentId: string, fullName = `Aluno ${studentId}`) {
   };
 }
 
+function bankSlipScopedUser(institutionIds: string[]) {
+  return {
+    email: "user@example.com",
+    id: "user-a",
+    institutionId: institutionIds[0] ?? null,
+    institutionIds,
+    name: "User A",
+    permissionProfileId: "profile-bank-slips",
+    roles: [RoleCode.USER],
+    status: "ACTIVE",
+  } as never;
+}
+
 async function waitFor(predicate: () => boolean, timeoutMs = 200) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -3356,6 +3424,7 @@ await testSyncPaidDoesNotRegress();
 await testSync404DoesNotAlterState();
 await testCancellationRequestStaysPending();
 await testCancellationReasonRequired();
+await testDelegatedBankSlipOperationsValidateInstitutionBeforeExternalCalls();
 await testCancellationTimeoutStaysPending();
 await testCancellationAlreadyCancelledConfirmsBySync();
 await testCancellationNotFoundPreservesPreviousStatus();

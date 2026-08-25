@@ -90,9 +90,14 @@ for (const forbidden of ["window.alert", "setError(caught instanceof Error ? cau
   assert.equal(panel.includes(forbidden), false, `Manual movement modal must not use ${forbidden}`);
 }
 
-assert.equal(
-  financePanel.includes("hasCapability(user, \"finance.bankSlips.manage\")"),
-  false,
+assert.match(
+  financePanel,
+  /const canManageManualMovements =\s+canManageFinance \|\| hasCapability\(user, "manualMovements\.manage"\);/,
+  "Manual movements manage must be gated by manualMovements.manage",
+);
+assert.doesNotMatch(
+  financePanel,
+  /canManageManualMovements =\s+canManageFinance \|\| hasCapability\(user, "finance\.bankSlips\.manage"\);/,
   "Manual movements manage must not depend on bank slip management",
 );
 assert.equal(

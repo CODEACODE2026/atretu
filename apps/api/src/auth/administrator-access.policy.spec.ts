@@ -78,8 +78,6 @@ const administratorOperationalEndpoints = [
   [StudentPhotosController, undefined],
   [OfficialDocumentModelsController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
-  [BankSlipsController, "issueForInvoice"],
-  [BankSlipsController, "syncByInvoice"],
   [BankSlipsController, "createIssueBatch"],
   [BankSlipsController, "previewIssueBatch"],
   [BankSlipsController, "listIssueBatches"],
@@ -87,8 +85,6 @@ const administratorOperationalEndpoints = [
   [BankSlipsController, "listIssueBatchItems"],
   [BankSlipsController, "downloadIssueBatchPdfs"],
   [BankSlipsController, "cancelIssueBatch"],
-  [BankSlipsController, "requestCancellation"],
-  [BankSlipsController, "getPdf"],
   [FinancialReportsController, "monthly"],
   [StudentsController, "listStudentLegacyFinancialHistory"],
 ] as const;
@@ -104,6 +100,13 @@ const financeInvoiceManageEndpoints = [
   [InvoicesController, "previewInvoice"],
   [InvoicesController, "createInvoice"],
   [InvoicesController, "cancelInvoice"],
+] as const;
+
+const financeBankSlipManageEndpoints = [
+  [BankSlipsController, "issueForInvoice"],
+  [BankSlipsController, "syncByInvoice"],
+  [BankSlipsController, "requestCancellation"],
+  [BankSlipsController, "getPdf"],
 ] as const;
 
 const collectionsViewEndpoints = [
@@ -197,6 +200,19 @@ for (const item of financeInvoiceManageEndpoints) {
     operationalPermissionMetadata(item[0], item[1]),
     ["finance.invoices.manage"],
     `${item[0].name}.${item[1]} must require finance.invoices.manage`,
+  );
+}
+
+for (const item of financeBankSlipManageEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after bank slip manage migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["finance.bankSlips.manage"],
+    `${item[0].name}.${item[1]} must require finance.bankSlips.manage`,
   );
 }
 

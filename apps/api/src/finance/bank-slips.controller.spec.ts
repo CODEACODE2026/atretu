@@ -33,6 +33,25 @@ assert.equal(
 for (const method of [
   "issueForInvoice",
   "syncByInvoice",
+  "requestCancellation",
+  "getPdf",
+] as const) {
+  assert.deepEqual(
+    Reflect.getMetadata(
+      OPERATIONAL_PERMISSIONS_KEY,
+      BankSlipsController.prototype[method],
+    ),
+    ["finance.bankSlips.manage"],
+    `${method} must require finance.bankSlips.manage`,
+  );
+  assert.equal(
+    Reflect.getMetadata("roles", BankSlipsController.prototype[method]),
+    undefined,
+    `${method} must not keep fixed operational role metadata`,
+  );
+}
+
+for (const method of [
   "createIssueBatch",
   "previewIssueBatch",
   "listIssueBatches",
@@ -40,8 +59,6 @@ for (const method of [
   "listIssueBatchItems",
   "downloadIssueBatchPdfs",
   "cancelIssueBatch",
-  "requestCancellation",
-  "getPdf",
 ] as const) {
   assert.deepEqual(
     Reflect.getMetadata(GUARDS_METADATA_KEY, BankSlipsController.prototype[method]),

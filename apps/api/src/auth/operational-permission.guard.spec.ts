@@ -32,6 +32,13 @@ class FinanceInvoicesManageController {
   }
 }
 
+class FinanceBankSlipsManageController {
+  @OperationalPermission("finance.bankSlips.manage")
+  handler() {
+    return true;
+  }
+}
+
 class CollectionsViewController {
   @OperationalPermission("collections.view")
   handler() {
@@ -120,11 +127,12 @@ assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.SECRETARIA]), [
 assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.GESTOR]), []);
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.length,
-  25,
-  "Sprint 15.10F.2G.5 must expose exactly 25 operational capabilities",
+  26,
+  "Sprint 15.10F.2G.6 must expose exactly 26 operational capabilities",
 );
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.invoices.view"));
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.invoices.manage"));
+assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.bankSlips.manage"));
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("collections.view"));
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("collections.manage"));
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("manualMovements.view"));
@@ -132,6 +140,10 @@ assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("manualMovements.manage"))
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.manage"),
   SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.view") + 1,
+);
+assert.equal(
+  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.bankSlips.manage"),
+  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.manage") + 1,
 );
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("collections.manage"),
@@ -192,6 +204,17 @@ assert.equal(
   }).guard.canActivate(
     executionContext(
       FinanceInvoicesManageController,
+      user({ permissionProfileId: "profile-1", roles: [RoleCode.USER] }),
+    ) as never,
+  ),
+  true,
+);
+assert.equal(
+  await guardWithProfile({
+    permissions: [{ permissionKey: "finance.bankSlips.manage" }],
+  }).guard.canActivate(
+    executionContext(
+      FinanceBankSlipsManageController,
       user({ permissionProfileId: "profile-1", roles: [RoleCode.USER] }),
     ) as never,
   ),
@@ -285,12 +308,5 @@ await assert.rejects(
       ),
   (error) => error instanceof ForbiddenException,
 );
-
-for (const inactiveFinancePermission of ["finance.bankSlips.manage"] as const) {
-  assert.throws(
-    () => OperationalPermission(inactiveFinancePermission as never),
-    /PermissionKey operacional invalida/,
-  );
-}
 
 console.log("Operational permission guard OK");

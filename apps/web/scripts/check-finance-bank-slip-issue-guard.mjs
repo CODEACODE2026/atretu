@@ -75,6 +75,18 @@ assert.match(
 
 assert.match(
   source,
+  /const canManageBankSlips =[\s\S]*?hasCapability\(user, "finance\.bankSlips\.manage"\)/,
+  "Individual bank slip actions must be gated by finance.bankSlips.manage",
+);
+
+assert.match(
+  source,
+  /canManageBankSlipActions=\{canManageBankSlips\}/,
+  "Invoice list bank slip actions must use the bank slip manage capability",
+);
+
+assert.match(
+  source,
   /api\.createBankSlipIssueBatch\(selectedInvoiceIds\)/,
   "Finance panel must create issue batches from selected invoices",
 );

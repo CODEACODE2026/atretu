@@ -46,8 +46,7 @@ export class BankSlipsController {
   ) {}
 
   @Post("finance/invoices/:invoiceId/bank-slip/issue")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   issueForInvoice(
     @Param() params: InvoiceBankSlipParamsDto,
     @CurrentUser() user: AuthUser,
@@ -65,8 +64,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/sync")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   syncByInvoice(@Param() params: InvoiceBankSlipParamsDto, @CurrentUser() user: AuthUser) {
     return this.bankSlips.syncByInvoice(params.invoiceId, user.id, user);
   }
@@ -248,8 +246,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/invoices/:invoiceId/bank-slip/cancel")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   requestCancellation(
     @Param() params: InvoiceBankSlipParamsDto,
     @Body() body: RequestBankSlipCancellationDto,
@@ -264,8 +261,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/invoices/:invoiceId/bank-slip/pdf")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async getPdf(

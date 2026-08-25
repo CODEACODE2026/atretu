@@ -138,6 +138,8 @@ export function FinancePanel({
   const canManageFinance = canAccessOperationalAdmin(user);
   const canManageInvoices =
     canManageFinance || hasCapability(user, "finance.invoices.manage");
+  const canManageBankSlips =
+    canManageFinance || hasCapability(user, "finance.bankSlips.manage");
   const canViewInvoices = canManageFinance || hasCapability(user, "finance.invoices.view");
   const canViewCollections =
     canManageFinance || hasCapability(user, "collections.view");
@@ -2292,13 +2294,13 @@ export function FinancePanel({
                   canManageInvoices ? canCancelInvoiceDirectly : () => false
                 }
                 canCancelSlip={
-                  canManageFinance ? canRequestBankSlipCancellation : () => false
+                  canManageBankSlips ? canRequestBankSlipCancellation : () => false
                 }
                 canDownloadPdf={
-                  canManageFinance ? canDownloadBankSlipPdf : () => false
+                  canManageBankSlips ? canDownloadBankSlipPdf : () => false
                 }
-                canIssue={canManageFinance ? canIssueBankSlip : () => false}
-                canManageBankSlipActions={canManageFinance}
+                canIssue={canManageBankSlips ? canIssueBankSlip : () => false}
+                canManageBankSlipActions={canManageBankSlips}
                 canManageInvoiceActions={canManageInvoices}
                 expandedInvoiceId={expandedInvoiceId}
                 hasActiveFilters={hasActiveFilters}
@@ -2404,6 +2406,8 @@ export function StudentInvoicesForStudent({
   onChanged: () => Promise<void>;
 }) {
   const canManageFinance = canAccessOperationalAdmin(user);
+  const canManageBankSlips =
+    canManageFinance || hasCapability(user, "finance.bankSlips.manage");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [bankSlips, setBankSlips] = useState<
     Record<string, BankSlipListRecord | null | undefined>
@@ -2974,7 +2978,7 @@ export function StudentInvoicesForStudent({
                 onSync={() => void handleSyncBankSlip(invoice)}
                 onToggleDetails={() => void toggleBankSlipDetails(invoice)}
                 key={invoice.id}
-                canManageBankSlipActions={canManageFinance}
+                canManageBankSlipActions={canManageBankSlips}
                 canManageInvoiceActions={canManageInvoices}
               />
             );

@@ -17,6 +17,7 @@ const SPRINT_CAPABILITY_KEYS = [
   "studentCards.invalidate",
   "finance.invoices.view",
   "finance.invoices.manage",
+  "finance.bankSlips.manage",
   "collections.view",
   "collections.manage",
   "manualMovements.view",
