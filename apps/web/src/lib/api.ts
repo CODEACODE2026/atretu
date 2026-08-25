@@ -1619,6 +1619,7 @@ export type ManualFinancialMovement = {
     name: string;
     cpfMasked: string;
     cardNumber?: string | null;
+    institutions?: Array<{ id: string; name: string }>;
   } | null;
   activeAttachment?: ManualFinancialMovementAttachment | null;
   attachments: ManualFinancialMovementAttachment[];

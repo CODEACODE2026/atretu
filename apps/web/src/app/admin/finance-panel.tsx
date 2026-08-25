@@ -141,6 +141,8 @@ export function FinancePanel({
   const canViewInvoices = canManageFinance || hasCapability(user, "finance.invoices.view");
   const canViewCollections =
     canManageFinance || hasCapability(user, "collections.view");
+  const canViewManualMovements =
+    canManageFinance || hasCapability(user, "manualMovements.view");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<
@@ -343,16 +345,26 @@ export function FinancePanel({
         : !canManageFinance &&
             (initialArea === "collections" ||
               initialArea === "batches" ||
-              initialArea === "movements" ||
-              initialArea === "reports")
+              initialArea === "reports" ||
+              (initialArea === "movements" && !canViewManualMovements))
           ? canViewInvoices
             ? "invoices"
-            : "overview"
+            : canViewManualMovements
+              ? "movements"
+              : "overview"
           : initialArea === "invoices" && !canViewInvoices && canViewCollections
             ? "collections"
+          : initialArea === "invoices" && !canViewInvoices && canViewManualMovements
+            ? "movements"
         : initialArea,
     );
-  }, [canManageFinance, canViewCollections, canViewInvoices, initialArea]);
+  }, [
+    canManageFinance,
+    canViewCollections,
+    canViewInvoices,
+    canViewManualMovements,
+    initialArea,
+  ]);
 
   useEffect(() => {
     if (!initialInvoiceFilters) {
@@ -1449,22 +1461,25 @@ export function FinancePanel({
     if (
       !canManageFinance &&
       (area === "batches" ||
-        area === "movements" ||
         area === "reports")
     ) {
-      setFinanceArea(canViewInvoices ? "invoices" : "overview");
+      setFinanceArea(canViewInvoices ? "invoices" : canViewManualMovements ? "movements" : "overview");
+      return;
+    }
+    if (area === "movements" && !canViewManualMovements) {
+      setFinanceArea(canViewInvoices ? "invoices" : canViewCollections ? "collections" : "overview");
       return;
     }
     if (area === "collections" && !canViewCollections) {
-      setFinanceArea(canViewInvoices ? "invoices" : "overview");
+      setFinanceArea(canViewInvoices ? "invoices" : canViewManualMovements ? "movements" : "overview");
       return;
     }
     if (area === "invoices" && !canViewInvoices) {
-      setFinanceArea(canViewCollections ? "collections" : "overview");
+      setFinanceArea(canViewCollections ? "collections" : canViewManualMovements ? "movements" : "overview");
       return;
     }
     if (area === "overview" && !canViewInvoices) {
-      setFinanceArea(canViewCollections ? "collections" : "invoices");
+      setFinanceArea(canViewCollections ? "collections" : canViewManualMovements ? "movements" : "invoices");
       return;
     }
     setFinanceArea(area);
@@ -1535,6 +1550,7 @@ export function FinancePanel({
       <FinanceNavigation
         activeArea={financeArea}
         canManageFinance={canManageFinance}
+        canViewManualMovements={canViewManualMovements}
         canViewInvoices={canViewInvoices}
         canViewCollections={canViewCollections}
         onChange={changeFinanceArea}
@@ -1729,11 +1745,11 @@ export function FinancePanel({
     );
   }
 
-  if (financeArea === "movements" && canManageFinance) {
+  if (financeArea === "movements" && canViewManualMovements) {
     return (
       <div className="grid min-w-0 gap-5">
         {financeHeader}
-        <ManualMovementsPanel />
+        <ManualMovementsPanel canManage={canManageFinance} />
       </div>
     );
   }

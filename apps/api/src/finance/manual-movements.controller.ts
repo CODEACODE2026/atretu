@@ -17,6 +17,8 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import {
@@ -44,7 +46,7 @@ const attachmentUploadInterceptor = FileInterceptor(
   singleDocumentUploadOptions,
 );
 
-@UseGuards(AuthGuard, RolesGuard)
+@UseGuards(AuthGuard)
 @Controller("finance/manual-movements")
 export class ManualFinancialMovementsController {
   constructor(
@@ -53,18 +55,27 @@ export class ManualFinancialMovementsController {
   ) {}
 
   @Get()
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
-  list(@Query() query: ListManualFinancialMovementsDto) {
-    return this.movements.list(query);
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.view")
+  list(
+    @Query() query: ListManualFinancialMovementsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.movements.list(query, user);
   }
 
   @Get(":movementId")
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
-  get(@Param() params: ManualFinancialMovementParamsDto) {
-    return this.movements.get(params.movementId);
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.view")
+  get(
+    @Param() params: ManualFinancialMovementParamsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.movements.get(params.movementId, user);
   }
 
   @Post()
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   @UseInterceptors(uploadInterceptor)
   create(
@@ -76,6 +87,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Patch(":movementId")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   update(
     @Param() params: ManualFinancialMovementParamsDto,
@@ -86,6 +98,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/mark-paid")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   markPaid(
     @Param() params: ManualFinancialMovementParamsDto,
@@ -96,6 +109,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/cancel")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   cancel(
     @Param() params: ManualFinancialMovementParamsDto,
@@ -106,6 +120,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/attachments")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   @UseInterceptors(attachmentUploadInterceptor)
   attach(
@@ -117,6 +132,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Get(":movementId/attachments/:attachmentId/view")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
@@ -141,6 +157,7 @@ export class ManualFinancialMovementsController {
   }
 
   @Get(":movementId/attachments/:attachmentId/download")
+  @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")

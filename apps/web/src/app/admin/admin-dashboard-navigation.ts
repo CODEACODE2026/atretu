@@ -2,7 +2,7 @@ import type { CollectionOperationalStatus } from "../../lib/api";
 import type { AdminArea } from "./admin-navigation";
 
 export type DomainKey = "institutions" | "shifts" | "buses" | "years";
-export type FinanceArea = "invoices" | "collections";
+export type FinanceArea = "invoices" | "collections" | "movements";
 export type StudentStatusFilter = "active" | "suspended" | "terminated" | "all";
 export type StudentBoardMembershipFilter = "all" | "active" | "inactive";
 export type PreRegistrationInitialStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -225,7 +225,9 @@ function parseDomainKey(value: string | null): DomainKey | undefined {
 }
 
 function parseFinanceArea(value: string | null): FinanceArea | undefined {
-  return value === "invoices" || value === "collections" ? value : undefined;
+  return value === "invoices" || value === "collections" || value === "movements"
+    ? value
+    : undefined;
 }
 
 function parseInvoiceStatus(

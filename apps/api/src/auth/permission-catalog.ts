@@ -187,6 +187,7 @@ export const ACTIVE_DELEGATABLE_PERMISSION_KEYS = [
   "finance.invoices.manage",
   "collections.view",
   "collections.manage",
+  "manualMovements.view",
   "officialDocuments.view",
   "officialDocuments.issue",
   "baseRecords.view",

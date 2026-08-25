@@ -88,7 +88,7 @@ const emptySummary: ManualFinancialMovementSummary = {
   netFormatted: "R$ 0,00",
 };
 
-export function ManualMovementsPanel() {
+export function ManualMovementsPanel({ canManage = true }: { canManage?: boolean }) {
   const [movements, setMovements] = useState<ManualFinancialMovement[]>([]);
   const [summary, setSummary] = useState<ManualFinancialMovementSummary>(emptySummary);
   const [loading, setLoading] = useState(true);
@@ -277,22 +277,24 @@ export function ManualMovementsPanel() {
               Registre entradas manuais e despesas sem misturar com faturas de mensalidade.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button className={adminTheme.primaryButton} onClick={() => {
-              setFormError("");
-              setDialog({ mode: "create", type: "INCOME" });
-            }} type="button">
-              <Plus aria-hidden="true" className="h-4 w-4" />
-              Nova entrada
-            </button>
-            <button className={adminTheme.secondaryButton} onClick={() => {
-              setFormError("");
-              setDialog({ mode: "create", type: "EXPENSE" });
-            }} type="button">
-              <Plus aria-hidden="true" className="h-4 w-4" />
-              Nova despesa
-            </button>
-          </div>
+          {canManage ? (
+            <div className="flex flex-wrap gap-2">
+              <button className={adminTheme.primaryButton} onClick={() => {
+                setFormError("");
+                setDialog({ mode: "create", type: "INCOME" });
+              }} type="button">
+                <Plus aria-hidden="true" className="h-4 w-4" />
+                Nova entrada
+              </button>
+              <button className={adminTheme.secondaryButton} onClick={() => {
+                setFormError("");
+                setDialog({ mode: "create", type: "EXPENSE" });
+              }} type="button">
+                <Plus aria-hidden="true" className="h-4 w-4" />
+                Nova despesa
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {message ? <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
@@ -373,6 +375,7 @@ export function ManualMovementsPanel() {
               }}
               onMarkPaid={handleMarkPaid}
               onView={setDetail}
+              canManage={canManage}
             />
           ))
         )}
@@ -410,12 +413,14 @@ function MovementRow({
   busy,
   movement,
   onCancel,
+  canManage,
   onDocument,
   onEdit,
   onMarkPaid,
   onView,
 }: {
   busy: boolean;
+  canManage: boolean;
   movement: ManualFinancialMovement;
   onCancel: (movement: ManualFinancialMovement) => void;
   onDocument: (movement: ManualFinancialMovement, mode: "download" | "view") => void;
@@ -450,17 +455,23 @@ function MovementRow({
         </div>
         <div className="flex flex-wrap gap-2 xl:justify-end">
           <button className={adminTheme.secondaryButton} onClick={() => onView(movement)} type="button"><Eye aria-hidden className="h-4 w-4" />Detalhes</button>
-          <button className={adminTheme.secondaryButton} disabled={busy || movement.status === "CANCELLED"} onClick={() => onEdit(movement)} type="button"><Pencil aria-hidden className="h-4 w-4" />Editar</button>
+          {canManage ? (
+            <button className={adminTheme.secondaryButton} disabled={busy || movement.status === "CANCELLED"} onClick={() => onEdit(movement)} type="button"><Pencil aria-hidden className="h-4 w-4" />Editar</button>
+          ) : null}
           {movement.activeAttachment ? (
             <>
-              <button className={adminTheme.secondaryButton} onClick={() => onDocument(movement, "view")} type="button"><Eye aria-hidden className="h-4 w-4" />Documento</button>
-              <button className={adminTheme.secondaryButton} onClick={() => onDocument(movement, "download")} type="button"><Download aria-hidden className="h-4 w-4" />Baixar</button>
+              {canManage ? (
+                <>
+                  <button className={adminTheme.secondaryButton} onClick={() => onDocument(movement, "view")} type="button"><Eye aria-hidden className="h-4 w-4" />Documento</button>
+                  <button className={adminTheme.secondaryButton} onClick={() => onDocument(movement, "download")} type="button"><Download aria-hidden className="h-4 w-4" />Baixar</button>
+                </>
+              ) : null}
             </>
           ) : null}
-          {movement.type === "EXPENSE" && movement.status === "PENDING" ? (
+          {canManage && movement.type === "EXPENSE" && movement.status === "PENDING" ? (
             <button className={adminTheme.primaryButton} disabled={busy} onClick={() => onMarkPaid(movement)} type="button">Marcar paga</button>
           ) : null}
-          {movement.status !== "CANCELLED" ? (
+          {canManage && movement.status !== "CANCELLED" ? (
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-60" disabled={busy} onClick={() => onCancel(movement)} type="button">
               <XCircle aria-hidden className="h-4 w-4" />
               Cancelar

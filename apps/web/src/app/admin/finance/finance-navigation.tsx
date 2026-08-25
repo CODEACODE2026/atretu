@@ -45,12 +45,14 @@ const items: Array<{
 export function FinanceNavigation({
   activeArea,
   canManageFinance,
+  canViewManualMovements,
   canViewInvoices,
   canViewCollections,
   onChange,
 }: {
   activeArea: FinanceArea;
   canManageFinance: boolean;
+  canViewManualMovements: boolean;
   canViewInvoices: boolean;
   canViewCollections: boolean;
   onChange: (area: FinanceArea) => void;
@@ -65,11 +67,10 @@ export function FinanceNavigation({
     if (item.area === "invoices") {
       return canViewInvoices;
     }
-    if (
-      item.area === "batches" ||
-      item.area === "movements" ||
-      item.area === "reports"
-    ) {
+    if (item.area === "movements") {
+      return canViewManualMovements;
+    }
+    if (item.area === "batches" || item.area === "reports") {
       return canManageFinance;
     }
     return true;

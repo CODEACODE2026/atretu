@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -19,6 +20,10 @@ import sharp from "sharp";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
+import {
+  getInstitutionScope,
+  OPERATIONAL_INSTITUTION_SCOPE,
+} from "../auth/institution-scope.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import {
   type UploadedDocumentFile,
@@ -81,9 +86,9 @@ export class ManualFinancialMovementsService {
     private readonly audit: AdministrativeAuditService,
   ) {}
 
-  async list(query: ListManualFinancialMovementsDto) {
+  async list(query: ListManualFinancialMovementsDto, user?: AuthUser) {
     const pagination = resolvePagination(query);
-    const where = this.buildWhere(query);
+    const where = this.applyInstitutionScope(this.buildWhere(query), user);
     const [records, total, summary] = await Promise.all([
       this.prisma.manualFinancialMovement.findMany({
         where,
@@ -107,8 +112,9 @@ export class ManualFinancialMovementsService {
     };
   }
 
-  async get(id: string) {
+  async get(id: string, user?: AuthUser) {
     const record = await this.findMovement(id);
+    this.assertMovementInstitutionScope(record, user);
     return this.toMovementResponse(record);
   }
 
@@ -400,6 +406,7 @@ export class ManualFinancialMovementsService {
     user: AuthUser,
   ) {
     const attachment = await this.findAttachment(movementId, attachmentId);
+    this.assertMovementInstitutionScope(attachment.movement, user);
     const buffer = await this.storage.read(attachment.storageKey);
     await this.audit.record({
       eventType:
@@ -731,7 +738,10 @@ export class ManualFinancialMovementsService {
   private async findAttachment(movementId: string, attachmentId: string) {
     const attachment = await this.prisma.manualFinancialMovementAttachment.findFirst({
       where: { id: attachmentId, movementId },
-      include: { uploadedBy: { select: { id: true, name: true } } },
+      include: {
+        movement: { include: this.movementInclude() },
+        uploadedBy: { select: { id: true, name: true } },
+      },
     });
     if (!attachment) {
       throw new NotFoundException("Anexo nao encontrado");
@@ -743,6 +753,11 @@ export class ManualFinancialMovementsService {
     return {
       student: {
         include: {
+          enrollments: {
+            include: {
+              institution: { select: { id: true, name: true } },
+            },
+          },
           person: true,
           studentCards: {
             where: { status: "ACTIVE" },
@@ -792,6 +807,10 @@ export class ManualFinancialMovementsService {
             name: record.student.person.fullName,
             cpfMasked: maskCpf(record.student.person.cpf),
             cardNumber: record.student.studentCards[0]?.cardNumber ?? null,
+            institutions: record.student.enrollments.map((enrollment) => ({
+              id: enrollment.institution.id,
+              name: enrollment.institution.name,
+            })),
           }
         : null,
       createdBy: record.createdBy,
@@ -879,6 +898,52 @@ export class ManualFinancialMovementsService {
       input.attachmentId,
       input.storedFileName,
     ].join("/");
+  }
+
+  private applyInstitutionScope(
+    where: Prisma.ManualFinancialMovementWhereInput,
+    user?: AuthUser,
+  ): Prisma.ManualFinancialMovementWhereInput {
+    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
+    if (scope.type === "unrestricted") {
+      return where;
+    }
+    const institutionIds =
+      scope.type === "restricted" ? scope.institutionIds : [];
+    return {
+      AND: [
+        where,
+        {
+          student: {
+            enrollments: {
+              some: {
+                institutionId: { in: institutionIds },
+              },
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  private assertMovementInstitutionScope(record: MovementRecord, user?: AuthUser) {
+    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
+    if (scope.type === "unrestricted") {
+      return;
+    }
+    if (scope.type === "denied" || !record.student) {
+      throw new ForbiddenException("Acesso negado");
+    }
+    const movementInstitutionIds = record.student.enrollments.map(
+      (enrollment) => enrollment.institutionId,
+    );
+    if (
+      !movementInstitutionIds.some((institutionId) =>
+        scope.institutionIds.includes(institutionId),
+      )
+    ) {
+      throw new ForbiddenException("Acesso negado");
+    }
   }
 }
 
