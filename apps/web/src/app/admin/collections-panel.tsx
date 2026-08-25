@@ -32,9 +32,11 @@ export function CollectionsPanel({
   initialFilters?: Partial<CollectionFilters>;
   user: ApiUser;
 }) {
-  const canManageCollections = canAccessOperationalAdmin(user);
+  const canUseBankSlipActions = canAccessOperationalAdmin(user);
+  const canRegisterCollectionActions =
+    canUseBankSlipActions || hasCapability(user, "collections.manage");
   const canUseCollections =
-    canManageCollections || hasCapability(user, "collections.view");
+    canUseBankSlipActions || hasCapability(user, "collections.view");
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
   const [cases, setCases] = useState<CollectionCase[]>([]);
   const [followUps, setFollowUps] = useState<CollectionCase[]>([]);
@@ -214,8 +216,8 @@ export function CollectionsPanel({
 
       {detailInvoiceId ? (
         <CollectionCaseDetailModal
-          canUseBankSlipActions={canManageCollections}
-          canRegisterActions={canManageCollections}
+          canUseBankSlipActions={canUseBankSlipActions}
+          canRegisterActions={canRegisterCollectionActions}
           invoiceId={detailInvoiceId}
           onClose={() => setDetailInvoiceId("")}
           onCollectionsChanged={() => void loadCollections()}

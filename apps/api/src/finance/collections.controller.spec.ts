@@ -12,8 +12,6 @@ import {
 import { AuthGuard } from "../auth/auth.guard.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OPERATIONAL_PERMISSIONS_KEY } from "../auth/operational-permissions.js";
-import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { CollectionsController } from "./collections.controller.js";
 import {
@@ -80,12 +78,15 @@ async function testControllerRoutesGuardsAndRoles() {
     );
   }
   assert.deepEqual(
-    Reflect.getMetadata("roles", CollectionsController.prototype.createAction),
-    [...OPERATIONAL_ADMIN_ROLES],
+    Reflect.getMetadata(GUARDS_METADATA_KEY, CollectionsController.prototype.createAction),
+    [OperationalPermissionGuard],
   );
   assert.deepEqual(
-    Reflect.getMetadata(GUARDS_METADATA_KEY, CollectionsController.prototype.createAction),
-    [RolesGuard],
+    Reflect.getMetadata(
+      OPERATIONAL_PERMISSIONS_KEY,
+      CollectionsController.prototype.createAction,
+    ),
+    ["collections.manage"],
   );
 
   assert.ok(controller);

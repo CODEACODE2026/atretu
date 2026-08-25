@@ -39,6 +39,13 @@ class CollectionsViewController {
   }
 }
 
+class CollectionsManageController {
+  @OperationalPermission("collections.manage")
+  handler() {
+    return true;
+  }
+}
+
 class PublicController {
   handler() {
     return true;
@@ -99,19 +106,20 @@ assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.SECRETARIA]), [
 assert.deepEqual(operationalCapabilitiesForRoles([RoleCode.GESTOR]), []);
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.length,
-  22,
-  "Sprint 15.10F.2G.2 must expose exactly 22 operational capabilities",
+  23,
+  "Sprint 15.10F.2G.3 must expose exactly 23 operational capabilities",
 );
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.invoices.view"));
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("finance.invoices.manage"));
 assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("collections.view"));
+assert.ok(SPRINT_OPERATIONAL_PERMISSION_KEYS.includes("collections.manage"));
 assert.equal(
   SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.manage"),
   SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.view") + 1,
 );
 assert.equal(
-  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("collections.view"),
-  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("finance.invoices.manage") + 1,
+  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("collections.manage"),
+  SPRINT_OPERATIONAL_PERMISSION_KEYS.indexOf("collections.view") + 1,
 );
 
 assert.equal(
@@ -180,6 +188,17 @@ assert.equal(
   ),
   true,
 );
+assert.equal(
+  await guardWithProfile({
+    permissions: [{ permissionKey: "collections.manage" }],
+  }).guard.canActivate(
+    executionContext(
+      CollectionsManageController,
+      user({ permissionProfileId: "profile-1", roles: [RoleCode.USER] }),
+    ) as never,
+  ),
+  true,
+);
 assert.deepEqual(activeUserGuard.calls, [
   {
     where: {
@@ -227,7 +246,6 @@ await assert.rejects(
 
 for (const inactiveFinancePermission of [
   "finance.bankSlips.manage",
-  "collections.manage",
   "manualMovements.view",
   "manualMovements.manage",
 ] as const) {

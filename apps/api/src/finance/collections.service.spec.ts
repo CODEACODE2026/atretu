@@ -667,7 +667,7 @@ async function testUserWithCollectionsViewCanReadOnlyInstitutionScope() {
   );
 }
 
-async function testUserWithCollectionsViewCannotCreateAnyCollectionAction() {
+async function testUserWithCollectionsManageCanCreateScopedCollectionActions() {
   const prisma = new FakePrisma([invoiceRecord({ id: "invoice-1" })]);
   const service = newService(prisma);
 
@@ -678,27 +678,25 @@ async function testUserWithCollectionsViewCannotCreateAnyCollectionAction() {
     CollectionActionType.FOLLOW_UP_SCHEDULED,
     CollectionActionType.INTERNAL_NOTE,
   ]) {
-    await assert.rejects(
-      () =>
-        service.createAction(
-          "invoice-1",
-          {
-            actionType,
-            channel: CollectionChannel.WHATSAPP,
-            nextFollowUpAt: "2026-07-22T09:00:00.000Z",
-            note: `Tentativa ${actionType}`,
-            promisedAmountCents: 10_000,
-            promiseDueDate: "2026-07-25",
-          },
-          COLLECTIONS_VIEW_USER,
-        ),
-      /Acesso negado/,
-      `${actionType} must remain blocked for USER with collections.view`,
+    const created = await service.createAction(
+      "invoice-1",
+      {
+        actionType,
+        channel: CollectionChannel.WHATSAPP,
+        nextFollowUpAt: "2026-07-22T09:00:00.000Z",
+        note: `Tentativa ${actionType}`,
+        promisedAmountCents: 10_000,
+        promiseDueDate: "2026-07-25",
+      },
+      COLLECTIONS_VIEW_USER,
     );
+
+    assert.equal(created.actionType, actionType);
+    assert.equal(created.source, CollectionActionSource.MANUAL);
   }
 
-  assert.equal(prisma.actions.length, 0);
-  assert.equal(prisma.auditLogs.length, 0);
+  assert.equal(prisma.actions.length, 5);
+  assert.equal(prisma.auditLogs.length, 5);
 }
 
 async function testUnlinkedSecretaryDoesNotReceiveGlobalCollections() {
@@ -1760,7 +1758,7 @@ await testCreateActionRollsBackWhenActionCreateFails();
 await testPermissionsFollowExistingRoles();
 await testInstitutionScopedUserCannotEscapeInstitution();
 await testUserWithCollectionsViewCanReadOnlyInstitutionScope();
-await testUserWithCollectionsViewCannotCreateAnyCollectionAction();
+await testUserWithCollectionsManageCanCreateScopedCollectionActions();
 await testUnlinkedSecretaryDoesNotReceiveGlobalCollections();
 await testFiltersAndFollowUps();
 await testDerivedFiltersPaginateAfterFilteringAndUseStableOrder();

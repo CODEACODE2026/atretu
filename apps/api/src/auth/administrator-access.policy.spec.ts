@@ -89,7 +89,6 @@ const administratorOperationalEndpoints = [
   [BankSlipsController, "cancelIssueBatch"],
   [BankSlipsController, "requestCancellation"],
   [BankSlipsController, "getPdf"],
-  [CollectionsController, "createAction"],
   [FinancialReportsController, "monthly"],
   [ManualFinancialMovementsController, "list"],
   [ManualFinancialMovementsController, "get"],
@@ -122,6 +121,10 @@ const collectionsViewEndpoints = [
   [CollectionsController, "getCaseByInvoiceId"],
   [CollectionsController, "listActions"],
   [CollectionsController, "listFollowUps"],
+] as const;
+
+const collectionsManageEndpoints = [
+  [CollectionsController, "createAction"],
 ] as const;
 
 const studentAuxiliaryReferenceEndpoints = [
@@ -201,6 +204,19 @@ for (const item of collectionsViewEndpoints) {
     operationalPermissionMetadata(item[0], item[1]),
     ["collections.view"],
     `${item[0].name}.${item[1]} must require collections.view`,
+  );
+}
+
+for (const item of collectionsManageEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after collections manage migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["collections.manage"],
+    `${item[0].name}.${item[1]} must require collections.manage`,
   );
 }
 

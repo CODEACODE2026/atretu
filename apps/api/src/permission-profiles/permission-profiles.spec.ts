@@ -70,6 +70,12 @@ assert.deepEqual(
   ]),
   ["collections.view"],
 );
+assert.deepEqual(
+  Reflect.apply(service["normalizePermissions"], service, [
+    ["collections.manage"],
+  ]),
+  ["collections.manage", "collections.view"],
+);
 assert.throws(
   () =>
     Reflect.apply(service["normalizePermissions"], service, [

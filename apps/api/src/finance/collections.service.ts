@@ -921,7 +921,8 @@ export class CollectionsService {
     if (
       !currentUser.roles.includes(RoleCode.SUPER_ADMIN) &&
       !currentUser.roles.includes(RoleCode.ADMINISTRATOR) &&
-      !currentUser.roles.includes(RoleCode.SECRETARIA)
+      !currentUser.roles.includes(RoleCode.SECRETARIA) &&
+      !currentUser.roles.includes(RoleCode.USER)
     ) {
       throw new ForbiddenException("Acesso negado");
     }
