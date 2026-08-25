@@ -12,6 +12,7 @@ import {
   ManualFinancialMovementStatus,
   ManualFinancialMovementType,
   Prisma,
+  RoleCode,
   StudentHistoryEventType,
 } from "@prisma/client";
 import { randomUUID, createHash } from "node:crypto";
@@ -124,6 +125,7 @@ export class ManualFinancialMovementsService {
     user: AuthUser,
   ) {
     const normalized = await this.normalizeCreate(body);
+    await this.assertUserManageStudentScope(normalized.studentId, user);
     let writtenStorageKey: string | null = null;
     const attachment = file
       ? await this.validateAttachmentFile(file, DOCUMENT_UPLOAD_MAX_SIZE_BYTES)
@@ -225,10 +227,12 @@ export class ManualFinancialMovementsService {
 
   async update(id: string, body: UpdateManualFinancialMovementDto, user: AuthUser) {
     const current = await this.findMovement(id);
+    this.assertUserManageMovementScope(current, user);
     if (current.status === ManualFinancialMovementStatus.CANCELLED) {
       throw new BadRequestException("Movimentacao cancelada nao pode ser alterada");
     }
     const normalized = await this.normalizeUpdate(current, body);
+    await this.assertUserManageStudentScope(normalized.studentId, user);
     const updated = await this.prisma.$transaction(async (tx) => {
       const record = await tx.manualFinancialMovement.update({
         where: { id },
@@ -258,6 +262,7 @@ export class ManualFinancialMovementsService {
     user: AuthUser,
   ) {
     const current = await this.findMovement(id);
+    this.assertUserManageMovementScope(current, user);
     if (current.type !== ManualFinancialMovementType.EXPENSE) {
       throw new BadRequestException("Somente despesas podem ser marcadas como pagas");
     }
@@ -291,6 +296,7 @@ export class ManualFinancialMovementsService {
 
   async cancel(id: string, body: CancelManualFinancialMovementDto, user: AuthUser) {
     const current = await this.findMovement(id);
+    this.assertUserManageMovementScope(current, user);
     if (current.status === ManualFinancialMovementStatus.CANCELLED) {
       return this.toMovementResponse(current);
     }
@@ -324,6 +330,7 @@ export class ManualFinancialMovementsService {
 
   async attach(id: string, file: UploadedDocumentFile | undefined, user: AuthUser) {
     const movement = await this.findMovement(id);
+    this.assertUserManageMovementScope(movement, user);
     if (movement.status === ManualFinancialMovementStatus.CANCELLED) {
       throw new BadRequestException("Movimentacao cancelada nao pode receber anexo");
     }
@@ -942,6 +949,43 @@ export class ManualFinancialMovementsService {
         scope.institutionIds.includes(institutionId),
       )
     ) {
+      throw new ForbiddenException("Acesso negado");
+    }
+  }
+
+  private assertUserManageMovementScope(record: MovementRecord, user: AuthUser) {
+    if (!user.roles.includes(RoleCode.USER)) {
+      return;
+    }
+    this.assertMovementInstitutionScope(record, user);
+  }
+
+  private async assertUserManageStudentScope(
+    studentId: string | null | undefined,
+    user: AuthUser,
+  ) {
+    if (!user.roles.includes(RoleCode.USER)) {
+      return;
+    }
+    if (!studentId) {
+      throw new ForbiddenException("Acesso negado");
+    }
+    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
+    if (scope.type !== "restricted") {
+      throw new ForbiddenException("Acesso negado");
+    }
+    const student = await this.prisma.student.findFirst({
+      where: {
+        id: studentId,
+        enrollments: {
+          some: {
+            institutionId: { in: scope.institutionIds },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (!student) {
       throw new ForbiddenException("Acesso negado");
     }
   }

@@ -147,6 +147,7 @@ assert.deepEqual(ACTIVE_DELEGATABLE_PERMISSION_KEYS, [
   "collections.view",
   "collections.manage",
   "manualMovements.view",
+  "manualMovements.manage",
   "officialDocuments.view",
   "officialDocuments.issue",
   "baseRecords.view",
@@ -164,6 +165,7 @@ assert.equal(isActiveDelegatablePermissionKey("finance.invoices.manage"), true);
 assert.equal(isActiveDelegatablePermissionKey("collections.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("collections.manage"), true);
 assert.equal(isActiveDelegatablePermissionKey("manualMovements.view"), true);
+assert.equal(isActiveDelegatablePermissionKey("manualMovements.manage"), true);
 assert.equal(isActiveDelegatablePermissionKey("officialDocuments.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("officialDocuments.issue"), true);
 assert.equal(isActiveDelegatablePermissionKey("baseRecords.view"), true);
@@ -173,12 +175,11 @@ assert.equal(
   false,
 );
 assert.equal(isActiveDelegatablePermissionKey("finance.bankSlips.manage"), false);
-assert.equal(isActiveDelegatablePermissionKey("manualMovements.manage"), false);
 assert.equal(isActiveDelegatablePermissionKey("academicYears.manage"), false);
 assert.equal(
   DELEGATABLE_PERMISSION_CATALOG.length -
     ACTIVE_DELEGATABLE_PERMISSION_KEYS.length,
-  5,
+  4,
 );
 
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(

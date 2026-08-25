@@ -143,6 +143,8 @@ export function FinancePanel({
     canManageFinance || hasCapability(user, "collections.view");
   const canViewManualMovements =
     canManageFinance || hasCapability(user, "manualMovements.view");
+  const canManageManualMovements =
+    canManageFinance || hasCapability(user, "manualMovements.manage");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<
@@ -1749,7 +1751,7 @@ export function FinancePanel({
     return (
       <div className="grid min-w-0 gap-5">
         {financeHeader}
-        <ManualMovementsPanel canManage={canManageFinance} />
+        <ManualMovementsPanel canManage={canManageManualMovements} />
       </div>
     );
   }

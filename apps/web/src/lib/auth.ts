@@ -20,6 +20,7 @@ const SPRINT_CAPABILITY_KEYS = [
   "collections.view",
   "collections.manage",
   "manualMovements.view",
+  "manualMovements.manage",
   "officialDocuments.view",
   "officialDocuments.issue",
   "baseRecords.view",
@@ -85,6 +86,7 @@ export function canAccessMigratedArea(
       "finance.invoices.view",
       "collections.view",
       "manualMovements.view",
+      "manualMovements.manage",
     ]);
   }
   if (area === "official-documents") {

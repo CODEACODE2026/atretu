@@ -90,13 +90,6 @@ const administratorOperationalEndpoints = [
   [BankSlipsController, "requestCancellation"],
   [BankSlipsController, "getPdf"],
   [FinancialReportsController, "monthly"],
-  [ManualFinancialMovementsController, "create"],
-  [ManualFinancialMovementsController, "update"],
-  [ManualFinancialMovementsController, "markPaid"],
-  [ManualFinancialMovementsController, "cancel"],
-  [ManualFinancialMovementsController, "attach"],
-  [ManualFinancialMovementsController, "viewAttachment"],
-  [ManualFinancialMovementsController, "downloadAttachment"],
   [StudentsController, "listStudentLegacyFinancialHistory"],
 ] as const;
 
@@ -128,6 +121,16 @@ const collectionsManageEndpoints = [
 const manualMovementsViewEndpoints = [
   [ManualFinancialMovementsController, "list"],
   [ManualFinancialMovementsController, "get"],
+] as const;
+
+const manualMovementsManageEndpoints = [
+  [ManualFinancialMovementsController, "create"],
+  [ManualFinancialMovementsController, "update"],
+  [ManualFinancialMovementsController, "markPaid"],
+  [ManualFinancialMovementsController, "cancel"],
+  [ManualFinancialMovementsController, "attach"],
+  [ManualFinancialMovementsController, "viewAttachment"],
+  [ManualFinancialMovementsController, "downloadAttachment"],
 ] as const;
 
 const studentAuxiliaryReferenceEndpoints = [
@@ -233,6 +236,19 @@ for (const item of manualMovementsViewEndpoints) {
     operationalPermissionMetadata(item[0], item[1]),
     ["manualMovements.view"],
     `${item[0].name}.${item[1]} must require manualMovements.view`,
+  );
+}
+
+for (const item of manualMovementsManageEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after manual movements manage migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["manualMovements.manage"],
+    `${item[0].name}.${item[1]} must require manualMovements.manage`,
   );
 }
 

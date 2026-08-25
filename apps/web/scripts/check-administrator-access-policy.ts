@@ -105,6 +105,16 @@ assert.equal(canAccessMigratedArea(userOnlyCollectionsView, "finance"), true);
 assert.equal(canAccessMigratedArea(userOnlyCollectionsView, "students"), false);
 assert.equal(canAccessMigratedArea(userOnlyCollectionsView, "reports"), false);
 
+const userOnlyManualMovementsManage: ApiUser = {
+  ...baseUser,
+  capabilities: ["manualMovements.manage"],
+  roles: ["USER"],
+};
+
+assert.equal(canAccessMigratedArea(userOnlyManualMovementsManage, "finance"), true);
+assert.equal(canAccessMigratedArea(userOnlyManualMovementsManage, "students"), false);
+assert.equal(canAccessMigratedArea(userOnlyManualMovementsManage, "reports"), false);
+
 const userOnlyBaseRecordsView: ApiUser = {
   ...baseUser,
   capabilities: ["baseRecords.view"],

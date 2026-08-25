@@ -19,8 +19,6 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
-import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
 import {
   manualFinancialMovementUploadOptions,
   singleDocumentUploadOptions,
@@ -75,8 +73,8 @@ export class ManualFinancialMovementsController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
   @UseInterceptors(uploadInterceptor)
   create(
     @Body() body: CreateManualFinancialMovementDto,
@@ -87,8 +85,8 @@ export class ManualFinancialMovementsController {
   }
 
   @Patch(":movementId")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
   update(
     @Param() params: ManualFinancialMovementParamsDto,
     @Body() body: UpdateManualFinancialMovementDto,
@@ -98,8 +96,8 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/mark-paid")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
   markPaid(
     @Param() params: ManualFinancialMovementParamsDto,
     @Body() body: MarkManualFinancialMovementPaidDto,
@@ -109,8 +107,8 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/cancel")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
   cancel(
     @Param() params: ManualFinancialMovementParamsDto,
     @Body() body: CancelManualFinancialMovementDto,
@@ -120,8 +118,8 @@ export class ManualFinancialMovementsController {
   }
 
   @Post(":movementId/attachments")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
   @UseInterceptors(attachmentUploadInterceptor)
   attach(
     @Param() params: ManualFinancialMovementParamsDto,
@@ -132,8 +130,8 @@ export class ManualFinancialMovementsController {
   }
 
   @Get(":movementId/attachments/:attachmentId/view")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async viewAttachment(
@@ -157,8 +155,8 @@ export class ManualFinancialMovementsController {
   }
 
   @Get(":movementId/attachments/:attachmentId/download")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async downloadAttachment(

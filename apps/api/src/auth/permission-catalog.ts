@@ -188,6 +188,7 @@ export const ACTIVE_DELEGATABLE_PERMISSION_KEYS = [
   "collections.view",
   "collections.manage",
   "manualMovements.view",
+  "manualMovements.manage",
   "officialDocuments.view",
   "officialDocuments.issue",
   "baseRecords.view",

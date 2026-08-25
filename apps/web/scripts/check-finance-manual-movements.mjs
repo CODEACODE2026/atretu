@@ -23,6 +23,9 @@ const profileUtils = readFileSync(
 includesAll(financePanel, [
   "ManualMovementsPanel",
   'financeArea === "movements"',
+  'hasCapability(user, "manualMovements.manage")',
+  "canManageManualMovements",
+  "canManage={canManageManualMovements}",
 ]);
 includesAll(financeNavigation, ["Movimentações", "Entradas e despesas manuais"]);
 
@@ -86,6 +89,17 @@ includesAll(money, [
 for (const forbidden of ["window.alert", "setError(caught instanceof Error ? caught.message : \"Erro ao salvar movimentação\")"]) {
   assert.equal(panel.includes(forbidden), false, `Manual movement modal must not use ${forbidden}`);
 }
+
+assert.equal(
+  financePanel.includes("hasCapability(user, \"finance.bankSlips.manage\")"),
+  false,
+  "Manual movements manage must not depend on bank slip management",
+);
+assert.equal(
+  financePanel.includes("canManage={canManageFinance}"),
+  false,
+  "Manual movements actions must be gated by manualMovements.manage, not broad finance management only",
+);
 
 includesAll(profileUtils, [
   "MANUAL_FINANCIAL_INCOME_RECORDED",

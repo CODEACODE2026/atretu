@@ -24,7 +24,14 @@ assert.match(schema, /MANUAL_FINANCIAL_INCOME_RECORDED/);
 assert.match(controller, /@Controller\("finance\/manual-movements"\)/);
 assert.match(controller, /@OperationalPermission\("manualMovements\.view"\)[\s\S]*list/);
 assert.match(controller, /@OperationalPermission\("manualMovements\.view"\)[\s\S]*get/);
-assert.match(controller, /@Roles\(\.\.\.OPERATIONAL_ADMIN_ROLES\)/);
+assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*create/);
+assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*update/);
+assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*markPaid/);
+assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*cancel/);
+assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*attach/);
+assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*viewAttachment/);
+assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*downloadAttachment/);
+assert.doesNotMatch(controller, /RolesGuard|OPERATIONAL_ADMIN_ROLES/);
 assert.match(controller, /manualFinancialMovementUploadOptions/);
 assert.match(controller, /attachmentUploadInterceptor[\s\S]*singleDocumentUploadOptions/);
 assert.match(controller, /mark-paid/);
@@ -55,6 +62,10 @@ assert.match(serviceSource, /resolvePagination/);
 assert.match(serviceSource, /incomeReceivedCents[\s\S]*expensePaidCents[\s\S]*netCents/);
 assert.match(serviceSource, /getInstitutionScope\(user, OPERATIONAL_INSTITUTION_SCOPE\)/);
 assert.match(serviceSource, /student:\s*\{[\s\S]*enrollments:\s*\{[\s\S]*some:\s*\{[\s\S]*institutionId: \{ in: institutionIds \}/);
+assert.match(serviceSource, /assertUserManageMovementScope/);
+assert.match(serviceSource, /assertUserManageStudentScope/);
+assert.match(serviceSource, /RoleCode\.USER/);
+assert.match(serviceSource, /throw new ForbiddenException\("Acesso negado"\)/);
 assert.match(serviceSource, /throw new ForbiddenException\("Acesso negado"\)/);
 assert.doesNotMatch(serviceSource, /Sicredi|syncByInvoice|issueForInvoice|BankSlipsService/);
 
@@ -137,6 +148,77 @@ await assert.rejects(
       roles: [RoleCode.USER],
       status: UserStatus.ACTIVE,
     }),
+  (error) => error instanceof ForbiddenException,
+);
+
+const userA = {
+  email: "user@example.com",
+  id: "user-a",
+  institutionId: "institution-a",
+  institutionIds: ["institution-a"],
+  name: "User A",
+  permissionProfileId: "profile-1",
+  roles: [RoleCode.USER],
+  status: UserStatus.ACTIVE,
+};
+
+await assert.rejects(
+  () =>
+    new ManualFinancialMovementsService({} as never, {} as never, {} as never).create(
+      {
+        amountCents: 1000,
+        category: "OTHER",
+        description: "Entrada global bloqueada",
+        transactionDate: "2026-08-01",
+        type: "INCOME",
+      } as never,
+      undefined,
+      userA,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+
+const scopedMutationService = new ManualFinancialMovementsService(
+  {
+    manualFinancialMovement: {
+      findUnique: async () => movementRecord(["institution-a"]),
+    },
+    student: {
+      findUnique: async () => ({ id: "student-b" }),
+      findFirst: async () => null,
+    },
+  } as never,
+  {} as never,
+  {} as never,
+);
+
+await assert.rejects(
+  () =>
+    scopedMutationService.update(
+      "movement-a",
+      { studentId: "student-b" } as never,
+      userA,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+
+const movementBMutationService = new ManualFinancialMovementsService(
+  {
+    manualFinancialMovement: {
+      findUnique: async () => ({
+        ...movementRecord(["institution-b"]),
+        status: "PENDING",
+        supplierName: "Fornecedor B",
+        type: "EXPENSE",
+      }),
+    },
+  } as never,
+  {} as never,
+  {} as never,
+);
+
+await assert.rejects(
+  () => movementBMutationService.markPaid("movement-b", {}, userA),
   (error) => error instanceof ForbiddenException,
 );
 
