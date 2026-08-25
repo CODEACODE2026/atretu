@@ -204,6 +204,12 @@ export const RESERVED_PERMISSION_KEYS = [
   "users.manage",
 ] as const satisfies readonly PermissionKey[];
 
+// Client-side permissions intentionally gate UI-only actions that transform
+// already-authorized data without opening a new backend authorization surface.
+export const CLIENT_SIDE_PERMISSION_KEYS = [
+  "reports.export",
+] as const satisfies readonly PermissionKey[];
+
 const RESERVED_PERMISSIONS = new Set<PermissionKey>(RESERVED_PERMISSION_KEYS);
 
 export const PERMISSION_DEPENDENCIES: Partial<

@@ -2,11 +2,13 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
   ACTIVE_DELEGATABLE_PERMISSION_KEYS,
+  CLIENT_SIDE_PERMISSION_KEYS,
   DELEGATABLE_PERMISSION_CATALOG,
   isActiveDelegatablePermissionKey,
   isDelegatablePermissionKey,
   isPermissionKey,
   PERMISSION_CATALOG,
+  PERMISSION_DEPENDENCIES,
   RESERVED_PERMISSION_KEYS,
   type PermissionKey,
 } from "./permission-catalog.js";
@@ -161,6 +163,24 @@ assert.equal(isActiveDelegatablePermissionKey("studentCards.issue"), true);
 assert.equal(isActiveDelegatablePermissionKey("studentCards.invalidate"), true);
 assert.equal(isActiveDelegatablePermissionKey("reports.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("reports.export"), true);
+assert.deepEqual(CLIENT_SIDE_PERMISSION_KEYS, ["reports.export"]);
+assert.deepEqual(PERMISSION_DEPENDENCIES["reports.export"], ["reports.view"]);
+assert.equal(ACTIVE_DELEGATABLE_PERMISSION_KEYS.length, 26);
+assert.equal(delegatableKeys.includes("reports.export"), true);
+assert.equal(
+  CLIENT_SIDE_PERMISSION_KEYS.includes("reports.view" as PermissionKey),
+  false,
+);
+for (const key of CLIENT_SIDE_PERMISSION_KEYS) {
+  assert.equal(isActiveDelegatablePermissionKey(key), true);
+  assert.equal(isDelegatablePermissionKey(key), true);
+  assert.equal((RESERVED_PERMISSION_KEYS as readonly string[]).includes(key), false);
+}
+assert.equal(
+  CLIENT_SIDE_PERMISSION_KEYS.filter((key) => key !== "reports.export").length,
+  0,
+  "Every client-side active capability must be an explicit product decision",
+);
 assert.equal(isActiveDelegatablePermissionKey("finance.invoices.view"), true);
 assert.equal(isActiveDelegatablePermissionKey("finance.invoices.manage"), true);
 assert.equal(isActiveDelegatablePermissionKey("finance.bankSlips.manage"), true);
@@ -225,6 +245,11 @@ const controllerSourceFiles = authorizationSourceFiles.filter((file) =>
 
 for (const file of controllerSourceFiles) {
   const source = readFileSync(file, "utf8");
+  assert.doesNotMatch(
+    source,
+    /@OperationalPermission\("reports\.export"\)/,
+    `${file} must not expose a fake backend endpoint for client-side reports.export`,
+  );
   assert.doesNotMatch(
     source,
     /@Permissions\(/,
