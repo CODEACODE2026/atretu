@@ -47,7 +47,7 @@ export class PermissionProfilesService {
     return DELEGATABLE_PERMISSION_CATALOG.map((permission) => ({
       ...permission,
       isOperational: activeKeys.has(permission.key),
-      status: activeKeys.has(permission.key) ? "active" : "comingSoon",
+      status: "active",
     }));
   }
 
@@ -243,14 +243,16 @@ export class PermissionProfilesService {
   private normalizePermissions(values: string[]): PermissionKey[] {
     const invalid = values.filter((value) => !isDelegatablePermissionKey(value));
     if (invalid.length > 0) {
-      throw new BadRequestException("Permissao nao delegavel no perfil");
+      throw new BadRequestException(
+        "Permissao nao delegavel para perfis de usuario",
+      );
     }
     const notOperational = values.filter(
       (value) => !isActiveDelegatablePermissionKey(value),
     );
     if (notOperational.length > 0) {
       throw new BadRequestException(
-        "Permissao ainda nao disponivel para perfis de usuario",
+        "Permissao nao delegavel para perfis de usuario",
       );
     }
     const expanded = new Set<PermissionKey>();

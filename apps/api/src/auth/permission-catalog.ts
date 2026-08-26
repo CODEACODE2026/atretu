@@ -204,6 +204,15 @@ export const RESERVED_PERMISSION_KEYS = [
   "users.manage",
 ] as const satisfies readonly PermissionKey[];
 
+// Delegatable permissions are the capabilities configurable for USER profiles.
+// Structural admin permissions remain in PERMISSION_CATALOG for policy
+// documentation, but are not selectable in PermissionProfile.
+export const ADMINISTRATIVE_PERMISSION_KEYS = [
+  "baseRecords.manage",
+  "academicYears.manage",
+  "officialDocuments.models.manage",
+] as const satisfies readonly PermissionKey[];
+
 // Client-side permissions intentionally gate UI-only actions that transform
 // already-authorized data without opening a new backend authorization surface.
 export const CLIENT_SIDE_PERMISSION_KEYS = [
@@ -211,6 +220,9 @@ export const CLIENT_SIDE_PERMISSION_KEYS = [
 ] as const satisfies readonly PermissionKey[];
 
 const RESERVED_PERMISSIONS = new Set<PermissionKey>(RESERVED_PERMISSION_KEYS);
+const ADMINISTRATIVE_PERMISSIONS = new Set<PermissionKey>(
+  ADMINISTRATIVE_PERMISSION_KEYS,
+);
 
 export const PERMISSION_DEPENDENCIES: Partial<
   Record<PermissionKey, readonly PermissionKey[]>
@@ -233,7 +245,9 @@ export const PERMISSION_DEPENDENCIES: Partial<
 };
 
 export const DELEGATABLE_PERMISSION_CATALOG = PERMISSION_CATALOG.filter(
-  (permission) => !RESERVED_PERMISSIONS.has(permission.key),
+  (permission) =>
+    !RESERVED_PERMISSIONS.has(permission.key) &&
+    !ADMINISTRATIVE_PERMISSIONS.has(permission.key),
 ).map((permission) => ({
   ...permission,
   dependencies: [...(PERMISSION_DEPENDENCIES[permission.key] ?? [])],

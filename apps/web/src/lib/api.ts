@@ -115,7 +115,7 @@ export type PermissionCatalogItem = {
   key: PermissionKey;
   label: string;
   module: string;
-  status?: "active" | "comingSoon";
+  status?: "active";
 };
 
 export type PermissionProfile = {

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
   ACTIVE_DELEGATABLE_PERMISSION_KEYS,
+  ADMINISTRATIVE_PERMISSION_KEYS,
   CLIENT_SIDE_PERMISSION_KEYS,
   DELEGATABLE_PERMISSION_CATALOG,
   isActiveDelegatablePermissionKey,
@@ -120,15 +121,32 @@ assert.equal(isDelegatablePermissionKey("settings.view"), false);
 assert.equal(isDelegatablePermissionKey("settings.manage"), false);
 assert.equal(isDelegatablePermissionKey("users.view"), false);
 assert.equal(isDelegatablePermissionKey("users.manage"), false);
+assert.equal(isDelegatablePermissionKey("baseRecords.manage"), false);
+assert.equal(isDelegatablePermissionKey("academicYears.manage"), false);
+assert.equal(isDelegatablePermissionKey("officialDocuments.models.manage"), false);
 assert.equal(isDelegatablePermissionKey("legacyImport.access"), false);
 assert.equal(isDelegatablePermissionKey("jobs.access"), false);
 assert.equal(isDelegatablePermissionKey("sicredi.technical"), false);
 for (const key of RESERVED_PERMISSION_KEYS) {
   assert.equal(delegatableKeys.includes(key), false);
 }
+for (const key of ADMINISTRATIVE_PERMISSION_KEYS) {
+  assert.equal(delegatableKeys.includes(key), false);
+}
 for (const permission of DELEGATABLE_PERMISSION_CATALOG) {
   assert.doesNotMatch(permission.key, /^(settings|users)\./);
+  assert.equal(
+    (ADMINISTRATIVE_PERMISSION_KEYS as readonly string[]).includes(permission.key),
+    false,
+  );
 }
+assert.equal(PERMISSION_CATALOG.length, 33);
+assert.equal(DELEGATABLE_PERMISSION_CATALOG.length, 26);
+assert.deepEqual(ADMINISTRATIVE_PERMISSION_KEYS, [
+  "baseRecords.manage",
+  "academicYears.manage",
+  "officialDocuments.models.manage",
+]);
 assert.deepEqual(ACTIVE_DELEGATABLE_PERMISSION_KEYS, [
   "dashboard.view",
   "students.view",
@@ -200,7 +218,7 @@ assert.equal(isActiveDelegatablePermissionKey("academicYears.manage"), false);
 assert.equal(
   DELEGATABLE_PERMISSION_CATALOG.length -
     ACTIVE_DELEGATABLE_PERMISSION_KEYS.length,
-  3,
+  0,
 );
 
 const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(

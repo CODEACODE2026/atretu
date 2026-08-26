@@ -5,6 +5,10 @@ import { Reflector } from "@nestjs/core";
 import { AdministrativeAuditEventType, RoleCode } from "@prisma/client";
 import { RolesGuard } from "../auth/roles.guard.js";
 import { AdminUsersController } from "../users/admin-users.controller.js";
+import {
+  ADMINISTRATIVE_PERMISSION_KEYS,
+  RESERVED_PERMISSION_KEYS,
+} from "../auth/permission-catalog.js";
 import { PermissionProfilesController } from "./permission-profiles.controller.js";
 import { PermissionProfilesService } from "./permission-profiles.service.js";
 import {
@@ -38,6 +42,19 @@ assert.match(serviceSource, /domain: "permission_profiles"/);
 assert.match(serviceSource, /permissionsChanged/);
 
 const service = new PermissionProfilesService({} as never, {} as never);
+const catalog = service.catalog();
+assert.equal(catalog.length, 26);
+assert.equal(catalog.every((permission) => permission.status === "active"), true);
+assert.equal(
+  catalog.some((permission) => (permission.status as string) === "comingSoon"),
+  false,
+);
+for (const key of ADMINISTRATIVE_PERMISSION_KEYS) {
+  assert.equal(catalog.some((permission) => permission.key === key), false);
+}
+for (const key of RESERVED_PERMISSION_KEYS) {
+  assert.equal(catalog.some((permission) => permission.key === key), false);
+}
 assert.throws(
   () =>
     Reflect.apply(service["normalizePermissions"], service, [
@@ -52,6 +69,23 @@ assert.throws(
     ]),
   BadRequestException,
 );
+for (const permissionKey of [
+  "baseRecords.manage",
+  "academicYears.manage",
+  "officialDocuments.models.manage",
+  "settings.view",
+  "settings.manage",
+  "users.view",
+  "users.manage",
+]) {
+  assert.throws(
+    () =>
+      Reflect.apply(service["normalizePermissions"], service, [[permissionKey]]),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message === "Permissao nao delegavel para perfis de usuario",
+  );
+}
 assert.deepEqual(
   Reflect.apply(service["normalizePermissions"], service, [
     ["students.update", "students.update"],
