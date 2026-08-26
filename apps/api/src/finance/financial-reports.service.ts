@@ -6,7 +6,12 @@ import {
   ManualFinancialMovementType,
   Prisma,
 } from "@prisma/client";
+import {
+  OPERATIONAL_INSTITUTION_SCOPE,
+  getInstitutionScope,
+} from "../auth/institution-scope.js";
 import { PrismaService } from "../database/prisma.service.js";
+import type { AuthUser } from "../users/users.service.js";
 import { FinancialMonthlyReportDto } from "./dto/financial-reports.dto.js";
 
 const SAO_PAULO_UTC_OFFSET_HOURS = 3;
@@ -33,18 +38,35 @@ type MonthRow = {
 export class FinancialReportsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async monthly(query: FinancialMonthlyReportDto) {
+  async monthly(query: FinancialMonthlyReportDto, user?: AuthUser) {
     const selected = resolveReportMonth(query, new Date());
+    const institutionScope = this.reportInstitutionScope(user);
     const comparisonStart = periodFromStart(addMonths(selected.start, -11));
     const comparisonEndExclusive = periodFromStart(addMonths(selected.start, 1));
     const [invoiceTotal, incomeTotal, expenseTotal, expenseCategories, incomeCategories, comparisonRows] =
       await Promise.all([
-        this.sumPaidInvoices(selected),
-        this.sumManualMovements(selected, ManualFinancialMovementType.INCOME),
-        this.sumManualMovements(selected, ManualFinancialMovementType.EXPENSE),
-        this.groupManualMovementCategories(selected, ManualFinancialMovementType.EXPENSE),
-        this.groupManualMovementCategories(selected, ManualFinancialMovementType.INCOME),
-        this.comparison(comparisonStart, comparisonEndExclusive),
+        this.sumPaidInvoices(selected, institutionScope),
+        this.sumManualMovements(
+          selected,
+          ManualFinancialMovementType.INCOME,
+          institutionScope,
+        ),
+        this.sumManualMovements(
+          selected,
+          ManualFinancialMovementType.EXPENSE,
+          institutionScope,
+        ),
+        this.groupManualMovementCategories(
+          selected,
+          ManualFinancialMovementType.EXPENSE,
+          institutionScope,
+        ),
+        this.groupManualMovementCategories(
+          selected,
+          ManualFinancialMovementType.INCOME,
+          institutionScope,
+        ),
+        this.comparison(comparisonStart, comparisonEndExclusive, institutionScope),
       ]);
     const totalRevenueCents = invoiceTotal + incomeTotal;
     const resultCents = totalRevenueCents - expenseTotal;
@@ -82,16 +104,23 @@ export class FinancialReportsService {
     };
   }
 
-  private async sumPaidInvoices(period: ReportPeriod) {
+  private async sumPaidInvoices(
+    period: ReportPeriod,
+    institutionScope: ReportInstitutionScope,
+  ) {
+    const invoiceJoin = invoiceInstitutionJoin(institutionScope);
+    const invoiceCondition = invoiceInstitutionCondition(institutionScope);
     const rows = await this.prisma.$queryRaw<Array<{ totalCents: bigint | number | null }>>(
       Prisma.sql`
         SELECT COALESCE(SUM(COALESCE(bs.paid_amount_cents, i.amount_cents)), 0) AS "totalCents"
         FROM invoices i
         JOIN bank_slips bs ON bs.invoice_id = i.id
+        ${invoiceJoin}
         WHERE i.status = ${InvoiceStatus.PAID}::"InvoiceStatus"
           AND bs.status = ${BankSlipStatus.PAID}::"BankSlipStatus"
           AND bs.paid_at >= ${period.startUtc}
           AND bs.paid_at < ${period.endUtc}
+          AND ${invoiceCondition}
       `,
     );
     return toNumber(rows[0]?.totalCents);
@@ -100,8 +129,9 @@ export class FinancialReportsService {
   private async sumManualMovements(
     period: ReportPeriod,
     type: ManualFinancialMovementType,
+    institutionScope: ReportInstitutionScope,
   ) {
-    const where = manualMovementWhere(period, type);
+    const where = manualMovementWhere(period, type, institutionScope);
     const result = await this.prisma.manualFinancialMovement.aggregate({
       where,
       _sum: { amountCents: true },
@@ -112,10 +142,11 @@ export class FinancialReportsService {
   private async groupManualMovementCategories(
     period: ReportPeriod,
     type: ManualFinancialMovementType,
+    institutionScope: ReportInstitutionScope,
   ) {
     const rows = await this.prisma.manualFinancialMovement.groupBy({
       by: ["category"],
-      where: manualMovementWhere(period, type),
+      where: manualMovementWhere(period, type, institutionScope),
       _count: { _all: true },
       _sum: { amountCents: true },
       orderBy: { category: "asc" },
@@ -127,7 +158,17 @@ export class FinancialReportsService {
     }));
   }
 
-  private async comparison(start: ReportPeriod, endExclusive: ReportPeriod) {
+  private async comparison(
+    start: ReportPeriod,
+    endExclusive: ReportPeriod,
+    institutionScope: ReportInstitutionScope,
+  ) {
+    const invoiceJoin = invoiceInstitutionJoin(institutionScope);
+    const invoiceCondition = invoiceInstitutionCondition(institutionScope);
+    const manualCondition = manualMovementInstitutionCondition(
+      institutionScope,
+      "m",
+    );
     return this.prisma.$queryRaw<MonthRow[]>(
       Prisma.sql`
         WITH months AS (
@@ -138,30 +179,34 @@ export class FinancialReportsService {
                  SUM(COALESCE(bs.paid_amount_cents, i.amount_cents)) AS total
           FROM invoices i
           JOIN bank_slips bs ON bs.invoice_id = i.id
+          ${invoiceJoin}
           WHERE i.status = ${InvoiceStatus.PAID}::"InvoiceStatus"
             AND bs.status = ${BankSlipStatus.PAID}::"BankSlipStatus"
             AND bs.paid_at >= ${start.startUtc}
             AND bs.paid_at < ${endExclusive.startUtc}
+            AND ${invoiceCondition}
           GROUP BY 1
         ),
         manual_income AS (
           SELECT date_trunc('month', transaction_date)::date AS month_start,
                  SUM(amount_cents) AS total
-          FROM manual_financial_movements
+          FROM manual_financial_movements m
           WHERE type = ${ManualFinancialMovementType.INCOME}::"ManualFinancialMovementType"
             AND status = ${ManualFinancialMovementStatus.RECEIVED}::"ManualFinancialMovementStatus"
             AND transaction_date >= ${start.date}::date
             AND transaction_date < ${endExclusive.date}::date
+            AND ${manualCondition}
           GROUP BY 1
         ),
         manual_expense AS (
           SELECT date_trunc('month', paid_at)::date AS month_start,
                  SUM(amount_cents) AS total
-          FROM manual_financial_movements
+          FROM manual_financial_movements m
           WHERE type = ${ManualFinancialMovementType.EXPENSE}::"ManualFinancialMovementType"
             AND status = ${ManualFinancialMovementStatus.PAID}::"ManualFinancialMovementStatus"
             AND paid_at >= ${start.date}::date
             AND paid_at < ${endExclusive.date}::date
+            AND ${manualCondition}
           GROUP BY 1
         )
         SELECT to_char(months.month_start, 'YYYY-MM') AS month,
@@ -176,9 +221,18 @@ export class FinancialReportsService {
       `,
     );
   }
+
+  private reportInstitutionScope(user?: AuthUser): ReportInstitutionScope {
+    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
+    if (scope.type === "unrestricted") {
+      return null;
+    }
+    return scope.type === "restricted" ? scope.institutionIds : [];
+  }
 }
 
 type ReportPeriod = ReturnType<typeof resolveReportMonth>;
+type ReportInstitutionScope = string[] | null;
 
 export function resolveReportMonth(
   query: FinancialMonthlyReportDto,
@@ -219,20 +273,82 @@ function periodFromStart(start: Date) {
 function manualMovementWhere(
   period: ReportPeriod,
   type: ManualFinancialMovementType,
+  institutionScope: ReportInstitutionScope = null,
 ): Prisma.ManualFinancialMovementWhereInput {
   const next = addMonths(period.start, 1);
-  if (type === ManualFinancialMovementType.INCOME) {
-    return {
-      type,
-      status: ManualFinancialMovementStatus.RECEIVED,
-      transactionDate: { gte: period.start, lt: next },
-    };
+  const where: Prisma.ManualFinancialMovementWhereInput =
+    type === ManualFinancialMovementType.INCOME
+      ? {
+          type,
+          status: ManualFinancialMovementStatus.RECEIVED,
+          transactionDate: { gte: period.start, lt: next },
+        }
+      : {
+          type,
+          status: ManualFinancialMovementStatus.PAID,
+          paidAt: { gte: period.start, lt: next },
+        };
+  if (institutionScope === null) {
+    return where;
   }
   return {
-    type,
-    status: ManualFinancialMovementStatus.PAID,
-    paidAt: { gte: period.start, lt: next },
+    AND: [
+      where,
+      {
+        student: {
+          enrollments: {
+            some: {
+              institutionId: { in: institutionScope },
+            },
+          },
+        },
+      },
+    ],
   };
+}
+
+function invoiceInstitutionJoin(institutionScope: ReportInstitutionScope) {
+  if (institutionScope === null) {
+    return Prisma.empty;
+  }
+  return Prisma.sql`JOIN enrollments e ON e.id = i.enrollment_id`;
+}
+
+function invoiceInstitutionCondition(institutionScope: ReportInstitutionScope) {
+  return institutionIdSqlCondition(institutionScope, Prisma.sql`e.institution_id`);
+}
+
+function manualMovementInstitutionCondition(
+  institutionScope: ReportInstitutionScope,
+  alias: "m",
+) {
+  if (institutionScope === null) {
+    return Prisma.sql`TRUE`;
+  }
+  if (institutionScope.length === 0) {
+    return Prisma.sql`FALSE`;
+  }
+  return Prisma.sql`EXISTS (
+    SELECT 1
+    FROM enrollments e
+    WHERE e.student_id = ${Prisma.raw(alias)}.student_id
+      AND ${institutionIdSqlCondition(institutionScope, Prisma.sql`e.institution_id`)}
+  )`;
+}
+
+function institutionIdSqlCondition(
+  institutionScope: ReportInstitutionScope,
+  column: Prisma.Sql,
+) {
+  if (institutionScope === null) {
+    return Prisma.sql`TRUE`;
+  }
+  if (institutionScope.length === 0) {
+    return Prisma.sql`FALSE`;
+  }
+  return Prisma.sql`${column} IN (${Prisma.join(
+    institutionScope.map((id) => Prisma.sql`${id}::uuid`),
+  )})`;
 }
 
 function buildComparison(start: ReportPeriod, rows: MonthRow[]) {
