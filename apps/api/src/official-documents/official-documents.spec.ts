@@ -134,6 +134,7 @@ for (const fragment of [
   '@Post("models/:modelId/issue")',
   '@Post("models/:modelId/preview")',
   "IssueInstitutionalOfficialDocumentDto",
+  "GLOBAL_OPERATIONAL_ADMIN_ROLES",
   '@Get()',
   '@Post(":type/issue")',
   '@Post(":issueId/reissue")',

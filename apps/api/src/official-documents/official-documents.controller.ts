@@ -17,7 +17,11 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
-import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
+import {
+  GLOBAL_OPERATIONAL_ADMIN_ROLES,
+  OPERATIONAL_ADMIN_ROLES,
+  Roles,
+} from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
@@ -33,8 +37,8 @@ import {
 } from "./dto/official-documents.dto.js";
 import { OfficialDocumentsService } from "./official-documents.service.js";
 
-function isOperationalAdmin(user: AuthUser) {
-  return OPERATIONAL_ADMIN_ROLES.some((role) => user.roles.includes(role));
+function isGlobalOperationalAdmin(user: AuthUser) {
+  return GLOBAL_OPERATIONAL_ADMIN_ROLES.some((role) => user.roles.includes(role));
 }
 
 @UseGuards(AuthGuard, OperationalPermissionGuard)
@@ -193,7 +197,7 @@ export class OfficialDocumentIssuesController {
 }
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(...OPERATIONAL_ADMIN_ROLES)
+@Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
 @Controller("official-documents/models")
 export class OfficialDocumentModelsController {
   constructor(
@@ -214,7 +218,7 @@ export class OfficialDocumentModelsController {
     @Query("status") status: OfficialDocumentModelStatus | undefined,
     @CurrentUser() user: AuthUser,
   ) {
-    if (!isOperationalAdmin(user) && status !== OfficialDocumentModelStatus.ACTIVE) {
+    if (!isGlobalOperationalAdmin(user) && status !== OfficialDocumentModelStatus.ACTIVE) {
       throw new ForbiddenException("Acesso negado");
     }
     return this.officialDocuments.listModels(status);

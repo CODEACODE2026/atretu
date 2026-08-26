@@ -53,6 +53,7 @@ await testUserIssuePermissions();
 await testUserWithoutPermissionIsDenied();
 await testFixedRolesAndGestorPolicy();
 await testModelsManageRemainsRoleGuarded();
+await testSecretaryCannotManageGlobalModels();
 await testIssueUsersMayOnlyListActiveModelsForIssuing();
 await testIssueListingInstitutionScope();
 
@@ -191,7 +192,7 @@ async function testModelsManageRemainsRoleGuarded() {
   );
   assert.deepEqual(
     Reflect.getMetadata("roles", OfficialDocumentModelsController),
-    [RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR, RoleCode.SECRETARIA],
+    [RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR],
   );
   assert.equal(
     Reflect.getMetadata(
@@ -200,6 +201,50 @@ async function testModelsManageRemainsRoleGuarded() {
     ),
     undefined,
   );
+}
+
+async function testSecretaryCannotManageGlobalModels() {
+  const rolesGuard = new RolesGuard(new Reflector());
+  for (const method of [
+    "listVariables",
+    "listModelIssues",
+    "getModel",
+    "createModel",
+    "duplicateModel",
+    "updateModelStatus",
+    "updateModel",
+  ] as const) {
+    assert.equal(
+      rolesGuard.canActivate(
+        modelContext(method, operationalUser({ roles: [RoleCode.ADMINISTRATOR] })),
+      ),
+      true,
+      `ADMINISTRATOR must keep global model management access for ${method}`,
+    );
+    assert.equal(
+      rolesGuard.canActivate(
+        modelContext(method, operationalUser({ roles: [RoleCode.SUPER_ADMIN] })),
+      ),
+      true,
+      `SUPER_ADMIN must keep global model management access for ${method}`,
+    );
+    assert.throws(
+      () =>
+        rolesGuard.canActivate(
+          modelContext(method, operationalUser({ roles: [RoleCode.SECRETARIA] })),
+        ),
+      (error) => error instanceof ForbiddenException,
+      `SECRETARIA must not manage global official document models through ${method}`,
+    );
+    assert.throws(
+      () =>
+        rolesGuard.canActivate(
+          modelContext(method, operationalUser({ roles: [RoleCode.GESTOR] })),
+        ),
+      (error) => error instanceof ForbiddenException,
+      `GESTOR must not manage global official document models through ${method}`,
+    );
+  }
 }
 
 async function testIssueUsersMayOnlyListActiveModelsForIssuing() {
@@ -241,10 +286,35 @@ async function testIssueUsersMayOnlyListActiveModelsForIssuing() {
     controller.listModels(OfficialDocumentModelStatus.ACTIVE, operationalUser()),
     { status: OfficialDocumentModelStatus.ACTIVE },
   );
+  assert.deepEqual(
+    controller.listModels(
+      OfficialDocumentModelStatus.ACTIVE,
+      operationalUser({ roles: [RoleCode.SECRETARIA] }),
+    ),
+    { status: OfficialDocumentModelStatus.ACTIVE },
+  );
+  assert.deepEqual(
+    controller.listModels(undefined, operationalUser({ roles: [RoleCode.ADMINISTRATOR] })),
+    { status: undefined },
+  );
   assert.throws(
     () => controller.listModels(undefined, operationalUser()),
     (error) => error instanceof ForbiddenException,
     "USER issue must not list every model status",
+  );
+  assert.throws(
+    () => controller.listModels(undefined, operationalUser({ roles: [RoleCode.SECRETARIA] })),
+    (error) => error instanceof ForbiddenException,
+    "SECRETARIA issue must not list every model status",
+  );
+  assert.throws(
+    () =>
+      controller.listModels(
+        OfficialDocumentModelStatus.INACTIVE,
+        operationalUser({ roles: [RoleCode.SECRETARIA] }),
+      ),
+    (error) => error instanceof ForbiddenException,
+    "SECRETARIA issue must not list inactive models",
   );
 }
 

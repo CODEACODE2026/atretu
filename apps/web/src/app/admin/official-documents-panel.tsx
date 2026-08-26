@@ -29,7 +29,11 @@ import {
   type OfficialDocumentCatalogItem,
   type OfficialDocumentIssue,
 } from "../../lib/api";
-import { canAccessOperationalAdmin, hasCapability } from "../../lib/auth";
+import {
+  canAccessOperationalAdmin,
+  canManageGlobalOfficialDocumentModels,
+  hasCapability,
+} from "../../lib/auth";
 import { adminTheme, cx } from "./admin-theme";
 import {
   AdminEmptyState,
@@ -70,7 +74,7 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
     useState<OfficialDocumentCatalogItem | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const canManageModels = canAccessOperationalAdmin(user);
+  const canManageModels = canManageGlobalOfficialDocumentModels(user);
   const canAccessInstitutionalDocuments = canAccessOperationalAdmin(user);
   const canIssueOfficialDocuments = hasCapability(user, "officialDocuments.issue");
   const canReadInvalidatedPdf = user.roles.includes("SUPER_ADMIN");

@@ -43,6 +43,10 @@ export function canAccessOperationalAdmin(user: ApiUser): boolean {
   );
 }
 
+export function canManageGlobalOfficialDocumentModels(user: ApiUser): boolean {
+  return user.roles.includes("SUPER_ADMIN") || user.roles.includes("ADMINISTRATOR");
+}
+
 export function hasCapability(
   user: ApiUser,
   capability: SprintCapability,

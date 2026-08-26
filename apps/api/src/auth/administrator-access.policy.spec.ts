@@ -26,7 +26,11 @@ import { StudentCardsController } from "../student-cards/student-cards.controlle
 import { StudentsController } from "../students/students.controller.js";
 import { AdminUsersController } from "../users/admin-users.controller.js";
 import { OPERATIONAL_PERMISSIONS_KEY } from "./operational-permissions.js";
-import { OPERATIONAL_ADMIN_ROLES, Roles } from "./roles.decorator.js";
+import {
+  GLOBAL_OPERATIONAL_ADMIN_ROLES,
+  OPERATIONAL_ADMIN_ROLES,
+  Roles,
+} from "./roles.decorator.js";
 import { RolesGuard } from "./roles.guard.js";
 
 const ROLES_METADATA_KEY = "roles";
@@ -76,7 +80,6 @@ const administratorOperationalEndpoints = [
   [BusAssignmentsController, undefined],
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
-  [OfficialDocumentModelsController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
   [BankSlipsController, "createIssueBatch"],
   [BankSlipsController, "previewIssueBatch"],
@@ -87,6 +90,10 @@ const administratorOperationalEndpoints = [
   [BankSlipsController, "cancelIssueBatch"],
   [FinancialReportsController, "monthly"],
   [StudentsController, "listStudentLegacyFinancialHistory"],
+] as const;
+
+const globalOfficialDocumentModelEndpoints = [
+  [OfficialDocumentModelsController, undefined],
 ] as const;
 
 const financeInvoiceViewEndpoints = [
@@ -175,6 +182,29 @@ for (const item of administratorOperationalEndpoints) {
       `${item[0].name}.${item[1]} must allow ADMINISTRATOR without PermissionProfile or UserInstitution`,
     );
   }
+}
+
+for (const item of globalOfficialDocumentModelEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [...GLOBAL_OPERATIONAL_ADMIN_ROLES],
+    `${item[0].name}${item[1] ? `.${item[1]}` : ""} must allow only global operational admin roles`,
+  );
+  assert.equal(
+    rolesGuard.canActivate(
+      controllerExecutionContext(item[0], "listVariables", [RoleCode.ADMINISTRATOR]),
+    ),
+    true,
+    `${item[0].name} must keep ADMINISTRATOR global model management access`,
+  );
+  assert.throws(
+    () =>
+      rolesGuard.canActivate(
+        controllerExecutionContext(item[0], "listVariables", [RoleCode.SECRETARIA]),
+      ),
+    (error) => error instanceof ForbiddenException,
+    `${item[0].name} must deny SECRETARIA global model management access`,
+  );
 }
 
 for (const item of financeInvoiceViewEndpoints) {

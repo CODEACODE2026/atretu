@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
+  canManageGlobalOfficialDocumentModels,
   canAccessMigratedArea,
   canAccessOperationalAdmin,
   canAccessRestrictedAdmin,
@@ -46,6 +47,7 @@ const administrator: ApiUser = {
 };
 
 assert.equal(canAccessOperationalAdmin(administrator), true);
+assert.equal(canManageGlobalOfficialDocumentModels(administrator), true);
 assert.equal(canAccessRestrictedAdmin(administrator), false);
 assert.equal(getPrimaryRoleLabel(administrator), "Administrador");
 for (const area of [
@@ -132,6 +134,30 @@ for (const role of ["SECRETARIA", "SUPER_ADMIN"] as const) {
     true,
   );
 }
+assert.equal(
+  canManageGlobalOfficialDocumentModels({
+    ...baseUser,
+    capabilities: [],
+    roles: ["SUPER_ADMIN"],
+  }),
+  true,
+);
+assert.equal(
+  canManageGlobalOfficialDocumentModels({
+    ...baseUser,
+    capabilities: [],
+    roles: ["SECRETARIA"],
+  }),
+  false,
+);
+assert.equal(
+  canManageGlobalOfficialDocumentModels({
+    ...baseUser,
+    capabilities: [],
+    roles: ["USER"],
+  }),
+  false,
+);
 
 assert.equal(
   canAccessOperationalAdmin({ ...baseUser, capabilities: [], roles: ["GESTOR"] }),

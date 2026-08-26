@@ -197,6 +197,7 @@ for (const fragment of [
   "Observações",
   "signerPreview",
   'hasCapability(user, "officialDocuments.issue")',
+  "canManageGlobalOfficialDocumentModels",
   "canManageModels",
   "StudentOfficialDocuments",
 ]) {
