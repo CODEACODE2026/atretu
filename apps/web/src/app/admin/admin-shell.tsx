@@ -603,10 +603,7 @@ function BaseRecordsPanel({
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const canManageBaseRecords = canAccessOperationalAdmin(user);
   const canManageGlobalBaseRecords = canAccessGlobalOperationalAdmin(user);
-  const canManageCurrentDomain =
-    domain === "institutions"
-      ? canManageBaseRecords
-      : canManageGlobalBaseRecords;
+  const canManageCurrentDomain = canManageGlobalBaseRecords;
   const canViewBusAssignments = canManageBaseRecords;
   const canShowRecordActions =
     canManageCurrentDomain || (domain === "buses" && canViewBusAssignments);

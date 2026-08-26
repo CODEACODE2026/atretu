@@ -55,7 +55,7 @@ export class BaseRecordsController {
 
   @Post("institutions")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   createInstitution(
     @Body() body: CreateNamedRecordDto,
     @CurrentUser() user: AuthUser,
@@ -72,7 +72,7 @@ export class BaseRecordsController {
 
   @Patch("institutions/:id")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   updateInstitution(
     @Param("id") id: string,
     @Body() body: UpdateNamedRecordDto,
@@ -83,14 +83,14 @@ export class BaseRecordsController {
 
   @Patch("institutions/:id/inactivate")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   inactivateInstitution(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.baseRecords.inactivateInstitution(id, user);
   }
 
   @Patch("institutions/:id/reactivate")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   reactivateInstitution(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.baseRecords.reactivateInstitution(id, user);
   }

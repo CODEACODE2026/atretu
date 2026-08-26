@@ -218,6 +218,35 @@ assert.deepEqual(
   [institutionA.id],
 );
 
+const secretaryUser = {
+  ...superAdminUser,
+  id: "secretaria-user",
+  roles: [RoleCode.SECRETARIA],
+  institutionIds: [institutionA.id],
+};
+const secretariaInstitutionList = await service.listInstitutions(
+  {
+    page: 1,
+    limit: 20,
+    status: RecordStatusFilter.ACTIVE,
+    sort: BaseRecordSort.NAME,
+    order: SortOrder.ASC,
+  },
+  secretaryUser,
+);
+assert.deepEqual(
+  secretariaInstitutionList.data.map((institution) => institution.id),
+  [institutionA.id],
+);
+assert.equal(
+  (await service.getInstitution(institutionA.id, secretaryUser)).id,
+  institutionA.id,
+);
+await assert.rejects(
+  () => service.getInstitution(institutionB.id, secretaryUser),
+  (error) => error instanceof ForbiddenException,
+);
+
 assert.equal(
   (await service.getInstitution(institutionB.id, superAdminUser)).id,
   institutionB.id,

@@ -206,6 +206,10 @@ assert.match(adminShellSource, /canManageGlobalBaseRecords/);
 assert.match(adminShellSource, /canManageCurrentDomain/);
 assert.match(
   adminShellSource,
+  /const canManageCurrentDomain = canManageGlobalBaseRecords/,
+);
+assert.doesNotMatch(
+  adminShellSource,
   /domain === "institutions"\s+\?\s+canManageBaseRecords\s+:\s+canManageGlobalBaseRecords/,
 );
 assert.match(adminShellSource, /canViewBusAssignments/);

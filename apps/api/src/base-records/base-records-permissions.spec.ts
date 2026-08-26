@@ -29,13 +29,14 @@ const baseRecordsViewEndpoints = [
   "getShift",
   "getBus",
 ] as const;
-const institutionalAdminWriteEndpoints = [
+const institutionWriteEndpoints = [
   "createInstitution",
   "updateInstitution",
   "inactivateInstitution",
   "reactivateInstitution",
 ] as const;
 const globalAdminWriteEndpoints = [
+  ...institutionWriteEndpoints,
   "createShift",
   "updateShift",
   "inactivateShift",
@@ -45,10 +46,7 @@ const globalAdminWriteEndpoints = [
   "inactivateBus",
   "reactivateBus",
 ] as const;
-const adminWriteEndpoints = [
-  ...institutionalAdminWriteEndpoints,
-  ...globalAdminWriteEndpoints,
-] as const;
+const adminWriteEndpoints = globalAdminWriteEndpoints;
 
 for (const endpoint of auxiliaryReadEndpoints) {
   assert.deepEqual(rolesMetadata(BaseRecordsController, endpoint), []);
@@ -73,9 +71,9 @@ for (const endpoint of baseRecordsViewEndpoints) {
   ]);
 }
 
-for (const endpoint of institutionalAdminWriteEndpoints) {
+for (const endpoint of institutionWriteEndpoints) {
   assert.deepEqual(rolesMetadata(BaseRecordsController, endpoint), [
-    ...OPERATIONAL_ADMIN_ROLES,
+    ...GLOBAL_OPERATIONAL_ADMIN_ROLES,
   ]);
   assert.deepEqual(operationalPermissions(BaseRecordsController, endpoint), []);
 }
@@ -219,13 +217,14 @@ for (const endpoint of globalAdminWriteEndpoints) {
   );
 }
 
-for (const endpoint of institutionalAdminWriteEndpoints) {
-  assert.equal(
-    rolesGuard.canActivate(
-      executionContext(BaseRecordsController, endpoint, user([RoleCode.SECRETARIA])),
-    ),
-    true,
-    `${endpoint} must preserve SECRETARIA institution write access for a later sprint`,
+for (const endpoint of institutionWriteEndpoints) {
+  await assert.rejects(
+    async () =>
+      rolesGuard.canActivate(
+        executionContext(BaseRecordsController, endpoint, user([RoleCode.SECRETARIA])),
+      ),
+    (error) => error instanceof ForbiddenException,
+    `${endpoint} must deny SECRETARIA institution writes`,
   );
 }
 

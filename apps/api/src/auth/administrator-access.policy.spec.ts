@@ -65,10 +65,6 @@ for (const role of [RoleCode.USER, RoleCode.GESTOR]) {
 }
 
 const administratorOperationalEndpoints = [
-  [BaseRecordsController, "createInstitution"],
-  [BaseRecordsController, "updateInstitution"],
-  [BaseRecordsController, "inactivateInstitution"],
-  [BaseRecordsController, "reactivateInstitution"],
   [BusAssignmentsController, undefined],
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
@@ -89,6 +85,10 @@ const globalOfficialDocumentModelEndpoints = [
 ] as const;
 
 const globalBaseRecordWriteEndpoints = [
+  [BaseRecordsController, "createInstitution"],
+  [BaseRecordsController, "updateInstitution"],
+  [BaseRecordsController, "inactivateInstitution"],
+  [BaseRecordsController, "reactivateInstitution"],
   [BaseRecordsController, "createShift"],
   [BaseRecordsController, "updateShift"],
   [BaseRecordsController, "inactivateShift"],
