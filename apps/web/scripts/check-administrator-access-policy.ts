@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
+  canAccessGlobalOperationalAdmin,
   canManageGlobalOfficialDocumentModels,
   canAccessMigratedArea,
   canAccessOperationalAdmin,
@@ -47,6 +48,7 @@ const administrator: ApiUser = {
 };
 
 assert.equal(canAccessOperationalAdmin(administrator), true);
+assert.equal(canAccessGlobalOperationalAdmin(administrator), true);
 assert.equal(canManageGlobalOfficialDocumentModels(administrator), true);
 assert.equal(canAccessRestrictedAdmin(administrator), false);
 assert.equal(getPrimaryRoleLabel(administrator), "Administrador");
@@ -143,7 +145,23 @@ assert.equal(
   true,
 );
 assert.equal(
+  canAccessGlobalOperationalAdmin({
+    ...baseUser,
+    capabilities: [],
+    roles: ["SUPER_ADMIN"],
+  }),
+  true,
+);
+assert.equal(
   canManageGlobalOfficialDocumentModels({
+    ...baseUser,
+    capabilities: [],
+    roles: ["SECRETARIA"],
+  }),
+  false,
+);
+assert.equal(
+  canAccessGlobalOperationalAdmin({
     ...baseUser,
     capabilities: [],
     roles: ["SECRETARIA"],
@@ -158,9 +176,21 @@ assert.equal(
   }),
   false,
 );
+assert.equal(
+  canAccessGlobalOperationalAdmin({
+    ...baseUser,
+    capabilities: [],
+    roles: ["USER"],
+  }),
+  false,
+);
 
 assert.equal(
   canAccessOperationalAdmin({ ...baseUser, capabilities: [], roles: ["GESTOR"] }),
+  false,
+);
+assert.equal(
+  canAccessGlobalOperationalAdmin({ ...baseUser, capabilities: [], roles: ["GESTOR"] }),
   false,
 );
 
@@ -172,6 +202,17 @@ assert.match(adminShellSource, /nextArea === "student-cards"/);
 assert.match(adminShellSource, /nextArea === "finance"/);
 assert.match(adminShellSource, /nextArea === "base"/);
 assert.match(adminShellSource, /canManageBaseRecords/);
+assert.match(adminShellSource, /canManageGlobalBaseRecords/);
+assert.match(adminShellSource, /canManageCurrentDomain/);
+assert.match(
+  adminShellSource,
+  /domain === "institutions"\s+\?\s+canManageBaseRecords\s+:\s+canManageGlobalBaseRecords/,
+);
+assert.match(adminShellSource, /canViewBusAssignments/);
+assert.match(
+  adminShellSource,
+  /currentDomain\.hasCapacity\s+&&\s+canViewBusAssignments/,
+);
 assert.match(adminShellSource, /accessibleDomains/);
 assert.doesNotMatch(
   adminShellSource,

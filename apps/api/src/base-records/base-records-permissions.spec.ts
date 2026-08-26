@@ -10,7 +10,10 @@ import {
   OPERATIONAL_PERMISSIONS_KEY,
   type SprintOperationalPermissionKey,
 } from "../auth/operational-permissions.js";
-import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
+import {
+  GLOBAL_OPERATIONAL_ADMIN_ROLES,
+  OPERATIONAL_ADMIN_ROLES,
+} from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 
@@ -26,11 +29,13 @@ const baseRecordsViewEndpoints = [
   "getShift",
   "getBus",
 ] as const;
-const adminWriteEndpoints = [
+const institutionalAdminWriteEndpoints = [
   "createInstitution",
   "updateInstitution",
   "inactivateInstitution",
   "reactivateInstitution",
+] as const;
+const globalAdminWriteEndpoints = [
   "createShift",
   "updateShift",
   "inactivateShift",
@@ -39,6 +44,10 @@ const adminWriteEndpoints = [
   "updateBus",
   "inactivateBus",
   "reactivateBus",
+] as const;
+const adminWriteEndpoints = [
+  ...institutionalAdminWriteEndpoints,
+  ...globalAdminWriteEndpoints,
 ] as const;
 
 for (const endpoint of auxiliaryReadEndpoints) {
@@ -64,9 +73,16 @@ for (const endpoint of baseRecordsViewEndpoints) {
   ]);
 }
 
-for (const endpoint of adminWriteEndpoints) {
+for (const endpoint of institutionalAdminWriteEndpoints) {
   assert.deepEqual(rolesMetadata(BaseRecordsController, endpoint), [
     ...OPERATIONAL_ADMIN_ROLES,
+  ]);
+  assert.deepEqual(operationalPermissions(BaseRecordsController, endpoint), []);
+}
+
+for (const endpoint of globalAdminWriteEndpoints) {
+  assert.deepEqual(rolesMetadata(BaseRecordsController, endpoint), [
+    ...GLOBAL_OPERATIONAL_ADMIN_ROLES,
   ]);
   assert.deepEqual(operationalPermissions(BaseRecordsController, endpoint), []);
 }
@@ -167,6 +183,13 @@ for (const endpoint of adminWriteEndpoints) {
     true,
     `${endpoint} must preserve ADMINISTRATOR write access`,
   );
+  assert.equal(
+    rolesGuard.canActivate(
+      executionContext(BaseRecordsController, endpoint, user([RoleCode.SUPER_ADMIN])),
+    ),
+    true,
+    `${endpoint} must preserve SUPER_ADMIN write access`,
+  );
   await assert.rejects(
     async () =>
       rolesGuard.canActivate(
@@ -174,6 +197,35 @@ for (const endpoint of adminWriteEndpoints) {
       ),
     (error) => error instanceof ForbiddenException,
     `${endpoint} must deny direct USER write access`,
+  );
+  await assert.rejects(
+    async () =>
+      rolesGuard.canActivate(
+        executionContext(BaseRecordsController, endpoint, user([RoleCode.GESTOR])),
+      ),
+    (error) => error instanceof ForbiddenException,
+    `${endpoint} must deny GESTOR write access`,
+  );
+}
+
+for (const endpoint of globalAdminWriteEndpoints) {
+  await assert.rejects(
+    async () =>
+      rolesGuard.canActivate(
+        executionContext(BaseRecordsController, endpoint, user([RoleCode.SECRETARIA])),
+      ),
+    (error) => error instanceof ForbiddenException,
+    `${endpoint} must deny SECRETARIA global write access`,
+  );
+}
+
+for (const endpoint of institutionalAdminWriteEndpoints) {
+  assert.equal(
+    rolesGuard.canActivate(
+      executionContext(BaseRecordsController, endpoint, user([RoleCode.SECRETARIA])),
+    ),
+    true,
+    `${endpoint} must preserve SECRETARIA institution write access for a later sprint`,
   );
 }
 
@@ -184,6 +236,18 @@ await assert.rejects(
     ),
   (error) => error instanceof ForbiddenException,
   "Bus assignment details must remain outside USER baseRecords.view in F.2E.1",
+);
+
+assert.equal(
+  rolesGuard.canActivate(
+    executionContext(
+      BusAssignmentsController,
+      "assignBus",
+      user([RoleCode.SECRETARIA]),
+    ),
+  ),
+  true,
+  "BusAssignments must preserve SECRETARIA assign/release/switch access",
 );
 
 console.log("Base records operational view permissions OK");

@@ -69,14 +69,6 @@ const administratorOperationalEndpoints = [
   [BaseRecordsController, "updateInstitution"],
   [BaseRecordsController, "inactivateInstitution"],
   [BaseRecordsController, "reactivateInstitution"],
-  [BaseRecordsController, "createShift"],
-  [BaseRecordsController, "updateShift"],
-  [BaseRecordsController, "inactivateShift"],
-  [BaseRecordsController, "reactivateShift"],
-  [BaseRecordsController, "createBus"],
-  [BaseRecordsController, "updateBus"],
-  [BaseRecordsController, "inactivateBus"],
-  [BaseRecordsController, "reactivateBus"],
   [BusAssignmentsController, undefined],
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
@@ -94,6 +86,17 @@ const administratorOperationalEndpoints = [
 
 const globalOfficialDocumentModelEndpoints = [
   [OfficialDocumentModelsController, undefined],
+] as const;
+
+const globalBaseRecordWriteEndpoints = [
+  [BaseRecordsController, "createShift"],
+  [BaseRecordsController, "updateShift"],
+  [BaseRecordsController, "inactivateShift"],
+  [BaseRecordsController, "reactivateShift"],
+  [BaseRecordsController, "createBus"],
+  [BaseRecordsController, "updateBus"],
+  [BaseRecordsController, "inactivateBus"],
+  [BaseRecordsController, "reactivateBus"],
 ] as const;
 
 const financeInvoiceViewEndpoints = [
@@ -205,6 +208,38 @@ for (const item of globalOfficialDocumentModelEndpoints) {
     (error) => error instanceof ForbiddenException,
     `${item[0].name} must deny SECRETARIA global model management access`,
   );
+}
+
+for (const item of globalBaseRecordWriteEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [...GLOBAL_OPERATIONAL_ADMIN_ROLES],
+    `${item[0].name}.${item[1]} must allow only global operational admin roles`,
+  );
+  assert.equal(
+    rolesGuard.canActivate(
+      controllerExecutionContext(item[0], item[1], [RoleCode.ADMINISTRATOR]),
+    ),
+    true,
+    `${item[0].name}.${item[1]} must preserve ADMINISTRATOR global write access`,
+  );
+  assert.equal(
+    rolesGuard.canActivate(
+      controllerExecutionContext(item[0], item[1], [RoleCode.SUPER_ADMIN]),
+    ),
+    true,
+    `${item[0].name}.${item[1]} must preserve SUPER_ADMIN global write access`,
+  );
+  for (const deniedRole of [RoleCode.SECRETARIA, RoleCode.USER, RoleCode.GESTOR]) {
+    assert.throws(
+      () =>
+        rolesGuard.canActivate(
+          controllerExecutionContext(item[0], item[1], [deniedRole]),
+        ),
+      (error) => error instanceof ForbiddenException,
+      `${item[0].name}.${item[1]} must return 403 for ${deniedRole}`,
+    );
+  }
 }
 
 for (const item of financeInvoiceViewEndpoints) {

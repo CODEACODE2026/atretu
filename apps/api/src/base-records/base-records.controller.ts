@@ -13,7 +13,11 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
-import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
+import {
+  GLOBAL_OPERATIONAL_ADMIN_ROLES,
+  OPERATIONAL_ADMIN_ROLES,
+  Roles,
+} from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { BaseRecordsService } from "./base-records.service.js";
@@ -100,7 +104,7 @@ export class BaseRecordsController {
 
   @Post("shifts")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   createShift(
     @Body() body: CreateNamedRecordDto,
     @CurrentUser() user: AuthUser,
@@ -117,7 +121,7 @@ export class BaseRecordsController {
 
   @Patch("shifts/:id")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   updateShift(
     @Param("id") id: string,
     @Body() body: UpdateNamedRecordDto,
@@ -128,14 +132,14 @@ export class BaseRecordsController {
 
   @Patch("shifts/:id/inactivate")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   inactivateShift(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.baseRecords.inactivateShift(id, user.id);
   }
 
   @Patch("shifts/:id/reactivate")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   reactivateShift(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.baseRecords.reactivateShift(id, user.id);
   }
@@ -149,7 +153,7 @@ export class BaseRecordsController {
 
   @Post("buses")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   createBus(@Body() body: CreateBusDto, @CurrentUser() user: AuthUser) {
     return this.baseRecords.createBus(body, user.id);
   }
@@ -163,7 +167,7 @@ export class BaseRecordsController {
 
   @Patch("buses/:id")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   updateBus(
     @Param("id") id: string,
     @Body() body: UpdateBusDto,
@@ -174,14 +178,14 @@ export class BaseRecordsController {
 
   @Patch("buses/:id/inactivate")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   inactivateBus(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.baseRecords.inactivateBus(id, user.id);
   }
 
   @Patch("buses/:id/reactivate")
   @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @Roles(...GLOBAL_OPERATIONAL_ADMIN_ROLES)
   reactivateBus(@Param("id") id: string, @CurrentUser() user: AuthUser) {
     return this.baseRecords.reactivateBus(id, user.id);
   }

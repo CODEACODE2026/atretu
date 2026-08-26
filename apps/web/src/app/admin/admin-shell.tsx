@@ -28,6 +28,7 @@ import {
   type ListRecordsParams,
 } from "../../lib/api";
 import {
+  canAccessGlobalOperationalAdmin,
   canAccessMigratedArea,
   canAccessOperationalAdmin,
   canAccessRestrictedAdmin,
@@ -601,6 +602,14 @@ function BaseRecordsPanel({
   const [capacity, setCapacity] = useState("");
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const canManageBaseRecords = canAccessOperationalAdmin(user);
+  const canManageGlobalBaseRecords = canAccessGlobalOperationalAdmin(user);
+  const canManageCurrentDomain =
+    domain === "institutions"
+      ? canManageBaseRecords
+      : canManageGlobalBaseRecords;
+  const canViewBusAssignments = canManageBaseRecords;
+  const canShowRecordActions =
+    canManageCurrentDomain || (domain === "buses" && canViewBusAssignments);
   const accessibleDomains = useMemo(
     () =>
       canManageBaseRecords
@@ -855,10 +864,10 @@ function BaseRecordsPanel({
   const selectedYearLabel =
     years.find((item) => item.id === academicYearId)?.year ?? "Todos";
   const tableColumnCount = currentDomain.hasCapacity
-    ? canManageBaseRecords
+    ? canShowRecordActions
       ? 7
       : 6
-    : canManageBaseRecords
+    : canShowRecordActions
       ? 4
       : 3;
 
@@ -958,12 +967,12 @@ function BaseRecordsPanel({
 
           <div
             className={
-              canManageBaseRecords
+              canManageCurrentDomain
                 ? "grid min-w-0 gap-5 xl:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]"
                 : "grid min-w-0 gap-5"
             }
           >
-            {canManageBaseRecords ? (
+            {canManageCurrentDomain ? (
               <form
               className={cx(adminTheme.card, "min-w-0 p-4")}
               onSubmit={handleSubmit}
@@ -1148,7 +1157,7 @@ function BaseRecordsPanel({
                 <col
                   className={currentDomain.hasCapacity ? "w-[14%]" : "w-[18%]"}
                 />
-                {canManageBaseRecords ? (
+                {canShowRecordActions ? (
                   <col
                     className={currentDomain.hasCapacity ? "w-[31%]" : "w-[20%]"}
                   />
@@ -1174,7 +1183,7 @@ function BaseRecordsPanel({
                   ) : null}
                   <th className="px-2 py-3 font-semibold">Status</th>
                   <th className="px-3 py-3 font-semibold">Atualizado</th>
-                  {canManageBaseRecords ? (
+                  {canShowRecordActions ? (
                     <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">
                       Ações
                     </th>
@@ -1249,23 +1258,25 @@ function BaseRecordsPanel({
                       <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                         {new Date(record.updatedAt).toLocaleDateString("pt-BR")}
                       </td>
-                      {canManageBaseRecords ? (
+                      {canShowRecordActions ? (
                         <td className="px-3 py-3">
                           <div className="flex flex-nowrap justify-end gap-1.5">
-                            <button
-                              aria-label={`Editar ${record.name}`}
-                              className={cx(
-                                adminTheme.secondaryButton,
-                                "h-8 px-2",
-                              )}
-                              onClick={() => startEdit(record)}
-                              title={`Editar ${record.name}`}
-                              type="button"
-                            >
-                              <Pencil aria-hidden="true" className="h-4 w-4" />
-                              <span className="sr-only">Editar</span>
-                            </button>
-                            {currentDomain.hasCapacity ? (
+                            {canManageCurrentDomain ? (
+                              <button
+                                aria-label={`Editar ${record.name}`}
+                                className={cx(
+                                  adminTheme.secondaryButton,
+                                  "h-8 px-2",
+                                )}
+                                onClick={() => startEdit(record)}
+                                title={`Editar ${record.name}`}
+                                type="button"
+                              >
+                                <Pencil aria-hidden="true" className="h-4 w-4" />
+                                <span className="sr-only">Editar</span>
+                              </button>
+                            ) : null}
+                            {currentDomain.hasCapacity && canViewBusAssignments ? (
                               <button
                                 className={cx(
                                   adminTheme.secondaryButton,
@@ -1277,26 +1288,28 @@ function BaseRecordsPanel({
                                 Vinculados
                               </button>
                             ) : null}
-                            <button
-                              className={cx(
-                                adminTheme.secondaryButton,
-                                "h-8 px-2 text-xs",
-                              )}
-                              onClick={() =>
-                                setPendingAction({
-                                  record,
-                                  nextStatus:
-                                    record.status === "ACTIVE"
-                                      ? "INACTIVE"
-                                      : "ACTIVE",
-                                })
-                              }
-                              type="button"
-                            >
-                              {record.status === "ACTIVE"
-                                ? "Inativar"
-                                : "Reativar"}
-                            </button>
+                            {canManageCurrentDomain ? (
+                              <button
+                                className={cx(
+                                  adminTheme.secondaryButton,
+                                  "h-8 px-2 text-xs",
+                                )}
+                                onClick={() =>
+                                  setPendingAction({
+                                    record,
+                                    nextStatus:
+                                      record.status === "ACTIVE"
+                                        ? "INACTIVE"
+                                        : "ACTIVE",
+                                  })
+                                }
+                                type="button"
+                              >
+                                {record.status === "ACTIVE"
+                                  ? "Inativar"
+                                  : "Reativar"}
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       ) : null}
@@ -1345,17 +1358,19 @@ function BaseRecordsPanel({
                       </span>
                     </div>
                   ) : null}
-                  {canManageBaseRecords ? (
+                  {canShowRecordActions ? (
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        className={adminTheme.secondaryButton}
-                        onClick={() => startEdit(record)}
-                        type="button"
-                      >
-                        <Pencil aria-hidden="true" className="h-4 w-4" />
-                        Editar
-                      </button>
-                      {currentDomain.hasCapacity ? (
+                      {canManageCurrentDomain ? (
+                        <button
+                          className={adminTheme.secondaryButton}
+                          onClick={() => startEdit(record)}
+                          type="button"
+                        >
+                          <Pencil aria-hidden="true" className="h-4 w-4" />
+                          Editar
+                        </button>
+                      ) : null}
+                      {currentDomain.hasCapacity && canViewBusAssignments ? (
                         <button
                           className={adminTheme.secondaryButton}
                           onClick={() => void openBus(record)}
@@ -1364,19 +1379,21 @@ function BaseRecordsPanel({
                           Vinculados
                         </button>
                       ) : null}
-                      <button
-                        className={adminTheme.secondaryButton}
-                        onClick={() =>
-                          setPendingAction({
-                            record,
-                            nextStatus:
-                              record.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
-                          })
-                        }
-                        type="button"
-                      >
-                        {record.status === "ACTIVE" ? "Inativar" : "Reativar"}
-                      </button>
+                      {canManageCurrentDomain ? (
+                        <button
+                          className={adminTheme.secondaryButton}
+                          onClick={() =>
+                            setPendingAction({
+                              record,
+                              nextStatus:
+                                record.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
+                            })
+                          }
+                          type="button"
+                        >
+                          {record.status === "ACTIVE" ? "Inativar" : "Reativar"}
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </article>
