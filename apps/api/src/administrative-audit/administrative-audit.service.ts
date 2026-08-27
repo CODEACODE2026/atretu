@@ -28,14 +28,18 @@ const SENSITIVE_METADATA_KEYS = new Set([
 export class AdministrativeAuditService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  async record(input: {
-    eventType: AdministrativeAuditEventType;
-    userId?: string;
-    domain: string;
-    recordId: string;
-    metadata?: Prisma.InputJsonObject;
-  }): Promise<void> {
-    await this.prisma.administrativeAuditLog.create({
+  async record(
+    input: {
+      eventType: AdministrativeAuditEventType;
+      userId?: string;
+      domain: string;
+      recordId: string;
+      metadata?: Prisma.InputJsonObject;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? this.prisma;
+    await client.administrativeAuditLog.create({
       data: {
         eventType: input.eventType,
         userId: input.userId,

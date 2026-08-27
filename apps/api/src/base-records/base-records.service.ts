@@ -31,6 +31,12 @@ import {
 
 type Domain = "institutions" | "shifts" | "buses";
 type WritableData = { name?: string; capacity?: number };
+type BaseRecordSnapshot = {
+  id: string;
+  name: string;
+  status: RecordStatus;
+  capacity?: number;
+};
 type ListResult<T> = {
   data: T[];
   pagination: {
@@ -330,6 +336,7 @@ export class BaseRecordsService {
         if (!current) {
           throw new NotFoundException("onibus nao encontrado");
         }
+        const before = this.auditSnapshot("buses", current);
 
         const maxOccupancy = await this.countMaxActiveAssignmentsByAcademicYear(tx, id);
         if (data.capacity !== undefined) {
@@ -337,22 +344,16 @@ export class BaseRecordsService {
         }
 
         const updated = await tx.bus.update({ where: { id }, data: updateData });
+        const after = this.auditSnapshot("buses", updated);
+        const changedFields = this.changedFields(before, after, ["name", "capacity"]);
         const eventType =
-          data.capacity !== undefined && data.capacity !== current.capacity
+          changedFields.includes("capacity")
             ? AdministrativeAuditEventType.BUS_CAPACITY_UPDATED
             : AdministrativeAuditEventType.BASE_RECORD_UPDATED;
-        await tx.administrativeAuditLog.create({
-          data: {
-            eventType,
-            userId,
-            domain: "buses",
-            recordId: updated.id,
-            metadata: {
-              domain: "buses",
-              recordId: updated.id,
-              changedFields: Object.keys(updateData).join(","),
-            },
-          },
+        await this.recordAudit(eventType, "buses", updated.id, userId, tx, {
+          before,
+          after,
+          changedFields,
         });
         return updated;
       });
@@ -368,26 +369,30 @@ export class BaseRecordsService {
     }
   }
 
-  private async create<T extends { id: string }>(
-    delegate: RecordDelegate<T>,
+  private async create<T extends { id: string; name: string; status: RecordStatus }>(
+    _delegate: RecordDelegate<T>,
     domain: Domain,
     data: { name: string; capacity?: number },
     userId: string,
   ): Promise<T> {
     try {
-      const record = await delegate.create({
-        data: {
-          ...data,
-          normalizedName: this.normalizeName(data.name),
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const record = await this.txDelegate<T>(tx, domain).create({
+          data: {
+            ...data,
+            normalizedName: this.normalizeName(data.name),
+          },
+        });
+        await this.recordAudit(
+          AdministrativeAuditEventType.BASE_RECORD_CREATED,
+          domain,
+          record.id,
+          userId,
+          tx,
+          { after: this.auditSnapshot(domain, record) },
+        );
+        return record;
       });
-      await this.recordAudit(
-        AdministrativeAuditEventType.BASE_RECORD_CREATED,
-        domain,
-        record.id,
-        userId,
-      );
-      return record;
     } catch (error) {
       this.handleWriteError(error, domain);
     }
@@ -405,8 +410,8 @@ export class BaseRecordsService {
     return record;
   }
 
-  private async update<T extends { id: string; name: string }>(
-    delegate: RecordDelegate<T>,
+  private async update<T extends { id: string; name: string; status: RecordStatus }>(
+    _delegate: RecordDelegate<T>,
     domain: Domain,
     id: string,
     data: WritableData,
@@ -416,49 +421,77 @@ export class BaseRecordsService {
       throw new BadRequestException("Informe ao menos um campo para atualizar");
     }
 
-    await this.get(delegate, domain, id);
-
     const updateData: WritableData & { normalizedName?: string } = { ...data };
     if (data.name) {
       updateData.normalizedName = this.normalizeName(data.name);
     }
 
     try {
-      const record = await delegate.update({ where: { id }, data: updateData });
-      await this.recordAudit(
-        AdministrativeAuditEventType.BASE_RECORD_UPDATED,
-        domain,
-        record.id,
-        userId,
-      );
-      return record;
+      return await this.prisma.$transaction(async (tx) => {
+        const txDelegate = this.txDelegate<T>(tx, domain);
+        const current = await txDelegate.findUnique({ where: { id } });
+        if (!current) {
+          throw new NotFoundException(`${DOMAIN_LABELS[domain]} nao encontrado`);
+        }
+        const before = this.auditSnapshot(domain, current);
+        const record = await txDelegate.update({ where: { id }, data: updateData });
+        const after = this.auditSnapshot(domain, record);
+        await this.recordAudit(
+          AdministrativeAuditEventType.BASE_RECORD_UPDATED,
+          domain,
+          record.id,
+          userId,
+          tx,
+          {
+            before,
+            after,
+            changedFields: this.changedFields(before, after, ["name"]),
+          },
+        );
+        return record;
+      });
     } catch (error) {
       this.handleWriteError(error, domain);
     }
   }
 
-  private async setStatus<T extends { id: string; status: RecordStatus }>(
-    delegate: RecordDelegate<T>,
+  private async setStatus<T extends { id: string; name: string; status: RecordStatus }>(
+    _delegate: RecordDelegate<T>,
     domain: Domain,
     id: string,
     status: RecordStatus,
     userId: string,
   ): Promise<T> {
-    const current = await this.get(delegate, domain, id);
-    if (current.status === status) {
-      return current;
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const txDelegate = this.txDelegate<T>(tx, domain);
+      const current = await txDelegate.findUnique({ where: { id } });
+      if (!current) {
+        throw new NotFoundException(`${DOMAIN_LABELS[domain]} nao encontrado`);
+      }
+      if (current.status === status) {
+        return current;
+      }
 
-    const record = await delegate.update({ where: { id }, data: { status } });
-    await this.recordAudit(
-      status === RecordStatus.ACTIVE
-        ? AdministrativeAuditEventType.BASE_RECORD_REACTIVATED
-        : AdministrativeAuditEventType.BASE_RECORD_INACTIVATED,
-      domain,
-      record.id,
-      userId,
-    );
-    return record;
+      const before = this.auditSnapshot(domain, current);
+      const record = await txDelegate.update({ where: { id }, data: { status } });
+      const after = this.auditSnapshot(domain, record);
+      await this.recordAudit(
+        status === RecordStatus.ACTIVE
+          ? AdministrativeAuditEventType.BASE_RECORD_REACTIVATED
+          : AdministrativeAuditEventType.BASE_RECORD_INACTIVATED,
+        domain,
+        record.id,
+        userId,
+        tx,
+        {
+          before,
+          after,
+          statusBefore: before.status,
+          statusAfter: after.status,
+        },
+      );
+      return record;
+    });
   }
 
   private buildWhere(query: ListBaseRecordsDto): Prisma.JsonObject {
@@ -575,14 +608,55 @@ export class BaseRecordsService {
     domain: Domain,
     recordId: string,
     userId: string,
+    tx?: Prisma.TransactionClient,
+    metadata?: Prisma.InputJsonObject,
   ): Promise<void> {
-    await this.audit.record({
-      eventType,
-      userId,
-      domain,
-      recordId,
-      metadata: { domain, recordId },
-    });
+    await this.audit.record(
+      {
+        eventType,
+        userId,
+        domain,
+        recordId,
+        metadata: { domain, recordId, ...metadata },
+      },
+      tx,
+    );
+  }
+
+  private auditSnapshot(
+    domain: Domain,
+    record: { id: string; name: string; status: RecordStatus; capacity?: number },
+  ): BaseRecordSnapshot {
+    const snapshot: BaseRecordSnapshot = {
+      id: record.id,
+      name: record.name,
+      status: record.status,
+    };
+    if (domain === "buses") {
+      snapshot.capacity = record.capacity;
+    }
+    return snapshot;
+  }
+
+  private changedFields(
+    before: BaseRecordSnapshot,
+    after: BaseRecordSnapshot,
+    fields: Array<"name" | "capacity">,
+  ) {
+    return fields.filter((field) => before[field] !== after[field]);
+  }
+
+  private txDelegate<T extends { id: string }>(
+    tx: Prisma.TransactionClient,
+    domain: Domain,
+  ): RecordDelegate<T> {
+    if (domain === "institutions") {
+      return tx.institution as unknown as RecordDelegate<T>;
+    }
+    if (domain === "shifts") {
+      return tx.shift as unknown as RecordDelegate<T>;
+    }
+    return tx.bus as unknown as RecordDelegate<T>;
   }
 
   private handleWriteError(error: unknown, domain: Domain): never {

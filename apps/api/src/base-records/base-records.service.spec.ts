@@ -27,12 +27,15 @@ type RowWhere = Omit<Partial<Row>, "id" | "name"> & {
   name?: unknown;
 };
 
-function createDelegate() {
-  const rows: Row[] = [];
+function createDelegate(initialRows: Row[] = []) {
+  const state = {
+    rows: [...initialRows],
+  };
   let lastFindManyArgs: Record<string, unknown> | undefined;
-  let nextId = 1;
+  let nextId =
+    Math.max(0, ...state.rows.map((row) => Number(row.id)).filter(Number.isFinite)) + 1;
   const filterRows = (where: RowWhere) =>
-    rows.filter((row) => {
+    state.rows.filter((row) => {
       if (typeof where.id === "string" && row.id !== where.id) {
         return false;
       }
@@ -63,7 +66,18 @@ function createDelegate() {
     });
 
   return {
-    rows,
+    get rows() {
+      return state.rows;
+    },
+    cloneRows() {
+      return state.rows.map((row) => ({ ...row }));
+    },
+    replaceRows(rows: Row[]) {
+      state.rows = rows;
+      nextId =
+        Math.max(0, ...state.rows.map((row) => Number(row.id)).filter(Number.isFinite)) +
+        1;
+    },
     get lastFindManyArgs() {
       return lastFindManyArgs;
     },
@@ -81,11 +95,11 @@ function createDelegate() {
         return filterRows(where).length;
       },
       async findUnique({ where }: { where: { id: string } }) {
-        return rows.find((row) => row.id === where.id) ?? null;
+        return state.rows.find((row) => row.id === where.id) ?? null;
       },
       async create({ data }: { data: Row }) {
         if (
-          rows.some((row) => row.normalizedName === data.normalizedName)
+          state.rows.some((row) => row.normalizedName === data.normalizedName)
         ) {
           throw Object.assign(new Error("duplicate"), {
             code: "P2002",
@@ -98,16 +112,16 @@ function createDelegate() {
           id: String(nextId++),
           status: RecordStatus.ACTIVE,
         };
-        rows.push(record);
+        state.rows.push(record);
         return record;
       },
       async update({ where, data }: { where: { id: string }; data: Partial<Row> }) {
-        const index = rows.findIndex((row) => row.id === where.id);
+        const index = state.rows.findIndex((row) => row.id === where.id);
         assert.notEqual(index, -1);
-        const current = rows[index]!;
+        const current = state.rows[index]!;
         if (
           data.normalizedName &&
-          rows.some(
+          state.rows.some(
             (row) =>
               row.id !== where.id &&
               row.normalizedName === data.normalizedName,
@@ -119,30 +133,112 @@ function createDelegate() {
           });
         }
 
-        rows[index] = { ...current, ...data };
-        return rows[index];
+        state.rows[index] = { ...current, ...data };
+        return state.rows[index];
       },
     },
   };
 }
 
 const institutions = createDelegate();
+const shifts = createDelegate();
+const buses = createDelegate();
 const auditEvents: Array<{
   eventType: AdministrativeAuditEventType;
   domain: string;
+  userId?: string;
+  recordId: string;
+  metadata?: Record<string, unknown>;
 }> = [];
+let failNextAudit = false;
+
+function createPrismaMock() {
+  const auditLog = {
+    async create({ data }: { data: (typeof auditEvents)[number] }) {
+      if (failNextAudit) {
+        failNextAudit = false;
+        throw new Error("audit failed");
+      }
+      auditEvents.push(data);
+      return data;
+    },
+  };
+  return {
+    institution: institutions.delegate,
+    shift: shifts.delegate,
+    bus: buses.delegate,
+    academicYear: {
+      async findFirst() {
+        return null;
+      },
+    },
+    busAssignment: {
+      async groupBy() {
+        return [];
+      },
+    },
+    administrativeAuditLog: auditLog,
+    async $queryRaw() {
+      return [{ id: "1", count: 0n }];
+    },
+    async $transaction<T>(callback: (tx: unknown) => Promise<T>) {
+      const txInstitutions = createDelegate(institutions.cloneRows());
+      const txShifts = createDelegate(shifts.cloneRows());
+      const txBuses = createDelegate(buses.cloneRows());
+      const txAuditEvents = [...auditEvents];
+      const txAuditLog = {
+        async create({ data }: { data: (typeof auditEvents)[number] }) {
+          if (failNextAudit) {
+            failNextAudit = false;
+            throw new Error("audit failed");
+          }
+          txAuditEvents.push(data);
+          return data;
+        },
+      };
+      let queryRawCalls = 0;
+      const result = await callback({
+        institution: txInstitutions.delegate,
+        shift: txShifts.delegate,
+        bus: txBuses.delegate,
+        administrativeAuditLog: txAuditLog,
+        async $queryRaw() {
+          queryRawCalls += 1;
+          return queryRawCalls === 1 ? [{ id: "1" }] : [{ count: 2n }];
+        },
+        busAssignment: {
+          async groupBy() {
+            return [{ busId: "1", _count: { _all: 2 } }];
+          },
+        },
+      });
+      institutions.replaceRows(txInstitutions.cloneRows());
+      shifts.replaceRows(txShifts.cloneRows());
+      buses.replaceRows(txBuses.cloneRows());
+      auditEvents.splice(0, auditEvents.length, ...txAuditEvents);
+      return result;
+    },
+  };
+}
 
 const service = new BaseRecordsService(
-  {
-    institution: institutions.delegate,
-    shift: createDelegate().delegate,
-    bus: createDelegate().delegate,
-  } as never,
+  createPrismaMock() as never,
   {
     record: async (input: {
       eventType: AdministrativeAuditEventType;
       domain: string;
-    }) => {
+      userId?: string;
+      recordId: string;
+      metadata?: Record<string, unknown>;
+    }, tx?: { administrativeAuditLog: { create(args: { data: typeof input }): Promise<unknown> } }) => {
+      if (tx) {
+        await tx.administrativeAuditLog.create({ data: input });
+        return;
+      }
+      if (failNextAudit) {
+        failNextAudit = false;
+        throw new Error("audit failed");
+      }
       auditEvents.push(input);
     },
   } as never,
@@ -164,10 +260,168 @@ const superAdminUser = {
 assert.equal(created.name, " Universidade Central ");
 assert.equal(created.normalizedName, "universidade central");
 assert.equal(auditEvents[0]?.eventType, "BASE_RECORD_CREATED");
+assert.deepEqual(auditEvents[0]?.metadata, {
+  domain: "institutions",
+  recordId: created.id,
+  after: {
+    id: created.id,
+    name: " Universidade Central ",
+    status: RecordStatus.ACTIVE,
+  },
+});
 
 const inactive = await service.inactivateInstitution(created.id, superAdminUser);
 assert.equal(inactive.status, RecordStatus.INACTIVE);
 assert.equal(auditEvents.at(-1)?.eventType, "BASE_RECORD_INACTIVATED");
+assert.deepEqual(auditEvents.at(-1)?.metadata, {
+  domain: "institutions",
+  recordId: created.id,
+  before: {
+    id: created.id,
+    name: " Universidade Central ",
+    status: RecordStatus.ACTIVE,
+  },
+  after: {
+    id: created.id,
+    name: " Universidade Central ",
+    status: RecordStatus.INACTIVE,
+  },
+  statusBefore: RecordStatus.ACTIVE,
+  statusAfter: RecordStatus.INACTIVE,
+});
+
+const reactivated = await service.reactivateInstitution(created.id, superAdminUser);
+assert.equal(reactivated.status, RecordStatus.ACTIVE);
+assert.equal(auditEvents.at(-1)?.eventType, "BASE_RECORD_REACTIVATED");
+assert.equal(
+  (auditEvents.at(-1)?.metadata as { statusBefore: RecordStatus }).statusBefore,
+  RecordStatus.INACTIVE,
+);
+
+const updatedInstitution = await service.updateInstitution(
+  created.id,
+  { name: "Universidade Central Nova" },
+  superAdminUser,
+);
+assert.equal(updatedInstitution.name, "Universidade Central Nova");
+assert.deepEqual(auditEvents.at(-1)?.metadata, {
+  domain: "institutions",
+  recordId: created.id,
+  before: {
+    id: created.id,
+    name: " Universidade Central ",
+    status: RecordStatus.ACTIVE,
+  },
+  after: {
+    id: created.id,
+    name: "Universidade Central Nova",
+    status: RecordStatus.ACTIVE,
+  },
+  changedFields: ["name"],
+});
+
+failNextAudit = true;
+await assert.rejects(() =>
+  service.updateInstitution(created.id, { name: "Sem audit" }, superAdminUser),
+);
+assert.equal(
+  (await service.getInstitution(created.id, superAdminUser)).name,
+  "Universidade Central Nova",
+);
+
+failNextAudit = true;
+await assert.rejects(() =>
+  service.createInstitution({ name: "Rollback Create" }, "user-id"),
+);
+assert.equal(
+  institutions.rows.some((row) => row.normalizedName === "rollback create"),
+  false,
+);
+
+failNextAudit = true;
+await assert.rejects(() => service.inactivateInstitution(created.id, superAdminUser));
+assert.equal(
+  (await service.getInstitution(created.id, superAdminUser)).status,
+  RecordStatus.ACTIVE,
+);
+
+const shift = await service.createShift({ name: "Manha" }, "shift-user");
+assert.deepEqual(auditEvents.at(-1)?.metadata, {
+  domain: "shifts",
+  recordId: shift.id,
+  after: { id: shift.id, name: "Manha", status: RecordStatus.ACTIVE },
+});
+await service.updateShift(shift.id, { name: "Tarde" }, "shift-user");
+assert.deepEqual(auditEvents.at(-1)?.metadata, {
+  domain: "shifts",
+  recordId: shift.id,
+  before: { id: shift.id, name: "Manha", status: RecordStatus.ACTIVE },
+  after: { id: shift.id, name: "Tarde", status: RecordStatus.ACTIVE },
+  changedFields: ["name"],
+});
+await service.inactivateShift(shift.id, "shift-user");
+assert.equal(
+  (auditEvents.at(-1)?.metadata as { statusAfter: RecordStatus }).statusAfter,
+  RecordStatus.INACTIVE,
+);
+await service.reactivateShift(shift.id, "shift-user");
+assert.equal(
+  (auditEvents.at(-1)?.metadata as { statusAfter: RecordStatus }).statusAfter,
+  RecordStatus.ACTIVE,
+);
+
+const bus = await service.createBus({ name: "Onibus 1", capacity: 4 }, "bus-user");
+assert.deepEqual(auditEvents.at(-1)?.metadata, {
+  domain: "buses",
+  recordId: bus.id,
+  after: {
+    id: bus.id,
+    name: "Onibus 1",
+    capacity: 4,
+    status: RecordStatus.ACTIVE,
+  },
+});
+await service.updateBus(bus.id, { name: "Onibus 2" }, "bus-user");
+assert.deepEqual(auditEvents.at(-1)?.metadata, {
+  domain: "buses",
+  recordId: bus.id,
+  before: {
+    id: bus.id,
+    name: "Onibus 1",
+    capacity: 4,
+    status: RecordStatus.ACTIVE,
+  },
+  after: {
+    id: bus.id,
+    name: "Onibus 2",
+    capacity: 4,
+    status: RecordStatus.ACTIVE,
+  },
+  changedFields: ["name"],
+});
+await service.updateBus(bus.id, { name: "Onibus 2", capacity: 5 }, "bus-user");
+assert.equal(auditEvents.at(-1)?.eventType, "BUS_CAPACITY_UPDATED");
+assert.deepEqual((auditEvents.at(-1)?.metadata as { changedFields: string[] }).changedFields, [
+  "capacity",
+]);
+await service.updateBus(bus.id, { name: "Onibus 3", capacity: 6 }, "bus-user");
+assert.equal(auditEvents.at(-1)?.eventType, "BUS_CAPACITY_UPDATED");
+assert.deepEqual((auditEvents.at(-1)?.metadata as { changedFields: string[] }).changedFields, [
+  "name",
+  "capacity",
+]);
+await assert.rejects(() => service.updateBus(bus.id, { capacity: 1 }, "bus-user"));
+assert.equal((await service.getBus(bus.id)).capacity, 6);
+await service.inactivateBus(bus.id, "bus-user");
+assert.equal(
+  (auditEvents.at(-1)?.metadata as { statusAfter: RecordStatus }).statusAfter,
+  RecordStatus.INACTIVE,
+);
+await service.reactivateBus(bus.id, "bus-user");
+assert.equal(
+  (auditEvents.at(-1)?.metadata as { statusAfter: RecordStatus }).statusAfter,
+  RecordStatus.ACTIVE,
+);
 
 const activeList = await service.listInstitutions({
   page: 1,
@@ -176,7 +430,7 @@ const activeList = await service.listInstitutions({
   sort: BaseRecordSort.NAME,
   order: SortOrder.ASC,
 });
-assert.equal(activeList.data.length, 0);
+assert.equal(activeList.data.length, 1);
 
 const allList = await service.listInstitutions({
   page: 1,
