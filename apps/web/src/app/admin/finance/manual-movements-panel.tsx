@@ -21,8 +21,7 @@ import {
   type ManualFinancialMovementStatus,
   type ManualFinancialMovementSummary,
   type ManualFinancialMovementType,
-  type StudentDetail,
-  type StudentSummary,
+  type ManualMovementStudentOption,
 } from "../../../lib/api";
 import { mapApiErrorMessage } from "../../../lib/formatters";
 import { adminTheme, cx } from "../admin-theme";
@@ -680,49 +679,67 @@ function StudentPicker({
   selectedId: string;
 }) {
   const [query, setQuery] = useState("");
-  const [students, setStudents] = useState<StudentSummary[]>([]);
+  const [students, setStudents] = useState<ManualMovementStudentOption[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<StudentDetail | null>(null);
+  const [selected, setSelected] = useState<ManualMovementStudentOption | null>(null);
+  const [lookupError, setLookupError] = useState("");
 
   async function searchStudents() {
     if (query.trim().length < 2) {
       return;
     }
     setLoading(true);
+    setLookupError("");
     try {
-      const response = await api.listStudents({ search: query.trim(), status: "all", limit: 10 });
+      const response = await api.listManualMovementStudentOptions({
+        search: query.trim(),
+        limit: 10,
+      });
       setStudents(response.data);
+    } catch (caught) {
+      setStudents([]);
+      setLookupError(
+        caught instanceof Error ? caught.message : "Erro ao buscar academico",
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  async function selectStudent(studentId: string) {
-    const detail = await api.getStudent(studentId);
-    setSelected(detail);
-    onSelect({ id: detail.id, name: detail.person.fullName });
+  function selectStudent(student: ManualMovementStudentOption) {
+    setSelected(student);
+    onSelect({ id: student.studentId, name: student.name });
   }
 
   return (
     <div className="grid gap-2">
       <div className="flex gap-2">
-        <input className={cx(adminTheme.control, "min-w-0 flex-1")} onChange={(event) => setQuery(event.target.value)} placeholder="Nome, CPF ou carteirinha" type="search" value={query} />
+        <input className={cx(adminTheme.control, "min-w-0 flex-1")} onChange={(event) => {
+          setQuery(event.target.value);
+          setLookupError("");
+        }} placeholder="Nome, CPF ou carteirinha" type="search" value={query} />
         <button className={adminTheme.secondaryButton} disabled={loading || query.trim().length < 2} onClick={() => void searchStudents()} type="button">Buscar</button>
       </div>
       {selected || selectedId ? (
         <button className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-800" onClick={() => {
           setSelected(null);
+          setLookupError("");
           onSelect(null);
         }} type="button">
-          Selecionado: {selected?.person.fullName ?? selectedId} · remover
+          Selecionado: {selected?.name ?? selectedId} · remover
         </button>
+      ) : null}
+      {lookupError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+          {mapApiErrorMessage(lookupError)}
+        </p>
       ) : null}
       {students.length > 0 ? (
         <div className="grid max-h-44 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1">
           {students.map((student) => (
-            <button className="rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-50" key={student.id} onClick={() => void selectStudent(student.id)} type="button">
-              <span className="block font-semibold text-slate-800">{student.person.fullName}</span>
-              <span className="text-slate-500">CPF {student.person.cpfMasked} · Carteirinha {student.currentStudentCard?.cardNumber ?? "sem número ativo"}</span>
+            <button className="rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-50" key={student.studentId} onClick={() => selectStudent(student)} type="button">
+              <span className="block font-semibold text-slate-800">{student.name}</span>
+              <span className="text-slate-500">CPF {student.cpfMasked} · Carteirinha {student.cardNumber ?? "sem número ativo"}</span>
             </button>
           ))}
         </div>

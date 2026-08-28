@@ -136,6 +136,7 @@ const manualMovementsViewEndpoints = [
 ] as const;
 
 const manualMovementsManageEndpoints = [
+  [ManualFinancialMovementsController, "listStudentOptions"],
   [ManualFinancialMovementsController, "create"],
   [ManualFinancialMovementsController, "update"],
   [ManualFinancialMovementsController, "markPaid"],

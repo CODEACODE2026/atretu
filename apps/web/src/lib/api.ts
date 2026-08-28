@@ -1529,6 +1529,16 @@ export type ManualFinancialMovementCategory =
   | "TAXES"
   | "PURCHASES"
   | "OTHER";
+
+export type ManualMovementStudentOption = {
+  studentId: string;
+  name: string;
+  cpfMasked: string;
+  enrollmentId: string | null;
+  institutionId: string | null;
+  institutionName: string | null;
+  cardNumber: string | null;
+};
 export type BankSlipStatus =
   | "PENDING_ISSUE"
   | "ISSUED"
@@ -1713,6 +1723,12 @@ export type ListManualFinancialMovementsParams = {
   competenceFrom?: string;
   competenceTo?: string;
   studentId?: string;
+};
+
+export type ListManualMovementStudentOptionsParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
 };
 
 export type ManualFinancialMovementPayload = {
@@ -2738,6 +2754,12 @@ export const api = {
   getManualFinancialMovement(movementId: string) {
     return request<ManualFinancialMovement>(
       `/finance/manual-movements/${movementId}`,
+    );
+  },
+
+  listManualMovementStudentOptions(params?: ListManualMovementStudentOptionsParams) {
+    return request<ListResponse<ManualMovementStudentOption>>(
+      withParams("/finance/manual-movements/student-options", params),
     );
   },
 

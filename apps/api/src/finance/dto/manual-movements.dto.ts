@@ -80,6 +80,27 @@ export class ListManualFinancialMovementsDto {
   studentId?: string;
 }
 
+export class ListManualMovementStudentOptionsDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(25)
+  limit = 10;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  search?: string;
+}
+
 export class CreateManualFinancialMovementDto {
   @IsEnum(ManualFinancialMovementType)
   type!: ManualFinancialMovementType;

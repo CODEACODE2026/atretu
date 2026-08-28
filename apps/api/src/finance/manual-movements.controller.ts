@@ -27,6 +27,7 @@ import type { AuthUser } from "../users/users.service.js";
 import {
   CancelManualFinancialMovementDto,
   CreateManualFinancialMovementDto,
+  ListManualMovementStudentOptionsDto,
   ListManualFinancialMovementsDto,
   ManualFinancialMovementAttachmentParamsDto,
   ManualFinancialMovementParamsDto,
@@ -60,6 +61,16 @@ export class ManualFinancialMovementsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.movements.list(query, user);
+  }
+
+  @Get("student-options")
+  @UseGuards(OperationalPermissionGuard)
+  @OperationalPermission("manualMovements.manage")
+  listStudentOptions(
+    @Query() query: ListManualMovementStudentOptionsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.movements.listStudentOptions(query, user);
   }
 
   @Get(":movementId")

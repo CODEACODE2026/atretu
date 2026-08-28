@@ -36,6 +36,7 @@ includesAll(api, [
   "export type ManualFinancialMovementPayload",
   "export type ManualFinancialMovementSummary",
   "listManualFinancialMovements",
+  "listManualMovementStudentOptions",
   "createManualFinancialMovement",
   "updateManualFinancialMovement",
   "markManualFinancialMovementPaid",
@@ -44,6 +45,7 @@ includesAll(api, [
   "viewManualFinancialMovementAttachment",
   "downloadManualFinancialMovementAttachment",
   "/finance/manual-movements",
+  "/finance/manual-movements/student-options",
   "manualFinancialMovementFormData",
 ]);
 
@@ -137,6 +139,16 @@ assert.match(
   panel,
   /movementType === "INCOME" \|\| requiresStudent/,
   "USER manual movement expenses must expose the student picker",
+);
+assert.match(
+  panel,
+  /api\.listManualMovementStudentOptions\(\{[\s\S]*search: query\.trim\(\),[\s\S]*limit: 10/,
+  "Manual movement student picker must use the scoped finance lookup",
+);
+assert.doesNotMatch(
+  panel,
+  /api\.getStudent\(studentId\)/,
+  "Manual movement student picker must not fetch full student details",
 );
 assert.match(
   panel,

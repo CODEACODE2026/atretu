@@ -7,6 +7,7 @@ import { ManualFinancialMovementsService } from "./manual-movements.service.js";
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
 const serviceSource = readFileSync(new URL("./manual-movements.service.ts", import.meta.url), "utf8");
 const controller = readFileSync(new URL("./manual-movements.controller.ts", import.meta.url), "utf8");
+const studentsController = readFileSync(new URL("../students/students.controller.ts", import.meta.url), "utf8");
 const dto = readFileSync(new URL("./dto/manual-movements.dto.ts", import.meta.url), "utf8");
 
 assert.match(schema, /model ManualFinancialMovement \{/);
@@ -23,6 +24,7 @@ assert.match(schema, /MANUAL_FINANCIAL_INCOME_RECORDED/);
 
 assert.match(controller, /@Controller\("finance\/manual-movements"\)/);
 assert.match(controller, /@OperationalPermission\("manualMovements\.view"\)[\s\S]*list/);
+assert.match(controller, /@Get\("student-options"\)[\s\S]*@OperationalPermission\("manualMovements\.manage"\)[\s\S]*listStudentOptions/);
 assert.match(controller, /@OperationalPermission\("manualMovements\.view"\)[\s\S]*get/);
 assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*create/);
 assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*update/);
@@ -32,6 +34,8 @@ assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s
 assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*viewAttachment/);
 assert.match(controller, /@OperationalPermission\("manualMovements\.manage"\)[\s\S]*downloadAttachment/);
 assert.doesNotMatch(controller, /RolesGuard|OPERATIONAL_ADMIN_ROLES/);
+assert.match(studentsController, /@Get\("students"\)[\s\S]*@OperationalPermission\("students\.view", "reports\.view"\)[\s\S]*listStudents/);
+assert.match(studentsController, /@Get\("students\/:id"\)[\s\S]*@OperationalPermission\("students\.view"\)[\s\S]*getStudent/);
 assert.match(controller, /manualFinancialMovementUploadOptions/);
 assert.match(controller, /attachmentUploadInterceptor[\s\S]*singleDocumentUploadOptions/);
 assert.match(controller, /mark-paid/);
@@ -39,6 +43,7 @@ assert.match(controller, /attachments\/:attachmentId\/download/);
 assert.match(controller, /attachments\/:attachmentId\/view/);
 
 assert.match(dto, /ManualFinancialMovementCategory/);
+assert.match(dto, /class ListManualMovementStudentOptionsDto/);
 assert.match(dto, /competenceDate/);
 assert.match(dto, /@Max\(MAX_INVOICE_AMOUNT_CENTS\)/);
 assert.match(dto, /page = 1/);
@@ -64,6 +69,9 @@ assert.match(serviceSource, /getInstitutionScope\(user, OPERATIONAL_INSTITUTION_
 assert.match(serviceSource, /student:\s*\{[\s\S]*enrollments:\s*\{[\s\S]*some:\s*\{[\s\S]*institutionId: \{ in: institutionIds \}/);
 assert.match(serviceSource, /assertUserManageMovementScope/);
 assert.match(serviceSource, /assertUserManageStudentScope/);
+assert.match(serviceSource, /listStudentOptions/);
+assert.match(serviceSource, /buildStudentOptionsWhere/);
+assert.doesNotMatch(serviceSource, /students\.view/);
 assert.match(serviceSource, /RoleCode\.USER/);
 assert.match(serviceSource, /throw new ForbiddenException\("Acesso negado"\)/);
 assert.match(serviceSource, /throw new ForbiddenException\("Acesso negado"\)/);
@@ -222,6 +230,97 @@ await assert.rejects(
   (error) => error instanceof ForbiddenException,
 );
 
+let studentOptionsWhere: unknown;
+const scopedLookupService = new ManualFinancialMovementsService(
+  {
+    student: {
+      count: async ({ where }: { where: unknown }) => {
+        studentOptionsWhere = where;
+        return 1;
+      },
+      findMany: async ({ where }: { where: unknown }) => {
+        studentOptionsWhere = where;
+        return [
+          studentOptionRecord({
+            id: "student-a",
+            institutionId: "institution-a",
+            name: "Academico A",
+          }),
+        ];
+      },
+    },
+  } as never,
+  {} as never,
+  {} as never,
+);
+
+const studentOptions = await scopedLookupService.listStudentOptions(
+  { limit: 10, page: 1, search: "Academico" },
+  userA,
+);
+assert.deepEqual(studentOptionsWhere, {
+  AND: [
+    {
+      enrollments: {
+        some: {
+          institutionId: { in: ["institution-a"] },
+        },
+      },
+    },
+    {
+      OR: [
+        { person: { normalizedName: { contains: "academico" } } },
+        { studentCards: { some: { cardNumber: { contains: "Academico" } } } },
+      ],
+    },
+  ],
+});
+assert.deepEqual(studentOptions.data, [
+  {
+    studentId: "student-a",
+    name: "Academico A",
+    cpfMasked: "123.***.***-01",
+    enrollmentId: "enrollment-student-a",
+    institutionId: "institution-a",
+    institutionName: "Instituicao institution-a",
+    cardNumber: "2026-0001",
+  },
+]);
+
+let deniedLookupWhere: unknown;
+const deniedLookupService = new ManualFinancialMovementsService(
+  {
+    student: {
+      count: async ({ where }: { where: unknown }) => {
+        deniedLookupWhere = where;
+        return 0;
+      },
+      findMany: async ({ where }: { where: unknown }) => {
+        deniedLookupWhere = where;
+        return [];
+      },
+    },
+  } as never,
+  {} as never,
+  {} as never,
+);
+const emptyStudentOptions = await deniedLookupService.listStudentOptions(
+  { limit: 10, page: 1 },
+  {
+    ...userA,
+    institutionId: null,
+    institutionIds: [],
+  },
+);
+assert.deepEqual(deniedLookupWhere, {
+  enrollments: {
+    some: {
+      institutionId: { in: [] },
+    },
+  },
+});
+assert.deepEqual(emptyStudentOptions.data, []);
+
 console.log("Manual financial movements backend guard OK");
 
 function movementRecord(institutionIds: string[]) {
@@ -259,5 +358,24 @@ function movementRecord(institutionIds: string[]) {
     type: "INCOME",
     updatedAt: new Date("2026-08-01T00:00:00.000Z"),
     updatedBy: null,
+  };
+}
+
+function studentOptionRecord(input: {
+  id: string;
+  institutionId: string;
+  name: string;
+}) {
+  return {
+    enrollments: [
+      {
+        id: `enrollment-${input.id}`,
+        institution: { id: input.institutionId, name: `Instituicao ${input.institutionId}` },
+        institutionId: input.institutionId,
+      },
+    ],
+    id: input.id,
+    person: { cpf: "12345678901", fullName: input.name },
+    studentCards: [{ cardNumber: "2026-0001" }],
   };
 }

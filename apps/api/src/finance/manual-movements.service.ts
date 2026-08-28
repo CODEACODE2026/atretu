@@ -13,6 +13,7 @@ import {
   ManualFinancialMovementType,
   Prisma,
   RoleCode,
+  StudentCardStatus,
   StudentHistoryEventType,
 } from "@prisma/client";
 import { randomUUID, createHash } from "node:crypto";
@@ -38,6 +39,7 @@ import { parseInvoiceDueDate } from "./due-date.js";
 import {
   CancelManualFinancialMovementDto,
   CreateManualFinancialMovementDto,
+  ListManualMovementStudentOptionsDto,
   ListManualFinancialMovementsDto,
   MarkManualFinancialMovementPaidDto,
   UpdateManualFinancialMovementDto,
@@ -110,6 +112,78 @@ export class ManualFinancialMovementsService {
         totalPages: Math.ceil(total / pagination.limit),
       },
       summary,
+    };
+  }
+
+  async listStudentOptions(
+    query: ListManualMovementStudentOptionsDto,
+    user: AuthUser,
+  ) {
+    const pagination = resolvePagination(query, {
+      defaultLimit: 10,
+      maxLimit: 25,
+    });
+    const where = this.buildStudentOptionsWhere(query, user);
+    const [records, total] = await Promise.all([
+      this.prisma.student.findMany({
+        where,
+        orderBy: [{ person: { fullName: "asc" } }, { id: "asc" }],
+        skip: pagination.skip,
+        take: pagination.limit,
+        select: {
+          id: true,
+          person: {
+            select: {
+              fullName: true,
+              cpf: true,
+            },
+          },
+          enrollments: {
+            orderBy: { academicYear: { year: "desc" } },
+            take: 1,
+            select: {
+              id: true,
+              institutionId: true,
+              institution: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          studentCards: {
+            where: { status: StudentCardStatus.ACTIVE },
+            orderBy: [{ academicYear: { year: "desc" } }, { issuedAt: "desc" }],
+            take: 1,
+            select: {
+              cardNumber: true,
+            },
+          },
+        },
+      }),
+      this.prisma.student.count({ where }),
+    ]);
+
+    return {
+      data: records.map((student) => {
+        const enrollment = student.enrollments[0] ?? null;
+        return {
+          studentId: student.id,
+          name: student.person.fullName,
+          cpfMasked: maskCpf(student.person.cpf),
+          enrollmentId: enrollment?.id ?? null,
+          institutionId: enrollment?.institutionId ?? null,
+          institutionName: enrollment?.institution.name ?? null,
+          cardNumber: student.studentCards[0]?.cardNumber ?? null,
+        };
+      }),
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
     };
   }
 
@@ -931,6 +1005,40 @@ export class ManualFinancialMovementsService {
         },
       ],
     };
+  }
+
+  private buildStudentOptionsWhere(
+    query: ListManualMovementStudentOptionsDto,
+    user: AuthUser,
+  ): Prisma.StudentWhereInput {
+    const where: Prisma.StudentWhereInput = {};
+    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
+    if (scope.type !== "unrestricted") {
+      where.enrollments = {
+        some: {
+          institutionId: {
+            in: scope.type === "restricted" ? scope.institutionIds : [],
+          },
+        },
+      };
+    }
+
+    if (query.search) {
+      const normalizedSearch = normalizeName(query.search);
+      const cpfSearch = normalizeCpf(query.search);
+      const searchFilter: Prisma.StudentWhereInput = {
+        OR: [
+          { person: { normalizedName: { contains: normalizedSearch } } },
+          { studentCards: { some: { cardNumber: { contains: query.search } } } },
+          ...(cpfSearch ? [{ person: { cpf: { contains: cpfSearch } } }] : []),
+        ],
+      };
+      return Object.keys(where).length > 0
+        ? { AND: [where, searchFilter] }
+        : searchFilter;
+    }
+
+    return where;
   }
 
   private assertMovementInstitutionScope(record: MovementRecord, user?: AuthUser) {
