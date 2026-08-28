@@ -88,7 +88,13 @@ const emptySummary: ManualFinancialMovementSummary = {
   netFormatted: "R$ 0,00",
 };
 
-export function ManualMovementsPanel({ canManage = true }: { canManage?: boolean }) {
+export function ManualMovementsPanel({
+  canManage = true,
+  requiresStudent = false,
+}: {
+  canManage?: boolean;
+  requiresStudent?: boolean;
+}) {
   const [movements, setMovements] = useState<ManualFinancialMovement[]>([]);
   const [summary, setSummary] = useState<ManualFinancialMovementSummary>(emptySummary);
   const [loading, setLoading] = useState(true);
@@ -401,6 +407,7 @@ export function ManualMovementsPanel({ canManage = true }: { canManage?: boolean
             }
           }}
           onSubmit={handleSubmitMovement}
+          requiresStudent={requiresStudent}
           saving={saving}
         />
       ) : null}
@@ -489,6 +496,7 @@ function MovementDialog({
   onClearError,
   onClose,
   onSubmit,
+  requiresStudent,
   saving,
 }: {
   dialog: MovementDialog;
@@ -496,6 +504,7 @@ function MovementDialog({
   onClearError: () => void;
   onClose: () => void;
   onSubmit: (payload: ManualFinancialMovementPayload, file?: File | null) => void;
+  requiresStudent: boolean;
   saving: boolean;
 }) {
   const movement = dialog.mode === "edit" ? dialog.movement : null;
@@ -531,6 +540,10 @@ function MovementDialog({
       setValidationError(caught instanceof Error ? caught.message : "Valor invalido.");
       return;
     }
+    if (requiresStudent && !student?.id) {
+      setValidationError("Acadêmico obrigatório para usuário operacional.");
+      return;
+    }
     onSubmit(
       {
         type: movementType,
@@ -541,7 +554,8 @@ function MovementDialog({
         competenceDate: competenceDate ? `${competenceDate}-01` : undefined,
         dueDate: movementType === "EXPENSE" ? emptyToUndefined(dueDate) : undefined,
         paidAt: movementType === "EXPENSE" ? emptyToUndefined(paidAt) : undefined,
-        studentId: movementType === "INCOME" ? student?.id : undefined,
+        studentId:
+          requiresStudent || movementType === "INCOME" ? student?.id : undefined,
         supplierName: movementType === "EXPENSE" ? supplierName : undefined,
         supplierDocument: movementType === "EXPENSE" ? supplierDocument : undefined,
         documentNumber: movementType === "EXPENSE" ? documentNumber : undefined,
@@ -605,12 +619,13 @@ function MovementDialog({
               Competência
               <input className={adminTheme.control} onChange={(event) => setCompetenceDate(event.target.value)} type="month" value={competenceDate} />
             </label>
-            {movementType === "INCOME" ? (
+            {movementType === "INCOME" || requiresStudent ? (
               <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Acadêmico opcional
+                {requiresStudent ? "Acadêmico obrigatório" : "Acadêmico opcional"}
                 <StudentPicker onSelect={setStudent} selectedId={student?.id ?? ""} />
               </label>
-            ) : (
+            ) : null}
+            {movementType === "EXPENSE" ? (
               <>
                 <label className="grid gap-1 text-sm font-medium text-slate-700">
                   Fornecedor
@@ -633,7 +648,7 @@ function MovementDialog({
                   <input className={adminTheme.control} maxLength={80} onChange={(event) => setDocumentNumber(event.target.value)} value={documentNumber} />
                 </label>
               </>
-            )}
+            ) : null}
             <label className="grid gap-1 text-sm font-medium text-slate-700 md:col-span-2">
               Observação
               <textarea className={cx(adminTheme.control, "min-h-24 py-2")} maxLength={1000} onChange={(event) => setNotes(event.target.value)} value={notes} />

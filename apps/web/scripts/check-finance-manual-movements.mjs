@@ -25,7 +25,9 @@ includesAll(financePanel, [
   'financeArea === "movements"',
   'hasCapability(user, "manualMovements.manage")',
   "canManageManualMovements",
+  "requiresManualMovementStudent",
   "canManage={canManageManualMovements}",
+  "requiresStudent={requiresManualMovementStudent}",
 ]);
 includesAll(financeNavigation, ["Movimentações", "Entradas e despesas manuais"]);
 
@@ -71,8 +73,19 @@ includesAll(panel, [
   "setValidationError(\"\")",
   "mapApiErrorMessage(visibleError)",
   "PDF, PNG, JPEG ou WebP",
+  "requiresStudent",
+  "Acadêmico obrigatório",
+  "Acadêmico obrigatório para usuário operacional.",
+  'studentId:',
   "Marcar paga",
   "Cancelar",
+  'value="INCOME"',
+  'value="EXPENSE"',
+  'value="PENDING"',
+  'value="RECEIVED"',
+  'value="PAID"',
+  'value="CANCELLED"',
+  "studentFilterId",
 ]);
 
 includesAll(money, [
@@ -104,6 +117,36 @@ assert.equal(
   financePanel.includes("canManage={canManageFinance}"),
   false,
   "Manual movements actions must be gated by manualMovements.manage, not broad finance management only",
+);
+assert.match(
+  financePanel,
+  /const requiresManualMovementStudent =\s+user\.roles\.includes\("USER"\) && canManageManualMovements;/,
+  "USER manual movements must require a student scope in the form",
+);
+assert.match(
+  panel,
+  /if \(requiresStudent && !student\?\.id\) \{[\s\S]*Acadêmico obrigatório para usuário operacional\./,
+  "USER manual movement submit must require a selected student",
+);
+assert.match(
+  panel,
+  /studentId:\s+requiresStudent \|\| movementType === "INCOME" \? student\?\.id : undefined/,
+  "USER manual movement expenses must submit studentId instead of becoming global movements",
+);
+assert.match(
+  panel,
+  /movementType === "INCOME" \|\| requiresStudent/,
+  "USER manual movement expenses must expose the student picker",
+);
+assert.match(
+  panel,
+  /canManage \? \([\s\S]*Nova entrada[\s\S]*Nova despesa/,
+  "Manage users must see manual movement creation actions",
+);
+assert.match(
+  panel,
+  /canManage \? \([\s\S]*Editar[\s\S]*Marcar paga[\s\S]*Cancelar/,
+  "Manage users must see manual movement row actions",
 );
 
 includesAll(profileUtils, [
