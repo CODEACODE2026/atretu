@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type {
+  BusAssignmentEvent,
   BusAssignmentRecord,
   BusRecord,
   EnrollmentRecord,
@@ -12,10 +13,12 @@ import { adminTheme, cx } from "../admin-theme";
 import { emptyToUndefined } from "./student-profile-utils";
 
 export function StudentTransportTab({
+  canManage,
   onChanged,
   onSummary,
   student,
 }: {
+  canManage: boolean;
   onChanged: () => Promise<void>;
   onSummary: (assignment: BusAssignmentRecord | null) => void;
   student: StudentDetail;
@@ -34,6 +37,7 @@ export function StudentTransportTab({
         ) : (
           student.enrollments.map((enrollment, index) => (
             <BusAssignmentControls
+              canManage={canManage}
               enrollment={enrollment}
               key={enrollment.id}
               onChanged={onChanged}
@@ -47,15 +51,18 @@ export function StudentTransportTab({
 }
 
 function BusAssignmentControls({
+  canManage,
   enrollment,
   onChanged,
   onSummary,
 }: {
+  canManage: boolean;
   enrollment: EnrollmentRecord;
   onChanged: () => Promise<void>;
   onSummary?: (assignment: BusAssignmentRecord | null) => void;
 }) {
   const [assignment, setAssignment] = useState<BusAssignmentRecord | null>(null);
+  const [events, setEvents] = useState<BusAssignmentEvent[]>([]);
   const [buses, setBuses] = useState<BusRecord[]>([]);
   const [busId, setBusId] = useState("");
   const [note, setNote] = useState("");
@@ -73,16 +80,20 @@ function BusAssignmentControls({
     setLoading(true);
     setError("");
     try {
-      const [current, busResponse] = await Promise.all([
+      const [current, eventsResponse, busResponse] = await Promise.all([
         api.getCurrentBusAssignment(enrollment.id),
-        api.listBuses({
-          status: "active",
-          limit: 100,
-          sort: "name",
-          academicYearId: enrollment.academicYear.id,
-        }),
+        api.listBusAssignmentEvents(enrollment.id),
+        canManage
+          ? api.listBuses({
+              status: "active",
+              limit: 100,
+              sort: "name",
+              academicYearId: enrollment.academicYear.id,
+            })
+          : Promise.resolve({ data: [] }),
       ]);
       setAssignment(current);
+      setEvents(eventsResponse.data);
       setBuses(busResponse.data);
       setBusId(current?.bus.id ?? "");
       onSummary?.(current);
@@ -168,7 +179,7 @@ function BusAssignmentControls({
             Onibus atual: {loading ? "carregando..." : assignment?.bus.name ?? "sem vinculo"}
           </p>
         </div>
-        {assignment ? (
+        {canManage && assignment ? (
           <button
             className={adminTheme.secondaryButton}
             disabled={saving}
@@ -179,41 +190,70 @@ function BusAssignmentControls({
           </button>
         ) : null}
       </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr]">
-        <select
-          className={cx(adminTheme.control, "w-full")}
-          disabled={saving || loading}
-          onChange={(event) => setBusId(event.target.value)}
-          value={busId}
-        >
-          <option value="">Selecionar onibus</option>
-          {buses.map((bus) => (
-            <option
-              disabled={Boolean(bus.isFull) && bus.id !== assignment?.bus.id}
-              key={bus.id}
-              value={bus.id}
+      {canManage ? (
+        <>
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr]">
+            <select
+              className={cx(adminTheme.control, "w-full")}
+              disabled={saving || loading}
+              onChange={(event) => setBusId(event.target.value)}
+              value={busId}
             >
-              {bus.name} - {bus.availableSeats ?? bus.capacity} vagas
-            </option>
-          ))}
-        </select>
-        <input
-          className={cx(adminTheme.control, "w-full")}
-          disabled={saving}
-          maxLength={240}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="Observacao opcional"
-          value={note}
-        />
-      </div>
-      <button
-        className={cx(adminTheme.primaryButton, "mt-3")}
-        disabled={saving || loading}
-        onClick={() => void handleAssignOrSwitch()}
-        type="button"
-      >
-        {assignment ? "Trocar onibus" : "Vincular onibus"}
-      </button>
+              <option value="">Selecionar onibus</option>
+              {buses.map((bus) => (
+                <option
+                  disabled={Boolean(bus.isFull) && bus.id !== assignment?.bus.id}
+                  key={bus.id}
+                  value={bus.id}
+                >
+                  {bus.name} - {bus.availableSeats ?? bus.capacity} vagas
+                </option>
+              ))}
+            </select>
+            <input
+              className={cx(adminTheme.control, "w-full")}
+              disabled={saving}
+              maxLength={240}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Observacao opcional"
+              value={note}
+            />
+          </div>
+          <button
+            className={cx(adminTheme.primaryButton, "mt-3")}
+            disabled={saving || loading}
+            onClick={() => void handleAssignOrSwitch()}
+            type="button"
+          >
+            {assignment ? "Trocar onibus" : "Vincular onibus"}
+          </button>
+        </>
+      ) : null}
+      {events.length > 0 ? (
+        <div className="mt-4 border-t border-slate-200 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+            Historico de transporte
+          </p>
+          <div className="mt-3 grid gap-2">
+            {events.slice(0, 5).map((event) => (
+              <div
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                key={event.id}
+              >
+                <p className="font-medium text-slate-900">
+                  {busAssignmentEventLabel(event)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {new Date(event.occurredAt).toLocaleString("pt-BR")}
+                </p>
+                {event.note ? (
+                  <p className="mt-1 text-xs text-slate-600">{event.note}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {message ? <p className="mt-3 text-sm font-medium text-emerald-700">{message}</p> : null}
       {error ? <p className="mt-3 text-sm font-medium text-red-700">{error}</p> : null}
       {confirmAction ? (
@@ -235,4 +275,19 @@ function BusAssignmentControls({
       ) : null}
     </div>
   );
+}
+
+function busAssignmentEventLabel(event: BusAssignmentEvent) {
+  if (event.eventType === "LINKED") {
+    return `Vinculado a ${event.toBus?.name ?? "onibus"}`;
+  }
+  if (event.eventType === "SWITCHED") {
+    return `${event.fromBus?.name ?? "Onibus anterior"} para ${
+      event.toBus?.name ?? "novo onibus"
+    }`;
+  }
+  if (event.eventType === "RELEASED") {
+    return `Liberado de ${event.fromBus?.name ?? "onibus"}`;
+  }
+  return "Vinculo encerrado automaticamente";
 }

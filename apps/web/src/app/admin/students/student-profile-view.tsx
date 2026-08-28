@@ -78,6 +78,7 @@ export function StudentProfileView({
   const canViewFinanceInvoices = hasCapability(user, "finance.invoices.view");
   const canViewStudentCards = hasCapability(user, "studentCards.view");
   const canUpdateStudent = hasCapability(user, "students.update");
+  const canViewTransport = hasCapability(user, "students.view");
   const canChangeStudentStatus = hasCapability(user, "students.changeStatus");
   const canManageBoard = hasCapability(user, "students.board.manage");
   const canUpdateBoardRole = user.roles.includes("SUPER_ADMIN");
@@ -98,6 +99,7 @@ export function StudentProfileView({
         "history",
         ...(canViewFinanceInvoices ? (["finance"] as const) : []),
         ...(canViewOfficialDocuments ? (["documents"] as const) : []),
+        ...(canViewTransport ? (["transport"] as const) : []),
         ...(canViewStudentCards ? (["cards"] as const) : []),
         ...(canUpdateStudent ? (["personal"] as const) : []),
       ];
@@ -324,6 +326,7 @@ export function StudentProfileView({
             ) : null}
             {tab === "transport" ? (
               <StudentTransportTab
+                canManage={canUpdateStudent}
                 onChanged={() => refreshStudent("Transporte atualizado.")}
                 onSummary={setSummaryTransport}
                 student={student}

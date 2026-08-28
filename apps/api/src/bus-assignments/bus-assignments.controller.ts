@@ -10,8 +10,6 @@ import {
 } from "@nestjs/common";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
-import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
-import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { BusAssignmentsService } from "./bus-assignments.service.js";
 import {
@@ -20,9 +18,10 @@ import {
   ReleaseBusDto,
   SwitchBusDto,
 } from "./dto/bus-assignments.dto.js";
+import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import { OperationalPermission } from "../auth/operational-permissions.js";
 
-@UseGuards(AuthGuard, RolesGuard)
-@Roles(...OPERATIONAL_ADMIN_ROLES)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller()
 export class BusAssignmentsController {
   constructor(
@@ -31,6 +30,7 @@ export class BusAssignmentsController {
   ) {}
 
   @Get("buses/:id/assignments")
+  @OperationalPermission("baseRecords.view", "reports.view")
   listBusAssignments(
     @Param("id") id: string,
     @Query() query: ListBusAssignmentsDto,
@@ -40,6 +40,7 @@ export class BusAssignmentsController {
   }
 
   @Get("enrollments/:enrollmentId/bus-assignment")
+  @OperationalPermission("students.view")
   getCurrentAssignment(
     @Param("enrollmentId") enrollmentId: string,
     @CurrentUser() user: AuthUser,
@@ -48,6 +49,7 @@ export class BusAssignmentsController {
   }
 
   @Post("enrollments/:enrollmentId/bus-assignment")
+  @OperationalPermission("students.update")
   assignBus(
     @Param("enrollmentId") enrollmentId: string,
     @Body() body: AssignBusDto,
@@ -63,6 +65,7 @@ export class BusAssignmentsController {
   }
 
   @Post("enrollments/:enrollmentId/bus-assignment/release")
+  @OperationalPermission("students.update")
   releaseBus(
     @Param("enrollmentId") enrollmentId: string,
     @Body() body: ReleaseBusDto,
@@ -72,6 +75,7 @@ export class BusAssignmentsController {
   }
 
   @Post("enrollments/:enrollmentId/bus-assignment/switch")
+  @OperationalPermission("students.update")
   switchBus(
     @Param("enrollmentId") enrollmentId: string,
     @Body() body: SwitchBusDto,
@@ -87,6 +91,7 @@ export class BusAssignmentsController {
   }
 
   @Get("enrollments/:enrollmentId/bus-assignment-events")
+  @OperationalPermission("students.view")
   listEnrollmentEvents(
     @Param("enrollmentId") enrollmentId: string,
     @CurrentUser() user: AuthUser,

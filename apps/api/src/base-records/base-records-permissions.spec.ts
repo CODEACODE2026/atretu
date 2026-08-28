@@ -12,7 +12,6 @@ import {
 } from "../auth/operational-permissions.js";
 import {
   GLOBAL_OPERATIONAL_ADMIN_ROLES,
-  OPERATIONAL_ADMIN_ROLES,
 } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -85,9 +84,28 @@ for (const endpoint of globalAdminWriteEndpoints) {
   assert.deepEqual(operationalPermissions(BaseRecordsController, endpoint), []);
 }
 
-assert.deepEqual(rolesMetadata(BusAssignmentsController), [
-  ...OPERATIONAL_ADMIN_ROLES,
+assert.deepEqual(rolesMetadata(BusAssignmentsController), []);
+assert.deepEqual(
+  operationalPermissions(BusAssignmentsController, "listBusAssignments"),
+  ["baseRecords.view", "reports.view"],
+);
+assert.deepEqual(
+  operationalPermissions(BusAssignmentsController, "getCurrentAssignment"),
+  ["students.view"],
+);
+assert.deepEqual(operationalPermissions(BusAssignmentsController, "assignBus"), [
+  "students.update",
 ]);
+assert.deepEqual(operationalPermissions(BusAssignmentsController, "releaseBus"), [
+  "students.update",
+]);
+assert.deepEqual(operationalPermissions(BusAssignmentsController, "switchBus"), [
+  "students.update",
+]);
+assert.deepEqual(
+  operationalPermissions(BusAssignmentsController, "listEnrollmentEvents"),
+  ["students.view"],
+);
 assert.deepEqual(
   rolesMetadata(BaseRecordsController, "createInstitution").includes(RoleCode.USER),
   false,
@@ -228,17 +246,63 @@ for (const endpoint of institutionWriteEndpoints) {
   );
 }
 
+assert.equal(
+  await baseViewGuard.canActivate(
+    executionContext(BusAssignmentsController, "listBusAssignments", user([RoleCode.USER])),
+  ),
+  true,
+  "Bus assignment list must be readable through baseRecords.view",
+);
+assert.equal(
+  await reportsViewGuard.canActivate(
+    executionContext(BusAssignmentsController, "listBusAssignments", user([RoleCode.USER])),
+  ),
+  true,
+  "Bus assignment list must be readable through reports.view",
+);
+assert.equal(
+  await studentsViewGuard.canActivate(
+    executionContext(BusAssignmentsController, "getCurrentAssignment", user([RoleCode.USER])),
+  ),
+  true,
+  "Current bus assignment must be readable through students.view",
+);
+assert.equal(
+  await studentsViewGuard.canActivate(
+    executionContext(BusAssignmentsController, "listEnrollmentEvents", user([RoleCode.USER])),
+  ),
+  true,
+  "Bus assignment events must be readable through students.view",
+);
+const studentsUpdateGuard = guardWithPermissions(["students.update"]);
+for (const endpoint of ["assignBus", "releaseBus", "switchBus"] as const) {
+  assert.equal(
+    await studentsUpdateGuard.canActivate(
+      executionContext(BusAssignmentsController, endpoint, user([RoleCode.USER])),
+    ),
+    true,
+    `${endpoint} must be manageable through students.update`,
+  );
+  await assert.rejects(
+    () =>
+      studentsViewGuard.canActivate(
+        executionContext(BusAssignmentsController, endpoint, user([RoleCode.USER])),
+      ),
+    (error) => error instanceof ForbiddenException,
+    `${endpoint} must deny USER with students.view only`,
+  );
+}
 await assert.rejects(
-  async () =>
-    rolesGuard.canActivate(
-      executionContext(BusAssignmentsController, "listBusAssignments", user([RoleCode.USER])),
+  () =>
+    baseViewGuard.canActivate(
+      executionContext(BusAssignmentsController, "assignBus", user([RoleCode.USER])),
     ),
   (error) => error instanceof ForbiddenException,
-  "Bus assignment details must remain outside USER baseRecords.view in F.2E.1",
+  "Bus assignment writes must not be unlocked by baseRecords.view",
 );
 
 assert.equal(
-  rolesGuard.canActivate(
+  await guardWithPermissions([]).canActivate(
     executionContext(
       BusAssignmentsController,
       "assignBus",

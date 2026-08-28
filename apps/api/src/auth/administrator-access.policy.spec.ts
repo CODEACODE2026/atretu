@@ -65,7 +65,6 @@ for (const role of [RoleCode.USER, RoleCode.GESTOR]) {
 }
 
 const administratorOperationalEndpoints = [
-  [BusAssignmentsController, undefined],
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
@@ -156,6 +155,18 @@ const baseRecordsViewEndpoints = [
   [BaseRecordsController, "getInstitution"],
   [BaseRecordsController, "getShift"],
   [BaseRecordsController, "getBus"],
+] as const;
+
+const busAssignmentReadEndpoints = [
+  [BusAssignmentsController, "getCurrentAssignment", ["students.view"]],
+  [BusAssignmentsController, "listEnrollmentEvents", ["students.view"]],
+  [BusAssignmentsController, "listBusAssignments", ["baseRecords.view", "reports.view"]],
+] as const;
+
+const busAssignmentManageEndpoints = [
+  [BusAssignmentsController, "assignBus"],
+  [BusAssignmentsController, "releaseBus"],
+  [BusAssignmentsController, "switchBus"],
 ] as const;
 
 assert.equal(
@@ -364,6 +375,32 @@ for (const item of baseRecordsViewEndpoints) {
     operationalPermissionMetadata(item[0], item[1]),
     ["baseRecords.view"],
     `${item[0].name}.${item[1]} must require only baseRecords.view for detail access`,
+  );
+}
+
+for (const item of busAssignmentReadEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after bus assignment view migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    item[2],
+    `${item[0].name}.${item[1]} must use the approved bus assignment read permission`,
+  );
+}
+
+for (const item of busAssignmentManageEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], item[1]),
+    [],
+    `${item[0].name}.${item[1]} must not require fixed operational roles after bus assignment manage migration`,
+  );
+  assert.deepEqual(
+    operationalPermissionMetadata(item[0], item[1]),
+    ["students.update"],
+    `${item[0].name}.${item[1]} must use students.update for enrollment transport operations`,
   );
 }
 
