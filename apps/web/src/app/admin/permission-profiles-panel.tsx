@@ -53,6 +53,54 @@ const EMPTY_FORM: ProfileFormState = {
   name: "",
   permissions: [],
 };
+const FINANCIAL_PERMISSION_KEYS: PermissionKey[] = [
+  "finance.invoices.view",
+  "finance.invoices.manage",
+  "finance.bankSlips.manage",
+  "collections.view",
+  "collections.manage",
+  "manualMovements.view",
+  "manualMovements.manage",
+];
+const FINANCIAL_PERMISSION_PRESETS: Array<{
+  key: string;
+  label: string;
+  permissions: PermissionKey[];
+}> = [
+  {
+    key: "read-only",
+    label: "Somente leitura",
+    permissions: [
+      "finance.invoices.view",
+      "collections.view",
+      "manualMovements.view",
+    ],
+  },
+  {
+    key: "invoices",
+    label: "Faturas",
+    permissions: [
+      "finance.invoices.view",
+      "finance.invoices.manage",
+      "finance.bankSlips.manage",
+    ],
+  },
+  {
+    key: "collections",
+    label: "Cobrança",
+    permissions: ["collections.view", "collections.manage"],
+  },
+  {
+    key: "full",
+    label: "Financeiro completo",
+    permissions: FINANCIAL_PERMISSION_KEYS,
+  },
+  {
+    key: "clear",
+    label: "Limpar",
+    permissions: [],
+  },
+];
 
 export function PermissionProfilesPanel() {
   const [profiles, setProfiles] = useState<PermissionProfile[]>([]);
@@ -314,6 +362,31 @@ export function PermissionProfilesPanel() {
     });
   }
 
+  function applyFinancialPermissionPreset(presetPermissions: PermissionKey[]) {
+    setForm((current) => {
+      const permissionsOutsideFinance = current.permissions.filter(
+        (permissionKey) => !FINANCIAL_PERMISSION_KEYS.includes(permissionKey),
+      );
+      const nextPermissions = resolvePermissionDependencies(
+        [...permissionsOutsideFinance, ...presetPermissions],
+        catalog,
+      );
+      const preservedFinancialPermissions = nextPermissions.filter(
+        (permissionKey) =>
+          FINANCIAL_PERMISSION_KEYS.includes(permissionKey) &&
+          !presetPermissions.includes(permissionKey),
+      );
+      setFormNotice(
+        preservedFinancialPermissions.length > 0
+          ? `Mantive ${preservedFinancialPermissions
+              .map((dependency) => permissionLabel(dependency))
+              .join(", ")} por dependência de permissões ainda selecionadas.`
+          : "",
+      );
+      return { ...current, permissions: nextPermissions };
+    });
+  }
+
   return (
     <>
       <AdminModuleHeader
@@ -518,6 +591,7 @@ export function PermissionProfilesPanel() {
           onSubmit={submitProfileDialog}
           onSetModulePermissions={setModulePermissions}
           onTogglePermission={togglePermission}
+          onApplyFinancialPreset={applyFinancialPermissionPreset}
           saving={saving}
           setForm={setForm}
           title={dialog.mode === "create" ? "Novo perfil" : "Editar perfil"}
@@ -561,6 +635,7 @@ function ProfileDialog({
   notice,
   onClose,
   onSubmit,
+  onApplyFinancialPreset,
   onSetModulePermissions,
   onTogglePermission,
   saving,
@@ -572,6 +647,7 @@ function ProfileDialog({
   notice: string;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onApplyFinancialPreset: (permissionKeys: PermissionKey[]) => void;
   onSetModulePermissions: (
     permissions: PermissionCatalogItem[],
     selected: boolean,
@@ -662,22 +738,37 @@ function ProfileDialog({
                   <h3 className="text-xs font-semibold uppercase text-slate-500">
                     {permissionModuleLabel(module)}
                   </h3>
-                  <div className="flex gap-2">
-                    <button
-                      className="text-xs font-semibold text-[#0F2E2E] hover:underline"
-                      onClick={() => onSetModulePermissions(permissions, true)}
-                      type="button"
-                    >
-                      Selecionar módulo
-                    </button>
-                    <button
-                      className="text-xs font-semibold text-slate-500 hover:text-slate-800 hover:underline"
-                      onClick={() => onSetModulePermissions(permissions, false)}
-                      type="button"
-                    >
-                      Limpar módulo
-                    </button>
-                  </div>
+                  {module === "finance" ? (
+                    <div className="flex flex-wrap gap-2">
+                      {FINANCIAL_PERMISSION_PRESETS.map((preset) => (
+                        <button
+                          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-[#0F2E2E] hover:text-[#0F2E2E]"
+                          key={preset.key}
+                          onClick={() => onApplyFinancialPreset(preset.permissions)}
+                          type="button"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        className="text-xs font-semibold text-[#0F2E2E] hover:underline"
+                        onClick={() => onSetModulePermissions(permissions, true)}
+                        type="button"
+                      >
+                        Selecionar módulo
+                      </button>
+                      <button
+                        className="text-xs font-semibold text-slate-500 hover:text-slate-800 hover:underline"
+                        onClick={() => onSetModulePermissions(permissions, false)}
+                        type="button"
+                      >
+                        Limpar módulo
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {permissions.map((permission) => (
