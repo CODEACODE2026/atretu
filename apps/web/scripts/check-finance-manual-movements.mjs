@@ -19,6 +19,20 @@ const profileUtils = readFileSync(
   "src/app/admin/students/student-profile-utils.ts",
   "utf8",
 );
+const movementDialog = sourceBetween(panel, "function MovementDialog(", "function StudentPicker(");
+const studentPicker = sourceBetween(panel, "function StudentPicker(", "function MovementDetails(");
+const manualMovementPayload = sourceBetween(
+  api,
+  "export type ManualFinancialMovementPayload = {",
+  "};",
+  true,
+);
+const manualMovementResponse = sourceBetween(
+  api,
+  "export type ManualFinancialMovement = {",
+  "};",
+  true,
+);
 
 includesAll(financePanel, [
   "ManualMovementsPanel",
@@ -126,20 +140,50 @@ assert.doesNotMatch(
   /Instituição|institutionId|defaultInstitutionId|InstitutionSelect|Selecione a instituição/,
   "Manual movement UI must not expose institution ownership controls",
 );
+assert.doesNotMatch(
+  movementDialog,
+  /<select\b[^>]*\brequired\b/,
+  "Manual movement modal must not contain a native required select",
+);
+assert.doesNotMatch(
+  movementDialog,
+  /Instituição|institutionId|selectedInstitution|institutionOptions|requiresInstitution|Selecione a instituição/,
+  "Manual movement modal must not render or validate institution fields",
+);
+assert.doesNotMatch(
+  manualMovementPayload,
+  /institutionId/,
+  "Manual movement payload type must not expose institutionId",
+);
+assert.doesNotMatch(
+  manualMovementResponse,
+  /institutionId|institution\?:/,
+  "Manual movement response type must not expose institution data",
+);
 assert.match(
   panel,
   /studentId:\s+movementType === "INCOME" \? student\?\.id : undefined/,
   "Manual movement expenses must not require or submit an academic by default",
 );
 assert.match(
-  panel,
+  movementDialog,
   /movementType === "INCOME" \? \(/,
   "Manual movement expenses must hide the student picker",
 );
 assert.match(
-  panel,
+  movementDialog,
+  /movementType === "INCOME" \? \([\s\S]*<StudentPicker[\s\S]*\) : null/,
+  "Manual movement income form must render the optional student picker",
+);
+assert.match(
+  studentPicker,
   /api\.listManualMovementStudentOptions\(\{[\s\S]*search: query\.trim\(\),[\s\S]*limit: 10/,
   "Manual movement student picker must use the finance lookup without institution filter",
+);
+assert.doesNotMatch(
+  studentPicker,
+  /institutionId|selectedInstitution|institutionOptions|requiresInstitution/,
+  "Manual movement student lookup must not depend on institution state",
 );
 assert.doesNotMatch(
   panel,
@@ -168,4 +212,12 @@ function includesAll(source, values) {
   for (const value of values) {
     assert.ok(source.includes(value), `Expected source to include ${value}`);
   }
+}
+
+function sourceBetween(source, start, end, includeEnd = false) {
+  const startIndex = source.indexOf(start);
+  assert.notEqual(startIndex, -1, `Expected source to include ${start}`);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  assert.notEqual(endIndex, -1, `Expected source after ${start} to include ${end}`);
+  return source.slice(startIndex, includeEnd ? endIndex + end.length : endIndex);
 }
