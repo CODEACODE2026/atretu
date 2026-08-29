@@ -19,9 +19,9 @@ assert.doesNotMatch(controller, /RoleCode\.GESTOR/);
 assert.match(service, /JOIN bank_slips bs ON bs\.invoice_id = i\.id/);
 assert.match(service, /JOIN enrollments e ON e\.id = i\.enrollment_id/);
 assert.match(service, /getInstitutionScope\(user, OPERATIONAL_INSTITUTION_SCOPE\)/);
-assert.match(service, /institutionId:\s*\{[\s\S]*in: institutionScope/);
 assert.match(service, /manual_financial_movements m/);
-assert.match(service, /\$\{Prisma\.raw\(alias\)\}\.institution_id/);
+assert.doesNotMatch(service, /\$\{Prisma\.raw\(_?alias\)\}\.institution_id/);
+assert.doesNotMatch(service, /ManualFinancialMovementWhereInput[\s\S]*institutionId:\s*\{/);
 assert.match(service, /bs\.paid_at >=/);
 assert.match(service, /ManualFinancialMovementStatus\.RECEIVED/);
 assert.match(service, /transactionDate: \{ gte: period\.start, lt: next \}/);
@@ -51,8 +51,9 @@ const user = testUser(RoleCode.USER, ["institution-a"]);
 const secretaryAReport = createReportHarness();
 await secretaryAReport.service.monthly({ month: 8, year: 2026 }, secretaryA);
 assertScopedInvoiceQueries(secretaryAReport.rawQueries, ["institution-a"]);
-assertScopedManualMovementWheres(secretaryAReport.aggregateWheres, ["institution-a"]);
-assertScopedManualMovementWheres(secretaryAReport.groupByWheres, ["institution-a"]);
+assertManualMovementsExcludedFromInstitutionReport(secretaryAReport.aggregateWheres);
+assertManualMovementsExcludedFromInstitutionReport(secretaryAReport.groupByWheres);
+assertManualSqlExcludedFromInstitutionReport(secretarySafeQueries(secretaryAReport.rawQueries));
 
 const secretaryABReport = createReportHarness();
 await secretaryABReport.service.monthly({ month: 8, year: 2026 }, secretaryAB);
@@ -60,10 +61,7 @@ assertScopedInvoiceQueries(secretaryABReport.rawQueries, [
   "institution-a",
   "institution-b",
 ]);
-assertScopedManualMovementWheres(secretaryABReport.aggregateWheres, [
-  "institution-a",
-  "institution-b",
-]);
+assertManualMovementsExcludedFromInstitutionReport(secretaryABReport.aggregateWheres);
 
 const secretaryEmptyReport = createReportHarness();
 await secretaryEmptyReport.service.monthly(
@@ -71,12 +69,13 @@ await secretaryEmptyReport.service.monthly(
   secretaryWithoutInstitution,
 );
 assertDeniedInvoiceQueries(secretaryEmptyReport.rawQueries);
-assertScopedManualMovementWheres(secretaryEmptyReport.aggregateWheres, []);
+assertManualMovementsExcludedFromInstitutionReport(secretaryEmptyReport.aggregateWheres);
 
 const administratorReport = createReportHarness();
 await administratorReport.service.monthly({ month: 8, year: 2026 }, administrator);
 assertGlobalInvoiceQueries(administratorReport.rawQueries);
 assertGlobalManualMovementWheres(administratorReport.aggregateWheres);
+assertManualSqlIncludedInGlobalReport(secretarySafeQueries(administratorReport.rawQueries));
 
 const superAdminReport = createReportHarness();
 await superAdminReport.service.monthly({ month: 8, year: 2026 }, superAdmin);
@@ -89,7 +88,7 @@ assert.deepEqual(
   "USER must remain outside OPERATIONAL_ADMIN_ROLES monthly report access",
 );
 
-console.log("Financial monthly reports scope guard OK");
+console.log("Financial monthly reports global manual movements guard OK");
 
 function createReportHarness() {
   const rawQueries: unknown[] = [];
@@ -165,15 +164,12 @@ function assertGlobalInvoiceQueries(queries: unknown[]) {
   }
 }
 
-function assertScopedManualMovementWheres(
-  wheres: unknown[],
-  institutionIds: string[],
-) {
+function assertManualMovementsExcludedFromInstitutionReport(wheres: unknown[]) {
   assert.ok(wheres.length > 0);
   for (const where of wheres) {
     const serialized = JSON.stringify(where);
-    assert.match(serialized, /"institutionId"/);
-    assert.deepEqual(readManualMovementInstitutionIds(where), institutionIds);
+    assert.doesNotMatch(serialized, /"institutionId"/);
+    assert.match(serialized, /"id":\{"in":\[\]\}/);
   }
 }
 
@@ -182,19 +178,32 @@ function assertGlobalManualMovementWheres(wheres: unknown[]) {
   for (const where of wheres) {
     const serialized = JSON.stringify(where);
     assert.doesNotMatch(serialized, /"institutionId"/);
+    assert.doesNotMatch(serialized, /"id":\{"in":\[\]\}/);
   }
 }
 
-function readManualMovementInstitutionIds(where: unknown) {
-  return (
-    where as {
-      AND?: Array<{
-        institutionId?: {
-          in?: string[];
-        };
-      }>;
-    }
-  ).AND?.[1]?.institutionId?.in;
+function assertManualSqlExcludedFromInstitutionReport(queries: unknown[]) {
+  assert.ok(queries.length > 0);
+  for (const query of queries) {
+    const text = sqlText(query);
+    assert.match(text, /manual_financial_movements m/);
+    assert.match(text, /AND FALSE/);
+    assert.doesNotMatch(text, /m\.institution_id/);
+  }
+}
+
+function assertManualSqlIncludedInGlobalReport(queries: unknown[]) {
+  assert.ok(queries.length > 0);
+  for (const query of queries) {
+    const text = sqlText(query);
+    assert.match(text, /manual_financial_movements m/);
+    assert.doesNotMatch(text, /AND FALSE/);
+    assert.doesNotMatch(text, /m\.institution_id/);
+  }
+}
+
+function secretarySafeQueries(queries: unknown[]) {
+  return queries.slice(1);
 }
 
 function sqlText(query: unknown) {

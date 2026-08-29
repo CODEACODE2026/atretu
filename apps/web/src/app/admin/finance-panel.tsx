@@ -1755,8 +1755,6 @@ export function FinancePanel({
         {financeHeader}
         <ManualMovementsPanel
           canManage={canManageManualMovements}
-          institutions={institutions}
-          user={user}
         />
       </div>
     );

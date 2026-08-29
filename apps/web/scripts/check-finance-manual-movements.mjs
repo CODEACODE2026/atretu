@@ -26,8 +26,6 @@ includesAll(financePanel, [
   'hasCapability(user, "manualMovements.manage")',
   "canManageManualMovements",
   "canManage={canManageManualMovements}",
-  "institutions={institutions}",
-  "user={user}",
 ]);
 includesAll(financeNavigation, ["Movimentações", "Entradas e despesas manuais"]);
 
@@ -75,10 +73,7 @@ includesAll(panel, [
   "setValidationError(\"\")",
   "mapApiErrorMessage(visibleError)",
   "PDF, PNG, JPEG ou WebP",
-  "Instituição",
   "Acadêmico opcional",
-  "institutionId",
-  "defaultInstitutionId",
   'studentId:',
   "Marcar paga",
   "Cancelar",
@@ -126,10 +121,10 @@ assert.doesNotMatch(
   /Acadêmico obrigatório para usuário operacional\./,
   "Operational manual movement form must not require an academic anymore",
 );
-assert.match(
+assert.doesNotMatch(
   panel,
-  /if \(!institutionId\) \{[\s\S]*Instituição obrigatória\./,
-  "Manual movement submit must require an institution",
+  /Instituição|institutionId|defaultInstitutionId|InstitutionSelect|Selecione a instituição/,
+  "Manual movement UI must not expose institution ownership controls",
 );
 assert.match(
   panel,
@@ -143,8 +138,8 @@ assert.match(
 );
 assert.match(
   panel,
-  /api\.listManualMovementStudentOptions\(\{[\s\S]*institutionId,[\s\S]*search: query\.trim\(\),[\s\S]*limit: 10/,
-  "Manual movement student picker must use the scoped finance lookup filtered by institution",
+  /api\.listManualMovementStudentOptions\(\{[\s\S]*search: query\.trim\(\),[\s\S]*limit: 10/,
+  "Manual movement student picker must use the finance lookup without institution filter",
 );
 assert.doesNotMatch(
   panel,

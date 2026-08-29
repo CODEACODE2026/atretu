@@ -77,10 +77,6 @@ export class ListManualFinancialMovementsDto {
 
   @IsOptional()
   @IsUUID()
-  institutionId?: string;
-
-  @IsOptional()
-  @IsUUID()
   studentId?: string;
 }
 
@@ -104,9 +100,6 @@ export class ListManualMovementStudentOptionsDto {
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   search?: string;
 
-  @IsOptional()
-  @IsUUID()
-  institutionId?: string;
 }
 
 export class CreateManualFinancialMovementDto {
@@ -141,10 +134,6 @@ export class CreateManualFinancialMovementDto {
   @IsOptional()
   @IsDateString()
   paidAt?: string;
-
-  @IsOptional()
-  @IsUUID()
-  institutionId?: string;
 
   @IsOptional()
   @IsUUID()
@@ -210,10 +199,6 @@ export class UpdateManualFinancialMovementDto {
   @IsOptional()
   @IsDateString()
   paidAt?: string;
-
-  @IsOptional()
-  @IsUUID()
-  institutionId?: string;
 
   @IsOptional()
   @IsUUID()

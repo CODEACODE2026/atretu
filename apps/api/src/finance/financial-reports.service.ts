@@ -295,9 +295,7 @@ function manualMovementWhere(
     AND: [
       where,
       {
-        institutionId: {
-          in: institutionScope,
-        },
+        id: { in: [] },
       },
     ],
   };
@@ -316,7 +314,7 @@ function invoiceInstitutionCondition(institutionScope: ReportInstitutionScope) {
 
 function manualMovementInstitutionCondition(
   institutionScope: ReportInstitutionScope,
-  alias: "m",
+  _alias: "m",
 ) {
   if (institutionScope === null) {
     return Prisma.sql`TRUE`;
@@ -324,10 +322,7 @@ function manualMovementInstitutionCondition(
   if (institutionScope.length === 0) {
     return Prisma.sql`FALSE`;
   }
-  return institutionIdSqlCondition(
-    institutionScope,
-    Prisma.sql`${Prisma.raw(alias)}.institution_id`,
-  );
+  return Prisma.sql`FALSE`;
 }
 
 function institutionIdSqlCondition(

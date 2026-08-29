@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -12,8 +11,6 @@ import {
   ManualFinancialMovementStatus,
   ManualFinancialMovementType,
   Prisma,
-  RecordStatus,
-  RoleCode,
   StudentCardStatus,
   StudentHistoryEventType,
 } from "@prisma/client";
@@ -23,10 +20,6 @@ import sharp from "sharp";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import { resolvePagination } from "../common/pagination.js";
 import { PrismaService } from "../database/prisma.service.js";
-import {
-  getInstitutionScope,
-  OPERATIONAL_INSTITUTION_SCOPE,
-} from "../auth/institution-scope.js";
 import { DocumentStorageService } from "../documents/document-storage.service.js";
 import {
   type UploadedDocumentFile,
@@ -90,9 +83,9 @@ export class ManualFinancialMovementsService {
     private readonly audit: AdministrativeAuditService,
   ) {}
 
-  async list(query: ListManualFinancialMovementsDto, user?: AuthUser) {
+  async list(query: ListManualFinancialMovementsDto, _user?: AuthUser) {
     const pagination = resolvePagination(query);
-    const where = this.applyInstitutionScope(this.buildWhere(query), user);
+    const where = this.buildWhere(query);
     const [records, total, summary] = await Promise.all([
       this.prisma.manualFinancialMovement.findMany({
         where,
@@ -118,13 +111,13 @@ export class ManualFinancialMovementsService {
 
   async listStudentOptions(
     query: ListManualMovementStudentOptionsDto,
-    user: AuthUser,
+    _user: AuthUser,
   ) {
     const pagination = resolvePagination(query, {
       defaultLimit: 10,
       maxLimit: 25,
     });
-    const where = this.buildStudentOptionsWhere(query, user);
+    const where = this.buildStudentOptionsWhere(query);
     const [records, total] = await Promise.all([
       this.prisma.student.findMany({
         where,
@@ -188,9 +181,8 @@ export class ManualFinancialMovementsService {
     };
   }
 
-  async get(id: string, user?: AuthUser) {
+  async get(id: string, _user?: AuthUser) {
     const record = await this.findMovement(id);
-    this.assertMovementInstitutionScope(record, user);
     return this.toMovementResponse(record);
   }
 
@@ -200,12 +192,6 @@ export class ManualFinancialMovementsService {
     user: AuthUser,
   ) {
     const normalized = await this.normalizeCreate(body);
-    this.assertInstitutionScope(normalized.institutionId, user);
-    await this.assertStudentInstitutionScope(
-      normalized.institutionId,
-      normalized.studentId,
-      user,
-    );
     let writtenStorageKey: string | null = null;
     const attachment = file
       ? await this.validateAttachmentFile(file, DOCUMENT_UPLOAD_MAX_SIZE_BYTES)
@@ -307,17 +293,10 @@ export class ManualFinancialMovementsService {
 
   async update(id: string, body: UpdateManualFinancialMovementDto, user: AuthUser) {
     const current = await this.findMovement(id);
-    this.assertUserManageMovementScope(current, user);
     if (current.status === ManualFinancialMovementStatus.CANCELLED) {
       throw new BadRequestException("Movimentacao cancelada nao pode ser alterada");
     }
     const normalized = await this.normalizeUpdate(current, body);
-    this.assertInstitutionScope(normalized.institutionId, user);
-    await this.assertStudentInstitutionScope(
-      normalized.institutionId,
-      normalized.studentId,
-      user,
-    );
     const updated = await this.prisma.$transaction(async (tx) => {
       const record = await tx.manualFinancialMovement.update({
         where: { id },
@@ -347,7 +326,6 @@ export class ManualFinancialMovementsService {
     user: AuthUser,
   ) {
     const current = await this.findMovement(id);
-    this.assertUserManageMovementScope(current, user);
     if (current.type !== ManualFinancialMovementType.EXPENSE) {
       throw new BadRequestException("Somente despesas podem ser marcadas como pagas");
     }
@@ -381,7 +359,6 @@ export class ManualFinancialMovementsService {
 
   async cancel(id: string, body: CancelManualFinancialMovementDto, user: AuthUser) {
     const current = await this.findMovement(id);
-    this.assertUserManageMovementScope(current, user);
     if (current.status === ManualFinancialMovementStatus.CANCELLED) {
       return this.toMovementResponse(current);
     }
@@ -415,7 +392,6 @@ export class ManualFinancialMovementsService {
 
   async attach(id: string, file: UploadedDocumentFile | undefined, user: AuthUser) {
     const movement = await this.findMovement(id);
-    this.assertUserManageMovementScope(movement, user);
     if (movement.status === ManualFinancialMovementStatus.CANCELLED) {
       throw new BadRequestException("Movimentacao cancelada nao pode receber anexo");
     }
@@ -498,7 +474,6 @@ export class ManualFinancialMovementsService {
     user: AuthUser,
   ) {
     const attachment = await this.findAttachment(movementId, attachmentId);
-    this.assertMovementInstitutionScope(attachment.movement, user);
     const buffer = await this.storage.read(attachment.storageKey);
     await this.audit.record({
       eventType:
@@ -534,9 +509,6 @@ export class ManualFinancialMovementsService {
     }
     if (query.status) {
       where.status = query.status;
-    }
-    if (query.institutionId) {
-      where.institutionId = query.institutionId;
     }
     if (query.studentId) {
       where.studentId = query.studentId;
@@ -647,7 +619,6 @@ export class ManualFinancialMovementsService {
         : null,
       dueDate: body.dueDate ? parseDateOnly(body.dueDate, "Vencimento invalido") : null,
       paidAt: body.paidAt ? parseDateOnly(body.paidAt, "Pagamento invalido") : null,
-      institutionId: required(body.institutionId, "Instituicao obrigatoria"),
       studentId: optional(body.studentId) ?? null,
       supplierName: optional(body.supplierName) ?? null,
       supplierDocument: normalizeDocument(body.supplierDocument),
@@ -662,11 +633,6 @@ export class ManualFinancialMovementsService {
     current: MovementRecord,
     body: UpdateManualFinancialMovementDto,
   ) {
-    const requestedInstitutionId =
-      body.institutionId !== undefined ? optional(body.institutionId) ?? null : undefined;
-    if (body.institutionId !== undefined && !requestedInstitutionId && current.institutionId) {
-      throw new BadRequestException("Instituicao obrigatoria");
-    }
     const data = {
       category: body.category ?? current.category,
       description:
@@ -698,10 +664,6 @@ export class ManualFinancialMovementsService {
             ? parseDateOnly(body.paidAt, "Pagamento invalido")
             : null
           : current.paidAt,
-      institutionId:
-        requestedInstitutionId !== undefined
-          ? requestedInstitutionId
-          : current.institutionId,
       studentId:
         body.studentId !== undefined
           ? optional(body.studentId) ?? null
@@ -739,7 +701,6 @@ export class ManualFinancialMovementsService {
     type: ManualFinancialMovementType;
     status: ManualFinancialMovementStatus;
     category: ManualFinancialMovementCategory;
-    institutionId?: string | null;
     studentId?: string | null;
     supplierName?: string | null;
     supplierDocument?: string | null;
@@ -774,18 +735,6 @@ export class ManualFinancialMovementsService {
     }
     if (input.supplierDocument && ![11, 14].includes(input.supplierDocument.length)) {
       throw new BadRequestException("CPF/CNPJ do fornecedor invalido");
-    }
-    if (input.institutionId) {
-      const institution = await this.prisma.institution.findUnique({
-        where: { id: input.institutionId },
-        select: { id: true, status: true },
-      });
-      if (!institution) {
-        throw new BadRequestException("Instituicao nao encontrada");
-      }
-      if (institution.status !== RecordStatus.ACTIVE) {
-        throw new BadRequestException("Instituicao inativa");
-      }
     }
     if (input.studentId) {
       const student = await this.prisma.student.findUnique({
@@ -884,7 +833,6 @@ export class ManualFinancialMovementsService {
           },
         },
       },
-      institution: { select: { id: true, name: true, status: true } },
       createdBy: { select: { id: true, name: true } },
       updatedBy: { select: { id: true, name: true } },
       cancelledBy: { select: { id: true, name: true } },
@@ -920,13 +868,6 @@ export class ManualFinancialMovementsService {
       supplierDocument: record.supplierDocument,
       documentNumber: record.documentNumber,
       notes: record.notes,
-      institutionId: record.institutionId,
-      institution: record.institution
-        ? {
-            id: record.institution.id,
-            name: record.institution.name,
-          }
-        : null,
       student: record.student
         ? {
             id: record.student.id,
@@ -984,7 +925,6 @@ export class ManualFinancialMovementsService {
       competenceDate: record.competenceDate ? dateOnly(record.competenceDate) : null,
       dueDate: record.dueDate ? dateOnly(record.dueDate) : null,
       paidAt: record.paidAt ? dateOnly(record.paidAt) : null,
-      institutionId: record.institutionId,
       studentId: record.studentId,
       supplierName: record.supplierName,
       supplierDocument: record.supplierDocument ? maskDocument(record.supplierDocument) : null,
@@ -1027,39 +967,10 @@ export class ManualFinancialMovementsService {
     ].join("/");
   }
 
-  private applyInstitutionScope(
-    where: Prisma.ManualFinancialMovementWhereInput,
-    user?: AuthUser,
-  ): Prisma.ManualFinancialMovementWhereInput {
-    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
-    if (scope.type === "unrestricted") {
-      return where;
-    }
-    return {
-      AND: [
-        where,
-        {
-          institutionId: {
-            in: scope.type === "restricted" ? scope.institutionIds : [],
-          },
-        },
-      ],
-    };
-  }
-
   private buildStudentOptionsWhere(
     query: ListManualMovementStudentOptionsDto,
-    user: AuthUser,
   ): Prisma.StudentWhereInput {
     const where: Prisma.StudentWhereInput = {};
-    const institutionId = query.institutionId;
-    const institutionFilter = this.institutionScopeFilter(institutionId, user);
-    where.enrollments = {
-      some: {
-        institutionId:
-          institutionFilter ?? (institutionId ? institutionId : undefined),
-      },
-    };
 
     if (query.search) {
       const normalizedSearch = normalizeName(query.search);
@@ -1077,102 +988,6 @@ export class ManualFinancialMovementsService {
     }
 
     return where;
-  }
-
-  private assertMovementInstitutionScope(record: MovementRecord, user?: AuthUser) {
-    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
-    if (scope.type === "unrestricted") {
-      return;
-    }
-    if (
-      scope.type === "denied" ||
-      !record.institutionId ||
-      !scope.institutionIds.includes(record.institutionId)
-    ) {
-      throw new ForbiddenException("Acesso negado");
-    }
-  }
-
-  private assertUserManageMovementScope(record: MovementRecord, user: AuthUser) {
-    if (
-      !user.roles.includes(RoleCode.USER) &&
-      !user.roles.includes(RoleCode.SECRETARIA)
-    ) {
-      return;
-    }
-    this.assertMovementInstitutionScope(record, user);
-  }
-
-  private assertInstitutionScope(
-    institutionId: string | null | undefined,
-    user: AuthUser,
-  ) {
-    if (!institutionId) {
-      if (this.isUnrestricted(user)) {
-        return;
-      }
-      throw new ForbiddenException("Acesso negado");
-    }
-    this.institutionScopeFilter(institutionId, user);
-  }
-
-  private async assertStudentInstitutionScope(
-    institutionId: string | null | undefined,
-    studentId: string | null | undefined,
-    user: AuthUser,
-  ) {
-    if (!studentId) {
-      return;
-    }
-    if (!institutionId) {
-      throw new BadRequestException("Instituicao obrigatoria para vincular academico");
-    }
-    const studentInInstitution = await this.prisma.student.findFirst({
-      where: {
-        id: studentId,
-        enrollments: {
-          some: {
-            institutionId,
-          },
-        },
-      },
-      select: { id: true },
-    });
-    if (studentInInstitution) {
-      return;
-    }
-    if (!this.isUnrestricted(user)) {
-      throw new ForbiddenException("Acesso negado");
-    }
-    throw new BadRequestException("Academico nao pertence a instituicao informada");
-  }
-
-  private institutionScopeFilter(
-    requestedInstitutionId: string | null | undefined,
-    user?: AuthUser,
-  ) {
-    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
-    if (scope.type === "unrestricted") {
-      return requestedInstitutionId;
-    }
-    if (scope.type === "denied") {
-      if (requestedInstitutionId) {
-        throw new ForbiddenException("Acesso negado");
-      }
-      return { in: [] };
-    }
-    if (requestedInstitutionId) {
-      if (!scope.institutionIds.includes(requestedInstitutionId)) {
-        throw new ForbiddenException("Acesso negado");
-      }
-      return requestedInstitutionId;
-    }
-    return { in: scope.institutionIds };
-  }
-
-  private isUnrestricted(user: AuthUser) {
-    const scope = getInstitutionScope(user, OPERATIONAL_INSTITUTION_SCOPE);
-    return scope.type === "unrestricted";
   }
 }
 

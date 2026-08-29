@@ -1624,8 +1624,6 @@ export type ManualFinancialMovement = {
   supplierDocument?: string | null;
   documentNumber?: string | null;
   notes?: string | null;
-  institutionId?: string | null;
-  institution?: { id: string; name: string } | null;
   student?: {
     id: string;
     name: string;
@@ -1724,7 +1722,6 @@ export type ListManualFinancialMovementsParams = {
   transactionDateTo?: string;
   competenceFrom?: string;
   competenceTo?: string;
-  institutionId?: string;
   studentId?: string;
 };
 
@@ -1732,7 +1729,6 @@ export type ListManualMovementStudentOptionsParams = {
   page?: number;
   limit?: number;
   search?: string;
-  institutionId?: string;
 };
 
 export type ManualFinancialMovementPayload = {
@@ -1744,7 +1740,6 @@ export type ManualFinancialMovementPayload = {
   competenceDate?: string;
   dueDate?: string;
   paidAt?: string;
-  institutionId: string;
   studentId?: string;
   supplierName?: string;
   supplierDocument?: string;
