@@ -19,9 +19,9 @@ assert.doesNotMatch(controller, /RoleCode\.GESTOR/);
 assert.match(service, /JOIN bank_slips bs ON bs\.invoice_id = i\.id/);
 assert.match(service, /JOIN enrollments e ON e\.id = i\.enrollment_id/);
 assert.match(service, /getInstitutionScope\(user, OPERATIONAL_INSTITUTION_SCOPE\)/);
-assert.match(service, /student:\s*\{[\s\S]*enrollments:\s*\{[\s\S]*some:\s*\{[\s\S]*institutionId: \{ in: institutionScope \}/);
+assert.match(service, /institutionId:\s*\{[\s\S]*in: institutionScope/);
 assert.match(service, /manual_financial_movements m/);
-assert.match(service, /WHERE e\.student_id = \$\{Prisma\.raw\(alias\)\}\.student_id/);
+assert.match(service, /\$\{Prisma\.raw\(alias\)\}\.institution_id/);
 assert.match(service, /bs\.paid_at >=/);
 assert.match(service, /ManualFinancialMovementStatus\.RECEIVED/);
 assert.match(service, /transactionDate: \{ gte: period\.start, lt: next \}/);
@@ -172,8 +172,6 @@ function assertScopedManualMovementWheres(
   assert.ok(wheres.length > 0);
   for (const where of wheres) {
     const serialized = JSON.stringify(where);
-    assert.match(serialized, /"student"/);
-    assert.match(serialized, /"enrollments"/);
     assert.match(serialized, /"institutionId"/);
     assert.deepEqual(readManualMovementInstitutionIds(where), institutionIds);
   }
@@ -183,7 +181,6 @@ function assertGlobalManualMovementWheres(wheres: unknown[]) {
   assert.ok(wheres.length > 0);
   for (const where of wheres) {
     const serialized = JSON.stringify(where);
-    assert.doesNotMatch(serialized, /"student"/);
     assert.doesNotMatch(serialized, /"institutionId"/);
   }
 }
@@ -192,18 +189,12 @@ function readManualMovementInstitutionIds(where: unknown) {
   return (
     where as {
       AND?: Array<{
-        student?: {
-          enrollments?: {
-            some?: {
-              institutionId?: {
-                in?: string[];
-              };
-            };
-          };
+        institutionId?: {
+          in?: string[];
         };
       }>;
     }
-  ).AND?.[1]?.student?.enrollments?.some?.institutionId?.in;
+  ).AND?.[1]?.institutionId?.in;
 }
 
 function sqlText(query: unknown) {

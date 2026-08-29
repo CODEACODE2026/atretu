@@ -110,7 +110,6 @@ for (const fragment of [
   "documentModelId",
   "documentModelVersionId",
   "model OfficialDocumentIssue",
-  "studentId       String?",
   "templateKey",
   "templateVersion",
   "notes",
@@ -123,6 +122,7 @@ for (const fragment of [
 ]) {
   assert.ok(schema.includes(fragment), `schema must include ${fragment}`);
 }
+assert.match(schema, /studentId\s+String\?/);
 
 for (const fragment of [
   '@Controller("students/:studentId/official-documents")',

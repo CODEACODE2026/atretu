@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import {
   api,
+  type ApiUser,
+  type BaseRecord,
   type ManualFinancialMovement,
   type ManualFinancialMovementCategory,
   type ManualFinancialMovementPayload,
@@ -89,10 +91,12 @@ const emptySummary: ManualFinancialMovementSummary = {
 
 export function ManualMovementsPanel({
   canManage = true,
-  requiresStudent = false,
+  institutions,
+  user,
 }: {
   canManage?: boolean;
-  requiresStudent?: boolean;
+  institutions: BaseRecord[];
+  user: ApiUser;
 }) {
   const [movements, setMovements] = useState<ManualFinancialMovement[]>([]);
   const [summary, setSummary] = useState<ManualFinancialMovementSummary>(emptySummary);
@@ -110,6 +114,9 @@ export function ManualMovementsPanel({
   const [status, setStatus] = useState<ManualFinancialMovementStatus | "">("");
   const [transactionDateFrom, setTransactionDateFrom] = useState(defaultMonth.from);
   const [transactionDateTo, setTransactionDateTo] = useState(defaultMonth.to);
+  const [institutionFilterId, setInstitutionFilterId] = useState(() =>
+    defaultInstitutionId(user),
+  );
   const [studentFilterId, setStudentFilterId] = useState("");
   const [dialog, setDialog] = useState<MovementDialog | null>(null);
   const [detail, setDetail] = useState<ManualFinancialMovement | null>(null);
@@ -117,7 +124,7 @@ export function ManualMovementsPanel({
 
   useEffect(() => {
     void loadMovements();
-  }, [page, type, category, status, transactionDateFrom, transactionDateTo, studentFilterId]);
+  }, [page, type, category, status, transactionDateFrom, transactionDateTo, institutionFilterId, studentFilterId]);
 
   async function loadMovements(nextSearch = search) {
     const requestId = requestIdRef.current + 1;
@@ -134,6 +141,7 @@ export function ManualMovementsPanel({
         status: status || undefined,
         transactionDateFrom,
         transactionDateTo,
+        institutionId: institutionFilterId || undefined,
         studentId: studentFilterId || undefined,
       });
       if (requestId !== requestIdRef.current) {
@@ -164,6 +172,7 @@ export function ManualMovementsPanel({
     setStatus("");
     setTransactionDateFrom(defaultMonth.from);
     setTransactionDateTo(defaultMonth.to);
+    setInstitutionFilterId(defaultInstitutionId(user));
     setStudentFilterId("");
     setPage(1);
     window.setTimeout(() => void loadMovements(""), 0);
@@ -347,9 +356,21 @@ export function ManualMovementsPanel({
               Até
               <input className={adminTheme.control} onChange={(event) => setTransactionDateTo(event.target.value)} type="date" value={transactionDateTo} />
             </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700">
+              Instituição
+              <InstitutionSelect
+                institutions={institutions}
+                onChange={(value) => {
+                  setInstitutionFilterId(value);
+                  setStudentFilterId("");
+                }}
+                placeholder="Todas permitidas"
+                value={institutionFilterId}
+              />
+            </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700 md:col-span-2">
               Acadêmico específico
-              <StudentPicker onSelect={(student) => setStudentFilterId(student?.id ?? "")} selectedId={studentFilterId} />
+              <StudentPicker institutionId={institutionFilterId} onSelect={(student) => setStudentFilterId(student?.id ?? "")} selectedId={studentFilterId} />
             </label>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -406,8 +427,9 @@ export function ManualMovementsPanel({
             }
           }}
           onSubmit={handleSubmitMovement}
-          requiresStudent={requiresStudent}
+          institutions={institutions}
           saving={saving}
+          user={user}
         />
       ) : null}
       {detail ? <MovementDetails movement={detail} onClose={() => setDetail(null)} /> : null}
@@ -492,22 +514,27 @@ function MovementRow({
 function MovementDialog({
   dialog,
   error,
+  institutions,
   onClearError,
   onClose,
   onSubmit,
-  requiresStudent,
   saving,
+  user,
 }: {
   dialog: MovementDialog;
   error: string;
+  institutions: BaseRecord[];
   onClearError: () => void;
   onClose: () => void;
   onSubmit: (payload: ManualFinancialMovementPayload, file?: File | null) => void;
-  requiresStudent: boolean;
   saving: boolean;
+  user: ApiUser;
 }) {
   const movement = dialog.mode === "edit" ? dialog.movement : null;
   const movementType = dialog.mode === "edit" ? dialog.movement.type : dialog.type;
+  const [institutionId, setInstitutionId] = useState(
+    movement?.institutionId ?? defaultInstitutionId(user),
+  );
   const [description, setDescription] = useState(movement?.description ?? "");
   const [amount, setAmount] = useState(movement ? centsToInput(movement.amountCents) : "");
   const [transactionDate, setTransactionDate] = useState(movement?.transactionDate ?? todayDate());
@@ -539,8 +566,8 @@ function MovementDialog({
       setValidationError(caught instanceof Error ? caught.message : "Valor invalido.");
       return;
     }
-    if (requiresStudent && !student?.id) {
-      setValidationError("Acadêmico obrigatório para usuário operacional.");
+    if (!institutionId) {
+      setValidationError("Instituição obrigatória.");
       return;
     }
     onSubmit(
@@ -553,8 +580,8 @@ function MovementDialog({
         competenceDate: competenceDate ? `${competenceDate}-01` : undefined,
         dueDate: movementType === "EXPENSE" ? emptyToUndefined(dueDate) : undefined,
         paidAt: movementType === "EXPENSE" ? emptyToUndefined(paidAt) : undefined,
-        studentId:
-          requiresStudent || movementType === "INCOME" ? student?.id : undefined,
+        institutionId,
+        studentId: movementType === "INCOME" ? student?.id : undefined,
         supplierName: movementType === "EXPENSE" ? supplierName : undefined,
         supplierDocument: movementType === "EXPENSE" ? supplierDocument : undefined,
         documentNumber: movementType === "EXPENSE" ? documentNumber : undefined,
@@ -585,6 +612,22 @@ function MovementDialog({
             </p>
           ) : null}
           <div className="grid gap-4 md:grid-cols-2">
+            <label className="grid gap-1 text-sm font-medium text-slate-700 md:col-span-2">
+              Instituição
+              <InstitutionSelect
+                disabled={isSingleInstitutionUser(user)}
+                institutions={institutions}
+                onChange={(value) => {
+                  setInstitutionId(value);
+                  setStudent(null);
+                  setValidationError("");
+                  onClearError();
+                }}
+                placeholder="Selecione a instituição"
+                required
+                value={institutionId}
+              />
+            </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700 md:col-span-2">
               Descrição
               <input className={adminTheme.control} maxLength={300} onChange={(event) => setDescription(event.target.value)} required value={description} />
@@ -618,10 +661,10 @@ function MovementDialog({
               Competência
               <input className={adminTheme.control} onChange={(event) => setCompetenceDate(event.target.value)} type="month" value={competenceDate} />
             </label>
-            {movementType === "INCOME" || requiresStudent ? (
+            {movementType === "INCOME" ? (
               <label className="grid gap-1 text-sm font-medium text-slate-700">
-                {requiresStudent ? "Acadêmico obrigatório" : "Acadêmico opcional"}
-                <StudentPicker onSelect={setStudent} selectedId={student?.id ?? ""} />
+                Acadêmico opcional
+                <StudentPicker institutionId={institutionId} onSelect={setStudent} selectedId={student?.id ?? ""} />
               </label>
             ) : null}
             {movementType === "EXPENSE" ? (
@@ -672,9 +715,11 @@ function MovementDialog({
 }
 
 function StudentPicker({
+  institutionId,
   onSelect,
   selectedId,
 }: {
+  institutionId?: string;
   onSelect: (student: { id: string; name: string } | null) => void;
   selectedId: string;
 }) {
@@ -692,6 +737,7 @@ function StudentPicker({
     setLookupError("");
     try {
       const response = await api.listManualMovementStudentOptions({
+        institutionId,
         search: query.trim(),
         limit: 10,
       });
@@ -717,8 +763,8 @@ function StudentPicker({
         <input className={cx(adminTheme.control, "min-w-0 flex-1")} onChange={(event) => {
           setQuery(event.target.value);
           setLookupError("");
-        }} placeholder="Nome, CPF ou carteirinha" type="search" value={query} />
-        <button className={adminTheme.secondaryButton} disabled={loading || query.trim().length < 2} onClick={() => void searchStudents()} type="button">Buscar</button>
+        }} disabled={!institutionId} placeholder="Nome, CPF ou carteirinha" type="search" value={query} />
+        <button className={adminTheme.secondaryButton} disabled={loading || !institutionId || query.trim().length < 2} onClick={() => void searchStudents()} type="button">Buscar</button>
       </div>
       {selected || selectedId ? (
         <button className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-800" onClick={() => {
@@ -745,6 +791,39 @@ function StudentPicker({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function InstitutionSelect({
+  disabled,
+  institutions,
+  onChange,
+  placeholder,
+  required,
+  value,
+}: {
+  disabled?: boolean;
+  institutions: BaseRecord[];
+  onChange: (value: string) => void;
+  placeholder: string;
+  required?: boolean;
+  value: string;
+}) {
+  return (
+    <select
+      className={adminTheme.control}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+      required={required}
+      value={value}
+    >
+      <option value="">{placeholder}</option>
+      {institutions.map((institution) => (
+        <option key={institution.id} value={institution.id}>
+          {institution.name}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -796,6 +875,18 @@ function Detail({ label, value, wide }: { label: string; value: string; wide?: b
 
 function allCategories() {
   return Array.from(new Set([...incomeCategories, ...expenseCategories]));
+}
+
+function defaultInstitutionId(user: ApiUser) {
+  return isSingleInstitutionUser(user) ? user.institutionIds?.[0] ?? "" : "";
+}
+
+function isSingleInstitutionUser(user: ApiUser) {
+  return isScopedOperationalUser(user) && (user.institutionIds?.length ?? 0) === 1;
+}
+
+function isScopedOperationalUser(user: ApiUser) {
+  return user.roles.includes("USER") || user.roles.includes("SECRETARIA");
 }
 
 function statusTone(status: ManualFinancialMovementStatus) {

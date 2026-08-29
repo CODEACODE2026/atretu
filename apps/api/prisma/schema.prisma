@@ -600,16 +600,17 @@ model SecurityAuditLog {
 }
 
 model Institution {
-  id                   String                  @id @default(uuid()) @db.Uuid
-  name                 String                  @db.VarChar(140)
-  normalizedName       String                  @unique @map("normalized_name") @db.VarChar(140)
-  status               RecordStatus            @default(ACTIVE)
-  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
-  enrollments          Enrollment[]
-  preRegistrations     PublicPreRegistration[]
-  bankSlipIssueBatches BankSlipIssueBatch[]
-  users                UserInstitution[]
+  id                       String                    @id @default(uuid()) @db.Uuid
+  name                     String                    @db.VarChar(140)
+  normalizedName           String                    @unique @map("normalized_name") @db.VarChar(140)
+  status                   RecordStatus              @default(ACTIVE)
+  createdAt                DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  enrollments              Enrollment[]
+  preRegistrations         PublicPreRegistration[]
+  bankSlipIssueBatches     BankSlipIssueBatch[]
+  users                    UserInstitution[]
+  manualFinancialMovements ManualFinancialMovement[]
 
   @@index([status, name])
   @@index([createdAt])
@@ -999,6 +1000,7 @@ model ManualFinancialMovement {
   supplierDocument     String?                             @map("supplier_document") @db.VarChar(14)
   documentNumber       String?                             @map("document_number") @db.VarChar(80)
   notes                String?                             @db.VarChar(1000)
+  institutionId        String?                             @map("institution_id") @db.Uuid
   studentId            String?                             @map("student_id") @db.Uuid
   createdByUserId      String                              @map("created_by_user_id") @db.Uuid
   updatedByUserId      String?                             @map("updated_by_user_id") @db.Uuid
@@ -1007,6 +1009,7 @@ model ManualFinancialMovement {
   cancelledAt          DateTime?                           @map("cancelled_at") @db.Timestamptz(6)
   createdAt            DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  institution          Institution?                        @relation(fields: [institutionId], references: [id], onDelete: Restrict)
   student              Student?                            @relation(fields: [studentId], references: [id], onDelete: SetNull)
   createdBy            User                                @relation("ManualFinancialMovementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   updatedBy            User?                               @relation("ManualFinancialMovementUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
@@ -1018,6 +1021,8 @@ model ManualFinancialMovement {
   @@index([status, transactionDate])
   @@index([category, transactionDate])
   @@index([competenceDate])
+  @@index([institutionId, transactionDate])
+  @@index([institutionId, type, status, transactionDate])
   @@index([studentId, transactionDate])
   @@index([createdByUserId, createdAt])
   @@map("manual_financial_movements")
@@ -1354,7 +1359,7 @@ model StudentDocument {
 
 model OfficialDocumentIssue {
   id                     String                        @id @default(uuid()) @db.Uuid
-  studentId       String?                       @map("student_id") @db.Uuid
+  studentId              String?                       @map("student_id") @db.Uuid
   documentModelId        String?                       @map("document_model_id") @db.Uuid
   documentModelVersionId String?                       @map("document_model_version_id") @db.Uuid
   documentType           OfficialDocumentType          @map("document_type")

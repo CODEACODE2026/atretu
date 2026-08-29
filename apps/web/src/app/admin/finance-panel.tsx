@@ -147,8 +147,6 @@ export function FinancePanel({
     canManageFinance || hasCapability(user, "manualMovements.view");
   const canManageManualMovements =
     canManageFinance || hasCapability(user, "manualMovements.manage");
-  const requiresManualMovementStudent =
-    user.roles.includes("USER") && canManageManualMovements;
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const invoiceRequestIdRef = useRef(0);
   const [bankSlips, setBankSlips] = useState<
@@ -1757,7 +1755,8 @@ export function FinancePanel({
         {financeHeader}
         <ManualMovementsPanel
           canManage={canManageManualMovements}
-          requiresStudent={requiresManualMovementStudent}
+          institutions={institutions}
+          user={user}
         />
       </div>
     );

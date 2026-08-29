@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { RoleCode, UserStatus } from "@prisma/client";
-import { ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { ManualFinancialMovementsService } from "./manual-movements.service.js";
 
 const schema = readFileSync(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
@@ -66,9 +66,9 @@ assert.match(serviceSource, /REPLACED/);
 assert.match(serviceSource, /resolvePagination/);
 assert.match(serviceSource, /incomeReceivedCents[\s\S]*expensePaidCents[\s\S]*netCents/);
 assert.match(serviceSource, /getInstitutionScope\(user, OPERATIONAL_INSTITUTION_SCOPE\)/);
-assert.match(serviceSource, /student:\s*\{[\s\S]*enrollments:\s*\{[\s\S]*some:\s*\{[\s\S]*institutionId: \{ in: institutionIds \}/);
+assert.match(serviceSource, /institutionId:\s*\{[\s\S]*in: scope\.type === "restricted" \? scope\.institutionIds : \[\]/);
 assert.match(serviceSource, /assertUserManageMovementScope/);
-assert.match(serviceSource, /assertUserManageStudentScope/);
+assert.match(serviceSource, /assertStudentInstitutionScope/);
 assert.match(serviceSource, /listStudentOptions/);
 assert.match(serviceSource, /buildStudentOptionsWhere/);
 assert.doesNotMatch(serviceSource, /students\.view/);
@@ -113,12 +113,8 @@ assert.deepEqual(listWhere, {
   AND: [
     {},
     {
-      student: {
-        enrollments: {
-          some: {
-            institutionId: { in: ["institution-a"] },
-          },
-        },
+      institutionId: {
+        in: ["institution-a"],
       },
     },
   ],
@@ -159,6 +155,40 @@ await assert.rejects(
   (error) => error instanceof ForbiddenException,
 );
 
+const legacyMovement = { ...movementRecord([]), student: null, studentId: null };
+const legacyDetailService = new ManualFinancialMovementsService(
+  {
+    manualFinancialMovement: {
+      findUnique: async () => legacyMovement,
+    },
+  } as never,
+  {} as never,
+  {} as never,
+);
+await assert.rejects(
+  () =>
+    legacyDetailService.get("movement-legacy", {
+      email: "user@example.com",
+      id: "user-a",
+      institutionId: "institution-a",
+      institutionIds: ["institution-a"],
+      name: "User A",
+      permissionProfileId: "profile-1",
+      roles: [RoleCode.USER],
+      status: UserStatus.ACTIVE,
+    }),
+  (error) => error instanceof ForbiddenException,
+);
+await legacyDetailService.get("movement-legacy", {
+  email: "admin@example.com",
+  id: "admin",
+  institutionId: null,
+  institutionIds: [],
+  name: "Admin",
+  roles: [RoleCode.ADMINISTRATOR],
+  status: UserStatus.ACTIVE,
+});
+
 const userA = {
   email: "user@example.com",
   id: "user-a",
@@ -183,6 +213,126 @@ await assert.rejects(
       undefined,
       userA,
     ),
+  (error) => error instanceof BadRequestException,
+);
+
+const expenseCreate = createHarness();
+await expenseCreate.service.create(
+  {
+    amountCents: 1250,
+    category: "FUEL",
+    description: "Combustivel",
+    institutionId: "institution-a",
+    supplierName: "Posto A",
+    transactionDate: "2026-08-01",
+    type: "EXPENSE",
+  } as never,
+  undefined,
+  userA,
+);
+assert.equal(expenseCreate.createdData?.institutionId, "institution-a");
+assert.equal(expenseCreate.createdData?.studentId, null);
+assert.equal(expenseCreate.studentHistoryEvents, 0);
+
+const incomeCreate = createHarness();
+await incomeCreate.service.create(
+  {
+    amountCents: 2500,
+    category: "OTHER",
+    description: "Entrada sem aluno",
+    institutionId: "institution-a",
+    transactionDate: "2026-08-01",
+    type: "INCOME",
+  } as never,
+  undefined,
+  userA,
+);
+assert.equal(incomeCreate.createdData?.institutionId, "institution-a");
+assert.equal(incomeCreate.createdData?.studentId, null);
+assert.equal(incomeCreate.studentHistoryEvents, 0);
+
+const incomeStudentCreate = createHarness({ studentInstitutionId: "institution-a" });
+await incomeStudentCreate.service.create(
+  {
+    amountCents: 2500,
+    category: "OTHER",
+    description: "Entrada com aluno",
+    institutionId: "institution-a",
+    studentId: "student-a",
+    transactionDate: "2026-08-01",
+    type: "INCOME",
+  } as never,
+  undefined,
+  userA,
+);
+assert.equal(incomeStudentCreate.createdData?.institutionId, "institution-a");
+assert.equal(incomeStudentCreate.createdData?.studentId, "student-a");
+assert.equal(incomeStudentCreate.studentHistoryEvents, 1);
+
+await assert.rejects(
+  () =>
+    createHarness().service.create(
+      {
+        amountCents: 1000,
+        category: "OTHER",
+        description: "Entrada fora de escopo",
+        institutionId: "institution-b",
+        transactionDate: "2026-08-01",
+        type: "INCOME",
+      } as never,
+      undefined,
+      userA,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+
+await assert.rejects(
+  () =>
+    createHarness({ studentInstitutionId: "institution-b" }).service.create(
+      {
+        amountCents: 1000,
+        category: "OTHER",
+        description: "Entrada aluno fora",
+        institutionId: "institution-a",
+        studentId: "student-b",
+        transactionDate: "2026-08-01",
+        type: "INCOME",
+      } as never,
+      undefined,
+      userA,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+
+const userAB = { ...userA, institutionId: "institution-a", institutionIds: ["institution-a", "institution-b"] };
+const multiCreate = createHarness();
+await multiCreate.service.create(
+  {
+    amountCents: 1000,
+    category: "OTHER",
+    description: "Entrada B permitida",
+    institutionId: "institution-b",
+    transactionDate: "2026-08-01",
+    type: "INCOME",
+  } as never,
+  undefined,
+  userAB,
+);
+assert.equal(multiCreate.createdData?.institutionId, "institution-b");
+await assert.rejects(
+  () =>
+    createHarness().service.create(
+      {
+        amountCents: 1000,
+        category: "OTHER",
+        description: "Entrada C negada",
+        institutionId: "institution-c",
+        transactionDate: "2026-08-01",
+        type: "INCOME",
+      } as never,
+      undefined,
+      userAB,
+    ),
   (error) => error instanceof ForbiddenException,
 );
 
@@ -190,6 +340,9 @@ const scopedMutationService = new ManualFinancialMovementsService(
   {
     manualFinancialMovement: {
       findUnique: async () => movementRecord(["institution-a"]),
+    },
+    institution: {
+      findUnique: async () => ({ id: "institution-a", status: "ACTIVE" }),
     },
     student: {
       findUnique: async () => ({ id: "student-b" }),
@@ -227,6 +380,38 @@ const movementBMutationService = new ManualFinancialMovementsService(
 
 await assert.rejects(
   () => movementBMutationService.markPaid("movement-b", {}, userA),
+  (error) => error instanceof ForbiddenException,
+);
+
+const attachmentScopeService = new ManualFinancialMovementsService(
+  {
+    manualFinancialMovementAttachment: {
+      findFirst: async () => ({
+        createdAt: new Date("2026-08-01T00:00:00.000Z"),
+        extension: "pdf",
+        id: "attachment-b",
+        mimeType: "application/pdf",
+        movement: movementRecord(["institution-b"]),
+        movementId: "movement-b",
+        originalFileName: "comprovante.pdf",
+        replacedAt: null,
+        replacedById: null,
+        sizeBytes: 10,
+        status: "ACTIVE",
+        storageKey: "finance/manual-movements/movement-b/attachment-b/comprovante.pdf",
+        storedFileName: "comprovante.pdf",
+        checksumSha256: "abc",
+        updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+        uploadedBy: { id: "user-b", name: "User B" },
+        uploadedByUserId: "user-b",
+      }),
+    },
+  } as never,
+  { read: async () => Buffer.from("pdf") } as never,
+  {} as never,
+);
+await assert.rejects(
+  () => attachmentScopeService.readAttachment("movement-b", "attachment-b", "inline", userA),
   (error) => error instanceof ForbiddenException,
 );
 
@@ -324,6 +509,7 @@ assert.deepEqual(emptyStudentOptions.data, []);
 console.log("Manual financial movements backend guard OK");
 
 function movementRecord(institutionIds: string[]) {
+  const institutionId = institutionIds[0] ?? null;
   return {
     activeAttachment: null,
     amountCents: 1000,
@@ -339,6 +525,10 @@ function movementRecord(institutionIds: string[]) {
     documentNumber: null,
     dueDate: null,
     id: "movement-a",
+    institution: institutionId
+      ? { id: institutionId, name: `Instituicao ${institutionId}`, status: "ACTIVE" }
+      : null,
+    institutionId,
     notes: null,
     paidAt: null,
     status: "RECEIVED",
@@ -377,5 +567,69 @@ function studentOptionRecord(input: {
     id: input.id,
     person: { cpf: "12345678901", fullName: input.name },
     studentCards: [{ cardNumber: "2026-0001" }],
+  };
+}
+
+function createHarness(options: { studentInstitutionId?: string } = {}) {
+  let createdData: Record<string, unknown> | null = null;
+  let studentHistoryEvents = 0;
+  const prisma = {
+    institution: {
+      findUnique: async () => ({ id: "institution-a", status: "ACTIVE" }),
+    },
+    student: {
+      findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id }),
+      findFirst: async ({ where }: { where: { id: string; enrollments: { some: { institutionId: string } } } }) =>
+        options.studentInstitutionId === where.enrollments.some.institutionId
+          ? { id: where.id }
+          : null,
+    },
+    $transaction: async (callback: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        administrativeAuditLog: { create: async () => ({}) },
+        manualFinancialMovement: {
+          create: async ({ data }: { data: Record<string, unknown> }) => {
+            createdData = data;
+            return movementRecordFromData(data);
+          },
+          findUniqueOrThrow: async () => movementRecordFromData(createdData ?? {}),
+        },
+        studentHistoryEvent: {
+          create: async () => {
+            studentHistoryEvents += 1;
+            return {};
+          },
+        },
+      };
+      return callback(tx);
+    },
+  };
+  return {
+    get createdData() {
+      return createdData;
+    },
+    get studentHistoryEvents() {
+      return studentHistoryEvents;
+    },
+    service: new ManualFinancialMovementsService(prisma as never, {} as never, {} as never),
+  };
+}
+
+function movementRecordFromData(data: Record<string, unknown>) {
+  const institutionId = String(data.institutionId ?? "institution-a");
+  const studentId = typeof data.studentId === "string" ? data.studentId : null;
+  return {
+    ...movementRecord(studentId ? [institutionId] : []),
+    amountCents: Number(data.amountCents ?? 1000),
+    category: String(data.category ?? "OTHER"),
+    description: String(data.description ?? "Movimento de teste"),
+    institution: { id: institutionId, name: `Instituicao ${institutionId}`, status: "ACTIVE" },
+    institutionId,
+    status: String(data.status ?? "RECEIVED"),
+    student: studentId ? movementRecord([institutionId]).student : null,
+    studentId,
+    supplierName: typeof data.supplierName === "string" ? data.supplierName : null,
+    transactionDate: data.transactionDate as Date,
+    type: String(data.type ?? "INCOME"),
   };
 }

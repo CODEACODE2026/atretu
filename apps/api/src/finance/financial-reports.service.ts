@@ -295,12 +295,8 @@ function manualMovementWhere(
     AND: [
       where,
       {
-        student: {
-          enrollments: {
-            some: {
-              institutionId: { in: institutionScope },
-            },
-          },
+        institutionId: {
+          in: institutionScope,
         },
       },
     ],
@@ -328,12 +324,10 @@ function manualMovementInstitutionCondition(
   if (institutionScope.length === 0) {
     return Prisma.sql`FALSE`;
   }
-  return Prisma.sql`EXISTS (
-    SELECT 1
-    FROM enrollments e
-    WHERE e.student_id = ${Prisma.raw(alias)}.student_id
-      AND ${institutionIdSqlCondition(institutionScope, Prisma.sql`e.institution_id`)}
-  )`;
+  return institutionIdSqlCondition(
+    institutionScope,
+    Prisma.sql`${Prisma.raw(alias)}.institution_id`,
+  );
 }
 
 function institutionIdSqlCondition(

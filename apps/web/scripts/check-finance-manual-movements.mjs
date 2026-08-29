@@ -25,9 +25,9 @@ includesAll(financePanel, [
   'financeArea === "movements"',
   'hasCapability(user, "manualMovements.manage")',
   "canManageManualMovements",
-  "requiresManualMovementStudent",
   "canManage={canManageManualMovements}",
-  "requiresStudent={requiresManualMovementStudent}",
+  "institutions={institutions}",
+  "user={user}",
 ]);
 includesAll(financeNavigation, ["Movimentações", "Entradas e despesas manuais"]);
 
@@ -75,9 +75,10 @@ includesAll(panel, [
   "setValidationError(\"\")",
   "mapApiErrorMessage(visibleError)",
   "PDF, PNG, JPEG ou WebP",
-  "requiresStudent",
-  "Acadêmico obrigatório",
-  "Acadêmico obrigatório para usuário operacional.",
+  "Instituição",
+  "Acadêmico opcional",
+  "institutionId",
+  "defaultInstitutionId",
   'studentId:',
   "Marcar paga",
   "Cancelar",
@@ -120,30 +121,30 @@ assert.equal(
   false,
   "Manual movements actions must be gated by manualMovements.manage, not broad finance management only",
 );
-assert.match(
-  financePanel,
-  /const requiresManualMovementStudent =\s+user\.roles\.includes\("USER"\) && canManageManualMovements;/,
-  "USER manual movements must require a student scope in the form",
+assert.doesNotMatch(
+  panel,
+  /Acadêmico obrigatório para usuário operacional\./,
+  "Operational manual movement form must not require an academic anymore",
 );
 assert.match(
   panel,
-  /if \(requiresStudent && !student\?\.id\) \{[\s\S]*Acadêmico obrigatório para usuário operacional\./,
-  "USER manual movement submit must require a selected student",
+  /if \(!institutionId\) \{[\s\S]*Instituição obrigatória\./,
+  "Manual movement submit must require an institution",
 );
 assert.match(
   panel,
-  /studentId:\s+requiresStudent \|\| movementType === "INCOME" \? student\?\.id : undefined/,
-  "USER manual movement expenses must submit studentId instead of becoming global movements",
+  /studentId:\s+movementType === "INCOME" \? student\?\.id : undefined/,
+  "Manual movement expenses must not require or submit an academic by default",
 );
 assert.match(
   panel,
-  /movementType === "INCOME" \|\| requiresStudent/,
-  "USER manual movement expenses must expose the student picker",
+  /movementType === "INCOME" \? \(/,
+  "Manual movement expenses must hide the student picker",
 );
 assert.match(
   panel,
-  /api\.listManualMovementStudentOptions\(\{[\s\S]*search: query\.trim\(\),[\s\S]*limit: 10/,
-  "Manual movement student picker must use the scoped finance lookup",
+  /api\.listManualMovementStudentOptions\(\{[\s\S]*institutionId,[\s\S]*search: query\.trim\(\),[\s\S]*limit: 10/,
+  "Manual movement student picker must use the scoped finance lookup filtered by institution",
 );
 assert.doesNotMatch(
   panel,
