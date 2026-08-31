@@ -23,6 +23,8 @@ import { BatchStatusBadge } from "./batch-status-badge";
 export function BatchCard({
   batch,
   busy,
+  canCancelBatch,
+  canDownloadBatch,
   canRetryBatch,
   expanded,
   items,
@@ -35,6 +37,8 @@ export function BatchCard({
 }: {
   batch: BankSlipIssueBatch;
   busy: boolean;
+  canCancelBatch: boolean;
+  canDownloadBatch: boolean;
   canRetryBatch: boolean;
   expanded: boolean;
   items: BankSlipIssueBatchItem[];
@@ -74,11 +78,13 @@ export function BatchCard({
             <RefreshCw aria-hidden="true" className="h-4 w-4" />
             Atualizar
           </button>
-          <button className={adminTheme.secondaryButton} disabled={busy} onClick={onDownload} type="button">
-            <Download aria-hidden="true" className="h-4 w-4" />
-            ZIP
-          </button>
-          {running ? (
+          {canDownloadBatch ? (
+            <button className={adminTheme.secondaryButton} disabled={busy} onClick={onDownload} type="button">
+              <Download aria-hidden="true" className="h-4 w-4" />
+              ZIP
+            </button>
+          ) : null}
+          {running && canCancelBatch ? (
             <button
               className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-amber-700 bg-white px-3 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-50 disabled:text-slate-400"
               disabled={busy}

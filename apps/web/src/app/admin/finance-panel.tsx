@@ -337,6 +337,12 @@ export function FinancePanel({
   }, [canManageFinance]);
 
   useEffect(() => {
+    if (canManageBankSlips && institutions.length === 1 && !issueBatchInstitutionId) {
+      setIssueBatchInstitutionId(institutions[0]?.id ?? "");
+    }
+  }, [canManageBankSlips, institutions, issueBatchInstitutionId]);
+
+  useEffect(() => {
     if (financeArea === "overview") {
       void loadOverviewData();
     }
@@ -346,9 +352,9 @@ export function FinancePanel({
     setFinanceArea(
       initialArea === "collections" && canViewCollections
         ? "collections"
-        : !canManageFinance &&
+        : (!canManageFinance || !canManageBankSlips) &&
             (initialArea === "collections" ||
-              initialArea === "batches" ||
+              (initialArea === "batches" && !canManageBankSlips) ||
               initialArea === "reports" ||
               (initialArea === "movements" && !canViewManualMovements))
           ? canViewInvoices
@@ -364,6 +370,7 @@ export function FinancePanel({
     );
   }, [
     canManageFinance,
+    canManageBankSlips,
     canViewCollections,
     canViewInvoices,
     canViewManualMovements,
@@ -1463,9 +1470,8 @@ export function FinancePanel({
 
   function changeFinanceArea(area: FinanceArea) {
     if (
-      !canManageFinance &&
-      (area === "batches" ||
-        area === "reports")
+      (area === "batches" && !canManageBankSlips) ||
+      (area === "reports" && !canManageFinance)
     ) {
       setFinanceArea(canViewInvoices ? "invoices" : canViewManualMovements ? "movements" : "overview");
       return;
@@ -1554,6 +1560,7 @@ export function FinancePanel({
       <FinanceNavigation
         activeArea={financeArea}
         canManageFinance={canManageFinance}
+        canManageBankSlips={canManageBankSlips}
         canViewManualMovements={canViewManualMovements}
         canViewInvoices={canViewInvoices}
         canViewCollections={canViewCollections}
@@ -1596,15 +1603,17 @@ export function FinancePanel({
               Crie lotes por instituição ou envie somente faturas selecionadas.
             </p>
           </div>
-          <button
-            className={adminTheme.secondaryButton}
-            disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
-            onClick={() => void openIssueBatchDownloadPanel()}
-            type="button"
-          >
-            <Download aria-hidden="true" className="h-4 w-4" />
-            Baixar boletos
-          </button>
+          {canManageFinance ? (
+            <button
+              className={adminTheme.secondaryButton}
+              disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
+              onClick={() => void openIssueBatchDownloadPanel()}
+              type="button"
+            >
+              <Download aria-hidden="true" className="h-4 w-4" />
+              Baixar boletos
+            </button>
+          ) : null}
         </div>
 
         <div className="mt-4 grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -1707,33 +1716,39 @@ export function FinancePanel({
         </div>
       </div>
 
-      <div className={cx(adminTheme.card, "min-w-0 p-4")}>
-        <label className="grid gap-1 text-sm font-semibold text-slate-700">
-          Buscar lote
-          <input
-            className={adminTheme.control}
-            onChange={(event) => setIssueBatchSearch(event.target.value)}
-            placeholder="Identificação, origem, instituição ou situação"
-            type="search"
-            value={issueBatchSearch}
-          />
-        </label>
-      </div>
+      {canManageFinance || issueBatches.length > 0 ? (
+        <>
+          <div className={cx(adminTheme.card, "min-w-0 p-4")}>
+            <label className="grid gap-1 text-sm font-semibold text-slate-700">
+              Buscar lote
+              <input
+                className={adminTheme.control}
+                onChange={(event) => setIssueBatchSearch(event.target.value)}
+                placeholder="Identificação, origem, instituição ou situação"
+                type="search"
+                value={issueBatchSearch}
+              />
+            </label>
+          </div>
 
-      <BatchList
-        batches={filteredIssueBatches}
-        busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
-        canRetryBatch={canRetryIssueBatches}
-        expandedBatchId={expandedIssueBatchId}
-        itemsByBatchId={issueBatchItemsById}
-        loading={issueBatchesLoading}
-        loadingItemsBatchId={issueBatchItemsLoadingId}
-        onCancel={openCancelIssueBatchDialog}
-        onDownload={(batch) => void handleDownloadIssueBatchPdfs(batch)}
-        onRefresh={refreshIssueBatchFromCard}
-        onRetry={openRetryIssueBatchDialog}
-        onToggle={(batch) => void toggleIssueBatchDetails(batch)}
-      />
+          <BatchList
+            batches={filteredIssueBatches}
+            busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
+            canCancelBatch={canManageFinance}
+            canDownloadBatch={canManageFinance}
+            canRetryBatch={canRetryIssueBatches}
+            expandedBatchId={expandedIssueBatchId}
+            itemsByBatchId={issueBatchItemsById}
+            loading={issueBatchesLoading}
+            loadingItemsBatchId={issueBatchItemsLoadingId}
+            onCancel={openCancelIssueBatchDialog}
+            onDownload={(batch) => void handleDownloadIssueBatchPdfs(batch)}
+            onRefresh={refreshIssueBatchFromCard}
+            onRetry={openRetryIssueBatchDialog}
+            onToggle={(batch) => void toggleIssueBatchDetails(batch)}
+          />
+        </>
+      ) : null}
     </section>
   );
 
@@ -2327,9 +2342,9 @@ export function FinancePanel({
           </section>
         </>
       ) : null}
-      {financeArea === "batches" && canManageFinance ? batchManagementSection : null}
+      {financeArea === "batches" && canManageBankSlips ? batchManagementSection : null}
 
-      {issueBatchDownloadPanelOpen ? (
+      {issueBatchDownloadPanelOpen && canManageFinance ? (
         <div className="fixed inset-0 z-50 bg-slate-950/40">
           <div className="ml-auto flex h-full w-full max-w-6xl flex-col bg-white shadow-xl">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
@@ -2377,6 +2392,8 @@ export function FinancePanel({
               <BatchList
                 batches={filteredIssueBatchDownloads}
                 busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
+                canCancelBatch={canManageFinance}
+                canDownloadBatch={canManageFinance}
                 canRetryBatch={canRetryIssueBatches}
                 emptyText="Nenhum lote institucional encontrado."
                 expandedBatchId={expandedIssueBatchId}

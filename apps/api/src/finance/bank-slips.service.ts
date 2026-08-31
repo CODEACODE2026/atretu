@@ -1684,6 +1684,7 @@ export class BankSlipsService {
     batch: {
       id: string;
       source: BankSlipIssueBatchSource;
+      institutionId?: string | null;
       requestedByUserId?: string | null;
     },
     currentUser?: AuthUser,
@@ -1698,10 +1699,16 @@ export class BankSlipsService {
     if (!currentUser.roles.includes(RoleCode.USER)) {
       throw new ForbiddenException("Acesso negado");
     }
-    if (
-      batch.source !== BankSlipIssueBatchSource.MANUAL ||
-      batch.requestedByUserId !== currentUser.id
-    ) {
+    if (batch.requestedByUserId !== currentUser.id) {
+      throw new ForbiddenException("Acesso negado");
+    }
+    if (batch.source === BankSlipIssueBatchSource.INSTITUTION) {
+      assertInstitutionInScope(
+        currentUser,
+        batch.institutionId,
+        OPERATIONAL_INSTITUTION_SCOPE,
+      );
+    } else if (batch.source !== BankSlipIssueBatchSource.MANUAL) {
       throw new ForbiddenException("Acesso negado");
     }
     const ids = scopedInstitutionIds(currentUser, OPERATIONAL_INSTITUTION_SCOPE);

@@ -35,6 +35,7 @@ for (const method of [
   "issueForInvoice",
   "syncByInvoice",
   "createIssueBatch",
+  "previewIssueBatch",
   "getIssueBatch",
   "listIssueBatchItems",
   "requestCancellation",
@@ -56,7 +57,6 @@ for (const method of [
 }
 
 for (const method of [
-  "previewIssueBatch",
   "listIssueBatches",
   "downloadIssueBatchPdfs",
   "cancelIssueBatch",
@@ -125,6 +125,21 @@ assert.deepEqual(
   "USER with finance.bankSlips.manage may create manual invoice-selected batches",
 );
 assert.equal(controllerServiceCalls.length, 1);
+assert.deepEqual(
+  controller.createIssueBatch(
+    {
+      amountCents: 12050,
+      createMissingInvoices: true,
+      dueDate: "2099-08-10",
+      institutionId: "00000000-0000-4000-8000-000000000002",
+      source: BankSlipIssueBatchSource.INSTITUTION,
+    },
+    scopedUser,
+  ),
+  { id: "issue-batch-1" },
+  "USER with finance.bankSlips.manage may create institution batches after service scope validation",
+);
+assert.equal(controllerServiceCalls.length, 2);
 assert.throws(
   () =>
     controller.createIssueBatch(
@@ -132,13 +147,12 @@ assert.throws(
         amountCents: 12050,
         createMissingInvoices: true,
         dueDate: "2099-08-10",
-        institutionId: "00000000-0000-4000-8000-000000000002",
         source: BankSlipIssueBatchSource.INSTITUTION,
       },
       scopedUser,
     ),
   (error) => error instanceof ForbiddenException,
-  "USER must not create institution/global issue batches through the batch endpoint",
+  "USER must not create institution batches without an institutionId",
 );
 
 console.log("Bank slips controller permissions OK");

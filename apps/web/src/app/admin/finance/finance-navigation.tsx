@@ -44,6 +44,7 @@ const items: Array<{
 
 export function FinanceNavigation({
   activeArea,
+  canManageBankSlips,
   canManageFinance,
   canViewManualMovements,
   canViewInvoices,
@@ -51,6 +52,7 @@ export function FinanceNavigation({
   onChange,
 }: {
   activeArea: FinanceArea;
+  canManageBankSlips: boolean;
   canManageFinance: boolean;
   canViewManualMovements: boolean;
   canViewInvoices: boolean;
@@ -70,7 +72,10 @@ export function FinanceNavigation({
     if (item.area === "movements") {
       return canViewManualMovements;
     }
-    if (item.area === "batches" || item.area === "reports") {
+    if (item.area === "batches") {
+      return canManageBankSlips;
+    }
+    if (item.area === "reports") {
       return canManageFinance;
     }
     return true;

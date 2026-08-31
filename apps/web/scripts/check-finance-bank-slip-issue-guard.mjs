@@ -99,6 +99,36 @@ assert.match(
 
 assert.match(
   source,
+  /financeArea === "batches" && canManageBankSlips/,
+  "Institutional issue batch panel must be available through finance.bankSlips.manage",
+);
+
+assert.match(
+  source,
+  /<FinanceNavigation[\s\S]*?canManageBankSlips=\{canManageBankSlips\}/,
+  "Finance navigation must expose the batches area through finance.bankSlips.manage",
+);
+
+assert.match(
+  source,
+  /api\.previewBankSlipIssueBatch\(\{[\s\S]*?institutionId: issueBatchInstitutionId/,
+  "Institutional issue batch preview must use the selected institution",
+);
+
+assert.match(
+  source,
+  /source: "INSTITUTION"[\s\S]*?institutionId: issueBatchPreview\.institutionId/,
+  "Institutional issue batch creation must send source INSTITUTION and the preview institution",
+);
+
+assert.match(
+  source,
+  /canCancelBatch=\{canManageFinance\}[\s\S]*?canDownloadBatch=\{canManageFinance\}/,
+  "Administrative batch actions must remain hidden from delegated bank slip users",
+);
+
+assert.match(
+  source,
   /api\.createBankSlipIssueBatch\(selectedInvoiceIds\)/,
   "Finance panel must create issue batches from selected invoices",
 );

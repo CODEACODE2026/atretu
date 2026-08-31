@@ -1657,6 +1657,84 @@ async function testIssueBatchCreationByInstitutionCreatesSkippedItems() {
   assert.equal(prisma.issueBatches[0]?.totalValueCents, 12050);
 }
 
+async function testDelegatedInstitutionIssueBatchFlow() {
+  const prisma = new FakePrisma();
+  prisma.addInstitution("institution-2");
+  prisma.addEnrollment("enrollment-2", "student-2", { institutionId: "institution-2" });
+  const sicredi = new FakeSicrediClient();
+  const service = new BankSlipsService(prisma as never, sicredi as never, config);
+  const userA = bankSlipScopedUser(["institution-1"]);
+
+  const preview = await service.previewIssueBatch(
+    {
+      institutionId: "institution-1",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
+      page: 1,
+      limit: 20,
+    },
+    userA,
+  );
+  assert.equal(preview.institutionId, "institution-1");
+  assert.equal(preview.totalEligible, 1);
+  assert.equal(prisma.issueBatches.length, 0);
+
+  await assert.rejects(
+    () =>
+      service.previewIssueBatch(
+        {
+          institutionId: "institution-2",
+          amountCents: 12050,
+          dueDate: "2099-08-10",
+          page: 1,
+          limit: 20,
+        },
+        userA,
+      ),
+    (error) => error instanceof ForbiddenException,
+  );
+
+  const batch = await service.createIssueBatch(
+    {
+      source: BankSlipIssueBatchSource.INSTITUTION,
+      institutionId: "institution-1",
+      amountCents: 12050,
+      dueDate: "2099-08-10",
+      createMissingInvoices: true,
+    },
+    "user-a",
+    {},
+    userA,
+  );
+  assert.equal(batch.source, BankSlipIssueBatchSource.INSTITUTION);
+  assert.equal(batch.institutionId, "institution-1");
+  assert.equal(prisma.issueBatches[0]?.requestedByUserId, "user-a");
+  assert.equal(sicredi.issueCalls.length, 0);
+
+  const polled = await service.getIssueBatch(batch.id, userA);
+  assert.equal(polled.id, batch.id);
+  const items = await service.listIssueBatchItems(batch.id, { page: 1, limit: 10 }, userA);
+  assert.equal(items.pagination.total, 1);
+
+  await assert.rejects(
+    () =>
+      service.createIssueBatch(
+        {
+          source: BankSlipIssueBatchSource.INSTITUTION,
+          institutionId: "institution-2",
+          amountCents: 12050,
+          dueDate: "2099-08-10",
+          createMissingInvoices: true,
+        },
+        "user-a",
+        {},
+        userA,
+      ),
+    (error) => error instanceof ForbiddenException,
+  );
+  assert.equal(sicredi.issueCalls.length, 0);
+}
+
 async function testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput() {
   const prisma = new FakePrisma();
   prisma.addEnrollment("enrollment-2", "student-2");
@@ -3639,6 +3717,7 @@ await testIssueBatchCreationDeduplicatesAndSkipsIneligible();
 await testIssueBatchEligibilityMatchesIndividualIssueRules();
 await testIssueBatchPreviewByInstitution();
 await testIssueBatchCreationByInstitutionCreatesSkippedItems();
+await testDelegatedInstitutionIssueBatchFlow();
 await testInstitutionIssueBatchCreatesMissingInvoiceAndRejectsInvalidInput();
 await testInstitutionIssueBatchConcurrentCreationDoesNotDuplicateInvoice();
 await testIssueBatchBlocksInvoiceAlreadyQueuedInActiveBatch();

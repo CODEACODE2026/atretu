@@ -152,8 +152,7 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches/preview")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   previewIssueBatch(
     @Body() body: PreviewBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
@@ -288,6 +287,9 @@ export class BankSlipsController {
       return;
     }
     if (OPERATIONAL_ADMIN_ROLES.some((role) => user.roles.includes(role))) {
+      return;
+    }
+    if (source === BankSlipIssueBatchSource.INSTITUTION && body.institutionId) {
       return;
     }
     throw new ForbiddenException("Acesso negado");

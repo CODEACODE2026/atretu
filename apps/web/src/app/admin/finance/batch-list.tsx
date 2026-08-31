@@ -8,6 +8,8 @@ import { BatchCard } from "./batch-card";
 export function BatchList({
   batches,
   busyBatchId,
+  canCancelBatch = true,
+  canDownloadBatch = true,
   canRetryBatch,
   emptyText = "Nenhum lote encontrado.",
   expandedBatchId,
@@ -23,6 +25,8 @@ export function BatchList({
 }: {
   batches: BankSlipIssueBatch[];
   busyBatchId: string;
+  canCancelBatch?: boolean;
+  canDownloadBatch?: boolean;
   canRetryBatch: boolean;
   emptyText?: string;
   expandedBatchId: string;
@@ -63,6 +67,8 @@ export function BatchList({
             <BatchCard
               batch={batch}
               busy={busyBatchId === batch.id}
+              canCancelBatch={canCancelBatch}
+              canDownloadBatch={canDownloadBatch}
               canRetryBatch={canRetryBatch}
               expanded={expandedBatchId === batch.id}
               items={itemsByBatchId[batch.id] ?? []}
