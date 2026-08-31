@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
-import { RoleCode } from "@prisma/client";
+import { ForbiddenException } from "@nestjs/common";
+import { BankSlipIssueBatchSource, RoleCode, UserStatus } from "@prisma/client";
 import { AuthGuard } from "../auth/auth.guard.js";
 import {
   OPERATIONAL_PERMISSIONS_KEY,
@@ -33,6 +34,9 @@ assert.equal(
 for (const method of [
   "issueForInvoice",
   "syncByInvoice",
+  "createIssueBatch",
+  "getIssueBatch",
+  "listIssueBatchItems",
   "requestCancellation",
   "getPdf",
 ] as const) {
@@ -52,11 +56,8 @@ for (const method of [
 }
 
 for (const method of [
-  "createIssueBatch",
   "previewIssueBatch",
   "listIssueBatches",
-  "getIssueBatch",
-  "listIssueBatchItems",
   "downloadIssueBatchPdfs",
   "cancelIssueBatch",
 ] as const) {
@@ -93,5 +94,51 @@ for (const method of [
     `${method} must stay SUPER_ADMIN-only`,
   );
 }
+
+const controllerServiceCalls: unknown[] = [];
+const controller = new BankSlipsController({
+  createIssueBatch: (...args: unknown[]) => {
+    controllerServiceCalls.push(args);
+    return { id: "issue-batch-1" };
+  },
+} as never);
+const scopedUser = {
+  email: "user@example.com",
+  id: "user-1",
+  institutionId: "institution-1",
+  institutionIds: ["institution-1"],
+  name: "User",
+  permissionProfileId: "profile-1",
+  roles: [RoleCode.USER],
+  status: UserStatus.ACTIVE,
+};
+
+assert.deepEqual(
+  controller.createIssueBatch(
+    {
+      invoiceIds: ["00000000-0000-4000-8000-000000000001"],
+      source: BankSlipIssueBatchSource.MANUAL,
+    },
+    scopedUser,
+  ),
+  { id: "issue-batch-1" },
+  "USER with finance.bankSlips.manage may create manual invoice-selected batches",
+);
+assert.equal(controllerServiceCalls.length, 1);
+assert.throws(
+  () =>
+    controller.createIssueBatch(
+      {
+        amountCents: 12050,
+        createMissingInvoices: true,
+        dueDate: "2099-08-10",
+        institutionId: "00000000-0000-4000-8000-000000000002",
+        source: BankSlipIssueBatchSource.INSTITUTION,
+      },
+      scopedUser,
+    ),
+  (error) => error instanceof ForbiddenException,
+  "USER must not create institution/global issue batches through the batch endpoint",
+);
 
 console.log("Bank slips controller permissions OK");

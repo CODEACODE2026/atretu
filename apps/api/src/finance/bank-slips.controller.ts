@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Header,
   Inject,
@@ -10,7 +11,7 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
-import { RoleCode } from "@prisma/client";
+import { BankSlipIssueBatchSource, RoleCode } from "@prisma/client";
 import type { Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
@@ -134,12 +135,12 @@ export class BankSlipsController {
   }
 
   @Post("finance/bank-slip-issue-batches")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   createIssueBatch(
     @Body() body: CreateBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
   ) {
+    this.assertIssueBatchCreateAllowed(body, user);
     return this.bankSlips.createIssueBatch(
       body,
       user.id,
@@ -171,8 +172,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   getIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
     @CurrentUser() user: AuthUser,
@@ -181,8 +181,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/items")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   listIssueBatchItems(
     @Param() params: BankSlipIssueBatchParamsDto,
     @Query() query: ListBankSlipIssueBatchItemsDto,
@@ -274,5 +273,23 @@ export class BankSlipsController {
     response.setHeader("Content-Length", String(pdf.sizeBytes));
     response.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
     response.send(pdf.bytes);
+  }
+
+  private assertIssueBatchCreateAllowed(
+    body: CreateBankSlipIssueBatchDto,
+    user: AuthUser,
+  ) {
+    const source =
+      body.source ??
+      (body.institutionId
+        ? BankSlipIssueBatchSource.INSTITUTION
+        : BankSlipIssueBatchSource.MANUAL);
+    if (source === BankSlipIssueBatchSource.MANUAL) {
+      return;
+    }
+    if (OPERATIONAL_ADMIN_ROLES.some((role) => user.roles.includes(role))) {
+      return;
+    }
+    throw new ForbiddenException("Acesso negado");
   }
 }

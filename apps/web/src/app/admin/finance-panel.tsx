@@ -424,14 +424,14 @@ export function FinancePanel({
   }, [createInvoiceDialogOpen, saving]);
 
   useEffect(() => {
-    if (!canManageFinance || !issueBatch || !isIssueBatchRunning(issueBatch)) {
+    if (!canManageBankSlips || !issueBatch || !isIssueBatchRunning(issueBatch)) {
       return;
     }
     const interval = window.setInterval(() => {
       void refreshIssueBatch(issueBatch.id);
     }, 3000);
     return () => window.clearInterval(interval);
-  }, [canManageFinance, issueBatch?.id, issueBatch?.status]);
+  }, [canManageBankSlips, issueBatch?.id, issueBatch?.status]);
 
   async function loadReferences() {
     setError("");
@@ -2276,7 +2276,7 @@ export function FinancePanel({
               </div>
             ) : null}
 
-            {canManageFinance ? (
+            {canManageBankSlips ? (
               <div className="mt-4 px-4">
                 <InvoiceBulkActionBar
                   disabled={saving || loading}

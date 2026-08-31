@@ -68,11 +68,8 @@ const administratorOperationalEndpoints = [
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
   [InstitutionalOfficialDocumentsController, undefined],
-  [BankSlipsController, "createIssueBatch"],
   [BankSlipsController, "previewIssueBatch"],
   [BankSlipsController, "listIssueBatches"],
-  [BankSlipsController, "getIssueBatch"],
-  [BankSlipsController, "listIssueBatchItems"],
   [BankSlipsController, "downloadIssueBatchPdfs"],
   [BankSlipsController, "cancelIssueBatch"],
   [FinancialReportsController, "monthly"],
@@ -114,6 +111,9 @@ const financeInvoiceManageEndpoints = [
 const financeBankSlipManageEndpoints = [
   [BankSlipsController, "issueForInvoice"],
   [BankSlipsController, "syncByInvoice"],
+  [BankSlipsController, "createIssueBatch"],
+  [BankSlipsController, "getIssueBatch"],
+  [BankSlipsController, "listIssueBatchItems"],
   [BankSlipsController, "requestCancellation"],
   [BankSlipsController, "getPdf"],
 ] as const;

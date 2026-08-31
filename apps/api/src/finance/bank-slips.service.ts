@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   Inject,
   Injectable,
@@ -27,6 +28,7 @@ import {
   InvoiceStatus,
   Prisma,
   RecordStatus,
+  RoleCode,
   StudentHistoryEventType,
 } from "@prisma/client";
 import {
@@ -35,6 +37,7 @@ import {
   scopedInstitutionFilter,
   scopedInstitutionIds,
 } from "../auth/institution-scope.js";
+import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { isValidCpf, maskCpf } from "../students/cpf.js";
 import type { AuthUser } from "../users/users.service.js";
@@ -1042,7 +1045,7 @@ export class BankSlipsService {
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
-    await this.ensureIssueBatchAccessible(id, currentUser);
+    await this.ensureIssueBatchPollingAccessible(batch, currentUser);
     return this.toIssueBatchResponse(batch);
   }
 
@@ -1088,7 +1091,7 @@ export class BankSlipsService {
     query: ListBankSlipIssueBatchItemsDto,
     currentUser?: AuthUser,
   ) {
-    await this.ensureIssueBatchAccessible(batchId, currentUser);
+    await this.ensureIssueBatchPollingAccessibleById(batchId, currentUser);
     const ids = scopedInstitutionIds(currentUser, OPERATIONAL_INSTITUTION_SCOPE);
     const pagination = resolvePagination(query, { defaultLimit: 50, maxLimit: 200 });
     const where: Prisma.BankSlipIssueBatchItemWhereInput = {
@@ -1660,6 +1663,62 @@ export class BankSlipsService {
     });
     if (allowedItems === 0) {
       throw new NotFoundException("Lote de emissao nao encontrado");
+    }
+  }
+
+  private async ensureIssueBatchPollingAccessibleById(
+    batchId: string,
+    currentUser?: AuthUser,
+  ) {
+    const batch = await this.prisma.bankSlipIssueBatch.findUnique({
+      where: { id: batchId },
+      include: this.issueBatchInclude(),
+    });
+    if (!batch) {
+      throw new NotFoundException("Lote de emissao nao encontrado");
+    }
+    await this.ensureIssueBatchPollingAccessible(batch, currentUser);
+  }
+
+  private async ensureIssueBatchPollingAccessible(
+    batch: {
+      id: string;
+      source: BankSlipIssueBatchSource;
+      requestedByUserId?: string | null;
+    },
+    currentUser?: AuthUser,
+  ) {
+    if (!currentUser) {
+      return;
+    }
+    if (OPERATIONAL_ADMIN_ROLES.some((role) => currentUser.roles.includes(role))) {
+      await this.ensureIssueBatchAccessible(batch.id, currentUser);
+      return;
+    }
+    if (!currentUser.roles.includes(RoleCode.USER)) {
+      throw new ForbiddenException("Acesso negado");
+    }
+    if (
+      batch.source !== BankSlipIssueBatchSource.MANUAL ||
+      batch.requestedByUserId !== currentUser.id
+    ) {
+      throw new ForbiddenException("Acesso negado");
+    }
+    const ids = scopedInstitutionIds(currentUser, OPERATIONAL_INSTITUTION_SCOPE);
+    if (!ids || ids.length === 0) {
+      throw new ForbiddenException("Acesso negado");
+    }
+    const [totalItems, allowedItems] = await Promise.all([
+      this.prisma.bankSlipIssueBatchItem.count({ where: { batchId: batch.id } }),
+      this.prisma.bankSlipIssueBatchItem.count({
+        where: {
+          batchId: batch.id,
+          enrollment: { institutionId: { in: ids } },
+        },
+      }),
+    ]);
+    if (allowedItems !== totalItems) {
+      throw new ForbiddenException("Acesso negado");
     }
   }
 

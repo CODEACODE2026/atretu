@@ -87,6 +87,18 @@ assert.match(
 
 assert.match(
   source,
+  /\{canManageBankSlips \? \([\s\S]*?<InvoiceBulkActionBar/,
+  "Manual issue batch action bar must use finance.bankSlips.manage instead of fixed operational roles",
+);
+
+assert.match(
+  source,
+  /if \(!canManageBankSlips \|\| !issueBatch \|\| !isIssueBatchRunning\(issueBatch\)\)/,
+  "Manual issue batch polling must stay available to finance.bankSlips.manage users",
+);
+
+assert.match(
+  source,
   /api\.createBankSlipIssueBatch\(selectedInvoiceIds\)/,
   "Finance panel must create issue batches from selected invoices",
 );
