@@ -1045,7 +1045,7 @@ export class BankSlipsService {
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
-    await this.ensureIssueBatchPollingAccessible(batch, currentUser);
+    await this.ensureIssueBatchReadable(batch, currentUser);
     return this.toIssueBatchResponse(batch);
   }
 
@@ -1064,14 +1064,9 @@ export class BankSlipsService {
         OPERATIONAL_INSTITUTION_SCOPE,
       );
     } else {
-      const ids = scopedInstitutionIds(
-        currentUser,
-        OPERATIONAL_INSTITUTION_SCOPE,
-      );
-      if (ids) {
-        where.items = {
-          some: { enrollment: { institutionId: { in: ids } } },
-        };
+      const accessWhere = this.buildIssueBatchReadableWhere(currentUser);
+      if (accessWhere) {
+        where.AND = [...(Array.isArray(where.AND) ? where.AND : []), accessWhere];
       }
     }
     if (query.competence) {
@@ -1091,12 +1086,10 @@ export class BankSlipsService {
     query: ListBankSlipIssueBatchItemsDto,
     currentUser?: AuthUser,
   ) {
-    await this.ensureIssueBatchPollingAccessibleById(batchId, currentUser);
-    const ids = scopedInstitutionIds(currentUser, OPERATIONAL_INSTITUTION_SCOPE);
+    await this.ensureIssueBatchReadableById(batchId, currentUser);
     const pagination = resolvePagination(query, { defaultLimit: 50, maxLimit: 200 });
     const where: Prisma.BankSlipIssueBatchItemWhereInput = {
       batchId,
-      ...(ids ? { enrollment: { institutionId: { in: ids } } } : {}),
     };
     const [records, total] = await Promise.all([
       this.prisma.bankSlipIssueBatchItem.findMany({
@@ -1616,7 +1609,7 @@ export class BankSlipsService {
   }
 
   async downloadIssueBatchPdfs(batchId: string, currentUser?: AuthUser) {
-    await this.ensureIssueBatchAccessible(batchId, currentUser);
+    await this.ensureIssueBatchReadableById(batchId, currentUser);
     const batch = await this.prisma.bankSlipIssueBatch.findUnique({
       where: { id: batchId },
       include: this.issueBatchInclude(),
@@ -1624,11 +1617,9 @@ export class BankSlipsService {
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
-    const ids = scopedInstitutionIds(currentUser, OPERATIONAL_INSTITUTION_SCOPE);
     const records = await this.prisma.bankSlipIssueBatchItem.findMany({
       where: {
         batchId,
-        ...(ids ? { enrollment: { institutionId: { in: ids } } } : {}),
       },
       include: {
         invoice: true,
@@ -1666,7 +1657,39 @@ export class BankSlipsService {
     }
   }
 
-  private async ensureIssueBatchPollingAccessibleById(
+  private buildIssueBatchReadableWhere(
+    currentUser?: AuthUser,
+  ): Prisma.BankSlipIssueBatchWhereInput | undefined {
+    const ids = scopedInstitutionIds(currentUser, OPERATIONAL_INSTITUTION_SCOPE);
+    if (!ids) {
+      return undefined;
+    }
+    if (ids.length === 0) {
+      return { id: { in: [] } };
+    }
+    return {
+      OR: [
+        {
+          source: BankSlipIssueBatchSource.INSTITUTION,
+          institutionId: { in: ids },
+        },
+        {
+          source: BankSlipIssueBatchSource.MANUAL,
+          items: {
+            some: {},
+            none: {
+              OR: [
+                { enrollmentId: null },
+                { enrollment: { institutionId: { notIn: ids } } },
+              ],
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  private async ensureIssueBatchReadableById(
     batchId: string,
     currentUser?: AuthUser,
   ) {
@@ -1677,15 +1700,14 @@ export class BankSlipsService {
     if (!batch) {
       throw new NotFoundException("Lote de emissao nao encontrado");
     }
-    await this.ensureIssueBatchPollingAccessible(batch, currentUser);
+    await this.ensureIssueBatchReadable(batch, currentUser);
   }
 
-  private async ensureIssueBatchPollingAccessible(
+  private async ensureIssueBatchReadable(
     batch: {
       id: string;
       source: BankSlipIssueBatchSource;
       institutionId?: string | null;
-      requestedByUserId?: string | null;
     },
     currentUser?: AuthUser,
   ) {
@@ -1693,13 +1715,12 @@ export class BankSlipsService {
       return;
     }
     if (OPERATIONAL_ADMIN_ROLES.some((role) => currentUser.roles.includes(role))) {
-      await this.ensureIssueBatchAccessible(batch.id, currentUser);
       return;
     }
-    if (!currentUser.roles.includes(RoleCode.USER)) {
-      throw new ForbiddenException("Acesso negado");
-    }
-    if (batch.requestedByUserId !== currentUser.id) {
+    const canUseScopedIssueBatches =
+      currentUser.roles.includes(RoleCode.USER) ||
+      currentUser.roles.includes(RoleCode.SECRETARIA);
+    if (!canUseScopedIssueBatches) {
       throw new ForbiddenException("Acesso negado");
     }
     if (batch.source === BankSlipIssueBatchSource.INSTITUTION) {
@@ -1708,6 +1729,7 @@ export class BankSlipsService {
         batch.institutionId,
         OPERATIONAL_INSTITUTION_SCOPE,
       );
+      return;
     } else if (batch.source !== BankSlipIssueBatchSource.MANUAL) {
       throw new ForbiddenException("Acesso negado");
     }
@@ -1715,16 +1737,19 @@ export class BankSlipsService {
     if (!ids || ids.length === 0) {
       throw new ForbiddenException("Acesso negado");
     }
-    const [totalItems, allowedItems] = await Promise.all([
+    const [totalItems, outOfScopeItems] = await Promise.all([
       this.prisma.bankSlipIssueBatchItem.count({ where: { batchId: batch.id } }),
       this.prisma.bankSlipIssueBatchItem.count({
         where: {
           batchId: batch.id,
-          enrollment: { institutionId: { in: ids } },
+          OR: [
+            { enrollmentId: null },
+            { enrollment: { institutionId: { notIn: ids } } },
+          ],
         },
       }),
     ]);
-    if (allowedItems !== totalItems) {
+    if (totalItems === 0 || outOfScopeItems > 0) {
       throw new ForbiddenException("Acesso negado");
     }
   }

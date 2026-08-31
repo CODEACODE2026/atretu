@@ -161,8 +161,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   listIssueBatches(
     @Query() query: ListBankSlipIssueBatchesDto,
     @CurrentUser() user: AuthUser,
@@ -190,8 +189,7 @@ export class BankSlipsController {
   }
 
   @Get("finance/bank-slip-issue-batches/:batchId/download")
-  @UseGuards(RolesGuard)
-  @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @OperationalPermission("finance.bankSlips.manage")
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async downloadIssueBatchPdfs(

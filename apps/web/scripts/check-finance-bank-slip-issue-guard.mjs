@@ -123,8 +123,8 @@ assert.match(
 
 assert.match(
   source,
-  /canCancelBatch=\{canManageFinance\}[\s\S]*?canDownloadBatch=\{canManageFinance\}/,
-  "Administrative batch actions must remain hidden from delegated bank slip users",
+  /canCancelBatch=\{canManageFinance\}[\s\S]*?canDownloadBatch=\{canManageBankSlips\}/,
+  "Batch downloads must use finance.bankSlips.manage while admin actions stay restricted",
 );
 
 assert.match(

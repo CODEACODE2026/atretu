@@ -36,8 +36,10 @@ for (const method of [
   "syncByInvoice",
   "createIssueBatch",
   "previewIssueBatch",
+  "listIssueBatches",
   "getIssueBatch",
   "listIssueBatchItems",
+  "downloadIssueBatchPdfs",
   "requestCancellation",
   "getPdf",
 ] as const) {
@@ -57,8 +59,6 @@ for (const method of [
 }
 
 for (const method of [
-  "listIssueBatches",
-  "downloadIssueBatchPdfs",
   "cancelIssueBatch",
 ] as const) {
   assert.deepEqual(

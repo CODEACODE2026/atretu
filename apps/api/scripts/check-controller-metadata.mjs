@@ -1,6 +1,5 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
-import { RoleCode } from "@prisma/client";
 import { BaseRecordsController } from "../src/base-records/base-records.controller.ts";
 import { BankSlipsController } from "../src/finance/bank-slips.controller.ts";
 import { PreRegistrationsController } from "../src/pre-registrations/pre-registrations.controller.ts";
@@ -44,8 +43,8 @@ const bankSlipBatchDownloadRoles =
 
 assert.deepEqual(
   bankSlipBatchDownloadRoles,
-  [RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR, RoleCode.SECRETARIA],
-  "downloadIssueBatchPdfs must require finance admin roles",
+  [],
+  "downloadIssueBatchPdfs must not keep fixed finance admin roles",
 );
 
 console.log("Controller DTO metadata OK");

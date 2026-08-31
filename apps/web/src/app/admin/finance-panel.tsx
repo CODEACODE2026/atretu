@@ -1603,7 +1603,7 @@ export function FinancePanel({
               Crie lotes por instituição ou envie somente faturas selecionadas.
             </p>
           </div>
-          {canManageFinance ? (
+          {canManageBankSlips ? (
             <button
               className={adminTheme.secondaryButton}
               disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
@@ -1735,7 +1735,7 @@ export function FinancePanel({
             batches={filteredIssueBatches}
             busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
             canCancelBatch={canManageFinance}
-            canDownloadBatch={canManageFinance}
+            canDownloadBatch={canManageBankSlips}
             canRetryBatch={canRetryIssueBatches}
             expandedBatchId={expandedIssueBatchId}
             itemsByBatchId={issueBatchItemsById}
@@ -2344,7 +2344,7 @@ export function FinancePanel({
       ) : null}
       {financeArea === "batches" && canManageBankSlips ? batchManagementSection : null}
 
-      {issueBatchDownloadPanelOpen && canManageFinance ? (
+      {issueBatchDownloadPanelOpen && canManageBankSlips ? (
         <div className="fixed inset-0 z-50 bg-slate-950/40">
           <div className="ml-auto flex h-full w-full max-w-6xl flex-col bg-white shadow-xl">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
@@ -2393,7 +2393,7 @@ export function FinancePanel({
                 batches={filteredIssueBatchDownloads}
                 busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
                 canCancelBatch={canManageFinance}
-                canDownloadBatch={canManageFinance}
+                canDownloadBatch={canManageBankSlips}
                 canRetryBatch={canRetryIssueBatches}
                 emptyText="Nenhum lote institucional encontrado."
                 expandedBatchId={expandedIssueBatchId}

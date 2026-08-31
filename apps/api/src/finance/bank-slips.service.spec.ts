@@ -2206,14 +2206,10 @@ async function testIssueBatchPollingDelegatedAccessPolicy() {
       status: BankSlipIssueBatchItemStatus.SKIPPED,
     },
   });
-  await assert.rejects(
-    () => service.getIssueBatch(institutionBatch.id, userA),
-    (error) => error instanceof ForbiddenException,
-  );
-  await assert.rejects(
-    () => service.listIssueBatchItems(institutionBatch.id, { page: 1, limit: 10 }, userA),
-    (error) => error instanceof ForbiddenException,
-  );
+  const institutionResult = await service.getIssueBatch(institutionBatch.id, userA);
+  assert.equal(institutionResult.id, institutionBatch.id);
+  const institutionItems = await service.listIssueBatchItems(institutionBatch.id, { page: 1, limit: 10 }, userA);
+  assert.equal(institutionItems.pagination.total, 1);
 
   const foreignInstitutionBatch = await prisma.bankSlipIssueBatch.create({
     data: {
@@ -2285,9 +2281,13 @@ async function testIssueBatchPollingDelegatedAccessPolicy() {
       status: BankSlipIssueBatchItemStatus.SKIPPED,
     },
   });
-  await assert.rejects(
-    () => service.getIssueBatch(otherUserManualBatch.id, userA),
-    (error) => error instanceof ForbiddenException,
+  assert.equal((await service.getIssueBatch(otherUserManualBatch.id, userA)).id, otherUserManualBatch.id);
+
+  const accessibleBatches = await service.listIssueBatches({ page: 1, limit: 20 }, userA);
+  assert.equal(accessibleBatches.pagination.total, 3);
+  assert.deepEqual(
+    accessibleBatches.data.map((batch) => batch.id).sort(),
+    [institutionBatch.id, manualBatch.id, otherUserManualBatch.id].sort(),
   );
 
   const secretariaA = { ...userAData, id: "secretaria-a", roles: [RoleCode.SECRETARIA] } as never;
@@ -2520,6 +2520,101 @@ async function testIssueBatchZipDownloadsPaidBankSlip() {
   assert.equal(sicredi.issueCalls.length, 0);
   const summary = csvText(zip, "Colegio-Teste/Boletos/resumo.csv");
   assert.match(summary, /STORED/);
+}
+
+async function testIssueBatchZipUsesReadableBatchScope() {
+  const userA = {
+    email: "user@example.com",
+    id: "user-a",
+    institutionId: "institution-1",
+    institutionIds: ["institution-1"],
+    name: "User A",
+    permissionProfileId: "profile-bank-slips",
+    roles: [RoleCode.USER],
+    status: "ACTIVE",
+  } as never;
+
+  {
+    const prisma = new FakePrisma();
+    const sicredi = new FakeSicrediClient();
+    const service = new BankSlipsService(prisma as never, sicredi as never, config);
+    const batchId = await seedDownloadIssueBatch(prisma, [{ name: "Aluno A" }]);
+    assert.ok(prisma.issueBatches[0]);
+    prisma.issueBatches[0].requestedByUserId = "user-b";
+
+    const archive = await service.downloadIssueBatchPdfs(batchId, userA);
+    await collectStream(archive.stream as Readable);
+
+    assert.equal(archive.totals.included, 1);
+    assert.equal(sicredi.issueCalls.length, 0);
+  }
+
+  {
+    const prisma = new FakePrisma();
+    prisma.addInstitution("institution-2");
+    const sicredi = new FakeSicrediClient();
+    const service = new BankSlipsService(prisma as never, sicredi as never, config);
+    const batchId = await seedDownloadIssueBatch(prisma, [{ name: "Aluno B" }]);
+    assert.ok(prisma.issueBatches[0]);
+    prisma.issueBatches[0].institutionId = "institution-2";
+
+    await assert.rejects(
+      () => service.downloadIssueBatchPdfs(batchId, userA),
+      (error) => error instanceof ForbiddenException,
+    );
+    assert.equal(sicredi.issueCalls.length, 0);
+    assert.equal(sicredi.pdfCalls.length, 0);
+  }
+
+  {
+    const prisma = new FakePrisma();
+    prisma.addInstitution("institution-2");
+    const foreignEnrollment = createEnrollment("enrollment-2", "student-2", {
+      institutionId: "institution-2",
+    });
+    prisma.enrollments.set("enrollment-2", foreignEnrollment);
+    prisma.addInvoice("invoice-2", {
+      enrollmentId: "enrollment-2",
+      studentId: "student-2",
+      enrollment: foreignEnrollment,
+      student: foreignEnrollment.student,
+    });
+    const sicredi = new FakeSicrediClient();
+    const service = new BankSlipsService(prisma as never, sicredi as never, config);
+    const batch = await prisma.bankSlipIssueBatch.create({
+      data: {
+        source: BankSlipIssueBatchSource.MANUAL,
+        requestedByUserId: "user-b",
+        totalItems: 2,
+        totalInvoices: 2,
+      },
+    });
+    await prisma.bankSlipIssueBatchItem.create({
+      data: {
+        batchId: batch.id,
+        invoiceId: "invoice-1",
+        studentId: "student-1",
+        enrollmentId: "enrollment-1",
+        status: BankSlipIssueBatchItemStatus.ISSUED,
+      },
+    });
+    await prisma.bankSlipIssueBatchItem.create({
+      data: {
+        batchId: batch.id,
+        invoiceId: "invoice-2",
+        studentId: "student-2",
+        enrollmentId: "enrollment-2",
+        status: BankSlipIssueBatchItemStatus.ISSUED,
+      },
+    });
+
+    await assert.rejects(
+      () => service.downloadIssueBatchPdfs(batch.id, userA),
+      (error) => error instanceof ForbiddenException,
+    );
+    assert.equal(sicredi.issueCalls.length, 0);
+    assert.equal(sicredi.pdfCalls.length, 0);
+  }
 }
 
 async function testRecoverMissingPdfsDoesNotReissueBankSlips() {
@@ -3284,8 +3379,27 @@ class FakePrisma {
 
   private matchesWhere(record: Record<string, unknown>, where: Record<string, unknown>): boolean {
     return Object.entries(where).every(([key, value]): boolean => {
-      if (key === "batch" || key === "OR") {
+      if (key === "batch") {
         return true;
+      }
+      if (key === "AND" && Array.isArray(value)) {
+        return value.every((item) => this.matchesWhere(record, item as Record<string, unknown>));
+      }
+      if (key === "OR" && Array.isArray(value)) {
+        return value.some((item) => this.matchesWhere(record, item as Record<string, unknown>));
+      }
+      if (key === "items" && value && typeof value === "object") {
+        const items = this.issueBatchItems.filter((item) => item.batchId === record.id);
+        const relation = value as {
+          none?: Record<string, unknown>;
+          some?: Record<string, unknown>;
+        };
+        return (
+          (relation.some === undefined ||
+            items.some((item) => this.matchesWhere(item, relation.some ?? {}))) &&
+          (relation.none === undefined ||
+            items.every((item) => !this.matchesWhere(item, relation.none ?? {})))
+        );
       }
       if (key === "enrollment" && value && typeof value === "object") {
         const enrollmentId = typeof record.enrollmentId === "string" ? record.enrollmentId : null;
@@ -3294,6 +3408,9 @@ class FakePrisma {
       }
       if (value && typeof value === "object" && "in" in value) {
         return (value as { in: unknown[] }).in.includes(record[key]);
+      }
+      if (value && typeof value === "object" && "notIn" in value) {
+        return !(value as { notIn: unknown[] }).notIn.includes(record[key]);
       }
       if (value && typeof value === "object" && "not" in value) {
         return record[key] !== (value as { not: unknown }).not;
@@ -3739,6 +3856,7 @@ await testIssueBatchZipSkipsUnavailableAndBlockedItems();
 await testIssueBatchZipKeepsSummaryWhenPdfFetchFails();
 await testIssueBatchZipKeepsGoingAfterOnePdfFails();
 await testIssueBatchZipDownloadsPaidBankSlip();
+await testIssueBatchZipUsesReadableBatchScope();
 await testRecoverMissingPdfsDoesNotReissueBankSlips();
 await testRecoverMissingPaidPdfMarksUnavailable();
 await testBankSlipPdfStorageBlocksPathTraversal();
