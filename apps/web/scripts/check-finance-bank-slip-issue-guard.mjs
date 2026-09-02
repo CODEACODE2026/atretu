@@ -105,6 +105,18 @@ assert.match(
 
 assert.match(
   source,
+  /useEffect\(\(\) => \{[\s\S]*?if \(financeArea === "batches" && canManageBankSlips\) \{[\s\S]*?void loadIssueBatches\(\);[\s\S]*?\}[\s\S]*?\}, \[canManageBankSlips, financeArea\]\);/,
+  "Batches area must load issue batches automatically for finance.bankSlips.manage users",
+);
+
+assert.match(
+  source,
+  /\{canManageBankSlips \? \([\s\S]*?<BatchList[\s\S]*?loading=\{issueBatchesLoading\}/,
+  "Batches area must render loading, empty, and loaded list states without depending on the download flow",
+);
+
+assert.match(
+  source,
   /<FinanceNavigation[\s\S]*?canManageBankSlips=\{canManageBankSlips\}/,
   "Finance navigation must expose the batches area through finance.bankSlips.manage",
 );
@@ -125,6 +137,18 @@ assert.match(
   source,
   /canCancelBatch=\{canManageFinance\}[\s\S]*?canDownloadBatch=\{canManageBankSlips\}/,
   "Batch downloads must use finance.bankSlips.manage while admin actions stay restricted",
+);
+
+assert.equal(
+  source.includes("openIssueBatchDownloadPanel"),
+  false,
+  "Global download panel must not be the trigger that initializes batch listing",
+);
+
+assert.equal(
+  source.includes("loadIssueBatchDownloadBatches"),
+  false,
+  "Download flow must not maintain a separate batch-loading path",
 );
 
 assert.match(

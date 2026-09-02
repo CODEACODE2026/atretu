@@ -242,11 +242,7 @@ export function FinancePanel({
     "" | "preparing" | "started" | "partial" | "empty" | "error"
   >("");
   const [issueBatchDownloadSummary, setIssueBatchDownloadSummary] = useState("");
-  const [issueBatchDownloadPanelOpen, setIssueBatchDownloadPanelOpen] = useState(false);
-  const [issueBatchDownloadBatches, setIssueBatchDownloadBatches] = useState<BankSlipIssueBatch[]>([]);
   const [issueBatchSearch, setIssueBatchSearch] = useState("");
-  const [issueBatchDownloadSearch, setIssueBatchDownloadSearch] = useState("");
-  const [issueBatchDownloadLoading, setIssueBatchDownloadLoading] = useState(false);
   const [issueBatchDownloadBatchId, setIssueBatchDownloadBatchId] = useState("");
   const [syncPaidDate, setSyncPaidDate] = useState(todayDate());
   const [syncPaidDialogOpen, setSyncPaidDialogOpen] = useState(false);
@@ -263,10 +259,6 @@ export function FinancePanel({
   const showIssueBatchProgress = Boolean(
     issueBatch &&
       (isIssueBatchRunning(issueBatch) || issueBatch.progressPercent === 100 || issueBatch.finishedAt),
-  );
-  const filteredIssueBatchDownloads = useMemo(
-    () => filterBatches(issueBatchDownloadBatches, issueBatchDownloadSearch),
-    [issueBatchDownloadBatches, issueBatchDownloadSearch],
   );
   const filteredIssueBatches = useMemo(
     () => filterBatches(issueBatches, issueBatchSearch),
@@ -331,10 +323,13 @@ export function FinancePanel({
 
   useEffect(() => {
     void loadReferences();
-    if (canManageFinance) {
+  }, []);
+
+  useEffect(() => {
+    if (financeArea === "batches" && canManageBankSlips) {
       void loadIssueBatches();
     }
-  }, [canManageFinance]);
+  }, [canManageBankSlips, financeArea]);
 
   useEffect(() => {
     if (canManageBankSlips && institutions.length === 1 && !issueBatchInstitutionId) {
@@ -1292,30 +1287,6 @@ export function FinancePanel({
     }
   }
 
-  async function openIssueBatchDownloadPanel() {
-    setIssueBatchDownloadPanelOpen(true);
-    if (issueBatchDownloadBatches.length === 0) {
-      await loadIssueBatchDownloadBatches();
-    }
-  }
-
-  async function loadIssueBatchDownloadBatches() {
-    setIssueBatchDownloadLoading(true);
-    setError("");
-    try {
-      const response = await api.listBankSlipIssueBatches({
-        source: "INSTITUTION",
-        limit: 100,
-      });
-      setIssueBatchDownloadBatches(response.data);
-      setIssueBatches((current) => mergeBatchLists(current, response.data));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Erro ao carregar lotes");
-    } finally {
-      setIssueBatchDownloadLoading(false);
-    }
-  }
-
   async function handleDownloadIssueBatchPdfs(batch: BankSlipIssueBatch) {
     if (issueBatchDownloadState === "preparing") {
       return;
@@ -1603,17 +1574,6 @@ export function FinancePanel({
               Crie lotes por instituição ou envie somente faturas selecionadas.
             </p>
           </div>
-          {canManageBankSlips ? (
-            <button
-              className={adminTheme.secondaryButton}
-              disabled={issueBatchDownloadState === "preparing" && Boolean(issueBatchDownloadBatchId)}
-              onClick={() => void openIssueBatchDownloadPanel()}
-              type="button"
-            >
-              <Download aria-hidden="true" className="h-4 w-4" />
-              Baixar boletos
-            </button>
-          ) : null}
         </div>
 
         <div className="mt-4 grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -1716,7 +1676,7 @@ export function FinancePanel({
         </div>
       </div>
 
-      {canManageFinance || issueBatches.length > 0 ? (
+      {canManageBankSlips ? (
         <>
           <div className={cx(adminTheme.card, "min-w-0 p-4")}>
             <label className="grid gap-1 text-sm font-semibold text-slate-700">
@@ -2344,73 +2304,6 @@ export function FinancePanel({
       ) : null}
       {financeArea === "batches" && canManageBankSlips ? batchManagementSection : null}
 
-      {issueBatchDownloadPanelOpen && canManageBankSlips ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/40">
-          <div className="ml-auto flex h-full w-full max-w-6xl flex-col bg-white shadow-xl">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-950">
-                  Baixar boletos
-                </h2>
-                <p className="text-sm text-slate-600">
-                  Lotes de boletos gerados por instituicao
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 disabled:opacity-60"
-                  disabled={issueBatchDownloadLoading}
-                  onClick={() => void loadIssueBatchDownloadBatches()}
-                  type="button"
-                >
-                  Atualizar
-                </button>
-                <button
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
-                  onClick={() => setIssueBatchDownloadPanelOpen(false)}
-                  type="button"
-                >
-                  Fechar
-                </button>
-              </div>
-            </div>
-            <div className="grid gap-3 border-b border-slate-200 px-5 py-4">
-              <input
-                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                onChange={(event) => setIssueBatchDownloadSearch(event.target.value)}
-                placeholder="Pesquisar por instituicao, competencia ou data"
-                type="search"
-                value={issueBatchDownloadSearch}
-              />
-              <div className="flex flex-wrap gap-3 text-xs text-slate-600">
-                <span>Total de lotes: {issueBatchDownloadBatches.length}</span>
-                <span>Resultado da busca: {filteredIssueBatchDownloads.length}</span>
-                {issueBatchDownloadSummary ? <span>{issueBatchDownloadSummary}</span> : null}
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-5">
-              <BatchList
-                batches={filteredIssueBatchDownloads}
-                busyBatchId={issueBatchActionId || issueBatchDownloadBatchId}
-                canCancelBatch={canManageFinance}
-                canDownloadBatch={canManageBankSlips}
-                canRetryBatch={canRetryIssueBatches}
-                emptyText="Nenhum lote institucional encontrado."
-                expandedBatchId={expandedIssueBatchId}
-                itemsByBatchId={issueBatchItemsById}
-                loading={issueBatchDownloadLoading}
-                loadingItemsBatchId={issueBatchItemsLoadingId}
-                onCancel={openCancelIssueBatchDialog}
-                onDownload={(batch) => void handleDownloadIssueBatchPdfs(batch)}
-                onRefresh={refreshIssueBatchFromCard}
-                onRetry={openRetryIssueBatchDialog}
-                onToggle={(batch) => void toggleIssueBatchDetails(batch)}
-                title="Lotes disponíveis para download"
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -3888,18 +3781,6 @@ function issueBatchCompletionMessage(batch: BankSlipIssueBatch) {
   return `Emissao concluida: ${batch.issuedItems} boleto(s) emitido(s), ${errors} erro(s), ${batch.skippedItems} bloqueado(s).`;
 }
 
-function mergeBatchLists(
-  current: BankSlipIssueBatch[],
-  incoming: BankSlipIssueBatch[],
-) {
-  const byId = new Map(current.map((batch) => [batch.id, batch]));
-  incoming.forEach((batch) => byId.set(batch.id, batch));
-  return [...byId.values()].sort(
-    (left, right) =>
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
-  );
-}
-
 function BatchPreviewMetric({ label, value }: { label: string; value: string }) {
   return (
     <p className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -3917,76 +3798,8 @@ function issueBatchDueDateLabel(issueBatch: BankSlipIssueBatch) {
   return formatDate(issueBatch.dueDate);
 }
 
-function filterIssueBatchDownloads(
-  batches: BankSlipIssueBatch[],
-  search: string,
-) {
-  const query = normalizeSearchText(search);
-  if (!query) {
-    return batches;
-  }
-  return batches.filter((batch) =>
-    [
-      issueBatchInstitutionName(batch),
-      issueBatchAcademicYearLabel(batch),
-      issueBatchCompetenceLabel(batch),
-      formatDate(batch.createdAt),
-      formatDateTime(batch.createdAt),
-      formatDate(batch.dueDate),
-      issueBatchStatusLabel(batch.status),
-    ].some((value) => normalizeSearchText(value).includes(query)),
-  );
-}
-
-function issueBatchInstitutionName(batch: BankSlipIssueBatch) {
-  return batch.institution?.name ?? "Instituicao nao informada";
-}
-
-function issueBatchAcademicYearLabel(batch: BankSlipIssueBatch) {
-  return extractYear(batch.competence) ?? extractYear(batch.dueDate) ?? extractYear(batch.createdAt) ?? "-";
-}
-
-function issueBatchCompetenceLabel(batch: BankSlipIssueBatch) {
-  return formatMonthYear(batch.competence) ?? formatMonthYear(batch.dueDate) ?? "-";
-}
-
 function issueBatchTotalValueCents(batch: BankSlipIssueBatch) {
   return batch.metadata?.report?.issuedAmountCents ?? batch.totalValueCents;
-}
-
-function normalizeSearchText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function extractYear(value?: string | null) {
-  if (!value) {
-    return null;
-  }
-  const year = /^(\d{4})/.exec(value)?.[1] ?? /(\d{4})/.exec(value)?.[1];
-  return year ?? null;
-}
-
-function formatMonthYear(value?: string | null) {
-  if (!value) {
-    return null;
-  }
-  const match = /^(\d{4})-(\d{2})/.exec(value);
-  if (match) {
-    return `${match[2]}/${match[1]}`;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return new Intl.DateTimeFormat("pt-BR", {
-    month: "2-digit",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
 }
 
 function IssueBatchProgressPanel({
