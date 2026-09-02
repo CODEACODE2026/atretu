@@ -75,6 +75,24 @@ assert.match(
   "Editing a legacy admin into USER must submit role, permission profile, and institutions in one update request",
 );
 
+assert.match(
+  panel,
+  /const userNeedsPermissionProfile =[\s\S]*?form\.role === "USER" && !form\.permissionProfileId;/,
+  "USER edit must expose a validation reason while permission profile is missing",
+);
+
+assert.match(
+  panel,
+  /disabled=\{saving \|\| userNeedsPermissionProfile \|\| userNeedsInstitution\}/,
+  "Save must enable only after USER has both a permission profile and institution",
+);
+
+assert.match(
+  panel,
+  /<p className="text-sm font-semibold text-slate-950">Acesso<\/p>[\s\S]*?Nível[\s\S]*?Perfil de Permissões \*[\s\S]*?\{institutionPicker\}[\s\S]*?<p className="text-sm font-semibold text-slate-950">Segurança<\/p>/,
+  "Role, permission profile, and institutions must appear together in the Access section before Security",
+);
+
 assert.equal(
   panel.includes("const currentInstitutionIds = sortedIds(dialog.user.institutionIds);"),
   false,

@@ -1147,6 +1147,8 @@ function UserFormDialog({
 }) {
   const institutionsOnly = dialog.mode === "institutions";
   const roleOptions = roleOptionsForDialog(dialog);
+  const userNeedsPermissionProfile =
+    !institutionsOnly && form.role === "USER" && !form.permissionProfileId;
   const userNeedsInstitution =
     (institutionsOnly ? dialog.user?.roles.includes("USER") : form.role === "USER") &&
     form.institutionIds.length === 0;
@@ -1171,6 +1173,78 @@ function UserFormDialog({
       role,
     });
   }
+
+  const institutionPicker = (
+    <div className="grid gap-3 md:col-span-2">
+      <div>
+        <p className="text-sm font-semibold text-slate-950">
+          Instituições{form.role === "USER" || dialog.user?.roles.includes("USER") ? " *" : ""}
+        </p>
+        <p className="mt-1 text-sm text-slate-500">
+          {form.role === "USER" || dialog.user?.roles.includes("USER")
+            ? "O acesso do usuário é limitado às instituições selecionadas."
+            : "Selecione por nome. IDs nunca são editados manualmente."}
+        </p>
+      </div>
+      <input
+        className={adminTheme.control}
+        onChange={(event) => onInstitutionSearch(event.target.value)}
+        placeholder="Pesquisar instituição"
+        value={institutionSearch}
+      />
+      <div className="flex flex-wrap gap-2">
+        {form.institutionIds.length === 0 ? (
+          <span className="text-sm text-slate-500">Sem instituição</span>
+        ) : (
+          form.institutionIds.map((id) => (
+            <span
+              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600"
+              key={id}
+            >
+              {institutionName(institutions, id)}
+            </span>
+          ))
+        )}
+      </div>
+      {userNeedsInstitution ? (
+        <p className="text-sm font-medium text-red-600">
+          Selecione pelo menos uma instituição.
+        </p>
+      ) : null}
+      <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
+        {filteredInstitutions.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            Nenhuma instituição encontrada.
+          </p>
+        ) : (
+          filteredInstitutions.map((institution) => (
+            <label
+              className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+              key={institution.id}
+            >
+              <input
+                checked={form.institutionIds.includes(institution.id)}
+                className="h-4 w-4 rounded border-slate-300 text-[#0F2E2E]"
+                onChange={(event) =>
+                  updateInstitution(institution.id, event.target.checked)
+                }
+                type="checkbox"
+              />
+              <span className="min-w-0 flex-1 break-words">
+                {institution.name}
+              </span>
+            </label>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  const institutionSection = (
+    <section className={adminTheme.softPanel}>
+      <div className="grid gap-3 p-4">{institutionPicker}</div>
+    </section>
+  );
 
   return (
     <div className="fixed inset-0 z-30 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-[2px]">
@@ -1324,8 +1398,14 @@ function UserFormDialog({
                           </option>
                         ))}
                       </select>
+                      {userNeedsPermissionProfile ? (
+                        <span className="text-sm font-medium text-red-600">
+                          Selecione um perfil de permissão.
+                        </span>
+                      ) : null}
                     </label>
                   ) : null}
+                  {institutionPicker}
                 </div>
               </section>
 
@@ -1359,73 +1439,9 @@ function UserFormDialog({
                 </div>
               </section>
             </>
-          ) : null}
-
-          <section className={adminTheme.softPanel}>
-            <div className="border-b border-slate-200 px-4 py-3">
-              <p className="text-sm font-semibold text-slate-950">
-                Instituições{form.role === "USER" || dialog.user?.roles.includes("USER") ? " *" : ""}
-              </p>
-              <p className="mt-1 text-sm text-slate-500">
-                {form.role === "USER" || dialog.user?.roles.includes("USER")
-                  ? "O acesso do usuário é limitado às instituições selecionadas."
-                  : "Selecione por nome. IDs nunca são editados manualmente."}
-              </p>
-            </div>
-            <div className="grid gap-3 p-4">
-              <input
-                className={adminTheme.control}
-                onChange={(event) => onInstitutionSearch(event.target.value)}
-                placeholder="Pesquisar instituição"
-                value={institutionSearch}
-              />
-              <div className="flex flex-wrap gap-2">
-                {form.institutionIds.length === 0 ? (
-                  <span className="text-sm text-slate-500">Sem instituição</span>
-                ) : (
-                  form.institutionIds.map((id) => (
-                    <span
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600"
-                      key={id}
-                    >
-                      {institutionName(institutions, id)}
-                    </span>
-                  ))
-                )}
-              </div>
-              {userNeedsInstitution ? (
-                <p className="text-sm font-medium text-red-600">
-                  Selecione pelo menos uma instituição.
-                </p>
-              ) : null}
-              <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
-                {filteredInstitutions.length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    Nenhuma instituição encontrada.
-                  </p>
-                ) : (
-                  filteredInstitutions.map((institution) => (
-                    <label
-                      className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700"
-                      key={institution.id}
-                    >
-                      <input
-                        checked={form.institutionIds.includes(institution.id)}
-                        className="h-4 w-4 rounded border-slate-300 text-[#0F2E2E]"
-                        onChange={(event) =>
-                          updateInstitution(institution.id, event.target.checked)
-                        }
-                        type="checkbox"
-                      />
-                      <span className="min-w-0 flex-1 break-words">
-                        {institution.name}
-                      </span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
-          </section>
+          ) : (
+            institutionSection
+          )}
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50/80 px-5 py-4 sm:flex-row sm:justify-end">
@@ -1438,7 +1454,7 @@ function UserFormDialog({
           </button>
           <button
             className={adminTheme.primaryButton}
-            disabled={saving || userNeedsInstitution}
+            disabled={saving || userNeedsPermissionProfile || userNeedsInstitution}
             type="submit"
           >
             {saving ? "Salvando..." : "Salvar"}
