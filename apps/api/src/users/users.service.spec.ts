@@ -489,6 +489,154 @@ assert.deepEqual(legacySecretaria.roles, [RoleCode.SECRETARIA]);
 assert.equal(legacySecretaria.phone, "44988887777");
 assert.equal(legacySecretaria.position, "Secretaria");
 
+const legacyAdministrator = await service.createAdminUser(
+  {
+    email: "legacy-administrator@example.com",
+    institutionIds: [],
+    name: "Legacy Administrator",
+    role: RoleCode.ADMINISTRATOR,
+  },
+  "actor-1",
+);
+const legacyAdminAuditCount = prisma.audits.length;
+const convertedLegacyUser = await service.updateAdminUser(
+  legacyAdministrator.user.id,
+  {
+    institutionIds: [prisma.institutions[0]!.id],
+    permissionProfileId: prisma.permissionProfiles[0]!.id,
+    role: RoleCode.USER,
+  },
+  admin.user.id,
+);
+assert.deepEqual(convertedLegacyUser.roles, [RoleCode.USER]);
+assert.equal(convertedLegacyUser.permissionProfileId, prisma.permissionProfiles[0]!.id);
+assert.deepEqual(convertedLegacyUser.institutionIds, [prisma.institutions[0]!.id]);
+assert.equal(convertedLegacyUser.effectivePermissions.globalAccess, false);
+assert.equal(convertedLegacyUser.effectivePermissions.institutionScope, "restricted");
+assert.equal(
+  prisma.audits
+    .slice(legacyAdminAuditCount)
+    .some(
+      (audit) =>
+        audit.eventType === AdministrativeAuditEventType.USER_ROLE_CHANGED &&
+        JSON.stringify(audit.metadata).includes("institutionIdsAfter"),
+    ),
+  true,
+);
+const convertedAuthUser = await service.withOperationalCapabilities({
+  email: convertedLegacyUser.email,
+  id: convertedLegacyUser.id,
+  institutionIds: convertedLegacyUser.institutionIds,
+  name: convertedLegacyUser.name,
+  permissionProfileId: convertedLegacyUser.permissionProfileId,
+  roles: [RoleCode.USER],
+  status: convertedLegacyUser.status,
+});
+assert.deepEqual(convertedAuthUser.capabilities, [
+  "officialDocuments.view",
+  "officialDocuments.issue",
+]);
+
+const administratorWithoutProfile = await service.createAdminUser(
+  {
+    email: "administrator-without-profile@example.com",
+    institutionIds: [],
+    name: "Administrator Without Profile",
+    role: RoleCode.ADMINISTRATOR,
+  },
+  "actor-1",
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorWithoutProfile.user.id,
+      { institutionIds: [prisma.institutions[0]!.id], role: RoleCode.USER },
+      admin.user.id,
+    ),
+  (error) => error instanceof BadRequestException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorWithoutProfile.user.id,
+      {
+        institutionIds: [],
+        permissionProfileId: prisma.permissionProfiles[0]!.id,
+        role: RoleCode.USER,
+      },
+      admin.user.id,
+    ),
+  (error) => error instanceof BadRequestException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorWithoutProfile.user.id,
+      {
+        institutionIds: [prisma.institutions[0]!.id],
+        permissionProfileId: prisma.permissionProfiles[1]!.id,
+        role: RoleCode.USER,
+      },
+      admin.user.id,
+    ),
+  (error) => error instanceof BadRequestException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorWithoutProfile.user.id,
+      {
+        institutionIds: ["missing"],
+        permissionProfileId: prisma.permissionProfiles[0]!.id,
+        role: RoleCode.USER,
+      },
+      admin.user.id,
+    ),
+  (error) => error instanceof BadRequestException,
+);
+const administratorAfterRejectedConversion = await service.getAdminUser(
+  administratorWithoutProfile.user.id,
+);
+assert.deepEqual(administratorAfterRejectedConversion.roles, [RoleCode.ADMINISTRATOR]);
+assert.equal(administratorAfterRejectedConversion.permissionProfileId, null);
+assert.deepEqual(administratorAfterRejectedConversion.institutionIds, []);
+
+const reverseUser = await service.createAdminUser(
+  {
+    email: "reverse-user@example.com",
+    institutionIds: [prisma.institutions[0]!.id],
+    name: "Reverse User",
+    permissionProfileId: prisma.permissionProfiles[0]!.id,
+    role: RoleCode.USER,
+  },
+  "actor-1",
+);
+const promotedAdministrator = await service.updateAdminUser(
+  reverseUser.user.id,
+  {
+    institutionIds: reverseUser.user.institutionIds,
+    role: RoleCode.ADMINISTRATOR,
+  },
+  admin.user.id,
+);
+assert.deepEqual(promotedAdministrator.roles, [RoleCode.ADMINISTRATOR]);
+assert.equal(promotedAdministrator.permissionProfileId, null);
+assert.deepEqual(promotedAdministrator.institutionIds, reverseUser.user.institutionIds);
+assert.equal(promotedAdministrator.effectivePermissions.globalAccess, false);
+assert.equal(promotedAdministrator.effectivePermissions.institutionScope, "restricted");
+
+const promotedSuperAdmin = await service.updateAdminUser(
+  promotedAdministrator.id,
+  {
+    institutionIds: promotedAdministrator.institutionIds,
+    role: RoleCode.SUPER_ADMIN,
+  },
+  admin.user.id,
+);
+assert.deepEqual(promotedSuperAdmin.roles, [RoleCode.SUPER_ADMIN]);
+assert.equal(promotedSuperAdmin.permissionProfileId, null);
+assert.equal(promotedSuperAdmin.effectivePermissions.globalAccess, true);
+
 await assert.rejects(
   () =>
     service.updateAdminUser(

@@ -183,7 +183,13 @@ export type CreateAdminUserBody = {
 export type UpdateAdminUserBody = Partial<
   Pick<
     CreateAdminUserBody,
-    "email" | "name" | "permissionProfileId" | "phone" | "position" | "status"
+    | "email"
+    | "institutionIds"
+    | "name"
+    | "permissionProfileId"
+    | "phone"
+    | "position"
+    | "status"
   >
 > & {
   role?: Extract<

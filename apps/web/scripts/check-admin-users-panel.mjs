@@ -58,7 +58,8 @@ includesAll(panel, [
   "Cargo/Função",
   "Perfil de Permissões",
   "O acesso do usuário é limitado às instituições selecionadas.",
-  "Usuário deve possuir ao menos uma instituição vinculada.",
+  "Selecione um perfil de permissão.",
+  "Selecione pelo menos uma instituição.",
   "Segurança",
   "Esta senha será exibida apenas uma vez.",
   "Nunca logou",
@@ -67,6 +68,24 @@ includesAll(panel, [
   "table-fixed",
   "lg:hidden",
 ]);
+
+assert.match(
+  panel,
+  /await api\.updateAdminUser\(dialog\.user\.id, \{[\s\S]*?institutionIds: nextInstitutionIds,[\s\S]*?permissionProfileId:[\s\S]*?form\.role === "USER" \? form\.permissionProfileId : undefined,[\s\S]*?role: form\.role === "GESTOR" \? undefined : form\.role,/,
+  "Editing a legacy admin into USER must submit role, permission profile, and institutions in one update request",
+);
+
+assert.equal(
+  panel.includes("const currentInstitutionIds = sortedIds(dialog.user.institutionIds);"),
+  false,
+  "Edit submit must not depend on comparing institutions for a second update request",
+);
+
+assert.equal(
+  panel.includes("function sameIds("),
+  false,
+  "Edit submit must send institution IDs atomically instead of keeping a second-request helper",
+);
 
 for (const forbidden of [
   "window.confirm",

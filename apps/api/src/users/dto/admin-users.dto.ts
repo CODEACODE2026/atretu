@@ -208,6 +208,12 @@ export class UpdateAdminUserDto {
   @IsUUID()
   @Transform(({ value }) => optionalUuid(value))
   permissionProfileId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID("4", { each: true })
+  institutionIds?: string[];
 }
 
 export class UpdateAdminUserInstitutionsDto {

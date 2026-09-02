@@ -351,10 +351,10 @@ export function UsersPanel() {
     try {
       if (dialog.mode === "create") {
         if (form.role === "USER" && !form.permissionProfileId) {
-          throw new Error("Perfil de Permissões obrigatório para Usuário.");
+          throw new Error("Selecione um perfil de permissão.");
         }
         if (form.role === "USER" && form.institutionIds.length === 0) {
-          throw new Error("Usuário deve possuir ao menos uma instituição vinculada.");
+          throw new Error("Selecione pelo menos uma instituição.");
         }
         const body: CreateAdminUserBody = {
           email: form.email.trim(),
@@ -379,15 +379,15 @@ export function UsersPanel() {
         });
       } else if (dialog.mode === "edit" && dialog.user) {
         if (form.role === "USER" && !form.permissionProfileId) {
-          throw new Error("Perfil de Permissões obrigatório para Usuário.");
+          throw new Error("Selecione um perfil de permissão.");
         }
         if (form.role === "USER" && form.institutionIds.length === 0) {
-          throw new Error("Usuário deve possuir ao menos uma instituição vinculada.");
+          throw new Error("Selecione pelo menos uma instituição.");
         }
         const nextInstitutionIds = sortedIds(form.institutionIds);
-        const currentInstitutionIds = sortedIds(dialog.user.institutionIds);
         await api.updateAdminUser(dialog.user.id, {
           email: form.email.trim(),
+          institutionIds: nextInstitutionIds,
           name: form.name.trim(),
           permissionProfileId:
             form.role === "USER" ? form.permissionProfileId : undefined,
@@ -396,12 +396,6 @@ export function UsersPanel() {
           role: form.role === "GESTOR" ? undefined : form.role,
           status: form.status,
         });
-        if (!sameIds(nextInstitutionIds, currentInstitutionIds)) {
-          await api.updateAdminUserInstitutions(
-            dialog.user.id,
-            nextInstitutionIds,
-          );
-        }
         setDialog(null);
         setFeedback({ tone: "green", text: "Usuário atualizado." });
       } else if (dialog.mode === "institutions" && dialog.user) {
@@ -409,7 +403,7 @@ export function UsersPanel() {
           dialog.user.roles.includes("USER") &&
           form.institutionIds.length === 0
         ) {
-          throw new Error("Usuário deve possuir ao menos uma instituição vinculada.");
+          throw new Error("Selecione pelo menos uma instituição.");
         }
         await api.updateAdminUserInstitutions(
           dialog.user.id,
@@ -1401,7 +1395,7 @@ function UserFormDialog({
               </div>
               {userNeedsInstitution ? (
                 <p className="text-sm font-medium text-red-600">
-                  Usuário deve possuir ao menos uma instituição vinculada.
+                  Selecione pelo menos uma instituição.
                 </p>
               ) : null}
               <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
@@ -1706,15 +1700,6 @@ function roleOptionsForDialog(dialog: UserDialogState): EditableRole[] {
 
 function sortedIds(ids: string[]) {
   return Array.from(new Set(ids)).sort();
-}
-
-function sameIds(left: string[], right: string[]) {
-  const sortedLeft = sortedIds(left);
-  const sortedRight = sortedIds(right);
-  return (
-    sortedLeft.length === sortedRight.length &&
-    sortedLeft.every((id, index) => id === sortedRight[index])
-  );
 }
 
 function formatDate(value: string) {

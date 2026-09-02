@@ -452,9 +452,14 @@ export class UsersService {
         }
         const nextRoles = input.role ? [input.role] : currentRoles;
         const nextStatus = input.status ?? current.status;
+        const currentInstitutionIds = this.institutionIds(current);
+        const nextInstitutionIds =
+          input.institutionIds === undefined
+            ? currentInstitutionIds
+            : this.uniqueIds(input.institutionIds);
         this.assertUserInstitutionRequirement(
           nextRoles[0]!,
-          this.institutionIds(current),
+          nextInstitutionIds,
         );
         const nextPermissionProfileId = await this.resolvePermissionProfileId(
           tx,
@@ -484,6 +489,9 @@ export class UsersService {
           roles: nextRoles,
           status: nextStatus,
         });
+        if (input.institutionIds !== undefined) {
+          await this.assertInstitutionsExist(tx, nextInstitutionIds);
+        }
 
         const updated = await tx.user.update({
           where: { id },
@@ -524,6 +532,43 @@ export class UsersService {
               targetUserId: id,
               roleBefore: currentRoles[0] ?? null,
               roleAfter: input.role,
+              permissionProfileIdBefore: current.permissionProfileId,
+              permissionProfileIdAfter: nextPermissionProfileId,
+              institutionIdsBefore: currentInstitutionIds,
+              institutionIdsAfter: nextInstitutionIds,
+              ...this.auditRequestMetadata(context),
+            },
+          });
+        }
+
+        if (
+          input.institutionIds !== undefined &&
+          !this.sameIds(currentInstitutionIds, nextInstitutionIds)
+        ) {
+          await tx.userInstitution.deleteMany({ where: { userId: id } });
+          if (nextInstitutionIds.length > 0) {
+            await tx.userInstitution.createMany({
+              data: nextInstitutionIds.map((institutionId) => ({
+                userId: id,
+                institutionId,
+              })),
+              skipDuplicates: true,
+            });
+          }
+          await this.recordAuditTx(tx, {
+            eventType: AdministrativeAuditEventType.USER_INSTITUTIONS_CHANGED,
+            userId: actorUserId,
+            recordId: id,
+            metadata: {
+              origin: "admin_users",
+              actorUserId,
+              targetUserId: id,
+              roleBefore: currentRoles[0] ?? null,
+              roleAfter: nextRoles[0] ?? null,
+              permissionProfileIdBefore: current.permissionProfileId,
+              permissionProfileIdAfter: nextPermissionProfileId,
+              institutionIdsBefore: currentInstitutionIds,
+              institutionIdsAfter: nextInstitutionIds,
               ...this.auditRequestMetadata(context),
             },
           });
