@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  adminAreaHref,
   dashboardTargetHref,
   parseDashboardHref,
   studentsListHref,
@@ -25,6 +26,8 @@ assert.equal(
   parseDashboardHref("/admin?area=students&studentStatus=INVALID")?.studentStatus,
   undefined,
 );
+assert.equal(parseDashboardHref("/admin?area=account")?.area, "account");
+assert.equal(adminAreaHref("account"), "/admin?area=account");
 
 assert.equal(
   dashboardTargetHref({

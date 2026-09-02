@@ -6,6 +6,11 @@ const firstAccess = readFileSync("src/app/first-access/page.tsx", "utf8");
 const home = readFileSync("src/app/page.tsx", "utf8");
 const login = readFileSync("src/app/login/login-form.tsx", "utf8");
 const shell = readFileSync("src/app/admin/admin-shell.tsx", "utf8");
+const sidebar = readFileSync("src/app/admin/components/admin-sidebar.tsx", "utf8");
+const mobileNavigation = readFileSync(
+  "src/app/admin/components/mobile-navigation.tsx",
+  "utf8",
+);
 const api = readFileSync("src/lib/api.ts", "utf8");
 
 const includesAll = (source, values) => {
@@ -30,6 +35,23 @@ includesAll(shell, [
   "canAccessOperationalAdmin",
   "Minha Conta permanece disponivel",
   'effectiveArea === "account"',
+  'const navigationActiveArea = effectiveArea === "account" ? null : effectiveArea;',
+  "accountActive={effectiveArea === \"account\"}",
+  "activeArea={navigationActiveArea}",
+]);
+
+includesAll(sidebar, [
+  "accountActive: boolean",
+  "activeArea: AdminArea | null",
+  "active={activeArea === item.key}",
+  "aria-label=\"Minha Conta\"",
+]);
+
+includesAll(mobileNavigation, [
+  "accountActive: boolean",
+  "activeArea: AdminArea | null",
+  "aria-current={accountActive ? \"page\" : undefined}",
+  "Minha Conta",
 ]);
 
 includesAll(login, [

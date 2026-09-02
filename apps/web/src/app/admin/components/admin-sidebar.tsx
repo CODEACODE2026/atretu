@@ -17,6 +17,7 @@ import {
 import { adminTheme, cx } from "../admin-theme";
 
 export function AdminSidebar({
+  accountActive,
   activeArea,
   collapsed,
   items,
@@ -26,7 +27,8 @@ export function AdminSidebar({
   onLogout,
   user,
 }: {
-  activeArea: AdminArea;
+  accountActive: boolean;
+  activeArea: AdminArea | null;
   collapsed: boolean;
   items: readonly AdminNavItem[];
   onAccount: () => void;
@@ -129,9 +131,16 @@ export function AdminSidebar({
           <button
             aria-label="Minha Conta"
             className={
-              collapsed
-                ? cx(adminTheme.iconButton, "mt-3 h-9 w-9")
-                : cx(adminTheme.secondaryButton, "mt-3 w-full")
+              accountActive
+                ? collapsed
+                  ? cx(
+                      adminTheme.iconButton,
+                      "mt-3 h-9 w-9 border-[#0F2E2E] bg-[#0F2E2E] text-white hover:bg-[#0F2E2E]",
+                    )
+                  : cx(adminTheme.primaryButton, "mt-3 w-full")
+                : collapsed
+                  ? cx(adminTheme.iconButton, "mt-3 h-9 w-9")
+                  : cx(adminTheme.secondaryButton, "mt-3 w-full")
             }
             onClick={onAccount}
             type="button"

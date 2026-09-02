@@ -12,6 +12,7 @@ import {
 import { adminTheme, cx } from "../admin-theme";
 
 export function MobileNavigation({
+  accountActive,
   activeArea,
   items,
   onAccount,
@@ -21,7 +22,8 @@ export function MobileNavigation({
   open,
   user,
 }: {
-  activeArea: AdminArea;
+  accountActive: boolean;
+  activeArea: AdminArea | null;
   items: readonly AdminNavItem[];
   onAccount: () => void;
   onClose: () => void;
@@ -145,7 +147,12 @@ export function MobileNavigation({
             </div>
           </div>
           <button
-            className={cx(adminTheme.secondaryButton, "mt-3 w-full")}
+            aria-current={accountActive ? "page" : undefined}
+            className={
+              accountActive
+                ? cx(adminTheme.primaryButton, "mt-3 w-full")
+                : cx(adminTheme.secondaryButton, "mt-3 w-full")
+            }
             onClick={() => {
               onAccount();
               onClose();

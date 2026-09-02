@@ -260,6 +260,7 @@ function AdminWorkspace({
         (hasOperationalAccess
           ? visibleTabs[0] ?? ACCOUNT_NAV_ITEM
           : ACCOUNT_NAV_ITEM));
+  const navigationActiveArea = effectiveArea === "account" ? null : effectiveArea;
   const shortcutTargets: Record<
     string,
     { area: AdminArea; baseDomain?: DomainKey; financeArea?: FinanceArea }
@@ -439,7 +440,8 @@ function AdminWorkspace({
   return (
     <main className={`min-h-screen text-slate-950 ${adminTheme.appBackground}`}>
       <AdminSidebar
-        activeArea={effectiveArea}
+        accountActive={effectiveArea === "account"}
+        activeArea={navigationActiveArea}
         collapsed={effectiveSidebarCollapsed}
         items={visibleTabs}
         onAccount={() => handleAreaChange("account")}
@@ -449,7 +451,8 @@ function AdminWorkspace({
         user={user}
       />
       <MobileNavigation
-        activeArea={effectiveArea}
+        accountActive={effectiveArea === "account"}
+        activeArea={navigationActiveArea}
         items={visibleTabs}
         onAccount={() => handleAreaChange("account")}
         onClose={() => setMobileNavigationOpen(false)}
