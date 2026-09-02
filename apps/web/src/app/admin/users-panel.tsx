@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ban,
   BriefcaseBusiness,
@@ -1147,11 +1147,20 @@ function UserFormDialog({
 }) {
   const institutionsOnly = dialog.mode === "institutions";
   const roleOptions = roleOptionsForDialog(dialog);
+  const selectAllInstitutionsRef = useRef<HTMLInputElement | null>(null);
   const userNeedsPermissionProfile =
     !institutionsOnly && form.role === "USER" && !form.permissionProfileId;
   const userNeedsInstitution =
     (institutionsOnly ? dialog.user?.roles.includes("USER") : form.role === "USER") &&
     form.institutionIds.length === 0;
+  const selectedAvailableInstitutionIds = institutions.filter((institution) =>
+    form.institutionIds.includes(institution.id),
+  );
+  const allInstitutionsSelected =
+    institutions.length > 0 &&
+    selectedAvailableInstitutionIds.length === institutions.length;
+  const someInstitutionsSelected =
+    selectedAvailableInstitutionIds.length > 0 && !allInstitutionsSelected;
   const title =
     dialog.mode === "create"
       ? "Novo usuário"
@@ -1166,6 +1175,13 @@ function UserFormDialog({
     onChange({ ...form, institutionIds: nextIds });
   }
 
+  function updateAllInstitutions(checked: boolean) {
+    onChange({
+      ...form,
+      institutionIds: checked ? sortedIds(institutions.map((institution) => institution.id)) : [],
+    });
+  }
+
   function updateRole(role: EditableRole) {
     onChange({
       ...form,
@@ -1173,6 +1189,12 @@ function UserFormDialog({
       role,
     });
   }
+
+  useEffect(() => {
+    if (selectAllInstitutionsRef.current) {
+      selectAllInstitutionsRef.current.indeterminate = someInstitutionsSelected;
+    }
+  }, [someInstitutionsSelected]);
 
   const institutionPicker = (
     <div className="grid gap-3 md:col-span-2">
@@ -1192,6 +1214,22 @@ function UserFormDialog({
         placeholder="Pesquisar instituição"
         value={institutionSearch}
       />
+      <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+        <input
+          checked={allInstitutionsSelected}
+          className="h-4 w-4 rounded border-slate-300 text-[#0F2E2E]"
+          disabled={institutions.length === 0}
+          onChange={(event) => updateAllInstitutions(event.target.checked)}
+          ref={selectAllInstitutionsRef}
+          type="checkbox"
+        />
+        <span className="min-w-0 flex-1">
+          Selecionar todas ({institutions.length})
+        </span>
+        <span className="text-xs font-medium text-slate-500">
+          {form.institutionIds.length} selecionada{form.institutionIds.length === 1 ? "" : "s"}
+        </span>
+      </label>
       <div className="flex flex-wrap gap-2">
         {form.institutionIds.length === 0 ? (
           <span className="text-sm text-slate-500">Sem instituição</span>

@@ -58,6 +58,7 @@ includesAll(panel, [
   "Cargo/Função",
   "Perfil de Permissões",
   "O acesso do usuário é limitado às instituições selecionadas.",
+  "Selecionar todas",
   "Selecione um perfil de permissão.",
   "Selecione pelo menos uma instituição.",
   "Segurança",
@@ -91,6 +92,30 @@ assert.match(
   panel,
   /<p className="text-sm font-semibold text-slate-950">Acesso<\/p>[\s\S]*?Nível[\s\S]*?Perfil de Permissões \*[\s\S]*?\{institutionPicker\}[\s\S]*?<p className="text-sm font-semibold text-slate-950">Segurança<\/p>/,
   "Role, permission profile, and institutions must appear together in the Access section before Security",
+);
+
+assert.match(
+  panel,
+  /function updateAllInstitutions\(checked: boolean\) \{[\s\S]*?institutionIds: checked \? sortedIds\(institutions\.map\(\(institution\) => institution\.id\)\) : \[],[\s\S]*?\}/,
+  "Select all must use every available institution, not the filtered search result",
+);
+
+assert.match(
+  panel,
+  /selectAllInstitutionsRef\.current\.indeterminate = someInstitutionsSelected;/,
+  "Select all must expose an indeterminate state when only some institutions are selected",
+);
+
+assert.match(
+  panel,
+  /checked=\{allInstitutionsSelected\}[\s\S]*?onChange=\{\(event\) => updateAllInstitutions\(event\.target\.checked\)\}/,
+  "Select all checkbox must check all institutions and uncheck back to an empty selection",
+);
+
+assert.match(
+  panel,
+  /onChange=\{\(event\) => onInstitutionSearch\(event\.target\.value\)\}[\s\S]*?Selecionar todas[\s\S]*?filteredInstitutions\.map/,
+  "Select all must appear below search and above the filtered institution list",
 );
 
 assert.equal(
