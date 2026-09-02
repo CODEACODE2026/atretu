@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  type ApiUser,
   type AdminUser,
   type BaseRecord,
   type CreateAdminUserBody,
@@ -104,7 +105,7 @@ const EMPTY_FORM: UserFormState = {
   status: "ACTIVE",
 };
 
-export function UsersPanel() {
+export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [institutions, setInstitutions] = useState<BaseRecord[]>([]);
   const [permissionProfiles, setPermissionProfiles] = useState<
@@ -145,6 +146,9 @@ export function UsersPanel() {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [temporaryPassword, setTemporaryPassword] =
     useState<TemporaryPasswordState | null>(null);
+  const currentUserIsAdministrator =
+    currentUser.roles.includes("ADMINISTRATOR") &&
+    !currentUser.roles.includes("SUPER_ADMIN");
 
   useEffect(() => {
     void loadInstitutions();
@@ -305,12 +309,15 @@ export function UsersPanel() {
   }
 
   function openCreateDialog() {
-    setForm(EMPTY_FORM);
+    setForm(emptyFormForCurrentUser(currentUser));
     setInstitutionSearch("");
     setDialog({ mode: "create" });
   }
 
   function openEditDialog(user: AdminUser) {
+    if (!canManageUser(currentUser, user)) {
+      return;
+    }
     setForm({
       email: user.email,
       institutionIds: user.institutionIds,
@@ -326,6 +333,9 @@ export function UsersPanel() {
   }
 
   function openInstitutionsDialog(user: AdminUser) {
+    if (!canManageUser(currentUser, user)) {
+      return;
+    }
     setForm({
       email: user.email,
       institutionIds: user.institutionIds,
@@ -364,7 +374,9 @@ export function UsersPanel() {
             form.role === "USER" ? form.permissionProfileId : undefined,
           phone: form.phone.trim() || undefined,
           position: form.position.trim() || undefined,
-          role: form.role as CreateAssignableRole,
+          role: currentUserIsAdministrator
+            ? "USER"
+            : (form.role as CreateAssignableRole),
           status: form.status,
         };
         const response = await api.createAdminUser(body);
@@ -393,7 +405,11 @@ export function UsersPanel() {
             form.role === "USER" ? form.permissionProfileId : undefined,
           phone: form.phone.trim() || undefined,
           position: form.position.trim() || undefined,
-          role: form.role === "GESTOR" ? undefined : form.role,
+          role: currentUserIsAdministrator
+            ? "USER"
+            : form.role === "GESTOR"
+              ? undefined
+              : form.role,
           status: form.status,
         });
         setDialog(null);
@@ -745,6 +761,7 @@ export function UsersPanel() {
                         onUnblock={() =>
                           setPendingAction({ type: "unblock", user })
                         }
+                        canManage={canManageUser(currentUser, user)}
                         user={user}
                       />
                     ))}
@@ -763,6 +780,7 @@ export function UsersPanel() {
                       setPendingAction({ type: "reset-password", user })
                     }
                     onUnblock={() => setPendingAction({ type: "unblock", user })}
+                    canManage={canManageUser(currentUser, user)}
                     user={user}
                   />
                 ))}
@@ -792,6 +810,7 @@ export function UsersPanel() {
           onSubmit={submitUserDialog}
           permissionProfiles={permissionProfiles}
           saving={saving}
+          currentUserIsAdministrator={currentUserIsAdministrator}
         />
       ) : null}
 
@@ -820,6 +839,7 @@ export function UsersPanel() {
 }
 
 function UserTableRow({
+  canManage,
   onBlock,
   onEdit,
   onInstitutions,
@@ -827,6 +847,7 @@ function UserTableRow({
   onUnblock,
   user,
 }: {
+  canManage: boolean;
   onBlock: () => void;
   onEdit: () => void;
   onInstitutions: () => void;
@@ -883,6 +904,7 @@ function UserTableRow({
       </td>
       <td className="border-b border-slate-100 px-3 py-3">
         <UserActions
+          canManage={canManage}
           onBlock={onBlock}
           onEdit={onEdit}
           onInstitutions={onInstitutions}
@@ -896,6 +918,7 @@ function UserTableRow({
 }
 
 function UserMobileCard({
+  canManage,
   onBlock,
   onEdit,
   onInstitutions,
@@ -903,6 +926,7 @@ function UserMobileCard({
   onUnblock,
   user,
 }: {
+  canManage: boolean;
   onBlock: () => void;
   onEdit: () => void;
   onInstitutions: () => void;
@@ -970,7 +994,8 @@ function UserMobileCard({
         </div>
       </div>
       <div className="relative mt-4 flex justify-end">
-        <button
+        {canManage ? (
+          <button
           aria-controls={`user-actions-${user.id}`}
           aria-expanded={actionsOpen}
           className={cx(adminTheme.secondaryButton, "w-full justify-center sm:w-auto")}
@@ -979,8 +1004,13 @@ function UserMobileCard({
         >
           <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
           Ações
-        </button>
-        {actionsOpen ? (
+          </button>
+        ) : (
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Somente leitura
+          </span>
+        )}
+        {actionsOpen && canManage ? (
           <div
             className="absolute bottom-12 right-0 z-10 grid w-full min-w-56 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-sm shadow-lg sm:w-64"
             id={`user-actions-${user.id}`}
@@ -1034,6 +1064,7 @@ function UserMobileCard({
 }
 
 function UserActions({
+  canManage,
   onBlock,
   onEdit,
   onInstitutions,
@@ -1041,6 +1072,7 @@ function UserActions({
   onUnblock,
   user,
 }: {
+  canManage: boolean;
   onBlock: () => void;
   onEdit: () => void;
   onInstitutions: () => void;
@@ -1049,6 +1081,13 @@ function UserActions({
   user: AdminUser;
 }) {
   const inactive = user.status === "INACTIVE";
+  if (!canManage) {
+    return (
+      <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+        Somente leitura
+      </span>
+    );
+  }
   return (
     <div className="flex flex-nowrap justify-end gap-1.5">
       <button
@@ -1121,6 +1160,7 @@ function UserMobileAction({
 }
 
 function UserFormDialog({
+  currentUserIsAdministrator,
   dialog,
   filteredInstitutions,
   form,
@@ -1133,6 +1173,7 @@ function UserFormDialog({
   permissionProfiles,
   saving,
 }: {
+  currentUserIsAdministrator: boolean;
   dialog: UserDialogState;
   filteredInstitutions: BaseRecord[];
   form: UserFormState;
@@ -1146,7 +1187,7 @@ function UserFormDialog({
   saving: boolean;
 }) {
   const institutionsOnly = dialog.mode === "institutions";
-  const roleOptions = roleOptionsForDialog(dialog);
+  const roleOptions = roleOptionsForDialog(dialog, currentUserIsAdministrator);
   const selectAllInstitutionsRef = useRef<HTMLInputElement | null>(null);
   const userNeedsPermissionProfile =
     !institutionsOnly && form.role === "USER" && !form.permissionProfileId;
@@ -1399,7 +1440,7 @@ function UserFormDialog({
                     Nível
                     <select
                       className={adminTheme.control}
-                      disabled={form.role === "GESTOR"}
+                      disabled={currentUserIsAdministrator || form.role === "GESTOR"}
                       onChange={(event) =>
                         updateRole(event.target.value as EditableRole)
                       }
@@ -1742,7 +1783,35 @@ function editableRoleOrDefault(role?: RoleCode): EditableRole {
   return "ADMINISTRATOR";
 }
 
-function roleOptionsForDialog(dialog: UserDialogState): EditableRole[] {
+function emptyFormForCurrentUser(currentUser: ApiUser): UserFormState {
+  return {
+    ...EMPTY_FORM,
+    role: currentUser.roles.includes("ADMINISTRATOR") &&
+      !currentUser.roles.includes("SUPER_ADMIN")
+      ? "USER"
+      : EMPTY_FORM.role,
+  };
+}
+
+function canManageUser(currentUser: ApiUser, user: AdminUser): boolean {
+  if (currentUser.roles.includes("SUPER_ADMIN")) {
+    return true;
+  }
+  return (
+    currentUser.roles.includes("ADMINISTRATOR") &&
+    currentUser.id !== user.id &&
+    user.roles.length === 1 &&
+    user.roles.includes("USER")
+  );
+}
+
+function roleOptionsForDialog(
+  dialog: UserDialogState,
+  currentUserIsAdministrator: boolean,
+): EditableRole[] {
+  if (currentUserIsAdministrator) {
+    return ["USER"];
+  }
   if (dialog.mode === "create") {
     return CREATE_ASSIGNABLE_ROLES;
   }

@@ -72,9 +72,15 @@ includesAll(panel, [
 
 assert.match(
   panel,
-  /await api\.updateAdminUser\(dialog\.user\.id, \{[\s\S]*?institutionIds: nextInstitutionIds,[\s\S]*?permissionProfileId:[\s\S]*?form\.role === "USER" \? form\.permissionProfileId : undefined,[\s\S]*?role: form\.role === "GESTOR" \? undefined : form\.role,/,
+  /await api\.updateAdminUser\(dialog\.user\.id, \{[\s\S]*?institutionIds: nextInstitutionIds,[\s\S]*?permissionProfileId:[\s\S]*?form\.role === "USER" \? form\.permissionProfileId : undefined,[\s\S]*?role: currentUserIsAdministrator[\s\S]*?\? "USER"[\s\S]*?: form\.role === "GESTOR"[\s\S]*?\? undefined[\s\S]*?: form\.role,/,
   "Editing a legacy admin into USER must submit role, permission profile, and institutions in one update request",
 );
+
+assert.match(panel, /function canManageUser\(currentUser: ApiUser, user: AdminUser\)/);
+assert.match(panel, /user\.roles\.length === 1 &&[\s\S]*user\.roles\.includes\("USER"\)/);
+assert.match(panel, /function roleOptionsForDialog\([\s\S]*currentUserIsAdministrator/);
+assert.match(panel, /return \["USER"\];/);
+assert.match(shell, /<UsersPanel currentUser=\{user\} \/>/);
 
 assert.match(
   panel,

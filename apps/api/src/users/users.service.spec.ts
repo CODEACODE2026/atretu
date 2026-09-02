@@ -293,6 +293,13 @@ const service = new UsersService(
   { record: async () => undefined } as never,
   { values: { passwordHashRounds: 4 } } as never,
 );
+const systemSuperActor = {
+  email: "system-super@example.com",
+  id: "actor-1",
+  name: "System Super",
+  roles: [RoleCode.SUPER_ADMIN],
+  status: UserStatus.ACTIVE,
+};
 
 const created = await service.createAdminUser(
   {
@@ -304,7 +311,7 @@ const created = await service.createAdminUser(
     position: "Atendimento",
     role: RoleCode.USER,
   },
-  "actor-1",
+  systemSuperActor,
 );
 assert.equal(created.user.email, "usuario@example.com");
 assert.equal(created.user.mustChangePassword, true);
@@ -344,7 +351,7 @@ const auditCountAfterCreate = prisma.audits.length;
 await service.updateAdminUserInstitutions(
   created.user.id,
   [prisma.institutions[1]!.id, prisma.institutions[0]!.id],
-  "actor-1",
+  systemSuperActor,
 );
 assert.equal(prisma.audits.length, auditCountAfterCreate);
 
@@ -356,7 +363,7 @@ const administrator = await service.createAdminUser(
     permissionProfileId: prisma.permissionProfiles[0]!.id,
     role: RoleCode.ADMINISTRATOR,
   },
-  "actor-1",
+  systemSuperActor,
 );
 assert.deepEqual(administrator.user.roles, [RoleCode.ADMINISTRATOR]);
 assert.equal(administrator.user.permissionProfileId, null);
@@ -369,7 +376,7 @@ const superWithProfile = await service.createAdminUser(
     permissionProfileId: prisma.permissionProfiles[0]!.id,
     role: RoleCode.SUPER_ADMIN,
   },
-  "actor-1",
+  systemSuperActor,
 );
 assert.equal(superWithProfile.user.permissionProfileId, null);
 
@@ -382,7 +389,7 @@ await assert.rejects(
         name: "Gestor",
         role: RoleCode.GESTOR,
       },
-      "actor-1",
+      systemSuperActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -397,7 +404,7 @@ await assert.rejects(
         permissionProfileId: prisma.permissionProfiles[0]!.id,
         role: RoleCode.USER,
       },
-      "actor-1",
+      systemSuperActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -411,7 +418,7 @@ await assert.rejects(
         name: "Sem profile",
         role: RoleCode.USER,
       },
-      "actor-1",
+      systemSuperActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -426,7 +433,7 @@ await assert.rejects(
         permissionProfileId: prisma.permissionProfiles[1]!.id,
         role: RoleCode.USER,
       },
-      "actor-1",
+      systemSuperActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -440,7 +447,7 @@ await assert.rejects(
         name: "Secretaria",
         role: RoleCode.SECRETARIA,
       },
-      "actor-1",
+      systemSuperActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -452,10 +459,17 @@ const admin = await service.createAdminUser(
     name: "Admin",
     role: RoleCode.SUPER_ADMIN,
   },
-  "actor-1",
+  systemSuperActor,
 );
 assert.equal(admin.user.phone, null);
 assert.equal(admin.user.position, null);
+const superAdminActor = {
+  email: admin.user.email,
+  id: admin.user.id,
+  name: admin.user.name,
+  roles: [RoleCode.SUPER_ADMIN],
+  status: UserStatus.ACTIVE,
+};
 
 const legacySecretariaId = "legacy-secretaria";
 prisma.users.push({
@@ -483,7 +497,7 @@ const legacySecretaria = await service.updateAdminUser(
     position: "Secretaria",
     role: RoleCode.SECRETARIA,
   },
-  admin.user.id,
+  superAdminActor,
 );
 assert.deepEqual(legacySecretaria.roles, [RoleCode.SECRETARIA]);
 assert.equal(legacySecretaria.phone, "44988887777");
@@ -496,7 +510,7 @@ const legacyAdministrator = await service.createAdminUser(
     name: "Legacy Administrator",
     role: RoleCode.ADMINISTRATOR,
   },
-  "actor-1",
+  systemSuperActor,
 );
 const legacyAdminAuditCount = prisma.audits.length;
 const convertedLegacyUser = await service.updateAdminUser(
@@ -506,7 +520,7 @@ const convertedLegacyUser = await service.updateAdminUser(
     permissionProfileId: prisma.permissionProfiles[0]!.id,
     role: RoleCode.USER,
   },
-  admin.user.id,
+  superAdminActor,
 );
 assert.deepEqual(convertedLegacyUser.roles, [RoleCode.USER]);
 assert.equal(convertedLegacyUser.permissionProfileId, prisma.permissionProfiles[0]!.id);
@@ -544,14 +558,14 @@ const administratorWithoutProfile = await service.createAdminUser(
     name: "Administrator Without Profile",
     role: RoleCode.ADMINISTRATOR,
   },
-  "actor-1",
+  systemSuperActor,
 );
 await assert.rejects(
   () =>
     service.updateAdminUser(
       administratorWithoutProfile.user.id,
       { institutionIds: [prisma.institutions[0]!.id], role: RoleCode.USER },
-      admin.user.id,
+      superAdminActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -564,7 +578,7 @@ await assert.rejects(
         permissionProfileId: prisma.permissionProfiles[0]!.id,
         role: RoleCode.USER,
       },
-      admin.user.id,
+      superAdminActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -577,7 +591,7 @@ await assert.rejects(
         permissionProfileId: prisma.permissionProfiles[1]!.id,
         role: RoleCode.USER,
       },
-      admin.user.id,
+      superAdminActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -590,7 +604,7 @@ await assert.rejects(
         permissionProfileId: prisma.permissionProfiles[0]!.id,
         role: RoleCode.USER,
       },
-      admin.user.id,
+      superAdminActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -609,7 +623,7 @@ const reverseUser = await service.createAdminUser(
     permissionProfileId: prisma.permissionProfiles[0]!.id,
     role: RoleCode.USER,
   },
-  "actor-1",
+  systemSuperActor,
 );
 const promotedAdministrator = await service.updateAdminUser(
   reverseUser.user.id,
@@ -617,7 +631,7 @@ const promotedAdministrator = await service.updateAdminUser(
     institutionIds: reverseUser.user.institutionIds,
     role: RoleCode.ADMINISTRATOR,
   },
-  admin.user.id,
+  superAdminActor,
 );
 assert.deepEqual(promotedAdministrator.roles, [RoleCode.ADMINISTRATOR]);
 assert.equal(promotedAdministrator.permissionProfileId, null);
@@ -631,7 +645,7 @@ const promotedSuperAdmin = await service.updateAdminUser(
     institutionIds: promotedAdministrator.institutionIds,
     role: RoleCode.SUPER_ADMIN,
   },
-  admin.user.id,
+  superAdminActor,
 );
 assert.deepEqual(promotedSuperAdmin.roles, [RoleCode.SUPER_ADMIN]);
 assert.equal(promotedSuperAdmin.permissionProfileId, null);
@@ -642,7 +656,7 @@ await assert.rejects(
     service.updateAdminUser(
       admin.user.id,
       { role: RoleCode.USER },
-      "actor-1",
+      systemSuperActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -651,7 +665,7 @@ await assert.rejects(
     service.updateAdminUser(
       created.user.id,
       { permissionProfileId: prisma.permissionProfiles[1]!.id, role: RoleCode.USER },
-      admin.user.id,
+      superAdminActor,
     ),
   (error) => error instanceof BadRequestException,
 );
@@ -659,9 +673,206 @@ await assert.rejects(
 const inactiveAdministrator = await service.updateAdminUser(
   administrator.user.id,
   { status: UserStatus.INACTIVE },
-  admin.user.id,
+  superAdminActor,
 );
 assert.equal(inactiveAdministrator.status, UserStatus.INACTIVE);
+
+const administratorActor = {
+  email: administrator.user.email,
+  id: administrator.user.id,
+  name: administrator.user.name,
+  roles: [RoleCode.ADMINISTRATOR],
+  status: UserStatus.ACTIVE,
+};
+const administratorManagedUser = await service.createAdminUser(
+  {
+    email: "administrator-managed-user@example.com",
+    institutionIds: [prisma.institutions[0]!.id],
+    name: "Managed User",
+    permissionProfileId: prisma.permissionProfiles[0]!.id,
+    role: RoleCode.USER,
+  },
+  administratorActor,
+);
+assert.deepEqual(administratorManagedUser.user.roles, [RoleCode.USER]);
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "administrator-created-admin@example.com",
+        institutionIds: [],
+        name: "Created Admin",
+        role: RoleCode.ADMINISTRATOR,
+      },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "administrator-created-super@example.com",
+        institutionIds: [],
+        name: "Created Super",
+        role: RoleCode.SUPER_ADMIN,
+      },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "administrator-created-secretaria@example.com",
+        institutionIds: [],
+        name: "Created Secretaria",
+        role: RoleCode.SECRETARIA,
+      },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.createAdminUser(
+      {
+        email: "administrator-created-gestor@example.com",
+        institutionIds: [],
+        name: "Created Gestor",
+        role: RoleCode.GESTOR,
+      },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+const administratorUpdatedUser = await service.updateAdminUser(
+  administratorManagedUser.user.id,
+  {
+    institutionIds: [prisma.institutions[1]!.id],
+    name: "Managed User Updated",
+    permissionProfileId: prisma.permissionProfiles[0]!.id,
+    role: RoleCode.USER,
+    status: UserStatus.INACTIVE,
+  },
+  administratorActor,
+);
+assert.equal(administratorUpdatedUser.name, "Managed User Updated");
+assert.equal(administratorUpdatedUser.status, UserStatus.INACTIVE);
+assert.deepEqual(administratorUpdatedUser.institutionIds, [
+  prisma.institutions[1]!.id,
+]);
+const administratorUserReset = await service.resetAdminUserTemporaryPassword(
+  administratorManagedUser.user.id,
+  administratorActor,
+);
+assert.equal(administratorUserReset.user.mustChangePassword, true);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorManagedUser.user.id,
+      { role: RoleCode.ADMINISTRATOR },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorManagedUser.user.id,
+      { role: RoleCode.SUPER_ADMIN },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorManagedUser.user.id,
+      { role: RoleCode.SECRETARIA },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorManagedUser.user.id,
+      { role: RoleCode.GESTOR },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.updateAdminUser(admin.user.id, { name: "Blocked" }, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorWithoutProfile.user.id,
+      { status: UserStatus.ACTIVE },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.blockAdminUser(admin.user.id, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.resetAdminUserTemporaryPassword(
+      administratorWithoutProfile.user.id,
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      legacySecretariaId,
+      { status: UserStatus.INACTIVE },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+const legacyGestorId = "legacy-gestor";
+prisma.users.push({
+  id: legacyGestorId,
+  name: "Gestor Legado",
+  email: "gestor-legado@example.com",
+  phone: null,
+  position: null,
+  permissionProfileId: null,
+  passwordHash: await bcrypt.hash("Senha#26", 4),
+  status: UserStatus.ACTIVE,
+  mustChangePassword: false,
+  passwordChangedAt: null,
+  blockedAt: null,
+  lastLoginAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+});
+prisma.userRoles.push({ userId: legacyGestorId, roleId: "role-gestor" });
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      legacyGestorId,
+      { status: UserStatus.INACTIVE },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.resetAdminUserTemporaryPassword(legacySecretariaId, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.resetAdminUserTemporaryPassword(legacyGestorId, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
 
 const list = await service.listAdminUsers({
   limit: 10,
@@ -676,31 +887,31 @@ assert.equal(list.pagination.total, 1);
 assert.doesNotMatch(JSON.stringify(list), /passwordHash|temporaryPassword/);
 
 await assert.rejects(
-  () => service.updateAdminUser(admin.user.id, { role: RoleCode.SECRETARIA }, admin.user.id),
+  () => service.updateAdminUser(admin.user.id, { role: RoleCode.SECRETARIA }, superAdminActor),
   (error) => error instanceof BadRequestException,
 );
 await assert.rejects(
-  () => service.blockAdminUser(admin.user.id, admin.user.id),
+  () => service.blockAdminUser(admin.user.id, superAdminActor),
   (error) => error instanceof ForbiddenException,
 );
 await assert.rejects(
-  () => service.updateAdminUserInstitutions(created.user.id, ["missing"], admin.user.id),
+  () => service.updateAdminUserInstitutions(created.user.id, ["missing"], superAdminActor),
   (error) => error instanceof BadRequestException,
 );
 await assert.rejects(
-  () => service.updateAdminUserInstitutions(admin.user.id, [], admin.user.id),
+  () => service.updateAdminUserInstitutions(admin.user.id, [], superAdminActor),
   (error) => error instanceof ForbiddenException,
 );
 await assert.rejects(
-  () => service.updateAdminUserInstitutions(created.user.id, [], admin.user.id),
+  () => service.updateAdminUserInstitutions(created.user.id, [], superAdminActor),
   (error) => error instanceof BadRequestException,
 );
 await assert.rejects(
-  () => service.resetAdminUserTemporaryPassword(admin.user.id, admin.user.id),
+  () => service.resetAdminUserTemporaryPassword(admin.user.id, superAdminActor),
   (error) => error instanceof ForbiddenException,
 );
 
-const blocked = await service.blockAdminUser(created.user.id, admin.user.id);
+const blocked = await service.blockAdminUser(created.user.id, superAdminActor);
 assert.equal(blocked.status, UserStatus.INACTIVE);
 assert.ok(blocked.blockedAt);
 assert.equal(blocked.mustChangePassword, true);
@@ -709,7 +920,7 @@ assert.equal(
   blocked.blockedAt?.getTime(),
 );
 
-const unblocked = await service.unblockAdminUser(created.user.id, admin.user.id);
+const unblocked = await service.unblockAdminUser(created.user.id, superAdminActor);
 assert.equal(unblocked.status, UserStatus.ACTIVE);
 assert.equal(unblocked.blockedAt, null);
 assert.equal(unblocked.mustChangePassword, true);
@@ -720,7 +931,7 @@ const userBeforeFailedAudit = {
 const auditCountBeforeFailedAudit = prisma.audits.length;
 prisma.failAudit = true;
 await assert.rejects(
-  () => service.blockAdminUser(created.user.id, admin.user.id),
+  () => service.blockAdminUser(created.user.id, superAdminActor),
   /audit failure/,
 );
 prisma.failAudit = false;
@@ -730,7 +941,7 @@ assert.deepEqual(
 );
 assert.equal(prisma.audits.length, auditCountBeforeFailedAudit);
 
-const reset = await service.resetAdminUserTemporaryPassword(created.user.id, admin.user.id);
+const reset = await service.resetAdminUserTemporaryPassword(created.user.id, superAdminActor);
 assert.equal(reset.user.mustChangePassword, true);
 assert.ok(prisma.users.find((user) => user.id === created.user.id)?.passwordChangedAt);
 assert.equal(JSON.stringify(prisma.audits).includes(reset.temporaryPassword), false);

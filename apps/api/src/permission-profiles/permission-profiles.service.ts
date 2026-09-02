@@ -1,11 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { AdministrativeAuditEventType, Prisma } from "@prisma/client";
+import { AdministrativeAuditEventType, Prisma, RoleCode } from "@prisma/client";
 import { AdministrativeAuditService } from "../administrative-audit/administrative-audit.service.js";
 import {
   ACTIVE_DELEGATABLE_PERMISSION_KEYS,
@@ -125,6 +126,7 @@ export class PermissionProfilesService {
 
   async update(id: string, input: UpdatePermissionProfileDto, currentUser: AuthUser) {
     const current = await this.findOrThrow(id);
+    this.assertCurrentUserCanManageProfile(currentUser, current);
     const name = input.name?.trim();
     if (name) {
       await this.assertUniqueName(name, id);
@@ -263,6 +265,28 @@ export class PermissionProfilesService {
       }
     }
     return Array.from(expanded).sort();
+  }
+
+  private assertCurrentUserCanManageProfile(
+    currentUser: AuthUser,
+    profile: PermissionProfileWithPermissions,
+  ): void {
+    if (currentUser.roles.includes(RoleCode.SUPER_ADMIN)) {
+      return;
+    }
+    if (!currentUser.roles.includes(RoleCode.ADMINISTRATOR)) {
+      throw new ForbiddenException("Acesso negado");
+    }
+    const invalid = profile.permissions.some(
+      (permission) =>
+        !isDelegatablePermissionKey(permission.permissionKey) ||
+        !isActiveDelegatablePermissionKey(permission.permissionKey),
+    );
+    if (invalid) {
+      throw new ForbiddenException(
+        "ADMINISTRATOR pode administrar somente perfis operacionais",
+      );
+    }
   }
 
   private auditEventType(

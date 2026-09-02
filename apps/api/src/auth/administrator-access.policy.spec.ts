@@ -73,6 +73,11 @@ const administratorOperationalEndpoints = [
   [StudentsController, "listStudentLegacyFinancialHistory"],
 ] as const;
 
+const userAdministrationEndpoints = [
+  [AdminUsersController, "listUsers"],
+  [PermissionProfilesController, "list"],
+] as const;
+
 const globalOfficialDocumentModelEndpoints = [
   [OfficialDocumentModelsController, undefined],
 ] as const;
@@ -195,6 +200,31 @@ for (const item of administratorOperationalEndpoints) {
       ),
       true,
       `${item[0].name}.${item[1]} must allow ADMINISTRATOR without PermissionProfile or UserInstitution`,
+    );
+  }
+}
+
+for (const item of userAdministrationEndpoints) {
+  assert.deepEqual(
+    rolesMetadata(item[0], undefined),
+    [RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR],
+    `${item[0].name} must allow only SUPER_ADMIN and ADMINISTRATOR`,
+  );
+  assert.equal(
+    rolesGuard.canActivate(
+      controllerExecutionContext(item[0], item[1], [RoleCode.ADMINISTRATOR]),
+    ),
+    true,
+    `${item[0].name} must allow ADMINISTRATOR`,
+  );
+  for (const deniedRole of [RoleCode.SECRETARIA, RoleCode.USER, RoleCode.GESTOR]) {
+    assert.throws(
+      () =>
+        rolesGuard.canActivate(
+          controllerExecutionContext(item[0], item[1], [deniedRole]),
+        ),
+      (error) => error instanceof ForbiddenException,
+      `${item[0].name} must return 403 for ${deniedRole}`,
     );
   }
 }
@@ -461,8 +491,6 @@ for (const item of officialDocumentOperationalEndpoints) {
 const superAdminOnlyEndpoints = [
   [LegacyImportController, undefined],
   [JobsController, undefined],
-  [AdminUsersController, undefined],
-  [PermissionProfilesController, undefined],
   [AssociationSettingsController, undefined],
   [StudentsController, "createAcademicYear"],
   [StudentsController, "setCurrentAcademicYear"],

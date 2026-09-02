@@ -25,7 +25,7 @@ import {
 import { UsersService, type AuthUser } from "./users.service.js";
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN)
+@Roles(RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR)
 @Controller("admin/users")
 export class AdminUsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
@@ -51,7 +51,7 @@ export class AdminUsersController {
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
   ) {
-    return this.users.createAdminUser(body, user.id, {
+    return this.users.createAdminUser(body, user, {
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });
@@ -64,7 +64,7 @@ export class AdminUsersController {
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
   ) {
-    return this.users.updateAdminUser(id, body, user.id, {
+    return this.users.updateAdminUser(id, body, user, {
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });
@@ -80,7 +80,7 @@ export class AdminUsersController {
     return this.users.updateAdminUserInstitutions(
       id,
       body.institutionIds,
-      user.id,
+      user,
       {
         ip: request.ip,
         userAgent: request.headers["user-agent"],
@@ -94,7 +94,7 @@ export class AdminUsersController {
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
   ) {
-    return this.users.blockAdminUser(id, user.id, {
+    return this.users.blockAdminUser(id, user, {
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });
@@ -106,7 +106,7 @@ export class AdminUsersController {
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
   ) {
-    return this.users.unblockAdminUser(id, user.id, {
+    return this.users.unblockAdminUser(id, user, {
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });
@@ -118,7 +118,7 @@ export class AdminUsersController {
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
   ) {
-    return this.users.resetAdminUserTemporaryPassword(id, user.id, {
+    return this.users.resetAdminUserTemporaryPassword(id, user, {
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });

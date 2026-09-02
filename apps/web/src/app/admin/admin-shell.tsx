@@ -32,6 +32,7 @@ import {
   canAccessMigratedArea,
   canAccessOperationalAdmin,
   canAccessRestrictedAdmin,
+  canAccessUserAdministration,
 } from "../../lib/auth";
 import { AccountPanel } from "./account-panel";
 import { AcademicYearsPanel } from "./academic-years-panel";
@@ -424,6 +425,9 @@ function AdminWorkspace({
     ) {
       return canAccessMigratedArea(user, nextArea);
     }
+    if (nextArea === "users" || nextArea === "permission-profiles") {
+      return canAccessUserAdministration(user);
+    }
     const hasLegacyOperationalAccess = canAccessOperationalAdmin(user);
     if (!hasLegacyOperationalAccess) {
       return false;
@@ -537,7 +541,7 @@ function AdminWorkspace({
           {effectiveArea === "settings" ? <AssociationSettingsPanel /> : null}
           {effectiveArea === "jobs" ? <JobsMonitorPanel /> : null}
           {effectiveArea === "legacy-import" ? <LegacyImportPanel /> : null}
-          {effectiveArea === "users" ? <UsersPanel /> : null}
+          {effectiveArea === "users" ? <UsersPanel currentUser={user} /> : null}
           {effectiveArea === "permission-profiles" ? <PermissionProfilesPanel /> : null}
           {effectiveArea === "account" ? (
             <AccountPanel

@@ -116,6 +116,8 @@ type AuditContext = {
   userAgent?: string | string[];
 };
 
+type AdminActor = AuthUser;
+
 const CREATE_ADMIN_ASSIGNABLE_ROLES = new Set<RoleCode>([
   RoleCode.ADMINISTRATOR,
   RoleCode.SUPER_ADMIN,
@@ -335,10 +337,11 @@ export class UsersService {
 
   async createAdminUser(
     input: CreateAdminUserDto,
-    actorUserId: string,
+    actor: AdminActor,
     context: AuditContext = {},
   ) {
-    this.assertAssignableRoleForCreate(input.role);
+    const actorUserId = this.actorUserId(actor);
+    this.assertActorCanCreateUser(actor, input.role);
     const email = input.email.trim().toLowerCase();
     const institutionIds = this.uniqueIds(input.institutionIds ?? []);
     this.assertUserInstitutionRequirement(input.role, institutionIds);
@@ -438,17 +441,19 @@ export class UsersService {
   async updateAdminUser(
     id: string,
     input: UpdateAdminUserDto,
-    actorUserId: string,
+    actor: AdminActor,
     context: AuditContext = {},
   ): Promise<AdminUserResponse> {
+    const actorUserId = this.actorUserId(actor);
     const nextEmail = input.email?.trim().toLowerCase();
 
     return this.prisma.$transaction(
       async (tx) => {
         const current = await this.findAdminUserOrThrowTx(tx, id);
         const currentRoles = this.roleCodes(current);
+        this.assertActorCanManageCurrentUser(actor, id, currentRoles);
         if (input.role) {
-          this.assertAssignableRoleForUpdate(input.role, currentRoles);
+          this.assertActorCanAssignRoleForUpdate(actor, input.role, currentRoles);
         }
         const nextRoles = input.role ? [input.role] : currentRoles;
         const nextStatus = input.status ?? current.status;
@@ -651,9 +656,10 @@ export class UsersService {
   async updateAdminUserInstitutions(
     userId: string,
     institutionIds: string[],
-    actorUserId: string,
+    actor: AdminActor,
     context: AuditContext = {},
   ): Promise<AdminUserResponse> {
+    const actorUserId = this.actorUserId(actor);
     if (userId === actorUserId) {
       throw new ForbiddenException("Nao e permitido alterar as proprias instituicoes");
     }
@@ -661,6 +667,7 @@ export class UsersService {
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const current = await this.findAdminUserOrThrowTx(tx, userId);
+      this.assertActorCanManageCurrentUser(actor, userId, this.roleCodes(current));
       const beforeInstitutionIds = this.institutionIds(current);
       this.assertUserInstitutionRequirement(
         this.roleCodes(current)[0]!,
@@ -705,9 +712,10 @@ export class UsersService {
 
   async blockAdminUser(
     userId: string,
-    actorUserId: string,
+    actor: AdminActor,
     context: AuditContext = {},
   ): Promise<AdminUserResponse> {
+    const actorUserId = this.actorUserId(actor);
     if (userId === actorUserId) {
       throw new ForbiddenException("Nao e permitido bloquear a propria conta");
     }
@@ -715,6 +723,7 @@ export class UsersService {
     const updated = await this.prisma.$transaction(
       async (tx) => {
         const current = await this.findAdminUserOrThrowTx(tx, userId);
+        this.assertActorCanManageCurrentUser(actor, userId, this.roleCodes(current));
         await this.assertActiveSuperAdminRemains(tx, userId, {
           roles: this.roleCodes(current),
           status: UserStatus.INACTIVE,
@@ -754,11 +763,13 @@ export class UsersService {
 
   async unblockAdminUser(
     userId: string,
-    actorUserId: string,
+    actor: AdminActor,
     context: AuditContext = {},
   ): Promise<AdminUserResponse> {
+    const actorUserId = this.actorUserId(actor);
     const updated = await this.prisma.$transaction(async (tx) => {
       const current = await this.findAdminUserOrThrowTx(tx, userId);
+      this.assertActorCanManageCurrentUser(actor, userId, this.roleCodes(current));
       const unblocked = await tx.user.update({
         where: { id: userId },
         data: {
@@ -792,9 +803,10 @@ export class UsersService {
 
   async resetAdminUserTemporaryPassword(
     userId: string,
-    actorUserId: string,
+    actor: AdminActor,
     context: AuditContext = {},
   ) {
+    const actorUserId = this.actorUserId(actor);
     if (userId === actorUserId) {
       throw new ForbiddenException(
         "Use Minha Conta para alterar a propria senha",
@@ -806,6 +818,7 @@ export class UsersService {
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const current = await this.findAdminUserOrThrowTx(tx, userId);
+      this.assertActorCanManageCurrentUser(actor, userId, this.roleCodes(current));
       const user = await tx.user.update({
         where: { id: userId },
         data: {
@@ -1163,6 +1176,72 @@ export class UsersService {
       return;
     }
     throw new BadRequestException("Perfil nao permitido nesta sprint");
+  }
+
+  private actorUserId(actor: AdminActor): string {
+    return actor.id;
+  }
+
+  private actorRoles(actor: AdminActor): RoleCode[] {
+    return actor.roles;
+  }
+
+  private actorIsSuperAdmin(actor: AdminActor): boolean {
+    return this.actorRoles(actor).includes(RoleCode.SUPER_ADMIN);
+  }
+
+  private actorIsAdministrator(actor: AdminActor): boolean {
+    return this.actorRoles(actor).includes(RoleCode.ADMINISTRATOR);
+  }
+
+  private assertActorCanCreateUser(actor: AdminActor, role: RoleCode): void {
+    if (this.actorIsSuperAdmin(actor)) {
+      this.assertAssignableRoleForCreate(role);
+      return;
+    }
+    if (this.actorIsAdministrator(actor) && role === RoleCode.USER) {
+      return;
+    }
+    throw new ForbiddenException("ADMINISTRATOR pode criar somente usuarios USER");
+  }
+
+  private assertActorCanManageCurrentUser(
+    actor: AdminActor,
+    targetUserId: string,
+    currentRoles: RoleCode[],
+  ): void {
+    if (this.actorIsSuperAdmin(actor)) {
+      return;
+    }
+    if (
+      this.actorIsAdministrator(actor) &&
+      this.actorUserId(actor) !== targetUserId &&
+      currentRoles.length === 1 &&
+      currentRoles.includes(RoleCode.USER)
+    ) {
+      return;
+    }
+    throw new ForbiddenException("ADMINISTRATOR pode administrar somente usuarios USER");
+  }
+
+  private assertActorCanAssignRoleForUpdate(
+    actor: AdminActor,
+    role: RoleCode,
+    currentRoles: RoleCode[],
+  ): void {
+    if (this.actorIsSuperAdmin(actor)) {
+      this.assertAssignableRoleForUpdate(role, currentRoles);
+      return;
+    }
+    if (
+      this.actorIsAdministrator(actor) &&
+      role === RoleCode.USER &&
+      currentRoles.length === 1 &&
+      currentRoles.includes(RoleCode.USER)
+    ) {
+      return;
+    }
+    throw new ForbiddenException("ADMINISTRATOR nao pode alterar nivel de usuario");
   }
 
   private async resolvePermissionProfileId(

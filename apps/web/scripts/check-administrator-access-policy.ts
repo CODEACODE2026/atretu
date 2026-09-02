@@ -6,6 +6,7 @@ import {
   canAccessMigratedArea,
   canAccessOperationalAdmin,
   canAccessRestrictedAdmin,
+  canAccessUserAdministration,
   getPrimaryRoleLabel,
 } from "../src/lib/auth";
 import type { ApiUser } from "../src/lib/api";
@@ -49,6 +50,7 @@ const administrator: ApiUser = {
 
 assert.equal(canAccessOperationalAdmin(administrator), true);
 assert.equal(canAccessGlobalOperationalAdmin(administrator), true);
+assert.equal(canAccessUserAdministration(administrator), true);
 assert.equal(canManageGlobalOfficialDocumentModels(administrator), true);
 assert.equal(canAccessRestrictedAdmin(administrator), false);
 assert.equal(getPrimaryRoleLabel(administrator), "Administrador");
@@ -74,6 +76,7 @@ const userOnlyStudentsView: ApiUser = {
 
 assert.equal(canAccessOperationalAdmin(userOnlyStudentsView), false);
 assert.equal(canAccessRestrictedAdmin(userOnlyStudentsView), false);
+assert.equal(canAccessUserAdministration(userOnlyStudentsView), false);
 assert.equal(canAccessMigratedArea(userOnlyStudentsView, "students"), true);
 assert.equal(canAccessMigratedArea(userOnlyStudentsView, "dashboard"), false);
 assert.equal(canAccessMigratedArea(userOnlyStudentsView, "reenrollments"), false);
@@ -153,6 +156,14 @@ assert.equal(
   true,
 );
 assert.equal(
+  canAccessUserAdministration({
+    ...baseUser,
+    capabilities: [],
+    roles: ["SUPER_ADMIN"],
+  }),
+  true,
+);
+assert.equal(
   canManageGlobalOfficialDocumentModels({
     ...baseUser,
     capabilities: [],
@@ -162,6 +173,14 @@ assert.equal(
 );
 assert.equal(
   canAccessGlobalOperationalAdmin({
+    ...baseUser,
+    capabilities: [],
+    roles: ["SECRETARIA"],
+  }),
+  false,
+);
+assert.equal(
+  canAccessUserAdministration({
     ...baseUser,
     capabilities: [],
     roles: ["SECRETARIA"],
@@ -178,6 +197,14 @@ assert.equal(
 );
 assert.equal(
   canAccessGlobalOperationalAdmin({
+    ...baseUser,
+    capabilities: [],
+    roles: ["USER"],
+  }),
+  false,
+);
+assert.equal(
+  canAccessUserAdministration({
     ...baseUser,
     capabilities: [],
     roles: ["USER"],
@@ -201,6 +228,8 @@ const adminShellSource = readFileSync(
 assert.match(adminShellSource, /nextArea === "student-cards"/);
 assert.match(adminShellSource, /nextArea === "finance"/);
 assert.match(adminShellSource, /nextArea === "base"/);
+assert.match(adminShellSource, /nextArea === "users" \|\| nextArea === "permission-profiles"/);
+assert.match(adminShellSource, /return canAccessUserAdministration\(user\);/);
 assert.match(adminShellSource, /canManageBaseRecords/);
 assert.match(adminShellSource, /canManageGlobalBaseRecords/);
 assert.match(adminShellSource, /canManageCurrentDomain/);

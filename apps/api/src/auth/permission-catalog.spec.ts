@@ -230,6 +230,8 @@ const authorizationSourceFiles = listSourceFiles(apiSrcDir).filter(
     !file.endsWith("permission-catalog.ts") &&
     !file.endsWith("permission.guard.ts") &&
     !file.endsWith("permissions.decorator.ts") &&
+    !file.endsWith("admin-users.controller.ts") &&
+    !file.endsWith("permission-profiles.controller.ts") &&
     !file.endsWith("users.service.ts"),
 );
 const permissionProfileAuthorizationSourceFiles = authorizationSourceFiles.filter(

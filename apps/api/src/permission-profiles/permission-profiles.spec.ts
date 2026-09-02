@@ -1,6 +1,10 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { AdministrativeAuditEventType, RoleCode } from "@prisma/client";
 import { RolesGuard } from "../auth/roles.guard.js";
@@ -27,8 +31,11 @@ const serviceSource = readFileSync(
 );
 
 assert.match(controller, /@Controller\("admin\/permission-profiles"\)/);
-assert.match(controller, /@Roles\(RoleCode\.SUPER_ADMIN\)/);
-assert.doesNotMatch(controller, /RoleCode\.(ADMINISTRATOR|USER|SECRETARIA|GESTOR)/);
+assert.match(
+  controller,
+  /@Roles\(RoleCode\.SUPER_ADMIN, RoleCode\.ADMINISTRATOR\)/,
+);
+assert.doesNotMatch(controller, /RoleCode\.(USER|SECRETARIA|GESTOR)/);
 assert.doesNotMatch(controller, /@Delete\(/);
 assert.match(controller, /@Patch\(":id\/inactivate"\)/);
 assert.match(controller, /@Patch\(":id\/reactivate"\)/);
@@ -262,7 +269,11 @@ const auditedService = new PermissionProfilesService(prisma as never, {
     auditEntries.push(input);
   },
 } as never);
-const currentUser = { id: "super-admin" };
+const currentUser = { id: "super-admin", roles: [RoleCode.SUPER_ADMIN] };
+const administratorUser = {
+  id: "administrator",
+  roles: [RoleCode.ADMINISTRATOR],
+};
 
 const listed = await auditedService.list({
   limit: 20,
@@ -346,6 +357,35 @@ assert.equal(afterFailure.name, beforeFailure.name);
 assert.deepEqual(afterFailure.permissions, beforeFailurePermissions);
 assert.equal(auditEntries.length, auditCountBeforeFailure);
 
+const administratorEdited = await auditedService.update(
+  "profile-active",
+  { permissions: ["finance.invoices.manage"] },
+  administratorUser as never,
+);
+assert.deepEqual(administratorEdited.permissions, [
+  "finance.invoices.manage",
+  "finance.invoices.view",
+]);
+profiles.push({
+  createdAt: now,
+  description: "Interno",
+  id: "profile-internal",
+  isActive: true,
+  name: "Interno",
+  permissions: ["users.manage"],
+  updatedAt: now,
+  usersCount: 0,
+});
+await assert.rejects(
+  () =>
+    auditedService.update(
+      "profile-internal",
+      { description: "Bloqueado" },
+      administratorUser as never,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+
 function permissionProfilesContext(role: RoleCode) {
   return roleContext(PermissionProfilesController, "list", role);
 }
@@ -382,12 +422,15 @@ assert.equal(
   rolesGuard.canActivate(permissionProfilesContext(RoleCode.SUPER_ADMIN) as never),
   true,
 );
-for (const role of [
-  RoleCode.ADMINISTRATOR,
-  RoleCode.SECRETARIA,
-  RoleCode.USER,
-  RoleCode.GESTOR,
-]) {
+assert.equal(
+  rolesGuard.canActivate(permissionProfilesContext(RoleCode.ADMINISTRATOR) as never),
+  true,
+);
+assert.equal(
+  rolesGuard.canActivate(legacyPermissionProfilesContext(RoleCode.ADMINISTRATOR) as never),
+  true,
+);
+for (const role of [RoleCode.SECRETARIA, RoleCode.USER, RoleCode.GESTOR]) {
   assert.throws(() =>
     rolesGuard.canActivate(permissionProfilesContext(role) as never),
   );

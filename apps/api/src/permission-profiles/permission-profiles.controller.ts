@@ -23,7 +23,7 @@ import {
 import { PermissionProfilesService } from "./permission-profiles.service.js";
 
 @UseGuards(AuthGuard, RolesGuard)
-@Roles(RoleCode.SUPER_ADMIN)
+@Roles(RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR)
 @Controller("admin/permission-profiles")
 export class PermissionProfilesController {
   constructor(

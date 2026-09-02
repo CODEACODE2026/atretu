@@ -30,6 +30,7 @@ function assertPreset(label, permissionKeys) {
 assert.match(navigation, /key: "permission-profiles"/);
 assert.match(navigation, /restricted: true/);
 assert.match(shell, /<PermissionProfilesPanel \/>/);
+assert.match(shell, /canAccessUserAdministration/);
 assert.match(shell, /canAccessArea/);
 assert.match(shell, /router\.replace\(adminAreaHref\(fallbackArea\)\)/);
 assert.match(api, /\/admin\/permission-profiles\/catalog/);

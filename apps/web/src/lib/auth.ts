@@ -35,6 +35,10 @@ export function canAccessRestrictedAdmin(user: ApiUser): boolean {
   return user.roles.includes("SUPER_ADMIN");
 }
 
+export function canAccessUserAdministration(user: ApiUser): boolean {
+  return user.roles.includes("SUPER_ADMIN") || user.roles.includes("ADMINISTRATOR");
+}
+
 export function canAccessOperationalAdmin(user: ApiUser): boolean {
   return (
     user.roles.includes("SUPER_ADMIN") ||
