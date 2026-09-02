@@ -291,9 +291,9 @@ export class UsersService {
     });
   }
 
-  async listAdminUsers(query: ListAdminUsersDto) {
+  async listAdminUsers(query: ListAdminUsersDto, actor?: AdminActor) {
     const pagination = resolvePagination(query);
-    const where = this.buildAdminUserWhere(query);
+    const where = this.buildAdminUserWhere(query, actor);
     const orderBy = this.adminUserOrderBy(query.sort, query.order);
 
     const [data, total] = await this.prisma.$transaction([
@@ -318,8 +318,14 @@ export class UsersService {
     };
   }
 
-  async getAdminUser(id: string): Promise<AdminUserResponse> {
+  async getAdminUser(
+    id: string,
+    actor?: AdminActor,
+  ): Promise<AdminUserResponse> {
     const user = await this.findAdminUserOrThrow(id);
+    if (actor) {
+      this.assertActorCanViewCurrentUser(actor, this.roleCodes(user));
+    }
     return this.toAdminUser(user);
   }
 
@@ -455,6 +461,9 @@ export class UsersService {
         if (input.role) {
           this.assertActorCanAssignRoleForUpdate(actor, input.role, currentRoles);
         }
+        if (input.status && input.status !== current.status) {
+          this.assertActorCanChangeCurrentUserStatus(actor, currentRoles);
+        }
         const nextRoles = input.role ? [input.role] : currentRoles;
         const nextStatus = input.status ?? current.status;
         const currentInstitutionIds = this.institutionIds(current);
@@ -462,6 +471,12 @@ export class UsersService {
           input.institutionIds === undefined
             ? currentInstitutionIds
             : this.uniqueIds(input.institutionIds);
+        if (
+          input.institutionIds !== undefined &&
+          !this.sameIds(currentInstitutionIds, nextInstitutionIds)
+        ) {
+          this.assertActorCanChangeCurrentUserInstitutions(actor, currentRoles);
+        }
         this.assertUserInstitutionRequirement(
           nextRoles[0]!,
           nextInstitutionIds,
@@ -668,6 +683,10 @@ export class UsersService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const current = await this.findAdminUserOrThrowTx(tx, userId);
       this.assertActorCanManageCurrentUser(actor, userId, this.roleCodes(current));
+      this.assertActorCanChangeCurrentUserInstitutions(
+        actor,
+        this.roleCodes(current),
+      );
       const beforeInstitutionIds = this.institutionIds(current);
       this.assertUserInstitutionRequirement(
         this.roleCodes(current)[0]!,
@@ -724,6 +743,7 @@ export class UsersService {
       async (tx) => {
         const current = await this.findAdminUserOrThrowTx(tx, userId);
         this.assertActorCanManageCurrentUser(actor, userId, this.roleCodes(current));
+        this.assertActorCanChangeCurrentUserStatus(actor, this.roleCodes(current));
         await this.assertActiveSuperAdminRemains(tx, userId, {
           roles: this.roleCodes(current),
           status: UserStatus.INACTIVE,
@@ -770,6 +790,7 @@ export class UsersService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const current = await this.findAdminUserOrThrowTx(tx, userId);
       this.assertActorCanManageCurrentUser(actor, userId, this.roleCodes(current));
+      this.assertActorCanChangeCurrentUserStatus(actor, this.roleCodes(current));
       const unblocked = await tx.user.update({
         where: { id: userId },
         data: {
@@ -1043,7 +1064,10 @@ export class UsersService {
     return { [fieldBySort[sort] ?? "name"]: direction };
   }
 
-  private buildAdminUserWhere(query: ListAdminUsersDto): Prisma.UserWhereInput {
+  private buildAdminUserWhere(
+    query: ListAdminUsersDto,
+    actor?: AdminActor,
+  ): Prisma.UserWhereInput {
     const where: Prisma.UserWhereInput = {};
     if (query.search) {
       where.OR = [
@@ -1068,6 +1092,11 @@ export class UsersService {
     }
     if (query.withoutInstitution === true) {
       where.institutions = { none: {} };
+    }
+    if (actor && this.actorIsAdministrator(actor) && !this.actorIsSuperAdmin(actor)) {
+      where.NOT = {
+        roles: { some: { role: { code: RoleCode.SUPER_ADMIN } } },
+      };
     }
     return where;
   }
@@ -1217,11 +1246,14 @@ export class UsersService {
       this.actorIsAdministrator(actor) &&
       this.actorUserId(actor) !== targetUserId &&
       currentRoles.length === 1 &&
-      currentRoles.includes(RoleCode.USER)
+      (currentRoles.includes(RoleCode.USER) ||
+        currentRoles.includes(RoleCode.ADMINISTRATOR))
     ) {
       return;
     }
-    throw new ForbiddenException("ADMINISTRATOR pode administrar somente usuarios USER");
+    throw new ForbiddenException(
+      "ADMINISTRATOR pode administrar somente usuarios USER e ADMINISTRATOR",
+    );
   }
 
   private assertActorCanAssignRoleForUpdate(
@@ -1235,13 +1267,60 @@ export class UsersService {
     }
     if (
       this.actorIsAdministrator(actor) &&
-      role === RoleCode.USER &&
       currentRoles.length === 1 &&
-      currentRoles.includes(RoleCode.USER)
+      role === currentRoles[0] &&
+      (currentRoles.includes(RoleCode.USER) ||
+        currentRoles.includes(RoleCode.ADMINISTRATOR))
     ) {
       return;
     }
     throw new ForbiddenException("ADMINISTRATOR nao pode alterar nivel de usuario");
+  }
+
+  private assertActorCanViewCurrentUser(
+    actor: AdminActor,
+    currentRoles: RoleCode[],
+  ): void {
+    if (this.actorIsSuperAdmin(actor)) {
+      return;
+    }
+    if (
+      this.actorIsAdministrator(actor) &&
+      !currentRoles.includes(RoleCode.SUPER_ADMIN)
+    ) {
+      return;
+    }
+    throw new ForbiddenException("Usuario nao autorizado");
+  }
+
+  private assertActorCanChangeCurrentUserStatus(
+    actor: AdminActor,
+    currentRoles: RoleCode[],
+  ): void {
+    if (this.actorIsSuperAdmin(actor)) {
+      return;
+    }
+    if (this.actorIsAdministrator(actor) && currentRoles.includes(RoleCode.USER)) {
+      return;
+    }
+    throw new ForbiddenException(
+      "ADMINISTRATOR pode alterar status somente de usuarios USER",
+    );
+  }
+
+  private assertActorCanChangeCurrentUserInstitutions(
+    actor: AdminActor,
+    currentRoles: RoleCode[],
+  ): void {
+    if (this.actorIsSuperAdmin(actor)) {
+      return;
+    }
+    if (this.actorIsAdministrator(actor) && currentRoles.includes(RoleCode.USER)) {
+      return;
+    }
+    throw new ForbiddenException(
+      "ADMINISTRATOR pode alterar instituicoes somente de usuarios USER",
+    );
   }
 
   private async resolvePermissionProfileId(

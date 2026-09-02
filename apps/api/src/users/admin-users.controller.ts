@@ -31,8 +31,8 @@ export class AdminUsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
   @Get()
-  listUsers(@Query() query: ListAdminUsersDto) {
-    return this.users.listAdminUsers(query);
+  listUsers(@Query() query: ListAdminUsersDto, @CurrentUser() user: AuthUser) {
+    return this.users.listAdminUsers(query, user);
   }
 
   @Get("permission-profiles")
@@ -41,8 +41,8 @@ export class AdminUsersController {
   }
 
   @Get(":id")
-  getUser(@Param("id") id: string) {
-    return this.users.getAdminUser(id);
+  getUser(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.users.getAdminUser(id, user);
   }
 
   @Post()

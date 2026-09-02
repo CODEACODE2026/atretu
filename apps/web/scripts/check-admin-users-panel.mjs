@@ -72,14 +72,33 @@ includesAll(panel, [
 
 assert.match(
   panel,
-  /await api\.updateAdminUser\(dialog\.user\.id, \{[\s\S]*?institutionIds: nextInstitutionIds,[\s\S]*?permissionProfileId:[\s\S]*?form\.role === "USER" \? form\.permissionProfileId : undefined,[\s\S]*?role: currentUserIsAdministrator[\s\S]*?\? "USER"[\s\S]*?: form\.role === "GESTOR"[\s\S]*?\? undefined[\s\S]*?: form\.role,/,
-  "Editing a legacy admin into USER must submit role, permission profile, and institutions in one update request",
+  /await api\.updateAdminUser\(dialog\.user\.id, \{[\s\S]*?institutionIds: administratorEditingAdministrator[\s\S]*?\? undefined[\s\S]*?: nextInstitutionIds,[\s\S]*?permissionProfileId:[\s\S]*?form\.role === "USER" \? form\.permissionProfileId : undefined,[\s\S]*?role: currentUserIsAdministrator[\s\S]*?\? roleForAdministratorUpdate\(dialog\.user\.roles\[0\]\)[\s\S]*?: form\.role === "GESTOR"[\s\S]*?\? undefined[\s\S]*?: form\.role,/,
+  "Administrator edits must preserve the target role while sending profile and institutions atomically",
 );
 
 assert.match(panel, /function canManageUser\(currentUser: ApiUser, user: AdminUser\)/);
-assert.match(panel, /user\.roles\.length === 1 &&[\s\S]*user\.roles\.includes\("USER"\)/);
+assert.match(
+  panel,
+  /user\.roles\.length === 1 &&[\s\S]*\(user\.roles\.includes\("USER"\) \|\| user\.roles\.includes\("ADMINISTRATOR"\)\)/,
+);
+assert.match(panel, /function canChangeUserStatus\(currentUser: ApiUser, user: AdminUser\)/);
+assert.match(
+  panel,
+  /function canChangeUserStatus[\s\S]*user\.roles\.includes\("USER"\)/,
+);
+assert.match(panel, /function canManageUserInstitutions\(currentUser: ApiUser, user: AdminUser\)/);
+assert.match(
+  panel,
+  /function canManageUserInstitutions[\s\S]*user\.roles\.includes\("USER"\)/,
+);
+assert.match(panel, /administratorEditingAdministrator[\s\S]*\? undefined[\s\S]*: nextInstitutionIds/);
+assert.match(panel, /canManageInstitutions \? \([\s\S]*Gerenciar instituições/);
 assert.match(panel, /function roleOptionsForDialog\([\s\S]*currentUserIsAdministrator/);
-assert.match(panel, /return \["USER"\];/);
+assert.match(panel, /dialog\.mode === "create"[\s\S]*return \["USER"\];/);
+assert.match(panel, /return currentRole === "ADMINISTRATOR" \? \["ADMINISTRATOR"\] : \["USER"\];/);
+assert.match(panel, /const visibleFilterRoles = currentUserIsAdministrator[\s\S]*FILTER_ROLES\.filter\(\(item\) => item !== "SUPER_ADMIN"\)/);
+assert.match(panel, /currentUserIsAdministrator[\s\S]*\? Promise\.resolve\(\{ pagination: \{ total: 0 \} \}\)[\s\S]*: api\.listAdminUsers\(\{ limit: 1, role: "SUPER_ADMIN" \}\)/);
+assert.match(panel, /\{currentUserIsAdministrator \? null : \([\s\S]*label="SUPER_ADMIN"/);
 assert.match(shell, /<UsersPanel currentUser=\{user\} \/>/);
 
 assert.match(
@@ -96,8 +115,8 @@ assert.match(
 
 assert.match(
   panel,
-  /<p className="text-sm font-semibold text-slate-950">Acesso<\/p>[\s\S]*?Nível[\s\S]*?Perfil de Permissões \*[\s\S]*?\{institutionPicker\}[\s\S]*?<p className="text-sm font-semibold text-slate-950">Segurança<\/p>/,
-  "Role, permission profile, and institutions must appear together in the Access section before Security",
+  /<p className="text-sm font-semibold text-slate-950">Acesso<\/p>[\s\S]*?Nível[\s\S]*?Perfil de Permissões \*[\s\S]*?\{administratorEditingAdministrator \? null : institutionPicker\}[\s\S]*?<p className="text-sm font-semibold text-slate-950">Segurança<\/p>/,
+  "Role, permission profile, and institutions must stay in Access, with institutions hidden only for Administrator editing Administrator",
 );
 
 assert.match(

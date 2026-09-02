@@ -92,6 +92,9 @@ function createPrisma() {
   }
 
   function matchesWhere(user: UserRow, where: Record<string, unknown>) {
+    if (where.NOT && matchesWhere(user, where.NOT as Record<string, unknown>)) {
+      return false;
+    }
     if (where.email && user.email !== where.email) {
       return false;
     }
@@ -812,7 +815,56 @@ await assert.rejects(
   () =>
     service.updateAdminUser(
       administratorWithoutProfile.user.id,
-      { status: UserStatus.ACTIVE },
+      { status: UserStatus.INACTIVE },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+const administratorUpdatedAdministrator = await service.updateAdminUser(
+  administratorWithoutProfile.user.id,
+  {
+    email: "administrator-without-profile-updated@example.com",
+    name: "Administrator Without Profile Updated",
+    phone: "(44) 97777-6666",
+    position: "Coordenacao administrativa",
+    role: RoleCode.ADMINISTRATOR,
+  },
+  administratorActor,
+);
+assert.equal(
+  administratorUpdatedAdministrator.name,
+  "Administrator Without Profile Updated",
+);
+assert.equal(
+  administratorUpdatedAdministrator.email,
+  "administrator-without-profile-updated@example.com",
+);
+assert.equal(administratorUpdatedAdministrator.phone, "44977776666");
+assert.equal(
+  administratorUpdatedAdministrator.position,
+  "Coordenacao administrativa",
+);
+assert.deepEqual(administratorUpdatedAdministrator.roles, [RoleCode.ADMINISTRATOR]);
+const administratorPasswordReset =
+  await service.resetAdminUserTemporaryPassword(
+    administratorWithoutProfile.user.id,
+    administratorActor,
+  );
+assert.equal(administratorPasswordReset.user.mustChangePassword, true);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorWithoutProfile.user.id,
+      { role: RoleCode.SUPER_ADMIN },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
+      administratorWithoutProfile.user.id,
+      { role: RoleCode.USER },
       administratorActor,
     ),
   (error) => error instanceof ForbiddenException,
@@ -823,8 +875,39 @@ await assert.rejects(
 );
 await assert.rejects(
   () =>
-    service.resetAdminUserTemporaryPassword(
+    service.unblockAdminUser(admin.user.id, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.resetAdminUserTemporaryPassword(admin.user.id, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.getAdminUser(admin.user.id, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.blockAdminUser(administratorWithoutProfile.user.id, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () => service.unblockAdminUser(administratorWithoutProfile.user.id, administratorActor),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUser(
       administratorWithoutProfile.user.id,
+      { institutionIds: [prisma.institutions[0]!.id] },
+      administratorActor,
+    ),
+  (error) => error instanceof ForbiddenException,
+);
+await assert.rejects(
+  () =>
+    service.updateAdminUserInstitutions(
+      administratorWithoutProfile.user.id,
+      [prisma.institutions[0]!.id],
       administratorActor,
     ),
   (error) => error instanceof ForbiddenException,
@@ -885,6 +968,61 @@ const list = await service.listAdminUsers({
 assert.equal(list.data.length, 1);
 assert.equal(list.pagination.total, 1);
 assert.doesNotMatch(JSON.stringify(list), /passwordHash|temporaryPassword/);
+
+const administratorScopedList = await service.listAdminUsers(
+  {
+    limit: 100,
+    order: SortOrder.ASC,
+    page: 1,
+    sort: AdminUserSort.NAME,
+  },
+  administratorActor,
+);
+assert.equal(
+  administratorScopedList.data.some((user) =>
+    user.roles.includes(RoleCode.SUPER_ADMIN),
+  ),
+  false,
+);
+assert.equal(
+  administratorScopedList.data.some((user) =>
+    user.roles.includes(RoleCode.ADMINISTRATOR),
+  ),
+  true,
+);
+assert.equal(
+  administratorScopedList.pagination.total,
+  administratorScopedList.data.length,
+);
+const administratorScopedSuperFilter = await service.listAdminUsers(
+  {
+    limit: 10,
+    order: SortOrder.ASC,
+    page: 1,
+    role: RoleCode.SUPER_ADMIN,
+    sort: AdminUserSort.NAME,
+  },
+  administratorActor,
+);
+assert.equal(administratorScopedSuperFilter.data.length, 0);
+assert.equal(administratorScopedSuperFilter.pagination.total, 0);
+const administratorScopedSearch = await service.listAdminUsers(
+  {
+    limit: 10,
+    order: SortOrder.ASC,
+    page: 1,
+    search: admin.user.email,
+    sort: AdminUserSort.NAME,
+  },
+  administratorActor,
+);
+assert.equal(administratorScopedSearch.data.length, 0);
+
+const administratorVisibleAdministrator = await service.getAdminUser(
+  administratorWithoutProfile.user.id,
+  administratorActor,
+);
+assert.deepEqual(administratorVisibleAdministrator.roles, [RoleCode.ADMINISTRATOR]);
 
 await assert.rejects(
   () => service.updateAdminUser(admin.user.id, { role: RoleCode.SECRETARIA }, superAdminActor),

@@ -149,6 +149,9 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
   const currentUserIsAdministrator =
     currentUser.roles.includes("ADMINISTRATOR") &&
     !currentUser.roles.includes("SUPER_ADMIN");
+  const visibleFilterRoles = currentUserIsAdministrator
+    ? FILTER_ROLES.filter((item) => item !== "SUPER_ADMIN")
+    : FILTER_ROLES;
 
   useEffect(() => {
     void loadInstitutions();
@@ -232,7 +235,9 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
       const [active, inactive, superAdmin, administrator, user] = await Promise.all([
         api.listAdminUsers({ limit: 1, status: "ACTIVE" }),
         api.listAdminUsers({ limit: 1, status: "INACTIVE" }),
-        api.listAdminUsers({ limit: 1, role: "SUPER_ADMIN" }),
+        currentUserIsAdministrator
+          ? Promise.resolve({ pagination: { total: 0 } })
+          : api.listAdminUsers({ limit: 1, role: "SUPER_ADMIN" }),
         api.listAdminUsers({ limit: 1, role: "ADMINISTRATOR" }),
         api.listAdminUsers({ limit: 1, role: "USER" }),
       ]);
@@ -397,20 +402,29 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
           throw new Error("Selecione pelo menos uma instituição.");
         }
         const nextInstitutionIds = sortedIds(form.institutionIds);
+        const administratorEditingAdministrator =
+          currentUserIsAdministrator &&
+          dialog.user.roles.includes("ADMINISTRATOR");
         await api.updateAdminUser(dialog.user.id, {
           email: form.email.trim(),
-          institutionIds: nextInstitutionIds,
+          institutionIds: administratorEditingAdministrator
+            ? undefined
+            : nextInstitutionIds,
           name: form.name.trim(),
           permissionProfileId:
             form.role === "USER" ? form.permissionProfileId : undefined,
           phone: form.phone.trim() || undefined,
           position: form.position.trim() || undefined,
           role: currentUserIsAdministrator
-            ? "USER"
+            ? roleForAdministratorUpdate(dialog.user.roles[0])
             : form.role === "GESTOR"
               ? undefined
               : form.role,
-          status: form.status,
+          status:
+            currentUserIsAdministrator &&
+            dialog.user.roles.includes("ADMINISTRATOR")
+              ? dialog.user.status
+              : form.status,
         });
         setDialog(null);
         setFeedback({ tone: "green", text: "Usuário atualizado." });
@@ -534,13 +548,15 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
           tone="red"
           value={summaryLoading ? "..." : summary.inactive}
         />
-        <AdminSummaryCard
-          description="Perfil com acesso administrativo."
-          icon={ShieldCheck}
-          label="SUPER_ADMIN"
-          tone="blue"
-          value={summaryLoading ? "..." : summary.superAdmin}
-        />
+        {currentUserIsAdministrator ? null : (
+          <AdminSummaryCard
+            description="Perfil com acesso administrativo."
+            icon={ShieldCheck}
+            label="SUPER_ADMIN"
+            tone="blue"
+            value={summaryLoading ? "..." : summary.superAdmin}
+          />
+        )}
         <AdminSummaryCard
           description="Administrador operacional futuro."
           icon={UsersRound}
@@ -611,7 +627,7 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
                 value={role}
               >
                 <option value="">Todos</option>
-                {FILTER_ROLES.map((item) => (
+                {visibleFilterRoles.map((item) => (
                   <option key={item} value={item}>
                     {roleLabel(item)}
                   </option>
@@ -762,6 +778,11 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
                           setPendingAction({ type: "unblock", user })
                         }
                         canManage={canManageUser(currentUser, user)}
+                        canChangeStatus={canChangeUserStatus(currentUser, user)}
+                        canManageInstitutions={canManageUserInstitutions(
+                          currentUser,
+                          user,
+                        )}
                         user={user}
                       />
                     ))}
@@ -781,6 +802,11 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
                     }
                     onUnblock={() => setPendingAction({ type: "unblock", user })}
                     canManage={canManageUser(currentUser, user)}
+                    canChangeStatus={canChangeUserStatus(currentUser, user)}
+                    canManageInstitutions={canManageUserInstitutions(
+                      currentUser,
+                      user,
+                    )}
                     user={user}
                   />
                 ))}
@@ -839,7 +865,9 @@ export function UsersPanel({ currentUser }: { currentUser: ApiUser }) {
 }
 
 function UserTableRow({
+  canChangeStatus,
   canManage,
+  canManageInstitutions,
   onBlock,
   onEdit,
   onInstitutions,
@@ -847,7 +875,9 @@ function UserTableRow({
   onUnblock,
   user,
 }: {
+  canChangeStatus: boolean;
   canManage: boolean;
+  canManageInstitutions: boolean;
   onBlock: () => void;
   onEdit: () => void;
   onInstitutions: () => void;
@@ -904,7 +934,9 @@ function UserTableRow({
       </td>
       <td className="border-b border-slate-100 px-3 py-3">
         <UserActions
+          canChangeStatus={canChangeStatus}
           canManage={canManage}
+          canManageInstitutions={canManageInstitutions}
           onBlock={onBlock}
           onEdit={onEdit}
           onInstitutions={onInstitutions}
@@ -918,7 +950,9 @@ function UserTableRow({
 }
 
 function UserMobileCard({
+  canChangeStatus,
   canManage,
+  canManageInstitutions,
   onBlock,
   onEdit,
   onInstitutions,
@@ -926,7 +960,9 @@ function UserMobileCard({
   onUnblock,
   user,
 }: {
+  canChangeStatus: boolean;
   canManage: boolean;
+  canManageInstitutions: boolean;
   onBlock: () => void;
   onEdit: () => void;
   onInstitutions: () => void;
@@ -1024,14 +1060,16 @@ function UserMobileCard({
                 onEdit();
               }}
             />
-            <UserMobileAction
-              icon={Building2}
-              label="Gerenciar instituições"
-              onClick={() => {
-                setActionsOpen(false);
-                onInstitutions();
-              }}
-            />
+            {canManageInstitutions ? (
+              <UserMobileAction
+                icon={Building2}
+                label="Gerenciar instituições"
+                onClick={() => {
+                  setActionsOpen(false);
+                  onInstitutions();
+                }}
+              />
+            ) : null}
             <UserMobileAction
               icon={KeyRound}
               label="Redefinir senha"
@@ -1040,22 +1078,24 @@ function UserMobileCard({
                 onResetPassword();
               }}
             />
-            <UserMobileAction
-              icon={user.status === "INACTIVE" ? Unlock : LockKeyhole}
-              label={
-                user.status === "INACTIVE"
-                  ? "Desbloquear usuário"
-                  : "Bloquear usuário"
-              }
-              onClick={() => {
-                setActionsOpen(false);
-                if (user.status === "INACTIVE") {
-                  onUnblock();
-                } else {
-                  onBlock();
+            {canChangeStatus ? (
+              <UserMobileAction
+                icon={user.status === "INACTIVE" ? Unlock : LockKeyhole}
+                label={
+                  user.status === "INACTIVE"
+                    ? "Desbloquear usuário"
+                    : "Bloquear usuário"
                 }
-              }}
-            />
+                onClick={() => {
+                  setActionsOpen(false);
+                  if (user.status === "INACTIVE") {
+                    onUnblock();
+                  } else {
+                    onBlock();
+                  }
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1064,7 +1104,9 @@ function UserMobileCard({
 }
 
 function UserActions({
+  canChangeStatus,
   canManage,
+  canManageInstitutions,
   onBlock,
   onEdit,
   onInstitutions,
@@ -1072,7 +1114,9 @@ function UserActions({
   onUnblock,
   user,
 }: {
+  canChangeStatus: boolean;
   canManage: boolean;
+  canManageInstitutions: boolean;
   onBlock: () => void;
   onEdit: () => void;
   onInstitutions: () => void;
@@ -1099,15 +1143,17 @@ function UserActions({
       >
         <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
       </button>
-      <button
-        aria-label={`Gerenciar instituições de ${user.name}`}
-        className={cx(adminTheme.iconButton, "h-8 w-8")}
-        onClick={onInstitutions}
-        title="Gerenciar instituições"
-        type="button"
-      >
-        <Building2 aria-hidden="true" className="h-3.5 w-3.5" />
-      </button>
+      {canManageInstitutions ? (
+        <button
+          aria-label={`Gerenciar instituições de ${user.name}`}
+          className={cx(adminTheme.iconButton, "h-8 w-8")}
+          onClick={onInstitutions}
+          title="Gerenciar instituições"
+          type="button"
+        >
+          <Building2 aria-hidden="true" className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
       <button
         aria-label={`Redefinir senha de ${user.name}`}
         className={cx(adminTheme.iconButton, "h-8 w-8")}
@@ -1117,21 +1163,23 @@ function UserActions({
       >
         <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
       </button>
-      <button
-        aria-label={
-          inactive ? `Desbloquear usuário ${user.name}` : `Bloquear usuário ${user.name}`
-        }
-        className={cx(adminTheme.iconButton, "h-8 w-8")}
-        onClick={inactive ? onUnblock : onBlock}
-        title={inactive ? "Desbloquear usuário" : "Bloquear usuário"}
-        type="button"
-      >
-        {inactive ? (
-          <Unlock aria-hidden="true" className="h-3.5 w-3.5" />
-        ) : (
-          <LockKeyhole aria-hidden="true" className="h-3.5 w-3.5" />
-        )}
-      </button>
+      {canChangeStatus ? (
+        <button
+          aria-label={
+            inactive ? `Desbloquear usuário ${user.name}` : `Bloquear usuário ${user.name}`
+          }
+          className={cx(adminTheme.iconButton, "h-8 w-8")}
+          onClick={inactive ? onUnblock : onBlock}
+          title={inactive ? "Desbloquear usuário" : "Bloquear usuário"}
+          type="button"
+        >
+          {inactive ? (
+            <Unlock aria-hidden="true" className="h-3.5 w-3.5" />
+          ) : (
+            <LockKeyhole aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1188,6 +1236,10 @@ function UserFormDialog({
 }) {
   const institutionsOnly = dialog.mode === "institutions";
   const roleOptions = roleOptionsForDialog(dialog, currentUserIsAdministrator);
+  const administratorEditingAdministrator =
+    currentUserIsAdministrator &&
+    dialog.mode === "edit" &&
+    dialog.user?.roles.includes("ADMINISTRATOR");
   const selectAllInstitutionsRef = useRef<HTMLInputElement | null>(null);
   const userNeedsPermissionProfile =
     !institutionsOnly && form.role === "USER" && !form.permissionProfileId;
@@ -1416,6 +1468,7 @@ function UserFormDialog({
                     Status
                     <select
                       className={adminTheme.control}
+                      disabled={administratorEditingAdministrator}
                       onChange={(event) =>
                         onChange({
                           ...form,
@@ -1484,7 +1537,7 @@ function UserFormDialog({
                       ) : null}
                     </label>
                   ) : null}
-                  {institutionPicker}
+                  {administratorEditingAdministrator ? null : institutionPicker}
                 </div>
               </section>
 
@@ -1783,6 +1836,12 @@ function editableRoleOrDefault(role?: RoleCode): EditableRole {
   return "ADMINISTRATOR";
 }
 
+function roleForAdministratorUpdate(
+  role?: RoleCode,
+): Extract<RoleCode, "ADMINISTRATOR" | "USER"> {
+  return role === "ADMINISTRATOR" ? "ADMINISTRATOR" : "USER";
+}
+
 function emptyFormForCurrentUser(currentUser: ApiUser): UserFormState {
   return {
     ...EMPTY_FORM,
@@ -1801,6 +1860,30 @@ function canManageUser(currentUser: ApiUser, user: AdminUser): boolean {
     currentUser.roles.includes("ADMINISTRATOR") &&
     currentUser.id !== user.id &&
     user.roles.length === 1 &&
+    (user.roles.includes("USER") || user.roles.includes("ADMINISTRATOR"))
+  );
+}
+
+function canChangeUserStatus(currentUser: ApiUser, user: AdminUser): boolean {
+  if (currentUser.roles.includes("SUPER_ADMIN")) {
+    return true;
+  }
+  return (
+    currentUser.roles.includes("ADMINISTRATOR") &&
+    currentUser.id !== user.id &&
+    user.roles.length === 1 &&
+    user.roles.includes("USER")
+  );
+}
+
+function canManageUserInstitutions(currentUser: ApiUser, user: AdminUser): boolean {
+  if (currentUser.roles.includes("SUPER_ADMIN")) {
+    return true;
+  }
+  return (
+    currentUser.roles.includes("ADMINISTRATOR") &&
+    currentUser.id !== user.id &&
+    user.roles.length === 1 &&
     user.roles.includes("USER")
   );
 }
@@ -1810,7 +1893,11 @@ function roleOptionsForDialog(
   currentUserIsAdministrator: boolean,
 ): EditableRole[] {
   if (currentUserIsAdministrator) {
-    return ["USER"];
+    if (dialog.mode === "create") {
+      return ["USER"];
+    }
+    const currentRole = dialog.user?.roles[0];
+    return currentRole === "ADMINISTRATOR" ? ["ADMINISTRATOR"] : ["USER"];
   }
   if (dialog.mode === "create") {
     return CREATE_ASSIGNABLE_ROLES;
