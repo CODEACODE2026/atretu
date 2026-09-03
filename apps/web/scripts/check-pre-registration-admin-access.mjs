@@ -40,8 +40,10 @@ assert.ok(
 includesAll(shell, [
   "canAccessMigratedArea(user, nextArea)",
   "const visibleTabs = ADMIN_NAV_ITEMS.filter((tab) => canAccessArea(tab.key))",
+  "const navigationItems = visibleTabs",
   "const effectiveArea = canAccessArea(area) ? area : fallbackArea",
   'activeArea={navigationActiveArea}',
+  "items={navigationItems}",
   'nextArea === "pre-registrations"',
   '"pre-registrations": { area: "pre-registrations" }',
   'effectiveArea === "pre-registrations"',

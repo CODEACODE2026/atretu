@@ -34,11 +34,29 @@ includesAll(shell, [
   "onRequireLogin",
   "canAccessOperationalAdmin",
   "Minha Conta permanece disponivel",
+  "const navigationItems = visibleTabs",
   'effectiveArea === "account"',
   'const navigationActiveArea = effectiveArea === "account" ? null : effectiveArea;',
   "accountActive={effectiveArea === \"account\"}",
   "activeArea={navigationActiveArea}",
+  "items={navigationItems}",
 ]);
+
+const accountNavItemBlock = shell.slice(
+  shell.indexOf("const ACCOUNT_NAV_ITEM = {"),
+  shell.indexOf("export function AdminShell()"),
+);
+assert.ok(
+  accountNavItemBlock.includes("label: \"Minha Conta\""),
+  "account header item must keep Minha Conta label",
+);
+for (const forbidden of ["group:", "key:", "icon:"]) {
+  assert.equal(
+    accountNavItemBlock.includes(forbidden),
+    false,
+    `account header item must not define navigation ${forbidden}`,
+  );
+}
 
 includesAll(sidebar, [
   "accountActive: boolean",

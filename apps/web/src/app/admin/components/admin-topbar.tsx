@@ -23,7 +23,7 @@ export function AdminTopbar({
   sidebarCollapsed,
   user,
 }: {
-  currentItem: AdminNavItem;
+  currentItem: Pick<AdminNavItem, "description" | "label">;
   onAccount: () => void;
   onLogout: () => void;
   onMobileMenu: () => void;

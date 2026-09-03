@@ -14,7 +14,6 @@ import {
   Search,
   ShieldAlert,
   type LucideIcon,
-  UserRound,
   UsersRound,
 } from "lucide-react";
 import {
@@ -36,7 +35,11 @@ import {
 } from "../../lib/auth";
 import { AccountPanel } from "./account-panel";
 import { AcademicYearsPanel } from "./academic-years-panel";
-import { ADMIN_NAV_ITEMS, type AdminArea } from "./admin-navigation";
+import {
+  ADMIN_NAV_ITEMS,
+  type AdminArea,
+  type AdminNavItem,
+} from "./admin-navigation";
 import { adminTheme, cx } from "./admin-theme";
 import {
   AdminConfirmDialog,
@@ -131,17 +134,8 @@ const DOMAINS: Array<{
 const DEFAULT_DOMAIN = DOMAINS[0]!;
 const ACCOUNT_NAV_ITEM = {
   description: "Dados pessoais e seguranca",
-  group: "administration",
-  icon: UserRound,
-  key: "account",
   label: "Minha Conta",
-} as const satisfies {
-  description: string;
-  group: "administration";
-  icon: LucideIcon;
-  key: AdminArea;
-  label: string;
-};
+} as const satisfies Pick<AdminNavItem, "description" | "label">;
 
 export function AdminShell() {
   const router = useRouter();
@@ -250,15 +244,16 @@ function AdminWorkspace({
   const [tabletViewport, setTabletViewport] = useState(false);
   const effectiveSidebarCollapsed = sidebarCollapsed || tabletViewport;
   const visibleTabs = ADMIN_NAV_ITEMS.filter((tab) => canAccessArea(tab.key));
-  const fallbackArea = visibleTabs[0]?.key ?? "account";
-  const hasOperationalAccess = visibleTabs.length > 0;
+  const navigationItems = visibleTabs;
+  const fallbackArea = navigationItems[0]?.key ?? "account";
+  const hasOperationalAccess = navigationItems.length > 0;
   const effectiveArea = canAccessArea(area) ? area : fallbackArea;
   const currentItem =
     effectiveArea === "account"
       ? ACCOUNT_NAV_ITEM
-      : (visibleTabs.find((tab) => tab.key === effectiveArea) ??
+      : (navigationItems.find((tab) => tab.key === effectiveArea) ??
         (hasOperationalAccess
-          ? visibleTabs[0] ?? ACCOUNT_NAV_ITEM
+          ? navigationItems[0] ?? ACCOUNT_NAV_ITEM
           : ACCOUNT_NAV_ITEM));
   const navigationActiveArea = effectiveArea === "account" ? null : effectiveArea;
   const shortcutTargets: Record<
@@ -443,7 +438,7 @@ function AdminWorkspace({
         accountActive={effectiveArea === "account"}
         activeArea={navigationActiveArea}
         collapsed={effectiveSidebarCollapsed}
-        items={visibleTabs}
+        items={navigationItems}
         onAccount={() => handleAreaChange("account")}
         onLogout={onLogout}
         onNavigate={handleAreaChange}
@@ -453,7 +448,7 @@ function AdminWorkspace({
       <MobileNavigation
         accountActive={effectiveArea === "account"}
         activeArea={navigationActiveArea}
-        items={visibleTabs}
+        items={navigationItems}
         onAccount={() => handleAreaChange("account")}
         onClose={() => setMobileNavigationOpen(false)}
         onLogout={onLogout}

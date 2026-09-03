@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   adminAreaHref,
   dashboardTargetHref,
   parseDashboardHref,
   studentsListHref,
 } from "../src/app/admin/admin-dashboard-navigation";
+
+const shell = readFileSync("src/app/admin/admin-shell.tsx", "utf8");
 
 const academicYearId = "11111111-1111-4111-8111-111111111111";
 const institutionId = "22222222-2222-4222-8222-222222222222";
@@ -28,6 +31,18 @@ assert.equal(
 );
 assert.equal(parseDashboardHref("/admin?area=account")?.area, "account");
 assert.equal(adminAreaHref("account"), "/admin?area=account");
+assert.ok(
+  shell.includes("const navigationItems = visibleTabs"),
+  "account must not replace the policy-derived navigation menu",
+);
+assert.ok(
+  shell.includes("items={navigationItems}"),
+  "sidebar and mobile navigation must receive the preserved menu",
+);
+assert.ok(
+  shell.includes('const navigationActiveArea = effectiveArea === "account" ? null : effectiveArea;'),
+  "account must keep administrative active area neutral",
+);
 
 assert.equal(
   dashboardTargetHref({
