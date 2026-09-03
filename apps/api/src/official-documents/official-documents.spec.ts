@@ -140,7 +140,8 @@ for (const fragment of [
   '@Post(":issueId/reissue")',
   '@Post(":issueId/invalidate")',
   '@Get(":issueId/file")',
-  "@Roles(...OPERATIONAL_ADMIN_ROLES)",
+  '@OperationalPermission("officialDocuments.view")',
+  '@OperationalPermission("officialDocuments.issue")',
 ]) {
   assert.ok(controller.includes(fragment), `controller must include ${fragment}`);
 }

@@ -38,12 +38,15 @@ const issueEndpointPermissions = [
 >;
 
 const institutionalEndpointPermissions = [
-  ["issueInstitutionalOfficialDocument", [RoleCode.SUPER_ADMIN]],
-  ["reissueInstitutionalOfficialDocument", [RoleCode.SUPER_ADMIN]],
+  ["listInstitutionalOfficialDocuments", ["officialDocuments.view"]],
+  ["getInstitutionalOfficialDocumentIssue", ["officialDocuments.view"]],
+  ["getInstitutionalOfficialDocumentFile", ["officialDocuments.view"]],
+  ["issueInstitutionalOfficialDocument", ["officialDocuments.issue"]],
+  ["reissueInstitutionalOfficialDocument", ["officialDocuments.issue"]],
 ] as const satisfies ReadonlyArray<
   readonly [
     keyof InstitutionalOfficialDocumentsController,
-    readonly RoleCode[],
+    readonly SprintOperationalPermissionKey[],
   ]
 >;
 
@@ -51,6 +54,9 @@ await testControllerUsesOperationalGuard();
 await testUserViewPermissions();
 await testUserIssuePermissions();
 await testUserWithoutPermissionIsDenied();
+await testInstitutionalUserViewPermissions();
+await testInstitutionalUserIssuePermissions();
+await testInstitutionalUserWithoutPermissionIsDenied();
 await testFixedRolesAndGestorPolicy();
 await testModelsManageRemainsRoleGuarded();
 await testSecretaryCannotManageGlobalModels();
@@ -91,20 +97,16 @@ async function testControllerUsesOperationalGuard() {
 
   assert.deepEqual(
     Reflect.getMetadata(GUARDS_METADATA_KEY, InstitutionalOfficialDocumentsController),
-    [AuthGuard, RolesGuard],
+    [AuthGuard, OperationalPermissionGuard],
   );
-  assert.deepEqual(
-    Reflect.getMetadata("roles", InstitutionalOfficialDocumentsController),
-    [RoleCode.SUPER_ADMIN, RoleCode.ADMINISTRATOR, RoleCode.SECRETARIA],
-  );
-  for (const [method, roles] of institutionalEndpointPermissions) {
+  for (const [method, permissions] of institutionalEndpointPermissions) {
     assert.deepEqual(
       Reflect.getMetadata(
-        "roles",
+        "operationalPermissions",
         InstitutionalOfficialDocumentsController.prototype[method],
       ),
-      roles,
-      `${String(method)} must remain SUPER_ADMIN-only`,
+      permissions,
+      `${String(method)} must use the approved institutional OfficialDocuments permission`,
     );
   }
 }
@@ -157,6 +159,58 @@ async function testUserWithoutPermissionIsDenied() {
   );
 }
 
+async function testInstitutionalUserViewPermissions() {
+  const guard = guardWithProfile(["officialDocuments.view"]);
+  for (const method of [
+    "listInstitutionalOfficialDocuments",
+    "getInstitutionalOfficialDocumentIssue",
+    "getInstitutionalOfficialDocumentFile",
+  ] as const) {
+    assert.equal(
+      await guard.canActivate(institutionalContext(method, operationalUser())),
+      true,
+    );
+  }
+  for (const method of [
+    "issueInstitutionalOfficialDocument",
+    "reissueInstitutionalOfficialDocument",
+  ] as const) {
+    await assert.rejects(
+      () => guard.canActivate(institutionalContext(method, operationalUser())),
+      (error) => error instanceof ForbiddenException,
+      `USER with view must not execute institutional ${method}`,
+    );
+  }
+}
+
+async function testInstitutionalUserIssuePermissions() {
+  const guard = guardWithProfile([
+    "officialDocuments.view",
+    "officialDocuments.issue",
+  ]);
+  for (const method of [
+    "issueInstitutionalOfficialDocument",
+    "reissueInstitutionalOfficialDocument",
+  ] as const) {
+    assert.equal(
+      await guard.canActivate(institutionalContext(method, operationalUser())),
+      true,
+    );
+  }
+}
+
+async function testInstitutionalUserWithoutPermissionIsDenied() {
+  const guard = guardWithProfile([]);
+  await assert.rejects(
+    () =>
+      guard.canActivate(
+        institutionalContext("listInstitutionalOfficialDocuments", operationalUser()),
+      ),
+    (error) => error instanceof ForbiddenException,
+    "USER without officialDocuments.view must receive 403 on institutional documents",
+  );
+}
+
 async function testFixedRolesAndGestorPolicy() {
   const guard = guardWithProfile([]);
   for (const role of [
@@ -170,6 +224,16 @@ async function testFixedRolesAndGestorPolicy() {
       ),
       true,
       `${role} must keep fixed OfficialDocuments access without PermissionProfile`,
+    );
+    assert.equal(
+      await guard.canActivate(
+        institutionalContext(
+          "issueInstitutionalOfficialDocument",
+          operationalUser({ roles: [role] }),
+        ),
+      ),
+      true,
+      `${role} must keep fixed institutional OfficialDocuments access without PermissionProfile`,
     );
   }
   await assert.rejects(
@@ -390,6 +454,19 @@ function context(method: keyof OfficialDocumentsController, user: AuthUser) {
   return {
     getClass: () => OfficialDocumentsController,
     getHandler: () => OfficialDocumentsController.prototype[method],
+    switchToHttp: () => ({
+      getRequest: () => ({ user }),
+    }),
+  } as never;
+}
+
+function institutionalContext(
+  method: keyof InstitutionalOfficialDocumentsController,
+  user: AuthUser,
+) {
+  return {
+    getClass: () => InstitutionalOfficialDocumentsController,
+    getHandler: () => InstitutionalOfficialDocumentsController.prototype[method],
     switchToHttp: () => ({
       getRequest: () => ({ user }),
     }),

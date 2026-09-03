@@ -30,7 +30,6 @@ import {
   type OfficialDocumentIssue,
 } from "../../lib/api";
 import {
-  canAccessOperationalAdmin,
   canManageGlobalOfficialDocumentModels,
   hasCapability,
 } from "../../lib/auth";
@@ -75,7 +74,7 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const canManageModels = canManageGlobalOfficialDocumentModels(user);
-  const canAccessInstitutionalDocuments = canAccessOperationalAdmin(user);
+  const canAccessInstitutionalDocuments = hasCapability(user, "officialDocuments.view");
   const canIssueOfficialDocuments = hasCapability(user, "officialDocuments.issue");
   const canReadInvalidatedPdf = user.roles.includes("SUPER_ADMIN");
 
@@ -571,7 +570,7 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
                   busy={busy}
                   item={item}
                   key={item.type}
-                  canIssue={user.roles.includes("SUPER_ADMIN")}
+                  canIssue={canIssueOfficialDocuments}
                   onDownload={(issue) => openIssue(issue, "attachment")}
                   onHistory={() => setHistoryDialog(item)}
                   onIssue={() => setIssueDialog(item)}
@@ -597,6 +596,7 @@ export function OfficialDocumentsPanel({ user }: { user: ApiUser }) {
       {historyDialog ? (
         <InstitutionalHistoryDialog
           busy={busy}
+          canIssue={canIssueOfficialDocuments}
           item={historyDialog}
           onClose={() => setHistoryDialog(null)}
           onDownload={(issue) => openIssue(issue, "attachment")}
@@ -1418,6 +1418,7 @@ function ModelDialog({
 
 function InstitutionalHistoryDialog({
   busy,
+  canIssue,
   item,
   onClose,
   onDownload,
@@ -1425,6 +1426,7 @@ function InstitutionalHistoryDialog({
   onView,
 }: {
   busy: string;
+  canIssue: boolean;
   item: OfficialDocumentCatalogItem;
   onClose: () => void;
   onDownload: (issue: OfficialDocumentIssue) => void;
@@ -1539,15 +1541,17 @@ function InstitutionalHistoryDialog({
                           <Download size={15} />
                           Baixar
                         </button>
-                        <button
-                          className={cx(adminTheme.secondaryButton, "min-h-9")}
-                          disabled={Boolean(busy)}
-                          onClick={() => onReissue(issue)}
-                          type="button"
-                        >
-                          <RefreshCw size={15} />
-                          Reemitir
-                        </button>
+                        {canIssue ? (
+                          <button
+                            className={cx(adminTheme.secondaryButton, "min-h-9")}
+                            disabled={Boolean(busy)}
+                            onClick={() => onReissue(issue)}
+                            type="button"
+                          >
+                            <RefreshCw size={15} />
+                            Reemitir
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   );

@@ -19,7 +19,6 @@ import { OperationalPermissionGuard } from "../auth/operational-permission.guard
 import { OperationalPermission } from "../auth/operational-permissions.js";
 import {
   GLOBAL_OPERATIONAL_ADMIN_ROLES,
-  OPERATIONAL_ADMIN_ROLES,
   Roles,
 } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
@@ -269,8 +268,7 @@ export class OfficialDocumentModelsController {
   }
 }
 
-@UseGuards(AuthGuard, RolesGuard)
-@Roles(...OPERATIONAL_ADMIN_ROLES)
+@UseGuards(AuthGuard, OperationalPermissionGuard)
 @Controller("official-documents/institutional")
 export class InstitutionalOfficialDocumentsController {
   constructor(
@@ -279,13 +277,13 @@ export class InstitutionalOfficialDocumentsController {
   ) {}
 
   @Get()
+  @OperationalPermission("officialDocuments.view")
   listInstitutionalOfficialDocuments() {
     return this.officialDocuments.listInstitutionalOfficialDocuments();
   }
 
-  @Roles(RoleCode.SUPER_ADMIN)
-  @UseGuards(RolesGuard)
   @Post(":type/issue")
+  @OperationalPermission("officialDocuments.issue")
   issueInstitutionalOfficialDocument(
     @Param("type", new ParseEnumPipe(OfficialDocumentType))
     type: OfficialDocumentType,
@@ -295,9 +293,8 @@ export class InstitutionalOfficialDocumentsController {
     return this.officialDocuments.issueInstitutionalDocument(type, user, undefined, body);
   }
 
-  @Roles(RoleCode.SUPER_ADMIN)
-  @UseGuards(RolesGuard)
   @Post(":issueId/reissue")
+  @OperationalPermission("officialDocuments.issue")
   reissueInstitutionalOfficialDocument(
     @Param("issueId") issueId: string,
     @CurrentUser() user: AuthUser,
@@ -306,11 +303,13 @@ export class InstitutionalOfficialDocumentsController {
   }
 
   @Get(":issueId")
+  @OperationalPermission("officialDocuments.view")
   getInstitutionalOfficialDocumentIssue(@Param("issueId") issueId: string) {
     return this.officialDocuments.getInstitutionalIssue(issueId);
   }
 
   @Get(":issueId/file")
+  @OperationalPermission("officialDocuments.view")
   async getInstitutionalOfficialDocumentFile(
     @Param("issueId") issueId: string,
     @Query() query: DownloadOfficialDocumentDto,

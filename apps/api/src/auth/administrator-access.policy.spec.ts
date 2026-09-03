@@ -67,7 +67,6 @@ for (const role of [RoleCode.USER, RoleCode.GESTOR]) {
 const administratorOperationalEndpoints = [
   [DocumentsController, undefined],
   [StudentPhotosController, undefined],
-  [InstitutionalOfficialDocumentsController, undefined],
   [BankSlipsController, "cancelIssueBatch"],
   [FinancialReportsController, "monthly"],
   [StudentsController, "listStudentLegacyFinancialHistory"],
@@ -460,6 +459,31 @@ const officialDocumentOperationalEndpoints = [
   [OfficialDocumentsController, "getOfficialDocumentIssue", ["officialDocuments.view"]],
   [OfficialDocumentsController, "getOfficialDocumentFile", ["officialDocuments.view"]],
   [OfficialDocumentIssuesController, "listIssues", ["officialDocuments.view"]],
+  [
+    InstitutionalOfficialDocumentsController,
+    "listInstitutionalOfficialDocuments",
+    ["officialDocuments.view"],
+  ],
+  [
+    InstitutionalOfficialDocumentsController,
+    "getInstitutionalOfficialDocumentIssue",
+    ["officialDocuments.view"],
+  ],
+  [
+    InstitutionalOfficialDocumentsController,
+    "getInstitutionalOfficialDocumentFile",
+    ["officialDocuments.view"],
+  ],
+  [
+    InstitutionalOfficialDocumentsController,
+    "issueInstitutionalOfficialDocument",
+    ["officialDocuments.issue"],
+  ],
+  [
+    InstitutionalOfficialDocumentsController,
+    "reissueInstitutionalOfficialDocument",
+    ["officialDocuments.issue"],
+  ],
 ] as const;
 
 for (const item of studentCardOperationalEndpoints) {
@@ -499,8 +523,6 @@ const superAdminOnlyEndpoints = [
   [StudentsController, "deleteAcademicYear"],
   [StudentsController, "updateBoardMembershipRole"],
   [OfficialDocumentsController, "invalidateOfficialDocument"],
-  [InstitutionalOfficialDocumentsController, "issueInstitutionalOfficialDocument"],
-  [InstitutionalOfficialDocumentsController, "reissueInstitutionalOfficialDocument"],
   [BankSlipsController, "recoverIssuedFromProviderResponse"],
   [BankSlipsController, "syncPaidByDay"],
   [BankSlipsController, "syncOpenIssued"],
