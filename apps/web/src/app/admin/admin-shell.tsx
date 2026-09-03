@@ -37,6 +37,7 @@ import { AccountPanel } from "./account-panel";
 import { AcademicYearsPanel } from "./academic-years-panel";
 import {
   ADMIN_NAV_ITEMS,
+  mergeAccountUserNavigationContext,
   type AdminArea,
   type AdminNavItem,
 } from "./admin-navigation";
@@ -544,7 +545,9 @@ function AdminWorkspace({
           {effectiveArea === "account" ? (
             <AccountPanel
               onRequireLogin={onRequireLogin}
-              onUserChange={onUserChange}
+              onUserChange={(accountUser) =>
+                onUserChange(mergeAccountUserNavigationContext(user, accountUser))
+              }
             />
           ) : null}
           {effectiveArea === "pre-registrations" ? (

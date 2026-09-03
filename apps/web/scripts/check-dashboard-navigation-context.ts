@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import type { ApiUser } from "../src/lib/api";
+import {
+  canAccessMigratedArea,
+  canAccessOperationalAdmin,
+  canAccessRestrictedAdmin,
+  canAccessUserAdministration,
+} from "../src/lib/auth";
+import {
+  ADMIN_NAV_ITEMS,
+  mergeAccountUserNavigationContext,
+  type AdminArea,
+} from "../src/app/admin/admin-navigation";
 import {
   adminAreaHref,
   dashboardTargetHref,
@@ -43,6 +55,79 @@ assert.ok(
   shell.includes('const navigationActiveArea = effectiveArea === "account" ? null : effectiveArea;'),
   "account must keep administrative active area neutral",
 );
+assert.ok(
+  shell.includes("mergeAccountUserNavigationContext(user, accountUser)"),
+  "account response must be merged without dropping navigation context",
+);
+
+const fullCapabilities = [
+  "dashboard.view",
+  "students.view",
+  "students.reenroll",
+  "preRegistrations.view",
+  "studentCards.view",
+  "finance.invoices.view",
+  "officialDocuments.view",
+  "reports.view",
+  "baseRecords.view",
+];
+const operationalCapabilities = [
+  "dashboard.view",
+  "students.view",
+  "finance.invoices.view",
+  "reports.view",
+];
+
+for (const scenario of [
+  {
+    area: "dashboard",
+    capabilities: fullCapabilities,
+    roles: ["SUPER_ADMIN"],
+  },
+  {
+    area: "finance",
+    capabilities: fullCapabilities,
+    roles: ["SUPER_ADMIN"],
+  },
+  {
+    area: "users",
+    capabilities: fullCapabilities,
+    roles: ["SUPER_ADMIN"],
+  },
+  {
+    area: "dashboard",
+    capabilities: operationalCapabilities,
+    roles: ["ADMINISTRATOR"],
+  },
+  {
+    area: "students",
+    capabilities: operationalCapabilities,
+    roles: ["USER"],
+  },
+  {
+    area: "finance",
+    capabilities: operationalCapabilities,
+    roles: ["SECRETARIA"],
+  },
+] as const) {
+  const currentUser = makeUser(scenario.roles, scenario.capabilities);
+  const accountUser = { ...currentUser };
+  delete accountUser.capabilities;
+  const beforeAccount = visibleNavigationKeys(currentUser);
+  const duringAccount = visibleNavigationKeys(
+    mergeAccountUserNavigationContext(currentUser, accountUser),
+  );
+  assert.deepEqual(
+    duringAccount,
+    beforeAccount,
+    `${scenario.roles.join("/")} ${scenario.area} -> account must preserve the same menu`,
+  );
+  assert.equal(
+    duringAccount.every((key) => navigationGroup(key) === "administration"),
+    false,
+    `${scenario.roles.join("/")} account menu must not collapse to administration`,
+  );
+}
 
 assert.equal(
   dashboardTargetHref({
@@ -76,3 +161,55 @@ assert.equal(
 );
 
 console.log("Dashboard navigation context guard OK");
+
+function makeUser(
+  roles: readonly ApiUser["roles"][number][],
+  capabilities: readonly string[],
+): ApiUser {
+  return {
+    capabilities: [...capabilities],
+    email: "qa@example.com",
+    id: "qa-user",
+    name: "QA User",
+    roles: [...roles],
+    status: "ACTIVE",
+  };
+}
+
+function visibleNavigationKeys(user: ApiUser): AdminArea[] {
+  return ADMIN_NAV_ITEMS.filter((item) => canAccessArea(user, item.key)).map(
+    (item) => item.key,
+  );
+}
+
+function canAccessArea(user: ApiUser, nextArea: AdminArea): boolean {
+  if (nextArea === "account") {
+    return true;
+  }
+  if (
+    nextArea === "dashboard" ||
+    nextArea === "students" ||
+    nextArea === "reenrollments" ||
+    nextArea === "official-documents" ||
+    nextArea === "base" ||
+    nextArea === "reports" ||
+    nextArea === "student-cards" ||
+    nextArea === "pre-registrations" ||
+    nextArea === "finance"
+  ) {
+    return canAccessMigratedArea(user, nextArea);
+  }
+  if (nextArea === "users" || nextArea === "permission-profiles") {
+    return canAccessUserAdministration(user);
+  }
+  const hasLegacyOperationalAccess = canAccessOperationalAdmin(user);
+  if (!hasLegacyOperationalAccess) {
+    return false;
+  }
+  const navItem = ADMIN_NAV_ITEMS.find((item) => item.key === nextArea);
+  return !navItem || !("restricted" in navItem) || canAccessRestrictedAdmin(user);
+}
+
+function navigationGroup(area: AdminArea): string | undefined {
+  return ADMIN_NAV_ITEMS.find((item) => item.key === area)?.group;
+}

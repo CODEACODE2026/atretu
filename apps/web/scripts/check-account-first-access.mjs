@@ -34,12 +34,25 @@ includesAll(shell, [
   "onRequireLogin",
   "canAccessOperationalAdmin",
   "Minha Conta permanece disponivel",
+  "mergeAccountUserNavigationContext",
+  "mergeAccountUserNavigationContext(user, accountUser)",
   "const navigationItems = visibleTabs",
   'effectiveArea === "account"',
   'const navigationActiveArea = effectiveArea === "account" ? null : effectiveArea;',
   "accountActive={effectiveArea === \"account\"}",
   "activeArea={navigationActiveArea}",
   "items={navigationItems}",
+]);
+
+includesAll(shell, [
+  "onUserChange={(accountUser) =>",
+  "onUserChange(mergeAccountUserNavigationContext(user, accountUser))",
+]);
+
+const navigation = readFileSync("src/app/admin/admin-navigation.ts", "utf8");
+includesAll(navigation, [
+  "mergeAccountUserNavigationContext",
+  "capabilities: accountUser.capabilities ?? currentUser.capabilities",
 ]);
 
 const accountNavItemBlock = shell.slice(

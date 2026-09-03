@@ -39,6 +39,7 @@ assert.ok(
 
 includesAll(shell, [
   "canAccessMigratedArea(user, nextArea)",
+  "mergeAccountUserNavigationContext(user, accountUser)",
   "const visibleTabs = ADMIN_NAV_ITEMS.filter((tab) => canAccessArea(tab.key))",
   "const navigationItems = visibleTabs",
   "const effectiveArea = canAccessArea(area) ? area : fallbackArea",

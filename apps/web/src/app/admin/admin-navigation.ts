@@ -17,6 +17,7 @@ import {
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
+import type { ApiUser } from "../../lib/api";
 
 export type AdminArea =
   | "account"
@@ -186,4 +187,15 @@ export function groupAdminNavItems(
     ...group,
     items: items.filter((item) => item.group === group.key),
   })).filter((group) => group.items.length > 0);
+}
+
+export function mergeAccountUserNavigationContext(
+  currentUser: ApiUser,
+  accountUser: ApiUser,
+): ApiUser {
+  return {
+    ...currentUser,
+    ...accountUser,
+    capabilities: accountUser.capabilities ?? currentUser.capabilities,
+  };
 }
