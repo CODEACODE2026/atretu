@@ -75,11 +75,30 @@ includesAll(panel, [
   'hasCapability(user, "preRegistrations.review")',
   'hasCapability(',
   '"preRegistrations.documents.view"',
+  "AdminLargeModal",
+  "detailOpen",
+  "setDetailOpen(false)",
+  'title="Pré-cadastro"',
+  'role="button"',
+  "tabIndex={0}",
+  "onKeyDown={(event) => event.stopPropagation()}",
+  "Abrir",
   "copyPublicPreRegistrationLink",
   'navigator.clipboard.writeText(`${window.location.origin}/pre-cadastro`)',
   "Link copiado",
   "Copiar link de pré-cadastro",
+  "DocumentSection",
+  "DocumentPreviewModal",
+  "closeButtonRef.current?.focus()",
+  'event.key === "Escape"',
+  "approveSelected",
+  "rejectSelected",
 ]);
+assert.equal(
+  panel.includes("xl:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]"),
+  false,
+  "pre-registration panel must not keep the old split list/detail grid",
+);
 
 for (const source of [panel, login, home]) {
   assert.equal(source.includes("window.alert"), false, "window.alert is forbidden");

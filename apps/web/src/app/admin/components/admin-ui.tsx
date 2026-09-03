@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Inbox,
   Loader2,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { adminTheme, cx } from "../admin-theme";
@@ -213,6 +214,146 @@ export function AdminFeedback({
   );
 }
 
+export function AdminLargeModal({
+  children,
+  footer,
+  onClose,
+  status,
+  subtitle,
+  title,
+}: {
+  children: ReactNode;
+  footer?: ReactNode;
+  onClose: () => void;
+  status?: ReactNode;
+  subtitle?: ReactNode;
+  title: string;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousActiveElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    function focusableElements() {
+      return Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => !element.hasAttribute("disabled"));
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        dialogRef.current &&
+        !dialogRef.current.contains(target)
+      ) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        onCloseRef.current();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const elements = focusableElements();
+      if (elements.length === 0) {
+        event.preventDefault();
+        closeButtonRef.current?.focus();
+        return;
+      }
+
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousActiveElement?.focus();
+    };
+  }, []);
+
+  return (
+    <div
+      aria-labelledby="admin-large-modal-title"
+      aria-modal="true"
+      className="fixed inset-0 z-40 flex items-end overflow-x-hidden bg-slate-950/45 p-0 backdrop-blur-[2px] sm:items-center sm:justify-center sm:p-4"
+      role="dialog"
+    >
+      <section
+        className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:max-w-[1120px] sm:rounded-2xl"
+        ref={dialogRef}
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <h2
+              className="break-words text-lg font-semibold text-slate-950"
+              id="admin-large-modal-title"
+            >
+              {title}
+            </h2>
+            {subtitle ? (
+              <div className="mt-1 break-words text-sm text-slate-600">
+                {subtitle}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-start gap-2">
+            {status}
+            <button
+              aria-label="Fechar modal"
+              className={adminTheme.iconButton}
+              onClick={onClose}
+              ref={closeButtonRef}
+              type="button"
+            >
+              <X aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+          {children}
+        </div>
+        {footer ? (
+          <div className="sticky bottom-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-5">
+            {footer}
+          </div>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
 export function AdminConfirmDialog({
   cancelLabel = "Cancelar",
   confirmLabel = "Confirmar",
@@ -239,7 +380,7 @@ export function AdminConfirmDialog({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-30 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-[2px]">
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/45 p-4 backdrop-blur-[2px]">
       <section
         aria-modal="true"
         className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"

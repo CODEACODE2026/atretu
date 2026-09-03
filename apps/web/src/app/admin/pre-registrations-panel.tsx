@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Clipboard,
@@ -34,6 +34,7 @@ import { maskCpf, maskPhone } from "../../lib/formatters";
 import { adminTheme, cx } from "./admin-theme";
 import {
   AdminEmptyState,
+  AdminLargeModal,
   AdminModuleHeader,
   AdminStatusBadge,
 } from "./components/admin-ui";
@@ -87,6 +88,7 @@ export function PreRegistrationsPanel({
 }) {
   const [items, setItems] = useState<PreRegistrationSummary[]>([]);
   const [selected, setSelected] = useState<PreRegistrationDetail | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [status, setStatus] = useState<PreRegistrationStatusFilter>("PENDING");
   const [search, setSearch] = useState("");
   const [academicYearId, setAcademicYearId] = useState("");
@@ -249,18 +251,21 @@ export function PreRegistrationsPanel({
     setAcademicYearId(value);
     setPage(1);
     setSelected(null);
+    setDetailOpen(false);
   }
 
   function updateInstitutionFilter(value: string) {
     setInstitutionId(value);
     setPage(1);
     setSelected(null);
+    setDetailOpen(false);
   }
 
   function updateStatusFilter(value: PreRegistrationStatusFilter) {
     setStatus(value);
     setPage(1);
     setSelected(null);
+    setDetailOpen(false);
   }
 
   function removeFilter(key: "academicYear" | "institution" | "status") {
@@ -282,6 +287,7 @@ export function PreRegistrationsPanel({
     setStatus("all");
     setPage(1);
     setSelected(null);
+    setDetailOpen(false);
     setDashboardSourceApplied(false);
     onClearNavigationContext?.();
   }
@@ -292,6 +298,7 @@ export function PreRegistrationsPanel({
     try {
       const detail = await api.getPreRegistration(id);
       setSelected(detail);
+      setDetailOpen(true);
       setRejectionReason("");
       setApprovalBusId("");
     } catch (caught) {
@@ -521,6 +528,7 @@ export function PreRegistrationsPanel({
             event.preventDefault();
             setPage(1);
             setSelected(null);
+            setDetailOpen(false);
             void loadItems(search);
           }}
         >
@@ -630,7 +638,7 @@ export function PreRegistrationsPanel({
         </div>
       ) : null}
 
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
+      <div className="grid min-w-0 items-start gap-4">
         <div className={cx(adminTheme.card, "min-w-0 overflow-hidden")}>
           <div className="grid gap-2 p-3 md:hidden">
             {loading ? (
@@ -642,7 +650,6 @@ export function PreRegistrationsPanel({
             ) : (
               items.map((item) => (
                 <PreRegistrationMobileCard
-                  canReview={canReview}
                   item={item}
                   key={item.id}
                   onOpen={() => void openItem(item.id)}
@@ -682,13 +689,21 @@ export function PreRegistrationsPanel({
                   items.map((item) => (
                     <tr
                       className={cx(
-                        "cursor-pointer transition hover:bg-[#F8FAFA]",
+                        "cursor-pointer transition hover:bg-[#F8FAFA] focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15",
                         item.id === selectedId
                           ? "bg-[#F2F8F6] shadow-[inset_3px_0_0_#1F6F5F]"
                           : undefined,
                       )}
                       key={item.id}
                       onClick={() => void openItem(item.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          void openItem(item.id);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                     >
                       <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-950">
                         {item.publicCode}
@@ -718,9 +733,10 @@ export function PreRegistrationsPanel({
                             event.stopPropagation();
                             void openItem(item.id);
                           }}
+                          onKeyDown={(event) => event.stopPropagation()}
                           type="button"
                         >
-                          Revisar
+                          Abrir
                         </button>
                       </td>
                     </tr>
@@ -753,169 +769,162 @@ export function PreRegistrationsPanel({
             </div>
           </div>
         </div>
+      </div>
+      {selected && detailOpen ? (
+        <AdminLargeModal
+          onClose={() => setDetailOpen(false)}
+          status={<StatusBadge status={selected.status} />}
+          subtitle={
+            <>
+              {selected.fullName}
+              <span className="mx-2 text-slate-300">/</span>
+              {selected.publicCode} · {statusLabel(selected.status)}
+            </>
+          }
+          title="Pré-cadastro"
+        >
+          <div className="grid gap-3">
+            <InfoGroup
+              columns="two"
+              icon={UserRound}
+              rows={[
+                ["CPF", maskCpf(selected.cpf)],
+                ["RG", selected.rg ?? "-"],
+                ["Nascimento", formatDate(selected.birthDate)],
+                ["Telefone", selected.phone ? maskPhone(selected.phone) : "-"],
+                ["E-mail", selected.email ?? "-"],
+              ]}
+              title="Dados do acadêmico"
+            />
+            <InfoGroup
+              columns="two"
+              icon={GraduationCap}
+              rows={[
+                ["Instituição", selected.institution.name],
+                ["Curso", selected.course],
+                ["Série", selected.grade],
+                ["Turno", selected.shift.name],
+                ["Ano letivo", String(selected.academicYear.year)],
+              ]}
+              title="Dados acadêmicos"
+            />
+            <InfoGroup
+              columns="two"
+              icon={MapPin}
+              rows={[
+                ["Logradouro", selected.addressStreet],
+                ["Número", selected.addressNumber],
+                ["Bairro", selected.addressNeighborhood],
+                ["Cidade", selected.addressCity],
+              ]}
+              title="Endereço"
+            />
+            <InfoGroup
+              columns="two"
+              icon={UsersRound}
+              rows={[
+                ["Responsável", selected.guardian?.fullName ?? "-"],
+                ["CPF", selected.guardian?.cpf ? maskCpf(selected.guardian.cpf) : "-"],
+                ["RG", selected.guardian?.rg ?? "-"],
+              ]}
+              title="Responsável"
+            />
+            <DocumentSection
+              canViewDocuments={canViewDocuments}
+              documents={selected.documents}
+              onDownload={(document) => void handleDownloadDocument(document)}
+              onPreview={(document) => void handlePreviewDocument(document)}
+            />
+            <InfoGroup
+              columns="two"
+              icon={ShieldCheck}
+              rows={[
+                ["Situação", statusLabel(selected.status)],
+                ["Recebido em", formatDateTime(selected.createdAt)],
+                ["Analisado em", selected.reviewedAt ? formatDateTime(selected.reviewedAt) : "-"],
+                ["Analista", selected.reviewedBy?.name ?? "-"],
+                ["Motivo", selected.rejectionReason ?? "-"],
+                ["Acadêmico", selected.approvedStudent?.fullName ?? "-"],
+              ]}
+              title="Observações"
+            />
 
-        <aside className="min-w-0 xl:sticky xl:top-4">
-          {selected ? (
-            <div className="grid gap-3">
-              <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-[#F8FAFA]/85 p-4">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    {selected.publicCode}
-                  </p>
-                  <h2 className="mt-1 break-words text-lg font-semibold text-slate-950">
-                    {selected.fullName}
-                  </h2>
-                </div>
-                <StatusBadge status={selected.status} />
-              </div>
-
-              <InfoGroup
-                columns="two"
-                icon={UserRound}
-                rows={[
-                  ["CPF", maskCpf(selected.cpf)],
-                  ["RG", selected.rg ?? "-"],
-                  ["Nascimento", formatDate(selected.birthDate)],
-                  ["Telefone", selected.phone ? maskPhone(selected.phone) : "-"],
-                  ["E-mail", selected.email ?? "-"],
-                ]}
-                title="Dados do acadêmico"
-              />
-              <InfoGroup
-                columns="two"
-                icon={GraduationCap}
-                rows={[
-                  ["Instituição", selected.institution.name],
-                  ["Curso", selected.course],
-                  ["Série", selected.grade],
-                  ["Turno", selected.shift.name],
-                  ["Ano letivo", String(selected.academicYear.year)],
-                ]}
-                title="Dados acadêmicos"
-              />
-              <InfoGroup
-                columns="two"
-                icon={MapPin}
-                rows={[
-                  ["Logradouro", selected.addressStreet],
-                  ["Número", selected.addressNumber],
-                  ["Bairro", selected.addressNeighborhood],
-                  ["Cidade", selected.addressCity],
-                ]}
-                title="Endereço"
-              />
-              <InfoGroup
-                columns="two"
-                icon={UsersRound}
-                rows={[
-                  ["Responsável", selected.guardian?.fullName ?? "-"],
-                  ["CPF", selected.guardian?.cpf ? maskCpf(selected.guardian.cpf) : "-"],
-                  ["RG", selected.guardian?.rg ?? "-"],
-                ]}
-                title="Responsável"
-              />
-              <DocumentSection
-                canViewDocuments={canViewDocuments}
-                documents={selected.documents}
-                onDownload={(document) => void handleDownloadDocument(document)}
-                onPreview={(document) => void handlePreviewDocument(document)}
-              />
-              <InfoGroup
-                columns="two"
-                icon={ShieldCheck}
-                rows={[
-                  ["Situação", statusLabel(selected.status)],
-                  ["Recebido em", formatDateTime(selected.createdAt)],
-                  ["Analisado em", selected.reviewedAt ? formatDateTime(selected.reviewedAt) : "-"],
-                  ["Analista", selected.reviewedBy?.name ?? "-"],
-                  ["Motivo", selected.rejectionReason ?? "-"],
-                  ["Acadêmico", selected.approvedStudent?.fullName ?? "-"],
-                ]}
-                title="Observações"
-              />
-
-              {selected.status === "PENDING" && canReview ? (
-                <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-white p-4">
-                  <SectionTitle icon={ShieldCheck} title="Ações" />
-                  <label className="block text-sm font-medium text-slate-700">
-                    Ônibus opcional
-                    <select
-                      className={cx(adminTheme.control, "mt-1 w-full")}
-                      disabled={approvalBusesLoading}
-                      onChange={(event) => setApprovalBusId(event.target.value)}
-                      value={approvalBusId}
-                    >
-                      <option value="">
-                        {approvalBusesLoading
-                          ? "Carregando onibus..."
-                          : "Aprovar sem onibus"}
+            {selected.status === "PENDING" && canReview ? (
+              <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-white p-4">
+                <SectionTitle icon={ShieldCheck} title="Ações" />
+                <label className="block text-sm font-medium text-slate-700">
+                  Ônibus opcional
+                  <select
+                    className={cx(adminTheme.control, "mt-1 w-full")}
+                    disabled={approvalBusesLoading}
+                    onChange={(event) => setApprovalBusId(event.target.value)}
+                    value={approvalBusId}
+                  >
+                    <option value="">
+                      {approvalBusesLoading
+                        ? "Carregando onibus..."
+                        : "Aprovar sem onibus"}
+                    </option>
+                    {approvalBuses.map((bus) => (
+                      <option key={bus.id} value={bus.id}>
+                        {bus.name} - {bus.availableSeats ?? bus.capacity}/
+                        {bus.capacity} vagas
                       </option>
-                      {approvalBuses.map((bus) => (
-                        <option key={bus.id} value={bus.id}>
-                          {bus.name} - {bus.availableSeats ?? bus.capacity}/
-                          {bus.capacity} vagas
-                        </option>
-                      ))}
-                    </select>
-                    {!approvalBusesLoading &&
-                    approvalBuses.length === 0 &&
-                    !approvalBusesError ? (
-                      <span className="mt-1 block text-xs text-slate-500">
-                        Nenhum onibus com vaga disponivel
-                      </span>
-                    ) : null}
-                    {approvalBusesError ? (
-                      <span className="mt-1 block text-xs text-red-700">
-                        {approvalBusesError}
-                      </span>
-                    ) : null}
+                    ))}
+                  </select>
+                  {!approvalBusesLoading &&
+                  approvalBuses.length === 0 &&
+                  !approvalBusesError ? (
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Nenhum onibus com vaga disponivel
+                    </span>
+                  ) : null}
+                  {approvalBusesError ? (
+                    <span className="mt-1 block text-xs text-red-700">
+                      {approvalBusesError}
+                    </span>
+                  ) : null}
+                </label>
+                <button
+                  className={adminTheme.primaryButton}
+                  disabled={saving}
+                  onClick={() => void approveSelected()}
+                  type="button"
+                >
+                  Aprovar
+                </button>
+                <form className="grid gap-2" onSubmit={rejectSelected}>
+                  <label className="block text-sm font-medium text-slate-700">
+                    Motivo da rejeição
+                    <textarea
+                      className={cx(adminTheme.control, "mt-1 min-h-20 w-full py-2")}
+                      maxLength={500}
+                      minLength={3}
+                      onChange={(event) => setRejectionReason(event.target.value)}
+                      required
+                      value={rejectionReason}
+                    />
                   </label>
                   <button
-                    className={adminTheme.primaryButton}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                     disabled={saving}
-                    onClick={() => void approveSelected()}
-                    type="button"
+                    type="submit"
                   >
-                    Aprovar
+                    Rejeitar
                   </button>
-                  <form className="grid gap-2" onSubmit={rejectSelected}>
-                    <label className="block text-sm font-medium text-slate-700">
-                      Motivo da rejeição
-                      <textarea
-                        className={cx(adminTheme.control, "mt-1 min-h-20 w-full py-2")}
-                        maxLength={500}
-                        minLength={3}
-                        onChange={(event) => setRejectionReason(event.target.value)}
-                        required
-                        value={rejectionReason}
-                      />
-                    </label>
-                    <button
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
-                      disabled={saving}
-                      type="submit"
-                    >
-                      Rejeitar
-                    </button>
-                  </form>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-slate-200/80 bg-white p-4">
-                  <SectionTitle icon={ShieldCheck} title="Ações" />
-                  <p className="mt-2 text-sm text-slate-500">
-                    Não há ações pendentes para esta solicitação.
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <AdminEmptyState
-              description="Selecione um registro para revisar os dados e documentos."
-              title="Nenhum pré-cadastro selecionado"
-            />
-          )}
-        </aside>
-      </div>
+                </form>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-slate-200/80 bg-white p-4">
+                <SectionTitle icon={ShieldCheck} title="Ações" />
+                <p className="mt-2 text-sm text-slate-500">
+                  Não há ações pendentes para esta solicitação.
+                </p>
+              </div>
+            )}
+          </div>
+        </AdminLargeModal>
+      ) : null}
       {documentPreview ? (
         <DocumentPreviewModal
           fileName={documentPreview.fileName}
@@ -960,12 +969,10 @@ function InfoGroup({
 }
 
 function PreRegistrationMobileCard({
-  canReview,
   item,
   onOpen,
   selected,
 }: {
-  canReview: boolean;
   item: PreRegistrationSummary;
   onOpen: () => void;
   selected: boolean;
@@ -973,13 +980,22 @@ function PreRegistrationMobileCard({
   return (
     <article
       className={cx(
-        "grid gap-2 rounded-lg border p-3 transition",
+        "grid cursor-pointer gap-2 rounded-lg border p-3 transition focus:outline-none focus:ring-4 focus:ring-[#1F6F5F]/15",
         selected
           ? "border-[#8DB7AD] bg-[#F2F8F6] shadow-[inset_3px_0_0_#1F6F5F]"
           : "border-slate-200 bg-white",
       )}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
-      <button className="min-w-0 text-left" onClick={onOpen} type="button">
+      <div className="min-w-0 text-left">
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -1009,13 +1025,17 @@ function PreRegistrationMobileCard({
             <dd className="truncate text-slate-700">{formatDateTime(item.createdAt)}</dd>
           </div>
         </dl>
-      </button>
+      </div>
       <button
         className={cx(adminTheme.secondaryButton, "h-8 justify-self-start px-2.5 text-xs")}
-        onClick={onOpen}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen();
+        }}
+        onKeyDown={(event) => event.stopPropagation()}
         type="button"
       >
-        {canReview ? "Revisar" : "Detalhes"}
+        Abrir
       </button>
     </article>
   );
@@ -1167,6 +1187,28 @@ function DocumentPreviewModal({
 }) {
   const isPdf = preview.mimeType === "application/pdf";
   const isImage = preview.mimeType === "image/jpeg" || preview.mimeType === "image/png";
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousActiveElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousActiveElement?.focus();
+    };
+  }, [onClose]);
+
   return (
     <div
       aria-labelledby="pre-registration-document-preview-title"
@@ -1194,6 +1236,7 @@ function DocumentPreviewModal({
             aria-label="Fechar visualização"
             className={adminTheme.iconButton}
             onClick={onClose}
+            ref={closeButtonRef}
             type="button"
           >
             <X aria-hidden="true" className="h-4 w-4" />
