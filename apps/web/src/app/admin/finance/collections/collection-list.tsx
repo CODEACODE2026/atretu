@@ -34,10 +34,10 @@ export function CollectionList({
       </div>
 
       {loading ? (
-        <div className="mt-4 grid gap-3">
-          {Array.from({ length: 3 }).map((_, index) => (
+        <div className="mt-4 grid gap-2">
+          {Array.from({ length: 6 }).map((_, index) => (
             <div
-              className="h-48 animate-pulse rounded-xl border border-slate-200 bg-slate-50"
+              className="h-16 animate-pulse rounded-lg border border-slate-200 bg-slate-50"
               key={index}
             />
           ))}
@@ -53,7 +53,19 @@ export function CollectionList({
           </p>
         </div>
       ) : (
-        <div className="mt-4 grid min-w-0 gap-3">
+        <div className="mt-4 min-w-0 rounded-lg border border-slate-200">
+          <div className="hidden grid-cols-[minmax(9rem,1.5fr)_minmax(8rem,1fr)_6.5rem_6.5rem_5.5rem_5.75rem_minmax(8rem,1.15fr)_6.75rem_5.75rem_5rem] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500 xl:grid">
+            <span>Acadêmico</span>
+            <span>Instituição</span>
+            <span>Pendente</span>
+            <span>Vencimento</span>
+            <span>Atraso</span>
+            <span>Prioridade</span>
+            <span>Status</span>
+            <span>Próximo retorno</span>
+            <span>Boleto</span>
+            <span>Ação</span>
+          </div>
           {cases.map((caseItem) => (
             <CollectionCard
               caseItem={caseItem}

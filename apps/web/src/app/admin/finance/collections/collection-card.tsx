@@ -1,25 +1,14 @@
-import {
-  Building2,
-  CalendarDays,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Mail,
-  Phone,
-  UserRound,
-  WalletCards,
-} from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import type { ReactNode } from "react";
 import type { CollectionCase } from "../../../../lib/api";
-import { formatDate, formatDateTime } from "../../../../lib/formatters/date";
+import { formatDate } from "../../../../lib/formatters/date";
 import { adminTheme, cx } from "../../admin-theme";
-import {
-  collectionActionTypeLabel,
-  collectionAgingBucketLabel,
-} from "../../collection-formatters";
+import { collectionAgingBucketLabel } from "../../collection-formatters";
 import { CollectionPriorityBadge } from "./collection-priority-badge";
 import { CollectionStatusBadge } from "./collection-status-badge";
 import {
   bankSlipDisplay,
+  collectionFollowUpState,
   collectionRiskSignals,
   formatOutstanding,
 } from "./collection-display-utils";
@@ -33,132 +22,109 @@ export function CollectionCard({
 }) {
   const bankSlip = bankSlipDisplay(caseItem);
   const signals = collectionRiskSignals(caseItem);
+  const followUp = compactFollowUp(caseItem.nextFollowUpAt);
+  const openDetail = () => onOpenDetail(caseItem.invoiceId);
 
   return (
     <article
-      className={cx(
-        adminTheme.card,
-        adminTheme.cardHover,
-        "grid min-w-0 gap-4 p-4",
-      )}
+      className="grid min-w-0 cursor-pointer gap-3 border-b border-slate-100 bg-white px-3 py-3 text-sm transition last:border-b-0 hover:bg-emerald-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F6F5F] focus-visible:ring-offset-2 xl:grid-cols-[minmax(9rem,1.5fr)_minmax(8rem,1fr)_6.5rem_6.5rem_5.5rem_5.75rem_minmax(8rem,1.15fr)_6.75rem_5.75rem_5rem] xl:items-center"
+      onClick={openDetail}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openDetail();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-slate-500">
-            <UserRound aria-hidden className="h-4 w-4 shrink-0" />
-            <span className="truncate">{caseItem.invoiceId.slice(0, 8)}</span>
-          </div>
-          <h3 className="mt-1 break-words text-base font-semibold tracking-normal text-slate-950">
-            {caseItem.student.person.fullName}
-          </h3>
-          <p className="mt-1 break-words text-sm text-slate-500">
-            {caseItem.enrollment.course} / {caseItem.enrollment.grade}
-          </p>
-          {caseItem.student.guardian?.fullName ? (
-            <p className="mt-1 break-words text-xs text-slate-500">
-              Resp.: {caseItem.student.guardian.fullName}
-            </p>
+      <div className="min-w-0">
+        <span className="block truncate font-semibold text-slate-950">
+          {caseItem.student.person.fullName}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-slate-500">
+          {caseItem.student.person.cpfMasked} · {caseItem.invoiceId.slice(0, 8)}
+        </span>
+      </div>
+
+      <CompactCell label="Instituição">
+        <span className="block truncate text-slate-700">
+          {caseItem.enrollment.institution.name}
+        </span>
+        <span className="block truncate text-xs text-slate-500">
+          Ano {caseItem.enrollment.academicYear.year}
+        </span>
+      </CompactCell>
+
+      <CompactCell label="Pendente">
+        <span className="font-semibold text-slate-950">
+          {formatOutstanding(caseItem)}
+        </span>
+        <span className="block text-xs text-slate-500">
+          orig. {caseItem.amountFormatted}
+        </span>
+      </CompactCell>
+
+      <CompactCell label="Vencimento">
+        <span className="font-medium text-slate-800">
+          {formatDate(caseItem.dueDate)}
+        </span>
+      </CompactCell>
+
+      <CompactCell label="Atraso">
+        <span className="font-medium text-slate-800">
+          {caseItem.daysOverdue} dias
+        </span>
+        <span className="block text-xs text-slate-500">
+          {collectionAgingBucketLabel(caseItem.agingBucket)}
+        </span>
+      </CompactCell>
+
+      <CompactCell label="Prioridade">
+        <CollectionPriorityBadge priority={caseItem.priority} />
+      </CompactCell>
+
+      <CompactCell label="Status">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <CollectionStatusBadge status={caseItem.operationalStatus} />
+          {signals.length > 0 ? (
+            <span
+              aria-label={`Sinais adicionais: ${signals.join(", ")}`}
+              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600"
+              title={signals.join(", ")}
+            >
+              +{signals.length}
+            </span>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <CollectionPriorityBadge priority={caseItem.priority} />
-          <CollectionStatusBadge status={caseItem.operationalStatus} />
-        </div>
-      </div>
+      </CompactCell>
 
-      <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          icon={WalletCards}
-          label="Original"
-          value={caseItem.amountFormatted}
-        />
-        <Metric
-          icon={WalletCards}
-          label="Pendente"
-          value={formatOutstanding(caseItem)}
-        />
-        <Metric
-          icon={CalendarDays}
-          label="Vencimento"
-          value={formatDate(caseItem.dueDate)}
-        />
-        <Metric
-          icon={Clock3}
-          label="Atraso"
-          value={`${caseItem.daysOverdue} dia(s)`}
-          detail={collectionAgingBucketLabel(caseItem.agingBucket)}
-        />
-      </div>
+      <CompactCell label="Próximo retorno">
+        <span
+          className={cx(
+            "font-medium",
+            followUp.state === "OVERDUE" ? "text-red-700" : "text-slate-800",
+          )}
+          title={caseItem.nextFollowUpAt ?? undefined}
+        >
+          {followUp.label}
+        </span>
+      </CompactCell>
 
-      <div className="grid min-w-0 gap-2 text-sm md:grid-cols-3">
-        <InlineInfo
-          icon={Phone}
-          label="Telefone"
-          value={caseItem.student.person.phone ?? "Sem telefone"}
-        />
-        <InlineInfo
-          icon={Mail}
-          label="E-mail"
-          value={caseItem.student.person.email ?? "Sem e-mail"}
-        />
-        <InlineInfo
-          icon={Building2}
-          label="Instituicao"
-          value={caseItem.enrollment.institution.name}
-          detail={`Ano ${caseItem.enrollment.academicYear.year}`}
-        />
-      </div>
+      <CompactCell label="Boleto">
+        <span className={cx("font-semibold", bankSlip.tone)} title={bankSlip.detail}>
+          {bankSlip.label}
+        </span>
+      </CompactCell>
 
-      <div className="grid min-w-0 gap-2 rounded-lg border border-slate-200/80 bg-slate-50/70 p-3 text-sm lg:grid-cols-3">
-        <InlineInfo
-          icon={Clock3}
-          label="Ultima acao"
-          value={
-            caseItem.lastAction
-              ? collectionActionTypeLabel(caseItem.lastAction.actionType)
-              : "Sem historico"
-          }
-          detail={
-            caseItem.lastAction
-              ? formatDateTime(caseItem.lastAction.createdAt)
-              : undefined
-          }
-        />
-        <InlineInfo
-          icon={CalendarDays}
-          label="Proximo retorno"
-          value={
-            caseItem.nextFollowUpAt
-              ? formatDateTime(caseItem.nextFollowUpAt)
-              : "Nao agendado"
-          }
-        />
-        <InlineInfo
-          icon={FileText}
-          label="Boleto"
-          value={bankSlip.label}
-          detail={bankSlip.detail}
-          valueClassName={bankSlip.tone}
-        />
-      </div>
-
-      {signals.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {signals.map((signal) => (
-            <span
-              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800"
-              key={signal}
-            >
-              {signal}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="flex justify-end">
+      <div className="flex justify-end lg:justify-start">
         <button
-          className={adminTheme.primaryButton}
-          onClick={() => onOpenDetail(caseItem.invoiceId)}
+          className={cx(adminTheme.primaryButton, "min-h-9 px-3 py-1.5 text-xs")}
+          onClick={(event) => {
+            event.stopPropagation();
+            openDetail();
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
           type="button"
         >
           Abrir
@@ -169,59 +135,55 @@ export function CollectionCard({
   );
 }
 
-function Metric({
-  detail,
-  icon: Icon,
+function CompactCell({
+  children,
   label,
-  value,
 }: {
-  detail?: string;
-  icon: typeof WalletCards;
+  children: ReactNode;
   label: string;
-  value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200/80 bg-white p-3">
-      <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-        <Icon aria-hidden className="h-4 w-4 shrink-0" />
-        <span className="truncate">{label}</span>
-      </div>
-      <p className="mt-1 break-words text-sm font-semibold text-slate-950">
-        {value}
-      </p>
-      {detail ? <p className="mt-0.5 text-xs text-slate-500">{detail}</p> : null}
+    <div className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-start gap-2 xl:block">
+      <span className="text-xs font-semibold uppercase text-slate-500 xl:hidden">
+        {label}
+      </span>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
 
-function InlineInfo({
-  detail,
-  icon: Icon,
-  label,
-  value,
-  valueClassName,
-}: {
-  detail?: string;
-  icon: typeof WalletCards;
-  label: string;
-  value: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-start gap-2">
-      <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-slate-500">{label}</p>
-        <p
-          className={cx(
-            "break-words text-sm font-medium text-slate-800",
-            valueClassName,
-          )}
-        >
-          {value}
-        </p>
-        {detail ? <p className="break-words text-xs text-slate-500">{detail}</p> : null}
-      </div>
-    </div>
+function compactFollowUp(value?: string | null) {
+  const state = collectionFollowUpState(value);
+  if (!value) {
+    return { label: "Não agendado", state };
+  }
+
+  const target = new Date(value);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const targetDay = new Date(
+    target.getFullYear(),
+    target.getMonth(),
+    target.getDate(),
   );
+  const time = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(target);
+
+  if (targetDay.getTime() === today.getTime()) {
+    return { label: `Hoje, ${time}`, state };
+  }
+  if (targetDay.getTime() === tomorrow.getTime()) {
+    return { label: "Amanhã", state };
+  }
+  return {
+    label: new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+    }).format(target),
+    state,
+  };
 }
