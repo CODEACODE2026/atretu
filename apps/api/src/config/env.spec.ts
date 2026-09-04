@@ -23,12 +23,50 @@ assert.equal(loadEnvConfig().apiPort, 3333);
 assert.equal(loadEnvConfig().documentMaxSizeBytes, 8388608);
 assert.equal(loadEnvConfig().trustedProxyHops, 0);
 assert.equal(loadEnvConfig().rateLimitMaxBuckets, 10000);
+assert.equal(loadEnvConfig().adminBootstrapEnabled, false);
+
+resetEnv({ ADMIN_BOOTSTRAP_ENABLED: "true" });
+assert.equal(loadEnvConfig().adminBootstrapEnabled, true);
+
+resetEnv({ ADMIN_BOOTSTRAP_ENABLED: "true", ADMIN_SETUP_TOKEN: "" });
+assert.throws(() => loadEnvConfig(), /ADMIN_SETUP_TOKEN/);
+
+resetEnv({ ADMIN_BOOTSTRAP_ENABLED: "true", ADMIN_SETUP_TOKEN: "short-token" });
+assert.throws(() => loadEnvConfig(), /at least 32 characters/);
 
 resetEnv({ NODE_ENV: "production", JWT_SECRET: "change-me-in-local-env" });
 assert.throws(() => loadEnvConfig(), /JWT_SECRET/);
 
-resetEnv({ NODE_ENV: "production", ADMIN_SETUP_TOKEN: "secret" });
+resetEnv({
+  NODE_ENV: "production",
+  CORS_ORIGINS: "https://atretu.example.com",
+  ADMIN_BOOTSTRAP_ENABLED: "true",
+  ADMIN_SETUP_TOKEN: "secret",
+});
 assert.throws(() => loadEnvConfig(), /ADMIN_SETUP_TOKEN/);
+
+resetEnv({
+  NODE_ENV: "production",
+  CORS_ORIGINS: "https://atretu.example.com",
+  ADMIN_SETUP_TOKEN: "",
+});
+assert.equal(loadEnvConfig().adminSetupToken, undefined);
+
+resetEnv({
+  NODE_ENV: "production",
+  CORS_ORIGINS: "http://localhost:3000,https://atretu.example.com",
+});
+assert.throws(() => loadEnvConfig(), /local development origin/);
+
+resetEnv({
+  NODE_ENV: "production",
+  CORS_ORIGINS: "http://localhost:3000,https://atretu.example.com",
+  ALLOW_LOCALHOST_CORS_IN_PRODUCTION: "true",
+});
+assert.deepEqual(loadEnvConfig().corsOrigins, [
+  "http://localhost:3000",
+  "https://atretu.example.com",
+]);
 
 resetEnv({ DOCUMENT_MAX_SIZE_BYTES: "0" });
 assert.throws(() => loadEnvConfig(), /DOCUMENT_MAX_SIZE_BYTES/);

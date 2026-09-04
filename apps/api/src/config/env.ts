@@ -8,7 +8,8 @@ export type EnvConfig = {
   jwtSecret: string;
   jwtExpiresIn: string;
   passwordHashRounds: number;
-  adminSetupToken: string;
+  adminBootstrapEnabled: boolean;
+  adminSetupToken?: string;
   authRateLimitTtlMs: number;
   authRateLimitMax: number;
   rateLimitMaxBuckets: number;
@@ -87,6 +88,37 @@ function readCorsOrigins(): string[] {
   return origins;
 }
 
+function readBooleanEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) {
+    return fallback;
+  }
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  throw new Error(`${name} must be true or false`);
+}
+
+function assertProductionCorsOrigins(origins: string[]): void {
+  const allowLocalhost = readBooleanEnv("ALLOW_LOCALHOST_CORS_IN_PRODUCTION", false);
+  if (allowLocalhost) {
+    return;
+  }
+
+  const localOrigin = origins.find((origin) => {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  });
+  if (localOrigin) {
+    throw new Error(
+      `CORS_ORIGINS cannot include local development origin in production: ${localOrigin}`,
+    );
+  }
+}
+
 function assertStrongSecret(name: string, value: string, nodeEnv: AppEnv): void {
   if (nodeEnv !== "production") {
     return;
@@ -97,22 +129,44 @@ function assertStrongSecret(name: string, value: string, nodeEnv: AppEnv): void 
   }
 }
 
+function assertSetupToken(value: string, nodeEnv: AppEnv): void {
+  if (value.length < 32) {
+    throw new Error(
+      "ADMIN_SETUP_TOKEN must have at least 32 characters when bootstrap is enabled",
+    );
+  }
+  assertStrongSecret("ADMIN_SETUP_TOKEN", value, nodeEnv);
+}
+
 export function loadEnvConfig(): EnvConfig {
   const nodeEnv = readAppEnv();
+  const corsOrigins = readCorsOrigins();
   const jwtSecret = readRequiredEnv("JWT_SECRET");
-  const adminSetupToken = readRequiredEnv("ADMIN_SETUP_TOKEN");
+  const adminBootstrapEnabled = readBooleanEnv("ADMIN_BOOTSTRAP_ENABLED", false);
+  const adminSetupToken = process.env.ADMIN_SETUP_TOKEN?.trim() || undefined;
 
   assertStrongSecret("JWT_SECRET", jwtSecret, nodeEnv);
-  assertStrongSecret("ADMIN_SETUP_TOKEN", adminSetupToken, nodeEnv);
+  if (nodeEnv === "production") {
+    assertProductionCorsOrigins(corsOrigins);
+  }
+  if (adminBootstrapEnabled) {
+    if (!adminSetupToken) {
+      throw new Error(
+        "ADMIN_SETUP_TOKEN is required when ADMIN_BOOTSTRAP_ENABLED is true",
+      );
+    }
+    assertSetupToken(adminSetupToken, nodeEnv);
+  }
 
   return {
     nodeEnv,
     apiPort: readNumberEnv("API_PORT", 3333),
-    corsOrigins: readCorsOrigins(),
+    corsOrigins,
     databaseUrl: readRequiredEnv("DATABASE_URL"),
     jwtSecret,
     jwtExpiresIn: process.env.JWT_EXPIRES_IN?.trim() || "2h",
     passwordHashRounds: readNumberEnv("PASSWORD_HASH_ROUNDS", 12),
+    adminBootstrapEnabled,
     adminSetupToken,
     authRateLimitTtlMs: readNumberEnv("AUTH_RATE_LIMIT_TTL_MS", 60_000),
     authRateLimitMax: readNumberEnv("AUTH_RATE_LIMIT_MAX", 5),

@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { AllowDuringPasswordChange } from "../auth/allow-during-password-change.decorator.js";
+import { clearAuthCookieOptions } from "../auth/auth-cookie.js";
 import { AUTH_COOKIE_NAME } from "../auth/auth.constants.js";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
@@ -55,12 +56,10 @@ export class AccountController {
       ip: request.ip,
       userAgent: request.headers["user-agent"],
     });
-    response.clearCookie(AUTH_COOKIE_NAME, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: this.config.values.nodeEnv === "production",
-      path: "/",
-    });
+    response.clearCookie(
+      AUTH_COOKIE_NAME,
+      clearAuthCookieOptions(this.config.values.nodeEnv),
+    );
     return result;
   }
 }

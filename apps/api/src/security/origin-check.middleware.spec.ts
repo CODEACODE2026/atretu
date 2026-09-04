@@ -11,6 +11,9 @@ assert.doesNotThrow(() =>
   run({ method: "POST", headers: { origin: "http://localhost:3000" } }),
 );
 assert.doesNotThrow(() =>
+  run({ method: "OPTIONS", headers: { origin: "https://evil.test" } }),
+);
+assert.doesNotThrow(() =>
   run({ method: "POST", headers: { referer: "http://localhost:3000/admin" } }),
 );
 assert.throws(

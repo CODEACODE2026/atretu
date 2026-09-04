@@ -6,6 +6,7 @@ import {
   Headers,
   HttpCode,
   Inject,
+  NotFoundException,
   Post,
   Req,
   Res,
@@ -18,6 +19,7 @@ import { RateLimitService } from "../security/rate-limit.service.js";
 import { SecurityAuditService } from "../security/security-audit.service.js";
 import { UsersService, type AuthUser } from "../users/users.service.js";
 import { AllowDuringPasswordChange } from "./allow-during-password-change.decorator.js";
+import { authCookieOptions, clearAuthCookieOptions } from "./auth-cookie.js";
 import { AUTH_COOKIE_NAME } from "./auth.constants.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
@@ -93,12 +95,10 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    response.clearCookie(AUTH_COOKIE_NAME, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: this.config.values.nodeEnv === "production",
-      path: "/",
-    });
+    response.clearCookie(
+      AUTH_COOKIE_NAME,
+      clearAuthCookieOptions(this.config.values.nodeEnv),
+    );
     await this.audit.record({
       eventType: AuditEventType.LOGOUT,
       userId: user.id,
@@ -127,7 +127,13 @@ export class AuthController {
     const rateLimitKey = `setup:${request.ip}`;
     this.rateLimit.assertAllowed(rateLimitKey);
 
-    if (!timingSafeStringEqual(setupToken, this.config.values.adminSetupToken)) {
+    if (!this.config.values.adminBootstrapEnabled) {
+      throw new NotFoundException("Recurso nao encontrado");
+    }
+
+    if (
+      !timingSafeStringEqual(setupToken, this.config.values.adminSetupToken ?? "")
+    ) {
       throw new ForbiddenException("Token de setup invalido");
     }
 
@@ -163,12 +169,10 @@ export class AuthController {
   }
 
   private setAuthCookie(response: Response, token: string): void {
-    response.cookie(AUTH_COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: this.config.values.nodeEnv === "production",
-      path: "/",
-      maxAge: 2 * 60 * 60 * 1000,
-    });
+    response.cookie(
+      AUTH_COOKIE_NAME,
+      token,
+      authCookieOptions(this.config.values.nodeEnv),
+    );
   }
 }
