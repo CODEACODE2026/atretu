@@ -6,16 +6,27 @@ type AttemptBucket = {
   resetAt: number;
 };
 
+export type RateLimitOptions = {
+  ttlMs?: number;
+  max?: number;
+};
+
+export class RateLimitExceededException extends HttpException {
+  constructor(readonly retryAfterSeconds: number) {
+    super("Muitas tentativas. Tente novamente depois.", HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
 @Injectable()
 export class RateLimitService {
   private readonly buckets = new Map<string, AttemptBucket>();
 
   constructor(@Inject(AppConfigService) private readonly config: AppConfigService) {}
 
-  assertAllowed(key: string): void {
+  assertAllowed(key: string, options: RateLimitOptions = {}): void {
     const now = Date.now();
-    const ttl = this.config.values.authRateLimitTtlMs;
-    const max = this.config.values.authRateLimitMax;
+    const ttl = options.ttlMs ?? this.config.values.authRateLimitTtlMs;
+    const max = options.max ?? this.config.values.authRateLimitMax;
     this.pruneExpired(now);
     const current = this.buckets.get(key);
 
@@ -26,10 +37,7 @@ export class RateLimitService {
     }
 
     if (current.count >= max) {
-      throw new HttpException(
-        "Muitas tentativas. Tente novamente depois.",
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      throw new RateLimitExceededException(Math.max(1, Math.ceil((current.resetAt - now) / 1000)));
     }
 
     current.count += 1;

@@ -18,6 +18,11 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { DocumentsService } from "./documents.service.js";
 import {
@@ -47,6 +52,8 @@ export class DocumentsController {
   }
 
   @Post()
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.upload)
   @UseInterceptors(uploadInterceptor)
   uploadDocument(
     @Param("studentId") studentId: string,
@@ -73,6 +80,8 @@ export class DocumentsController {
   }
 
   @Post(":documentId/replace")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.upload)
   @UseInterceptors(uploadInterceptor)
   replaceDocument(
     @Param("studentId") studentId: string,
@@ -90,6 +99,8 @@ export class DocumentsController {
   }
 
   @Get(":documentId/file")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.download)
   async getDocumentFile(
     @Param("studentId") studentId: string,
     @Param("documentId") documentId: string,

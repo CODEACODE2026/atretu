@@ -3,6 +3,7 @@ import { AdministrativeAuditModule } from "../administrative-audit/administrativ
 import { AppConfigModule } from "../config/app-config.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
+import { SecurityModule } from "../security/security.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { DocumentStorageService } from "./document-storage.service.js";
 import { DocumentsController } from "./documents.controller.js";
@@ -15,6 +16,7 @@ import { StudentPhotosController } from "./student-photos.controller.js";
     AppConfigModule,
     AuthModule,
     DatabaseModule,
+    SecurityModule,
     UsersModule,
   ],
   controllers: [DocumentsController, StudentPhotosController],

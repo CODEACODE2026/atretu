@@ -4,6 +4,7 @@ import { AssociationSettingsModule } from "../association-settings/association-s
 import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { DocumentsModule } from "../documents/documents.module.js";
+import { SecurityModule } from "../security/security.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { StudentCardPdfService } from "./student-card-pdf.service.js";
 import { StudentCardsController } from "./student-cards.controller.js";
@@ -16,6 +17,7 @@ import { StudentCardsService } from "./student-cards.service.js";
     AuthModule,
     DatabaseModule,
     DocumentsModule,
+    SecurityModule,
     UsersModule,
   ],
   controllers: [StudentCardsController],

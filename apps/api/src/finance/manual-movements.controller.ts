@@ -23,6 +23,11 @@ import {
   manualFinancialMovementUploadOptions,
   singleDocumentUploadOptions,
 } from "../documents/multipart-upload.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   CancelManualFinancialMovementDto,
@@ -56,6 +61,8 @@ export class ManualFinancialMovementsController {
   @Get()
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("manualMovements.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   list(
     @Query() query: ListManualFinancialMovementsDto,
     @CurrentUser() user: AuthUser,
@@ -66,6 +73,8 @@ export class ManualFinancialMovementsController {
   @Get("student-options")
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("manualMovements.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listStudentOptions(
     @Query() query: ListManualMovementStudentOptionsDto,
     @CurrentUser() user: AuthUser,
@@ -86,6 +95,8 @@ export class ManualFinancialMovementsController {
   @Post()
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("manualMovements.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.upload)
   @UseInterceptors(uploadInterceptor)
   create(
     @Body() body: CreateManualFinancialMovementDto,
@@ -131,6 +142,8 @@ export class ManualFinancialMovementsController {
   @Post(":movementId/attachments")
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("manualMovements.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.upload)
   @UseInterceptors(attachmentUploadInterceptor)
   attach(
     @Param() params: ManualFinancialMovementParamsDto,
@@ -143,6 +156,8 @@ export class ManualFinancialMovementsController {
   @Get(":movementId/attachments/:attachmentId/view")
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("manualMovements.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.download)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async viewAttachment(
@@ -168,6 +183,8 @@ export class ManualFinancialMovementsController {
   @Get(":movementId/attachments/:attachmentId/download")
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("manualMovements.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.download)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async downloadAttachment(

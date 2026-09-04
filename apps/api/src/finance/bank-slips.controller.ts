@@ -19,6 +19,11 @@ import { OperationalPermission } from "../auth/operational-permissions.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { BankSlipsService } from "./bank-slips.service.js";
 import {
@@ -48,6 +53,8 @@ export class BankSlipsController {
 
   @Post("finance/invoices/:invoiceId/bank-slip/issue")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.sicrediIssue)
   issueForInvoice(
     @Param() params: InvoiceBankSlipParamsDto,
     @CurrentUser() user: AuthUser,
@@ -66,6 +73,8 @@ export class BankSlipsController {
 
   @Post("finance/invoices/:invoiceId/bank-slip/sync")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.sicrediSync)
   syncByInvoice(@Param() params: InvoiceBankSlipParamsDto, @CurrentUser() user: AuthUser) {
     return this.bankSlips.syncByInvoice(params.invoiceId, user.id, user);
   }
@@ -73,6 +82,8 @@ export class BankSlipsController {
   @Post("finance/invoices/:invoiceId/bank-slip/recover-issued")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   recoverIssuedFromProviderResponse(
     @Param() params: InvoiceBankSlipParamsDto,
     @Body() body: RecoverIssuedBankSlipDto,
@@ -89,6 +100,8 @@ export class BankSlipsController {
   @Post("finance/bank-slips/sync-paid-day")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   syncPaidByDay(
     @Body() body: SyncPaidBankSlipsDayDto,
     @CurrentUser() user: AuthUser,
@@ -99,6 +112,8 @@ export class BankSlipsController {
   @Post("finance/bank-slips/sync-open-issued")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   syncOpenIssued(@CurrentUser() user: AuthUser) {
     return this.bankSlips.syncOpenIssued(user.id);
   }
@@ -106,6 +121,8 @@ export class BankSlipsController {
   @Post("finance/bank-slips/recover-pdfs")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   recoverBankSlipPdfs(@Body() body: RecoverBankSlipPdfsDto) {
     return this.bankSlips.recoverMissingPdfs(body.limit);
   }
@@ -113,6 +130,8 @@ export class BankSlipsController {
   @Get("finance/bank-slip-sync-runs")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   listSyncRuns(@Query() query: ListBankSlipSyncRunsDto) {
     return this.bankSlips.listSyncRuns(query);
   }
@@ -120,6 +139,8 @@ export class BankSlipsController {
   @Get("finance/bank-slip-sync-runs/:runId")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   getSyncRun(@Param() params: BankSlipSyncRunParamsDto) {
     return this.bankSlips.getSyncRun(params.runId);
   }
@@ -127,6 +148,8 @@ export class BankSlipsController {
   @Get("finance/bank-slip-sync-runs/:runId/items")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   listSyncRunItems(
     @Param() params: BankSlipSyncRunParamsDto,
     @Query() query: ListBankSlipSyncRunItemsDto,
@@ -136,6 +159,8 @@ export class BankSlipsController {
 
   @Post("finance/bank-slip-issue-batches")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.batchCreate)
   createIssueBatch(
     @Body() body: CreateBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
@@ -153,6 +178,8 @@ export class BankSlipsController {
 
   @Post("finance/bank-slip-issue-batches/preview")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.preview)
   previewIssueBatch(
     @Body() body: PreviewBankSlipIssueBatchDto,
     @CurrentUser() user: AuthUser,
@@ -162,6 +189,8 @@ export class BankSlipsController {
 
   @Get("finance/bank-slip-issue-batches")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listIssueBatches(
     @Query() query: ListBankSlipIssueBatchesDto,
     @CurrentUser() user: AuthUser,
@@ -171,6 +200,8 @@ export class BankSlipsController {
 
   @Get("finance/bank-slip-issue-batches/:batchId")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.batchPoll)
   getIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
     @CurrentUser() user: AuthUser,
@@ -180,6 +211,8 @@ export class BankSlipsController {
 
   @Get("finance/bank-slip-issue-batches/:batchId/items")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.batchPoll)
   listIssueBatchItems(
     @Param() params: BankSlipIssueBatchParamsDto,
     @Query() query: ListBankSlipIssueBatchItemsDto,
@@ -190,6 +223,8 @@ export class BankSlipsController {
 
   @Get("finance/bank-slip-issue-batches/:batchId/download")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.zip)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async downloadIssueBatchPdfs(
@@ -222,6 +257,8 @@ export class BankSlipsController {
   @Post("finance/bank-slip-issue-batches/:batchId/cancel")
   @UseGuards(RolesGuard)
   @Roles(...OPERATIONAL_ADMIN_ROLES)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.batchCreate)
   cancelIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
     @Body() body: CancelBankSlipIssueBatchDto,
@@ -233,6 +270,8 @@ export class BankSlipsController {
   @Post("finance/bank-slip-issue-batches/:batchId/retry-failed")
   @UseGuards(RolesGuard)
   @Roles(RoleCode.SUPER_ADMIN)
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.technical)
   retryFailedIssueBatch(
     @Param() params: BankSlipIssueBatchParamsDto,
     @Body() body: RetryBankSlipIssueBatchDto,
@@ -243,6 +282,8 @@ export class BankSlipsController {
 
   @Post("finance/invoices/:invoiceId/bank-slip/cancel")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.sicrediCancel)
   requestCancellation(
     @Param() params: InvoiceBankSlipParamsDto,
     @Body() body: RequestBankSlipCancellationDto,
@@ -258,6 +299,8 @@ export class BankSlipsController {
 
   @Get("finance/invoices/:invoiceId/bank-slip/pdf")
   @OperationalPermission("finance.bankSlips.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.sicrediPdf)
   @Header("Cache-Control", "no-store, private")
   @Header("X-Content-Type-Options", "nosniff")
   async getPdf(

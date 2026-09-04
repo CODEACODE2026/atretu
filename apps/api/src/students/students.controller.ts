@@ -17,6 +17,11 @@ import { OperationalPermissionGuard } from "../auth/operational-permission.guard
 import { OperationalPermission } from "../auth/operational-permissions.js";
 import { OPERATIONAL_ADMIN_ROLES, Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   CreateAcademicYearDto,
@@ -122,6 +127,8 @@ export class StudentsController {
 
   @Get("students")
   @OperationalPermission("students.view", "reports.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listStudents(@Query() query: ListStudentsDto, @CurrentUser() user: AuthUser) {
     return this.students.listStudents(query, user);
   }
@@ -134,6 +141,8 @@ export class StudentsController {
 
   @Get("students/reenrollment-candidates")
   @OperationalPermission("students.reenroll", "reports.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listReenrollmentCandidates(
     @Query() query: ListStudentsDto,
     @CurrentUser() user: AuthUser,
@@ -143,6 +152,8 @@ export class StudentsController {
 
   @Get("students/documentation-status")
   @OperationalPermission("students.view", "reports.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listStudentDocumentationStatus(
     @Query() query: ListStudentDocumentationStatusDto,
     @CurrentUser() user: AuthUser,
@@ -169,6 +180,8 @@ export class StudentsController {
 
   @Get("students/:id/reenrollment-preview")
   @OperationalPermission("students.reenroll")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.preview)
   previewReenrollment(
     @Param("id") id: string,
     @CurrentUser() user: AuthUser,

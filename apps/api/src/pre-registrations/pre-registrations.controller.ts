@@ -21,6 +21,11 @@ import { OperationalPermissionGuard } from "../auth/operational-permission.guard
 import { OperationalPermission } from "../auth/operational-permissions.js";
 import { DownloadStudentDocumentDto } from "../documents/dto/documents.dto.js";
 import { publicPreRegistrationUploadOptions } from "../documents/multipart-upload.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   ApprovePreRegistrationDto,
@@ -53,6 +58,8 @@ export class PreRegistrationsController {
   }
 
   @Post("public/pre-registrations")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.publicUpload)
   @UseInterceptors(publicUploadInterceptor)
   createPublicPreRegistration(
     @Body() body: CreatePublicPreRegistrationDto,
@@ -75,6 +82,8 @@ export class PreRegistrationsController {
 
   @UseGuards(AuthGuard, OperationalPermissionGuard)
   @OperationalPermission("preRegistrations.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   @Get("pre-registrations")
   listPreRegistrations(
     @Query() query: ListPreRegistrationsDto,
@@ -95,6 +104,8 @@ export class PreRegistrationsController {
 
   @UseGuards(AuthGuard, OperationalPermissionGuard)
   @OperationalPermission("preRegistrations.documents.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.download)
   @Get("pre-registrations/:id/documents/:documentId/file")
   async getPreRegistrationDocumentFile(
     @Param("id", ParseUUIDPipe) id: string,

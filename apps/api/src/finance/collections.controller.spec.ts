@@ -12,6 +12,7 @@ import {
 import { AuthGuard } from "../auth/auth.guard.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OPERATIONAL_PERMISSIONS_KEY } from "../auth/operational-permissions.js";
+import { OperationalRateLimitGuard } from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { CollectionsController } from "./collections.controller.js";
 import {
@@ -57,9 +58,27 @@ async function testControllerRoutesGuardsAndRoles() {
   for (const method of [
     "getSummary",
     "listCases",
+    "listFollowUps",
+  ] as const) {
+    assert.deepEqual(
+      Reflect.getMetadata("roles", CollectionsController.prototype[method]),
+      undefined,
+    );
+    assert.deepEqual(
+      Reflect.getMetadata(GUARDS_METADATA_KEY, CollectionsController.prototype[method]),
+      [OperationalRateLimitGuard, OperationalPermissionGuard],
+    );
+    assert.deepEqual(
+      Reflect.getMetadata(
+        OPERATIONAL_PERMISSIONS_KEY,
+        CollectionsController.prototype[method],
+      ),
+      ["collections.view"],
+    );
+  }
+  for (const method of [
     "getCaseByInvoiceId",
     "listActions",
-    "listFollowUps",
   ] as const) {
     assert.deepEqual(
       Reflect.getMetadata("roles", CollectionsController.prototype[method]),

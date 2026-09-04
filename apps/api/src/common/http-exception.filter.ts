@@ -7,6 +7,7 @@ import {
   Logger,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
+import { RateLimitExceededException } from "../security/rate-limit.service.js";
 
 @Catch()
 export class HttpErrorFilter implements ExceptionFilter {
@@ -30,6 +31,9 @@ export class HttpErrorFilter implements ExceptionFilter {
 
     if (!(exception instanceof HttpException) && !multerError) {
       this.logger.error(exception);
+    }
+    if (exception instanceof RateLimitExceededException) {
+      response.setHeader("Retry-After", String(exception.retryAfterSeconds));
     }
 
     response.status(status).json({

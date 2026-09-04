@@ -5,6 +5,7 @@ import { AuthModule } from "../auth/auth.module.js";
 import { DatabaseModule } from "../database/database.module.js";
 import { DocumentsModule } from "../documents/documents.module.js";
 import { JobsModule } from "../jobs/jobs.module.js";
+import { SecurityModule } from "../security/security.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { BankSlipIssueBatchJob } from "./bank-slip-issue-batch.job.js";
 import { BankSlipPdfStorage } from "./bank-slip-pdf-storage.js";
@@ -34,6 +35,7 @@ import { loadSicrediConfig } from "./sicredi-config.js";
     DatabaseModule,
     DocumentsModule,
     JobsModule,
+    SecurityModule,
     UsersModule,
   ],
   controllers: [

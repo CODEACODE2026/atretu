@@ -17,6 +17,11 @@ import { CurrentUser } from "../auth/current-user.decorator.js";
 import { Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
 import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
+import {
   CreateAdminUserDto,
   ListAdminUsersDto,
   UpdateAdminUserDto,
@@ -31,11 +36,15 @@ export class AdminUsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
   @Get()
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listUsers(@Query() query: ListAdminUsersDto, @CurrentUser() user: AuthUser) {
     return this.users.listAdminUsers(query, user);
   }
 
   @Get("permission-profiles")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listPermissionProfiles() {
     return this.users.listActivePermissionProfiles();
   }

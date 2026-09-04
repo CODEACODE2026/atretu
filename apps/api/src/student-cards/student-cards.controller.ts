@@ -15,6 +15,11 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   InvalidateStudentCardDto,
@@ -40,6 +45,8 @@ export class StudentCardsController {
 
   @Get("student-cards")
   @OperationalPermission("studentCards.view", "reports.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listStudentCards(
     @Query() query: ListStudentCardsDto,
     @CurrentUser() user: AuthUser,
@@ -58,6 +65,8 @@ export class StudentCardsController {
 
   @Get("student-cards/pending")
   @OperationalPermission("studentCards.view", "reports.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listPendingStudentCards(
     @Query() query: ListPendingStudentCardsDto,
     @CurrentUser() user: AuthUser,
@@ -67,6 +76,8 @@ export class StudentCardsController {
 
   @Get("student-cards/:cardId/pdf")
   @OperationalPermission("studentCards.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.pdf)
   async getStudentCardPdf(
     @Param("cardId") cardId: string,
     @Query() query: StudentCardPdfDto,
@@ -93,6 +104,8 @@ export class StudentCardsController {
 
   @Post("student-cards/print-batch")
   @OperationalPermission("studentCards.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.pdf)
   async printStudentCardsBatch(
     @Body() body: PrintStudentCardsBatchDto,
     @CurrentUser() user: AuthUser,
@@ -114,6 +127,8 @@ export class StudentCardsController {
 
   @Get("students/:studentId/card-preview")
   @OperationalPermission("studentCards.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.preview)
   previewStudentCard(
     @Param("studentId") studentId: string,
     @Query() query: StudentCardPreviewDto,

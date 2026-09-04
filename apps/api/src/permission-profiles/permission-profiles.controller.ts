@@ -14,6 +14,11 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { Roles } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   CreatePermissionProfileDto,
@@ -37,6 +42,8 @@ export class PermissionProfilesController {
   }
 
   @Get()
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   list(@Query() query: ListPermissionProfilesDto) {
     return this.permissionProfiles.list(query);
   }

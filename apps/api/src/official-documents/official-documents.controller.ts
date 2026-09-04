@@ -22,6 +22,11 @@ import {
   Roles,
 } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   DownloadOfficialDocumentDto,
@@ -68,6 +73,8 @@ export class OfficialDocumentsController {
 
   @Post("models/:modelId/preview")
   @OperationalPermission("officialDocuments.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.preview)
   previewDynamicDocument(
     @Param("studentId") studentId: string,
     @Param("modelId") modelId: string,
@@ -84,6 +91,8 @@ export class OfficialDocumentsController {
 
   @Post("models/:modelId/issue")
   @OperationalPermission("officialDocuments.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.pdf)
   issueDynamicDocument(
     @Param("studentId") studentId: string,
     @Param("modelId") modelId: string,
@@ -100,6 +109,8 @@ export class OfficialDocumentsController {
 
   @Post(":type/issue")
   @OperationalPermission("officialDocuments.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.pdf)
   issueOfficialDocument(
     @Param("studentId") studentId: string,
     @Param("type", new ParseEnumPipe(OfficialDocumentType))
@@ -112,6 +123,8 @@ export class OfficialDocumentsController {
 
   @Post(":issueId/reissue")
   @OperationalPermission("officialDocuments.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.pdf)
   reissueOfficialDocument(
     @Param("studentId") studentId: string,
     @Param("issueId") issueId: string,
@@ -149,6 +162,8 @@ export class OfficialDocumentsController {
 
   @Get(":issueId/file")
   @OperationalPermission("officialDocuments.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.download)
   async getOfficialDocumentFile(
     @Param("studentId") studentId: string,
     @Param("issueId") issueId: string,
@@ -187,6 +202,8 @@ export class OfficialDocumentIssuesController {
 
   @Get()
   @OperationalPermission("officialDocuments.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listIssues(
     @Query() query: ListOfficialDocumentIssuesDto,
     @CurrentUser() user: AuthUser,
@@ -213,6 +230,8 @@ export class OfficialDocumentModelsController {
   @Roles()
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("officialDocuments.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listModels(
     @Query("status") status: OfficialDocumentModelStatus | undefined,
     @CurrentUser() user: AuthUser,
@@ -284,6 +303,8 @@ export class InstitutionalOfficialDocumentsController {
 
   @Post(":type/issue")
   @OperationalPermission("officialDocuments.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.pdf)
   issueInstitutionalOfficialDocument(
     @Param("type", new ParseEnumPipe(OfficialDocumentType))
     type: OfficialDocumentType,
@@ -295,6 +316,8 @@ export class InstitutionalOfficialDocumentsController {
 
   @Post(":issueId/reissue")
   @OperationalPermission("officialDocuments.issue")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.pdf)
   reissueInstitutionalOfficialDocument(
     @Param("issueId") issueId: string,
     @CurrentUser() user: AuthUser,
@@ -310,6 +333,8 @@ export class InstitutionalOfficialDocumentsController {
 
   @Get(":issueId/file")
   @OperationalPermission("officialDocuments.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.download)
   async getInstitutionalOfficialDocumentFile(
     @Param("issueId") issueId: string,
     @Query() query: DownloadOfficialDocumentDto,

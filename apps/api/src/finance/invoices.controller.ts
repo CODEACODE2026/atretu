@@ -12,6 +12,11 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import {
   CancelInvoiceDto,
@@ -30,6 +35,8 @@ export class InvoicesController {
 
   @Get("finance/invoices")
   @OperationalPermission("finance.invoices.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listInvoices(@Query() query: ListInvoicesDto, @CurrentUser() user: AuthUser) {
     return this.invoices.listInvoices(query, user);
   }
@@ -51,6 +58,8 @@ export class InvoicesController {
 
   @Get("students/:studentId/invoice-preview")
   @OperationalPermission("finance.invoices.manage")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.preview)
   previewInvoice(
     @Param("studentId") studentId: string,
     @Query() query: InvoicePreviewDto,

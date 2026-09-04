@@ -13,6 +13,11 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OperationalPermission } from "../auth/operational-permissions.js";
+import {
+  OperationalRateLimit,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import type { AuthUser } from "../users/users.service.js";
 import { CollectionsService } from "./collections.service.js";
 import {
@@ -32,6 +37,8 @@ export class CollectionsController {
   @Get("finance/collections/summary")
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("collections.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   getSummary(@Query() query: CollectionFiltersDto, @CurrentUser() user: AuthUser) {
     return this.collections.getSummary(query, user);
   }
@@ -39,6 +46,8 @@ export class CollectionsController {
   @Get("finance/collections/cases")
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("collections.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listCases(@Query() query: ListCollectionCasesDto, @CurrentUser() user: AuthUser) {
     return this.collections.listCases(query, query, user);
   }
@@ -85,6 +94,8 @@ export class CollectionsController {
   @Get("finance/collections/follow-ups")
   @UseGuards(OperationalPermissionGuard)
   @OperationalPermission("collections.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
   listFollowUps(
     @Query() query: CollectionFiltersDto,
     @CurrentUser() user: AuthUser,

@@ -3,6 +3,7 @@ import { AdministrativeAuditModule } from "../administrative-audit/administrativ
 import { AuthModule } from "../auth/auth.module.js";
 import { BusAssignmentsModule } from "../bus-assignments/bus-assignments.module.js";
 import { DatabaseModule } from "../database/database.module.js";
+import { SecurityModule } from "../security/security.module.js";
 import { StudentCardsModule } from "../student-cards/student-cards.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { StudentsController } from "./students.controller.js";
@@ -14,6 +15,7 @@ import { StudentsService } from "./students.service.js";
     AuthModule,
     BusAssignmentsModule,
     DatabaseModule,
+    SecurityModule,
     StudentCardsModule,
     UsersModule,
   ],

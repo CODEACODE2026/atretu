@@ -9,6 +9,11 @@ import {
 import { OperationalPermissionGuard } from "../auth/operational-permission.guard.js";
 import { OPERATIONAL_ADMIN_ROLES } from "../auth/roles.decorator.js";
 import { RolesGuard } from "../auth/roles.guard.js";
+import {
+  OPERATIONAL_RATE_LIMIT_KEY,
+  OperationalRateLimitGuard,
+  RATE_LIMITS,
+} from "../security/operational-rate-limit.guard.js";
 import { BankSlipsController } from "./bank-slips.controller.js";
 
 const GUARDS_METADATA_KEY = "__guards__";
@@ -30,6 +35,34 @@ assert.equal(
   Reflect.getMetadata("roles", BankSlipsController.prototype.getByInvoice),
   undefined,
 );
+
+for (const [method, policy] of [
+  ["issueForInvoice", RATE_LIMITS.sicrediIssue],
+  ["syncByInvoice", RATE_LIMITS.sicrediSync],
+  ["requestCancellation", RATE_LIMITS.sicrediCancel],
+  ["getPdf", RATE_LIMITS.sicrediPdf],
+  ["createIssueBatch", RATE_LIMITS.batchCreate],
+  ["getIssueBatch", RATE_LIMITS.batchPoll],
+  ["listIssueBatchItems", RATE_LIMITS.batchPoll],
+  ["downloadIssueBatchPdfs", RATE_LIMITS.zip],
+  ["recoverIssuedFromProviderResponse", RATE_LIMITS.technical],
+  ["syncPaidByDay", RATE_LIMITS.technical],
+  ["syncOpenIssued", RATE_LIMITS.technical],
+  ["recoverBankSlipPdfs", RATE_LIMITS.technical],
+  ["listSyncRuns", RATE_LIMITS.technical],
+  ["getSyncRun", RATE_LIMITS.technical],
+  ["listSyncRunItems", RATE_LIMITS.technical],
+  ["retryFailedIssueBatch", RATE_LIMITS.technical],
+] as const) {
+  assert.deepEqual(
+    Reflect.getMetadata(
+      OPERATIONAL_RATE_LIMIT_KEY,
+      BankSlipsController.prototype[method],
+    ),
+    policy,
+    `${method} must keep its separated rate-limit category`,
+  );
+}
 
 for (const method of [
   "issueForInvoice",
@@ -63,8 +96,8 @@ for (const method of [
 ] as const) {
   assert.deepEqual(
     Reflect.getMetadata(GUARDS_METADATA_KEY, BankSlipsController.prototype[method]),
-    [RolesGuard],
-    `${method} must keep operational role guard`,
+    [OperationalRateLimitGuard, RolesGuard],
+    `${method} must keep operational role guard and rate limit`,
   );
   assert.deepEqual(
     Reflect.getMetadata("roles", BankSlipsController.prototype[method]),
@@ -85,8 +118,8 @@ for (const method of [
 ] as const) {
   assert.deepEqual(
     Reflect.getMetadata(GUARDS_METADATA_KEY, BankSlipsController.prototype[method]),
-    [RolesGuard],
-    `${method} must keep technical role guard`,
+    [OperationalRateLimitGuard, RolesGuard],
+    `${method} must keep technical role guard and rate limit when decorated`,
   );
   assert.deepEqual(
     Reflect.getMetadata("roles", BankSlipsController.prototype[method]),
