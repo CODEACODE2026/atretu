@@ -17,6 +17,7 @@ import {
   type BaseRecord,
   type BusRecord,
   type CollectionOperationalStatus,
+  type CompletedReenrollmentRecord,
   type InvoiceStatus,
   type ListResponse,
   type StudentCardStatus,
@@ -176,8 +177,8 @@ const REPORTS: ReportDefinition[] = [
   cardReport("invalid-cards", "Inválidas", "Carteirinhas", "Carteirinhas invalidadas.", "INVALIDATED"),
   cardReport("expired-cards", "Expiradas", "Carteirinhas", "Carteirinhas não utilizáveis.", "ACTIVE", "notUsable"),
   reenrollmentCandidatesReport("reenrollments-pending", "Candidatos à rematrícula", "Rematrículas", "Acadêmicos elegíveis que ainda não possuem matrícula no ano letivo de destino."),
-  unavailableReport("reenrollments-completed", "Concluídas", "Rematrículas", "Depende de campanha ou status oficial para distinguir rematrícula concluída de matrícula inicial.", "SEM DEFINIÇÃO FUNCIONAL"),
-  unavailableReport("reenrollments-not-started", "Não iniciadas", "Rematrículas", "Depende de campanha de rematrícula e público-alvo persistido.", "SEM DEFINIÇÃO FUNCIONAL"),
+  completedReenrollmentsReport("reenrollments-completed", "Concluídas", "Rematrículas", "Rematrículas concluídas com origem persistida em auditoria operacional."),
+  unavailableReport("reenrollments-not-started", "Não iniciadas", "Rematrículas", "Depende da definição de campanha/público-alvo de rematrícula.", "SEM DEFINIÇÃO FUNCIONAL"),
 ];
 
 export function ReportsPanel({ user }: { user: ApiUser }) {
@@ -1214,6 +1215,65 @@ function reenrollmentCandidatesReport(
     id,
     status: "CONFIÁVEL",
     title,
+  };
+}
+
+function completedReenrollmentsReport(
+  id: string,
+  title: string,
+  category: ReportCategory,
+  description: string,
+): ReportDefinition {
+  return {
+    build: async (context) => {
+      const response = await fetchAllWithMeta((page) => api.listCompletedReenrollments({
+        academicYearId: context.filters.academicYearId || undefined,
+        institutionId: context.filters.institutionId || undefined,
+        limit: 100,
+        order: "desc",
+        page,
+        search: context.filters.search || context.filters.cpf || undefined,
+        sort: "createdAt",
+      }));
+      const rows = response.rows.map(completedReenrollmentRow);
+      return makeReport(context, category, title, [
+        { key: "student", label: "Acadêmico" },
+        { key: "cpf", label: "CPF" },
+        { key: "previousInstitution", label: "Instituição anterior" },
+        { key: "destinationInstitution", label: "Instituição destino" },
+        { key: "previousAcademicYear", label: "Ano anterior", type: "number" },
+        { key: "destinationAcademicYear", label: "Ano destino", type: "number" },
+        { key: "course", label: "Curso" },
+        { key: "grade", label: "Série" },
+        { key: "shift", label: "Turno" },
+        { key: "transport", label: "Transporte" },
+        { key: "reenrolledAt", label: "Data da rematrícula", type: "date" },
+        { key: "performedBy", label: "Usuário" },
+      ], rows);
+    },
+    category,
+    description,
+    filterKeys: ["academicYearId", "institutionId", "search", "cpf"],
+    id,
+    status: "CONFIÁVEL",
+    title,
+  };
+}
+
+function completedReenrollmentRow(record: CompletedReenrollmentRecord) {
+  return {
+    student: record.student.fullName,
+    cpf: record.student.cpfMasked,
+    previousInstitution: record.previousEnrollment?.institution.name ?? "-",
+    destinationInstitution: record.enrollment.institution.name,
+    previousAcademicYear: record.previousEnrollment?.academicYear.year ?? "",
+    destinationAcademicYear: record.enrollment.academicYear.year,
+    course: record.enrollment.course,
+    grade: record.enrollment.grade,
+    shift: record.enrollment.shift.name,
+    transport: record.busAssignment?.bus.name ?? "Sem ônibus",
+    reenrolledAt: record.reenrolledAt,
+    performedBy: record.performedBy?.name ?? "-",
   };
 }
 

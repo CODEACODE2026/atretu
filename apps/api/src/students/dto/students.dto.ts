@@ -119,6 +119,8 @@ export class ListStudentDocumentationStatusDto extends ListStudentsDto {
   documentationStatus!: DocumentationStatusFilter;
 }
 
+export class ListCompletedReenrollmentsDto extends ListStudentsDto {}
+
 export class ListStudentLegacyFinancialHistoryDto {
   @IsOptional()
   @Type(() => Number)

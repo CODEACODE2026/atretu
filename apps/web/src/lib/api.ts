@@ -1415,6 +1415,29 @@ export type ReenrollmentCandidatesResponse = ListResponse<StudentSummary> & {
   academicYear: AcademicYear;
 };
 
+export type CompletedReenrollmentRecord = {
+  studentId: string;
+  enrollmentId: string;
+  student: {
+    id: string;
+    fullName: string;
+    cpfMasked: string;
+  };
+  previousEnrollment: EnrollmentRecord | null;
+  enrollment: EnrollmentRecord;
+  busAssignment: {
+    id: string;
+    bus: BusRecord;
+    note?: string | null;
+  } | null;
+  reenrolledAt: string;
+  performedBy: Pick<ApiUser, "id" | "name" | "email"> | null;
+};
+
+export type CompletedReenrollmentsResponse = ListResponse<CompletedReenrollmentRecord> & {
+  academicYear: AcademicYear;
+};
+
 export type ReenrollmentPayload = StudentPayload["enrollment"] & {
   busId?: string;
   note?: string;
@@ -2674,6 +2697,12 @@ export const api = {
   listReenrollmentCandidates(params?: ListStudentsParams) {
     return request<ReenrollmentCandidatesResponse>(
       withParams("/students/reenrollment-candidates", params),
+    );
+  },
+
+  listCompletedReenrollments(params?: ListStudentsParams) {
+    return request<CompletedReenrollmentsResponse>(
+      withParams("/students/reenrollments/completed", params),
     );
   },
 

@@ -54,6 +54,7 @@ import {
   GuardianInputDto,
   AcademicYearStatusFilter,
   DocumentationStatusFilter,
+  ListCompletedReenrollmentsDto,
   ListAcademicYearsDto,
   ListStudentDocumentationStatusDto,
   ListStudentLegacyFinancialHistoryDto,
@@ -549,6 +550,183 @@ export class StudentsService {
         limit: pagination.limit,
         total,
         totalPages: Math.ceil(total / pagination.limit),
+      },
+    };
+  }
+
+  async listCompletedReenrollments(
+    query: ListCompletedReenrollmentsDto,
+    currentUser?: AuthUser,
+  ) {
+    const academicYear = await this.resolveTargetAcademicYear(query.academicYearId);
+    const auditRows = await this.prisma.administrativeAuditLog.findMany({
+      where: {
+        eventType: AdministrativeAuditEventType.ENROLLMENT_CREATED,
+        domain: "enrollments",
+        metadata: {
+          path: ["reenrollment"],
+          equals: true,
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: 1000,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+    const auditByEnrollmentId = new Map<string, (typeof auditRows)[number]>();
+    for (const audit of auditRows) {
+      const enrollmentId = stringMetadata(audit.metadata, "enrollmentId");
+      if (!enrollmentId || auditByEnrollmentId.has(enrollmentId)) {
+        continue;
+      }
+      auditByEnrollmentId.set(enrollmentId, audit);
+    }
+    const completedReenrollmentAudits = Array.from(auditByEnrollmentId.values());
+    const enrollmentIds = Array.from(auditByEnrollmentId.keys());
+    if (enrollmentIds.length === 0) {
+      return this.emptyCompletedReenrollmentsResponse(query, academicYear);
+    }
+
+    const where: Prisma.EnrollmentWhereInput = {
+      id: { in: enrollmentIds },
+      academicYearId: academicYear.id,
+    };
+    const institutionFilter = scopedInstitutionFilter(
+      currentUser,
+      query.institutionId,
+      OPERATIONAL_INSTITUTION_SCOPE,
+    );
+    if (institutionFilter) {
+      where.institutionId = institutionFilter;
+    }
+    if (query.shiftId) {
+      where.shiftId = query.shiftId;
+    }
+    if (query.course) {
+      where.course = { contains: query.course };
+    }
+    if (query.search) {
+      const normalizedSearch = this.normalizeName(query.search);
+      const cpfSearch = normalizeCpf(query.search);
+      where.student = {
+        OR: [
+          { person: { normalizedName: { contains: normalizedSearch } } },
+          { studentCards: { some: { cardNumber: { contains: query.search.trim() } } } },
+          ...(cpfSearch ? [{ person: { cpf: { contains: cpfSearch } } }] : []),
+        ],
+      };
+    }
+
+    const enrollments = await this.prisma.enrollment.findMany({
+      where,
+      include: {
+        ...this.enrollmentInclude(),
+        student: {
+          include: {
+            person: true,
+          },
+        },
+        busAssignments: {
+          where: { status: BusAssignmentStatus.ACTIVE },
+          take: 1,
+          include: {
+            bus: true,
+          },
+        },
+      },
+    });
+    const previousEnrollmentIds = completedReenrollmentAudits
+      .map((audit) => stringMetadata(audit.metadata, "previousEnrollmentId"))
+      .filter((id): id is string => Boolean(id));
+    const previousEnrollments = previousEnrollmentIds.length > 0
+      ? await this.prisma.enrollment.findMany({
+          where: { id: { in: previousEnrollmentIds } },
+          include: this.enrollmentInclude(),
+        })
+      : [];
+    const previousEnrollmentById = new Map(
+      previousEnrollments.map((enrollment) => [enrollment.id, enrollment]),
+    );
+    const orderedRows = enrollments
+      .map((enrollment) => {
+        const audit = auditByEnrollmentId.get(enrollment.id);
+        if (!audit) {
+          return null;
+        }
+        const previousEnrollmentId = stringMetadata(audit.metadata, "previousEnrollmentId");
+        const previousEnrollment = previousEnrollmentId
+          ? previousEnrollmentById.get(previousEnrollmentId)
+          : null;
+        return {
+          studentId: enrollment.studentId,
+          enrollmentId: enrollment.id,
+          student: {
+            id: enrollment.student.id,
+            fullName: enrollment.student.person.fullName,
+            cpfMasked: maskCpf(enrollment.student.person.cpf),
+          },
+          previousEnrollment: previousEnrollment
+            ? this.toEnrollment(previousEnrollment)
+            : null,
+          enrollment: this.toEnrollment(enrollment),
+          busAssignment: enrollment.busAssignments[0]
+            ? {
+                id: enrollment.busAssignments[0].id,
+                bus: enrollment.busAssignments[0].bus,
+                note: enrollment.busAssignments[0].note,
+              }
+            : null,
+          reenrolledAt: audit.createdAt,
+          performedBy: audit.user
+            ? {
+                id: audit.user.id,
+                name: audit.user.name,
+                email: audit.user.email,
+              }
+            : null,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .sort((left, right) => {
+        const leftAudit = auditByEnrollmentId.get(left.enrollmentId);
+        const rightAudit = auditByEnrollmentId.get(right.enrollmentId);
+        return completedReenrollmentAudits.indexOf(leftAudit!) - completedReenrollmentAudits.indexOf(rightAudit!);
+      });
+    const pagination = this.resolvePagination(query);
+    const data = orderedRows.slice(pagination.skip, pagination.skip + pagination.limit);
+
+    return {
+      data,
+      academicYear,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total: orderedRows.length,
+        totalPages: Math.ceil(orderedRows.length / pagination.limit),
+      },
+    };
+  }
+
+  private emptyCompletedReenrollmentsResponse(
+    query: ListCompletedReenrollmentsDto,
+    academicYear: Awaited<ReturnType<StudentsService["resolveTargetAcademicYear"]>>,
+  ) {
+    const pagination = this.resolvePagination(query);
+    return {
+      data: [],
+      academicYear,
+      pagination: {
+        page: pagination.page,
+        limit: pagination.limit,
+        total: 0,
+        totalPages: 0,
       },
     };
   }
@@ -2601,3 +2779,11 @@ type StudentWithDetail = Prisma.StudentGetPayload<{
 type EnrollmentWithRelations = Prisma.EnrollmentGetPayload<{
   include: ReturnType<StudentsService["enrollmentInclude"]>;
 }>;
+
+function stringMetadata(metadata: Prisma.JsonValue | null, key: string) {
+  if (!metadata || Array.isArray(metadata) || typeof metadata !== "object") {
+    return null;
+  }
+  const value = metadata[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}

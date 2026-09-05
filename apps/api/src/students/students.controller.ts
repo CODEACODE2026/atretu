@@ -28,6 +28,7 @@ import {
   CreateEnrollmentDto,
   CreateStudentDto,
   EndBoardMembershipDto,
+  ListCompletedReenrollmentsDto,
   ListAcademicYearsDto,
   ListStudentDocumentationStatusDto,
   ListStudentLegacyFinancialHistoryDto,
@@ -148,6 +149,17 @@ export class StudentsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.students.listReenrollmentCandidates(query, user);
+  }
+
+  @Get("students/reenrollments/completed")
+  @OperationalPermission("students.reenroll", "reports.view")
+  @UseGuards(OperationalRateLimitGuard)
+  @OperationalRateLimit(RATE_LIMITS.search)
+  listCompletedReenrollments(
+    @Query() query: ListCompletedReenrollmentsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.students.listCompletedReenrollments(query, user);
   }
 
   @Get("students/documentation-status")
