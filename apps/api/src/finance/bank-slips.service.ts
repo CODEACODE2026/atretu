@@ -1952,7 +1952,7 @@ export class BankSlipsService {
       statusCode: error.statusCode,
       providerCode: error.providerCode,
       providerMessage: sanitizeIssueDiagnosticText(error.providerMessage ?? error.message),
-      requestUrl: error.requestUrl,
+      requestEndpoint: error.requestUrl,
     };
     this.logger.warn(diagnostic);
   }
@@ -4062,8 +4062,8 @@ function logIssueDiagnostic(payload: Record<string, unknown>) {
 }
 
 function isIssueDiagnosticEnabled() {
-  const nodeEnv = process.env.NODE_ENV?.trim();
-  return !nodeEnv || nodeEnv === "development";
+  const value = process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED?.trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(value ?? "");
 }
 
 function isPdfDiagnosticEnabled() {

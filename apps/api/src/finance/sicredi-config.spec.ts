@@ -72,6 +72,23 @@ assert.throws(
   /SICREDI_AUTH_URL/,
 );
 assert.throws(
+  () =>
+    loadSicrediConfig({
+      ...baseEnv,
+      SICREDI_ENV: "production",
+      SICREDI_BASE_URL: "http://sicredi.test",
+    }),
+  /SICREDI_BASE_URL/,
+);
+assert.throws(
+  () => loadSicrediConfig({ ...baseEnv, SICREDI_HTTP_TIMEOUT_MS: "999" }),
+  /SICREDI_HTTP_TIMEOUT_MS/,
+);
+assert.throws(
+  () => loadSicrediConfig({ ...baseEnv, SICREDI_HTTP_TIMEOUT_MS: "30001" }),
+  /SICREDI_HTTP_TIMEOUT_MS/,
+);
+assert.throws(
   () => loadSicrediConfig({ ...baseEnv, SICREDI_SYNC_OPEN_ISSUED_LIMIT: "0" }),
   /SICREDI_SYNC_OPEN_ISSUED_LIMIT/,
 );

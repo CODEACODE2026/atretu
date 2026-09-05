@@ -188,7 +188,7 @@ export class SicrediClient {
     this.logIssueClientDiagnostic({
       etapa: "client-entered",
       operation: "issueBankSlip",
-      requestUrl: this.buildUrl(ISSUE_BANK_SLIP_PATH).toString(),
+      requestEndpoint: this.safeRequestEndpoint(this.buildUrl(ISSUE_BANK_SLIP_PATH)),
     });
     const response = await this.requestJson<Record<string, unknown>>({
       operation: "issueBankSlip",
@@ -435,7 +435,7 @@ export class SicrediClient {
         etapa: "before-fetch",
         operation: options.operation,
         method: options.method,
-        requestUrl: url.toString(),
+        requestEndpoint: this.safeRequestEndpoint(url),
       });
       const response = await this.fetchImpl(url, {
         method: options.method,
@@ -592,7 +592,7 @@ export class SicrediClient {
       providerStatus: response.status,
       providerCode: safe.code,
       providerMessage: safe.message,
-      requestUrl: this.resolveRequestUrl(options).toString(),
+      requestUrl: this.safeRequestEndpoint(this.resolveRequestUrl(options)),
       transient: isTransientStatus(response.status),
       uncertain: Boolean(options.uncertainOnFailure && isUncertainStatus(response.status)),
     });
@@ -649,7 +649,7 @@ export class SicrediClient {
       etapa: "after-fetch",
       operation: options.operation,
       method: options.method,
-      requestUrl: url.toString(),
+      requestEndpoint: this.safeRequestEndpoint(url),
       providerStatus: response.status,
       headerNames: Object.keys(headers).filter((name) => !isCredentialHeader(name)),
       sensitiveCredentialHeadersPresent: Object.keys(headers).some(isCredentialHeader),
@@ -686,7 +686,7 @@ export class SicrediClient {
       event: "sicredi_pdf_request",
       operation: options.operation,
       method: options.method,
-      requestUrl: url.toString(),
+      requestEndpoint: this.safeRequestEndpoint(url),
       environment: this.config.environment,
       baseUrlHost: safeUrlHost(this.config.baseUrl),
       cooperativa: this.config.cooperativa,
@@ -709,7 +709,7 @@ export class SicrediClient {
     etapa: "client-entered" | "before-fetch";
     operation: SicrediOperation;
     method?: RequestOptions["method"];
-    requestUrl?: string;
+    requestEndpoint?: string;
   }) {
     if (!isIssueDiagnosticEnabled() || input.operation !== "issueBankSlip") {
       return;
@@ -726,7 +726,7 @@ export class SicrediClient {
       etapa: "fetch-error",
       operation: options.operation,
       method: options.method,
-      requestUrl: url.toString(),
+      requestEndpoint: this.safeRequestEndpoint(url),
       errorName: error instanceof Error ? error.name : typeof error,
       errorCode: typeof errorRecord.code === "string" ? errorRecord.code : undefined,
       message: this.sanitizeDiagnosticText(
@@ -835,6 +835,10 @@ export class SicrediClient {
     return output;
   }
 
+  private safeRequestEndpoint(url: URL) {
+    return `${url.host}${url.pathname}`;
+  }
+
   private toPaidBankSlip(input: unknown): SicrediPaidBankSlip {
     const item = assertRecord(input, "paid bank slip item");
     return {
@@ -926,8 +930,8 @@ function maskDigits(value: string) {
 }
 
 function isIssueDiagnosticEnabled() {
-  const nodeEnv = process.env.NODE_ENV?.trim();
-  return !nodeEnv || nodeEnv === "development";
+  const value = process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED?.trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(value ?? "");
 }
 
 function isPdfDiagnosticEnabled() {

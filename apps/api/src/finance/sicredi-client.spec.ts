@@ -322,27 +322,36 @@ async function testIssueErrorsAreSanitized() {
 }
 
 async function testDevelopmentIssueDiagnosticsAreSanitized() {
-  const development = await runIssueDiagnosticScenario("development");
-  assertIssueDiagnosticLogIsSanitized(development.logs);
+  const enabled = await runIssueDiagnosticScenario("development", "true");
+  assertIssueDiagnosticLogIsSanitized(enabled.logs);
 
-  const absent = await runIssueDiagnosticScenario(undefined);
-  assertIssueDiagnosticLogIsSanitized(absent.logs);
+  const absent = await runIssueDiagnosticScenario(undefined, undefined);
+  assert.equal(absent.logs.length, 0);
 
-  const production = await runIssueDiagnosticScenario("production");
+  const production = await runIssueDiagnosticScenario("production", undefined);
   assert.equal(production.logs.length, 0);
 
-  const test = await runIssueDiagnosticScenario("test");
+  const test = await runIssueDiagnosticScenario("test", undefined);
   assert.equal(test.logs.length, 0);
 }
 
-async function runIssueDiagnosticScenario(nodeEnv: string | undefined) {
+async function runIssueDiagnosticScenario(
+  nodeEnv: string | undefined,
+  diagnosticsEnabled: string | undefined,
+) {
   const previousNodeEnv = process.env.NODE_ENV;
+  const previousDiagnostics = process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED;
   const previousInfo = console.info;
   const logs: string[] = [];
   if (nodeEnv === undefined) {
     delete process.env.NODE_ENV;
   } else {
     process.env.NODE_ENV = nodeEnv;
+  }
+  if (diagnosticsEnabled === undefined) {
+    delete process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED;
+  } else {
+    process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED = diagnosticsEnabled;
   }
   console.info = (...args: unknown[]) => {
     logs.push(args.map((arg) => String(arg)).join(" "));
@@ -381,13 +390,18 @@ async function runIssueDiagnosticScenario(nodeEnv: string | undefined) {
         !/Authorization/i.test(error.providerMessage) &&
         !/x-api-key/i.test(error.providerMessage) &&
         !/Bearer/i.test(error.providerMessage) &&
-        error.requestUrl === "https://sicredi.test/sb/cobranca/boleto/v1/boletos",
+        error.requestUrl === "sicredi.test/sb/cobranca/boleto/v1/boletos",
     );
   } finally {
     if (previousNodeEnv === undefined) {
       delete process.env.NODE_ENV;
     } else {
       process.env.NODE_ENV = previousNodeEnv;
+    }
+    if (previousDiagnostics === undefined) {
+      delete process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED;
+    } else {
+      process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED = previousDiagnostics;
     }
     console.info = previousInfo;
   }
@@ -402,7 +416,8 @@ function assertIssueDiagnosticLogIsSanitized(logs: string[]) {
   assert.match(log, /"etapa":"client-entered"/);
   assert.match(log, /"etapa":"before-fetch"/);
   assert.match(log, /"etapa":"after-fetch"/);
-  assert.match(log, /https:\/\/sicredi\.test\/sb\/cobranca\/boleto\/v1\/boletos/);
+  assert.match(log, /sicredi\.test\/sb\/cobranca\/boleto\/v1\/boletos/);
+  assert.doesNotMatch(log, /https:\/\/sicredi\.test/);
   assert.match(log, /"providerStatus":404/);
   assert.match(log, /"environment":"sandbox"/);
   assert.match(log, /"cooperativa":"6789"/);
@@ -427,9 +442,11 @@ function assertIssueDiagnosticLogIsSanitized(logs: string[]) {
 
 async function testDevelopmentIssueFetchErrorsAreLoggedSafely() {
   const previousNodeEnv = process.env.NODE_ENV;
+  const previousDiagnostics = process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED;
   const previousInfo = console.info;
   const logs: string[] = [];
   process.env.NODE_ENV = "development";
+  process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED = "true";
   console.info = (...args: unknown[]) => {
     logs.push(args.map((arg) => String(arg)).join(" "));
   };
@@ -459,6 +476,11 @@ async function testDevelopmentIssueFetchErrorsAreLoggedSafely() {
     } else {
       process.env.NODE_ENV = previousNodeEnv;
     }
+    if (previousDiagnostics === undefined) {
+      delete process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED;
+    } else {
+      process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED = previousDiagnostics;
+    }
     console.info = previousInfo;
   }
   const log = logs.join("\n");
@@ -468,6 +490,7 @@ async function testDevelopmentIssueFetchErrorsAreLoggedSafely() {
   assert.match(log, /"errorName":"Error"/);
   assert.match(log, /"errorCode":"ECONNRESET"/);
   assert.doesNotMatch(log, /secret-api-key/);
+  assert.doesNotMatch(log, /https:\/\/sicredi\.test/);
   assert.doesNotMatch(log, /secret-password/);
   assert.doesNotMatch(log, /access-1/);
   assert.doesNotMatch(log, /Authorization/i);

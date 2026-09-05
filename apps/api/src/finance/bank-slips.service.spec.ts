@@ -187,9 +187,11 @@ async function testIssueUncertainMarksUnknown() {
 
 async function testIssueDiagnosticsTrackServiceStagesSafely() {
   const previousNodeEnv = process.env.NODE_ENV;
+  const previousDiagnostics = process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED;
   const previousInfo = console.info;
   const logs: string[] = [];
   process.env.NODE_ENV = "development";
+  process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED = "true";
   console.info = (...args: unknown[]) => {
     logs.push(args.map((arg) => String(arg)).join(" "));
   };
@@ -219,6 +221,11 @@ async function testIssueDiagnosticsTrackServiceStagesSafely() {
       delete process.env.NODE_ENV;
     } else {
       process.env.NODE_ENV = previousNodeEnv;
+    }
+    if (previousDiagnostics === undefined) {
+      delete process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED;
+    } else {
+      process.env.SICREDI_ISSUE_DIAGNOSTICS_ENABLED = previousDiagnostics;
     }
     console.info = previousInfo;
   }

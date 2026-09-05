@@ -25,8 +25,8 @@ export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): Sicredi
   const environment = readEnvironment(env.SICREDI_ENV);
   return {
     environment,
-    authUrl: readUrl("SICREDI_AUTH_URL", env.SICREDI_AUTH_URL),
-    baseUrl: readUrl("SICREDI_BASE_URL", env.SICREDI_BASE_URL),
+    authUrl: readUrl("SICREDI_AUTH_URL", env.SICREDI_AUTH_URL, environment),
+    baseUrl: readUrl("SICREDI_BASE_URL", env.SICREDI_BASE_URL, environment),
     apiKey: readRequired("SICREDI_API_KEY", env.SICREDI_API_KEY),
     username: readRequired("SICREDI_USERNAME", env.SICREDI_USERNAME),
     password: readRequired("SICREDI_PASSWORD", env.SICREDI_PASSWORD),
@@ -37,7 +37,13 @@ export function loadSicrediConfig(env: NodeJS.ProcessEnv = process.env): Sicredi
       env.SICREDI_CODIGO_BENEFICIARIO,
       5,
     ),
-    timeoutMs: readPositiveInt("SICREDI_HTTP_TIMEOUT_MS", env.SICREDI_HTTP_TIMEOUT_MS, 10_000),
+    timeoutMs: readBoundedPositiveInt(
+      "SICREDI_HTTP_TIMEOUT_MS",
+      env.SICREDI_HTTP_TIMEOUT_MS,
+      10_000,
+      30_000,
+      1_000,
+    ),
     requirePayerAddress: readBoolean(
       "SICREDI_REQUIRE_PAYER_ADDRESS",
       env.SICREDI_REQUIRE_PAYER_ADDRESS,
@@ -98,10 +104,18 @@ function readRequired(name: string, value: string | undefined) {
   return trimmed;
 }
 
-function readUrl(name: string, value: string | undefined) {
+function readUrl(
+  name: string,
+  value: string | undefined,
+  environment: SicrediEnvironment,
+) {
   const trimmed = readRequired(name, value);
   try {
-    return new URL(trimmed).toString().replace(/\/$/, "");
+    const url = new URL(trimmed);
+    if (environment === "production" && url.protocol !== "https:") {
+      throw new Error(`${name} must use https in production`);
+    }
+    return url.toString().replace(/\/$/, "");
   } catch {
     throw new Error(`Invalid Sicredi URL environment variable: ${name}`);
   }
@@ -132,8 +146,12 @@ function readBoundedPositiveInt(
   value: string | undefined,
   fallback: number,
   max: number,
+  min = 1,
 ) {
   const parsed = readPositiveInt(name, value, fallback);
+  if (parsed < min) {
+    throw new Error(`${name} must be greater than or equal to ${min}`);
+  }
   if (parsed > max) {
     throw new Error(`${name} must be less than or equal to ${max}`);
   }
