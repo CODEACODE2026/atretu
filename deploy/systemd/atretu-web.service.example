@@ -1,0 +1,23 @@
+[Unit]
+Description=ATRETU Web
+After=network.target
+
+[Service]
+Type=simple
+User=atretu
+Group=atretu
+WorkingDirectory=/opt/atretu/app/apps/web
+EnvironmentFile=/opt/atretu/env/atretu.env
+Environment=NODE_ENV=production
+Environment=PORT=<WEB_INTERNAL_PORT>
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/node .next/standalone/apps/web/server.js
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

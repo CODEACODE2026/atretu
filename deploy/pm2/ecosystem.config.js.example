@@ -1,0 +1,47 @@
+// ATRETU PM2 template.
+// Copy to /opt/atretu/app/ecosystem.config.js on the production server and
+// replace placeholders. PM2 does not read EnvironmentFile directly; load
+// /opt/atretu/env/atretu.env into the shell before `pm2 start`.
+
+module.exports = {
+  apps: [
+    {
+      name: "atretu-api",
+      cwd: "/opt/atretu/app/apps/api",
+      script: "dist/main.js",
+      interpreter: "node",
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "10s",
+      kill_timeout: 10000,
+      out_file: "/opt/atretu/logs/atretu-api.out.log",
+      error_file: "/opt/atretu/logs/atretu-api.err.log",
+      merge_logs: true,
+      env: {
+        NODE_ENV: "production",
+      },
+    },
+    {
+      name: "atretu-web",
+      cwd: "/opt/atretu/app/apps/web",
+      script: ".next/standalone/apps/web/server.js",
+      interpreter: "node",
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: "10s",
+      kill_timeout: 10000,
+      out_file: "/opt/atretu/logs/atretu-web.out.log",
+      error_file: "/opt/atretu/logs/atretu-web.err.log",
+      merge_logs: true,
+      env: {
+        NODE_ENV: "production",
+        PORT: "<WEB_INTERNAL_PORT>",
+        HOSTNAME: "127.0.0.1",
+      },
+    },
+  ],
+};

@@ -1,0 +1,21 @@
+[Unit]
+Description=ATRETU API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=atretu
+Group=atretu
+WorkingDirectory=/opt/atretu/app/apps/api
+EnvironmentFile=/opt/atretu/env/atretu.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
